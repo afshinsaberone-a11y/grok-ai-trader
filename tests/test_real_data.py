@@ -1,4 +1,3 @@
-from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -61,8 +60,7 @@ def test_timezone_normalization():
 
 
 def test_missing_bars():
-    df = fixture_m1()
-    df = df.drop(index=[5]).reset_index(drop=True)
+    df = fixture_m1().drop(index=[5]).reset_index(drop=True)
     report = validate_ohlcv(df)
     assert report.missing_bars == 1
 
@@ -108,4 +106,5 @@ def test_synthetic_fallback_rejected():
 
     source = inspect.getsource(dukascopy_ingest)
     assert "np.random" not in source
-    assert "synthetic" not in source.lower()
+    assert "yfinance" not in source.lower()
+    assert "random.seed" not in source.lower()
