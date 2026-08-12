@@ -2,7 +2,7 @@
 
 Dukascopy stores M1 candles as LZMA-compressed BI5 files. The public path uses
 zero-based months (00=January) and one file per day. M1 records are decoded as
->IIIIIf: seconds-from-day-start, OHLC integer prices, and float volume.
+>IIIIIf: seconds-from-day-start, Open, Close, Low, High integer prices, and float volume.
 No synthetic fallback is permitted.
 """
 
@@ -102,7 +102,8 @@ class DukascopyM1Ingestor:
         rows = []
         day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
         for offset in range(0, len(raw), M1_RECORD.size):
-            seconds, open_i, high_i, low_i, close_i, volume = M1_RECORD.unpack_from(raw, offset)
+            # Dukascopy OHLC candle record order is: seconds, Open, Close, Low, High, Volume.
+            seconds, open_i, close_i, low_i, high_i, volume = M1_RECORD.unpack_from(raw, offset)
             rows.append((
                 day_start + timedelta(seconds=seconds),
                 open_i / PRICE_SCALE,
