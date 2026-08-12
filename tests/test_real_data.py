@@ -8,7 +8,7 @@ from research.real_data.dukascopy_ingest import DukascopyIngestError, DukascopyM
 from research.real_data.manifest import build_manifest, sha256_file
 from research.real_data.normalizer import canonicalize_ohlcv, resample_ohlcv
 from research.real_data.validator import validate_ohlcv
-from strategies.grok_ai_trader import fetch_data
+from strategies.grok_ai_trader import GrokHybridStrategy, fetch_data
 
 
 def fixture_m1(rows: int = 15) -> pd.DataFrame:
@@ -75,6 +75,18 @@ def test_missing_bars():
     assert report.missing_bars == 1
 
 
+def test_weekend_gap_is_not_reported_as_missing_intraday_bars():
+    before = pd.date_range("2026-01-09T23:55:00Z", periods=5, freq="min")
+    after = pd.date_range("2026-01-12T00:00:00Z", periods=5, freq="min")
+    left = fixture_m1(5)
+    right = fixture_m1(5)
+    left["timestamp"] = before
+    right["timestamp"] = after
+    report = validate_ohlcv(pd.concat([left, right], ignore_index=True))
+    assert report.missing_bars == 0
+    assert report.status == "PASS"
+
+
 def test_m1_to_m5():
     result = resample_ohlcv(fixture_m1(15), "5min")
     assert len(result) == 3
@@ -124,3 +136,16 @@ def test_synthetic_fallback_rejected():
 def test_strategy_requires_explicit_real_dataset(tmp_path: Path):
     with pytest.raises((FileNotFoundError, ValueError), match="REAL_DATA_REQUIRED"):
         fetch_data(tmp_path / "does-not-exist.csv")
+
+
+def test_strategy_does_not_trade_before_atr_warmup():
+    ts = pd.date_range("2026-01-05T07:00:00Z", periods=10, freq="min")
+    prices = [1.10 + i * 0.0001 for i in range(10)]
+    data = pd.DataFrame({
+        "Open": prices,
+        "High": [p + 0.0002 for p in prices],
+        "Low": [p - 0.0002 for p in prices],
+        "Close": prices,
+    }, index=ts)
+    result = GrokHybridStrategy().backtest_simple(data)
+    assert result["trades"] == 0
