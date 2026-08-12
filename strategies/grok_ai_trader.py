@@ -83,7 +83,11 @@ class GrokHybridStrategy:
         trade_log = []
         for i in range(1, len(df)):
             row = df.iloc[i]
-            atr = row["ATR"] if not np.isnan(row["ATR"]) else 0.0010
+            atr = row["ATR"]
+            # Indicators are undefined during the warm-up window. Skipping those
+            # rows is mandatory; a fabricated price/ATR would contaminate results.
+            if pd.isna(atr):
+                continue
             if position == 0:
                 if row["signal"] == 1:
                     position, entry_price = 1, row["Close"]
