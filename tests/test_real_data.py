@@ -59,6 +59,14 @@ def test_timezone_normalization():
     assert str(canonical["timestamp"].dt.tz) == "UTC"
 
 
+def test_invalid_timestamp():
+    df = fixture_m1()
+    df.loc[0, "timestamp"] = "not-a-timestamp"
+    report = validate_ohlcv(df)
+    assert report.status == "FAIL"
+    assert report.nan_values == 1
+
+
 def test_missing_bars():
     df = fixture_m1().drop(index=[5]).reset_index(drop=True)
     report = validate_ohlcv(df)
