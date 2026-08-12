@@ -37,12 +37,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Download and validate REAL EURUSD data
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          TIMEFRAME: ${{ inputs.timeframe }}
         run: |
           python -m research.real_data.dukascopy_ingest \
             --symbol EURUSD \
-            --timeframe "${{ inputs.timeframe }}" \
-            --start "${{ inputs.start }}" \
-            --end "${{ inputs.end }}" \
+            --timeframe "$TIMEFRAME" \
+            --start "$START" \
+            --end "$END" \
             --output data/real \
             --validate \
             --manifest
@@ -50,15 +54,22 @@ jobs:
         run: |
           find data/real/normalized -maxdepth 1 -type f -print | sort
       - name: Run baseline backtest on IS and Validation only
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          TIMEFRAME: ${{ inputs.timeframe }}
         run: |
-          DATA="data/real/normalized/EURUSD_${{ inputs.timeframe }}_${{ inputs.start//-/ }}_${{ inputs.end//-/ }}.csv"
+          END_INCLUSIVE=$(date -u -d "$END - 1 day" +%Y%m%d)
+          START_COMPACT=${START//-/}
+          DATA="data/real/normalized/EURUSD_${TIMEFRAME}_${START_COMPACT}_${END_INCLUSIVE}.csv"
           if [ ! -f "$DATA" ]; then
-            DATA=$(find data/real/normalized -maxdepth 1 -type f -name "EURUSD_${{ inputs.timeframe }}_*.csv" | head -n 1)
+            DATA=$(find data/real/normalized -maxdepth 1 -type f -name "EURUSD_${TIMEFRAME}_*.csv" | head -n 1)
           fi
           test -n "$DATA"
+          test -f "$DATA"
           python -m research.real_data.run_real_backtest \
             --data "$DATA" \
-            --timeframe "${{ inputs.timeframe }}" \
+            --timeframe "$TIMEFRAME" \
             --output artifacts/real_backtest_report.json
       - name: Upload research artifacts
         uses: actions/upload-artifact@v4
