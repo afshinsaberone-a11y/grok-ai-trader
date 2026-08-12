@@ -1,4 +1,5 @@
 from pathlib import Path
+import inspect
 
 import pandas as pd
 import pytest
@@ -7,6 +8,7 @@ from research.real_data.dukascopy_ingest import DukascopyIngestError, DukascopyM
 from research.real_data.manifest import build_manifest, sha256_file
 from research.real_data.normalizer import canonicalize_ohlcv, resample_ohlcv
 from research.real_data.validator import validate_ohlcv
+from strategies.grok_ai_trader import fetch_data
 
 
 def fixture_m1(rows: int = 15) -> pd.DataFrame:
@@ -109,10 +111,16 @@ def test_missing_real_dataset_fails(tmp_path: Path):
 
 
 def test_synthetic_fallback_rejected():
-    import inspect
     from research.real_data import dukascopy_ingest
-
     source = inspect.getsource(dukascopy_ingest)
+    strategy_source = inspect.getsource(fetch_data)
     assert "np.random" not in source
     assert "yfinance" not in source.lower()
     assert "random.seed" not in source.lower()
+    assert "yfinance" not in strategy_source.lower()
+    assert "np.random" not in strategy_source
+
+
+def test_strategy_requires_explicit_real_dataset(tmp_path: Path):
+    with pytest.raises((FileNotFoundError, ValueError), match="REAL_DATA_REQUIRED"):
+        fetch_data(tmp_path / "does-not-exist.csv")
