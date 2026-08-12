@@ -28,7 +28,7 @@ def fixture_m1(rows: int = 15) -> pd.DataFrame:
 
 
 def test_valid_ohlc():
-    report = validate_ohlc(fixture_m1(), symbol="EURUSD", timeframe="M1")
+    report = validate_ohlcv(fixture_m1(), symbol="EURUSD", timeframe="M1")
     assert report.status == "PASS"
     assert report.invalid_ohlc == 0
 
@@ -36,7 +36,7 @@ def test_valid_ohlc():
 def test_invalid_ohlc():
     df = fixture_m1()
     df.loc[0, "high"] = df.loc[0, "low"] - 0.0001
-    report = validate_ohlc(df)
+    report = validate_ohlcv(df)
     assert report.status == "FAIL"
     assert report.invalid_ohlc == 1
 
@@ -44,14 +44,14 @@ def test_invalid_ohlc():
 def test_duplicate_timestamps():
     df = fixture_m1()
     df.loc[1, "timestamp"] = df.loc[0, "timestamp"]
-    report = validate_ohlc(df)
+    report = validate_ohlcv(df)
     assert report.status == "FAIL"
     assert report.duplicates == 1
 
 
 def test_unsorted_timestamps():
     df = fixture_m1().iloc[[1, 0] + list(range(2, 15))].reset_index(drop=True)
-    report = validate_ohlc(df)
+    report = validate_ohlcv(df)
     assert report.status == "FAIL"
     assert report.unsorted_timestamps == 1
 
@@ -64,16 +64,17 @@ def test_timezone_normalization():
 
 
 def test_invalid_timestamp():
-    df = fixture_m1()
+    df = fixture_m1().copy()
+    df["timestamp"] = df["timestamp"].astype(object)
     df.loc[0, "timestamp"] = "not-a-timestamp"
-    report = validate_ohlc(df)
+    report = validate_ohlcv(df)
     assert report.status == "FAIL"
     assert report.nan_values == 1
 
 
 def test_missing_bars():
     df = fixture_m1().drop(index=[5]).reset_index(drop=True)
-    report = validate_ohlc(df)
+    report = validate_ohlcv(df)
     assert report.missing_bars == 1
 
 
@@ -84,7 +85,7 @@ def test_weekend_gap_is_not_reported_as_missing_intraday_bars():
     right = fixture_m1(5)
     left["timestamp"] = before
     right["timestamp"] = after
-    report = validate_ohlc(pd.concat([left, right], ignore_index=True))
+    report = validate_ohlcv(pd.concat([left, right], ignore_index=True))
     assert report.missing_bars == 0
     assert report.status == "PASS"
 
