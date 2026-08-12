@@ -53,9 +53,10 @@ def validate_ohlcv(
     timestamps = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
     duplicates = int(timestamps.duplicated().sum())
     unsorted = int((timestamps.dropna().diff().dropna() < pd.Timedelta(0)).sum())
-    required_for_quality = ["timestamp", "open", "high", "low", "close", "volume"]
-    nan_values = int(df[required_for_quality].isna().sum().sum())
-    numeric = df[["open", "high", "low", "close", "volume"]].apply(pd.to_numeric, errors="coerce")
+    required_for_quality = ["open", "high", "low", "close", "volume"]
+    nan_values = int(df[required_for_quality].isna().sum().sum()) + int(timestamps.isna().sum())
+    numeric = df[required_for_quality].apply(pd.to_numeric, errors="coerce")
+    nan_values += int(numeric.isna().sum().sum()) - int(df[required_for_quality].isna().sum().sum())
     infinite = int(numeric.isin([float("inf"), float("-inf")]).sum().sum())
 
     invalid_ohlc_mask = (
@@ -73,8 +74,6 @@ def validate_ohlcv(
         expected = pd.Timedelta(freq)
         for previous, current in zip(ordered.iloc[:-1], ordered.iloc[1:]):
             delta = current - previous
-            # Forex is normally closed over the weekend; do not manufacture bars
-            # or treat that closure as a corrupt interval.
             if delta > expected and previous.weekday() < 5 and current.weekday() < 5:
                 missing_bars += max(0, int(delta / expected) - 1)
 
