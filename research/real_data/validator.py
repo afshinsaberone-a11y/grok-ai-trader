@@ -33,6 +33,14 @@ class QualityReport:
         return asdict(self)
 
 
+def _is_weekend_crossing(previous: pd.Timestamp, current: pd.Timestamp) -> bool:
+    """Return True when a gap crosses Saturday or Sunday."""
+    if current <= previous:
+        return False
+    days = pd.date_range(previous.normalize(), current.normalize(), freq="D")
+    return bool((days.dayofweek >= 5).any())
+
+
 def validate_ohlcv(
     df: pd.DataFrame,
     *,
@@ -74,7 +82,7 @@ def validate_ohlcv(
         expected = pd.Timedelta(freq)
         for previous, current in zip(ordered.iloc[:-1], ordered.iloc[1:]):
             delta = current - previous
-            if delta > expected and previous.weekday() < 5 and current.weekday() < 5:
+            if delta > expected and not _is_weekend_crossing(previous, current):
                 missing_bars += max(0, int(delta / expected) - 1)
 
     suspicious = int((timestamps < pd.Timestamp("2000-01-01", tz="UTC")).sum())
