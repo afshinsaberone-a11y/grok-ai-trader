@@ -3,6 +3,18 @@ name: tests
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "UTC start date for a small REAL-data smoke test"
+        required: true
+        default: "2026-08-03"
+        type: string
+      end:
+        description: "UTC end date (exclusive) for the smoke test"
+        required: true
+        default: "2026-08-04"
+        type: string
 
 jobs:
   python-tests:
@@ -15,3 +27,50 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt
       - run: pytest -q
+
+  real-data-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download and validate REAL Dukascopy EURUSD M1 data
+        run: |
+          python -m research.real_data.dukascopy_ingest \
+            --symbol EURUSD \
+            --timeframe M1 \
+            --start "${{ inputs.start }}" \
+            --end "${{ inputs.end }}" \
+            --output data/real \
+            --validate \
+            --manifest
+      - name: Build and validate M5 dataset
+        run: |
+          python -m research.real_data.dukascopy_ingest \
+            --symbol EURUSD \
+            --timeframe M5 \
+            --start "${{ inputs.start }}" \
+            --end "${{ inputs.end }}" \
+            --output data/real \
+            --validate
+      - name: Build and validate M15 dataset
+        run: |
+          python -m research.real_data.dukascopy_ingest \
+            --symbol EURUSD \
+            --timeframe M15 \
+            --start "${{ inputs.start }}" \
+            --end "${{ inputs.end }}" \
+            --output data/real \
+            --validate
+      - name: Upload smoke-test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-eurusd-smoke-${{ inputs.start }}-${{ inputs.end }}
+          path: data/real/normalized/
+          if-no-files-found: error
