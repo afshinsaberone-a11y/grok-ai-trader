@@ -55,7 +55,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Download and validate REAL current-year OOS HistData
+      - name: Download, session-filter and validate REAL current-year OOS HistData
         env:
           START: ${{ inputs.start }}
           END: ${{ inputs.end }}
@@ -63,7 +63,7 @@ jobs:
         run: |
           test "$START" != "2022-01-01"
           test "${START:0:4}" = "2026"
-          python -m research.real_data.histdata_current \
+          python -m research.real_data.histdata_current_session_safe \
             --start "$START" \
             --end "$END" \
             --timeframe "$TIMEFRAME" \
