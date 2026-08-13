@@ -17,6 +17,10 @@ jobs:
         with:
           node-version: 24
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Download EURUSD M1 from Dukascopy Node
         run: |
           mkdir -p artifacts/dukascopy
@@ -26,14 +30,17 @@ jobs:
           test -n "$FILE"
           cp "$FILE" artifacts/dukascopy/eurusd-m1-bid-2026-07-05-2026-07-06.csv
           echo "SOURCE_FILE=$FILE"
+          echo "--- RAW CSV FIRST 8 LINES ---"
+          head -n 8 "$FILE"
 
       - name: Extract four known conflict timestamps
         run: |
           python - <<'PY'
-          import csv, glob
+          import csv
           from datetime import datetime, timezone
+          from pathlib import Path
 
-          path = glob.glob('artifacts/dukascopy/*.csv')[0]
+          path = Path("artifacts/dukascopy/eurusd-m1-bid-2026-07-05-2026-07-06.csv")
           targets = {
               datetime(2026, 7, 5, 22, 31, tzinfo=timezone.utc),
               datetime(2026, 7, 5, 22, 32, tzinfo=timezone.utc),
@@ -41,33 +48,62 @@ jobs:
               datetime(2026, 7, 5, 22, 35, tzinfo=timezone.utc),
           }
 
-          with open(path, newline='', encoding='utf-8-sig') as f:
+          def parse_ts(value: str) -> datetime | None:
+              s = value.strip()
+              candidates = [
+                  s,
+                  s.replace("Z", "+00:00"),
+                  s.replace(" ", "T"),
+              ]
+              for candidate in candidates:
+                  try:
+                      ts = datetime.fromisoformat(candidate)
+                      if ts.tzinfo is None:
+                          ts = ts.replace(tzinfo=timezone.utc)
+                      return ts.astimezone(timezone.utc)
+                  except ValueError:
+                      pass
+              for fmt in (
+                  "%Y-%m-%d %H:%M:%S",
+                  "%Y-%m-%d %H:%M",
+                  "%Y/%m/%d %H:%M:%S",
+                  "%Y/%m/%d %H:%M",
+              ):
+                  try:
+                      return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+                  except ValueError:
+                      pass
+              return None
+
+          with path.open(newline="", encoding="utf-8-sig") as f:
               rows = list(csv.reader(f))
 
-          print('CSV_HEADER=', rows[0] if rows else [])
+          print("CSV_HEADER=", rows[0] if rows else [])
+          print("RAW_TIMESTAMP_SAMPLES=")
+          for row in rows[1:7]:
+              if row:
+                  print("  ", repr(row[0]))
+
           matches = []
           for row in rows[1:]:
               if not row:
                   continue
-              try:
-                  ts = datetime.fromisoformat(row[0].strip().replace('Z', '+00:00'))
-              except ValueError:
-                  continue
+              ts = parse_ts(row[0])
               if ts in targets:
                   matches.append(row)
 
-          print('MATCHED_ROWS=', len(matches))
+          print("MATCHED_ROWS=", len(matches))
           for row in matches:
-              print('DUKASCOPY_ROW=', row)
+              print("DUKASCOPY_ROW=", row)
 
-          with open('artifacts/dukascopy/conflict_crosscheck.csv', 'w', newline='', encoding='utf-8') as out:
+          with open("artifacts/dukascopy/conflict_crosscheck.csv", "w", newline="", encoding="utf-8") as out:
               w = csv.writer(out)
-              w.writerow(['timestamp_utc', 'open', 'high', 'low', 'close', 'volume'])
+              w.writerow(["timestamp_utc", "open", "high", "low", "close", "volume"])
               for row in matches:
                   w.writerow(row[:6])
 
           if len(matches) == 0:
-              raise SystemExit('No known conflict timestamps returned by Dukascopy Node')
+              raise SystemExit("No known conflict timestamps returned by Dukascopy Node after flexible timestamp parsing")
           PY
 
       - name: Upload cross-check artifacts
