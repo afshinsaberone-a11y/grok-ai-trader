@@ -1,0 +1,44 @@
+name: Dukascopy Cross-Feed Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cross-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download Dukascopy July 2026 M1
+        run: |
+          mkdir -p data/dukascopy
+          python - <<'PY'
+          import urllib.request
+
+          url = "https://datafeed.dukascopy.com/datafeed/EURUSD/26/06/05/BID_candles_min_1.bi5"
+          out = "data/dukascopy/july05.bi5"
+
+          req = urllib.request.Request(
+              url,
+              headers={"User-Agent": "Mozilla/5.0"}
+          )
+
+          with urllib.request.urlopen(req, timeout=60) as r:
+              data = r.read()
+
+          if not data:
+              raise SystemExit("Empty response")
+
+          open(out, "wb").write(data)
+          print("Downloaded:", len(data), "bytes")
+          PY
+
+      - name: Inspect file
+        run: |
+          ls -lh data/dukascopy/july05.bi5
+          file data/dukascopy/july05.bi5
