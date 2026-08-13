@@ -2,65 +2,64 @@ name: Dukascopy Cross-Feed Check
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dukascopy-cross-check.yml
 
 jobs:
   cross-check:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.11"
+          node-version: 24
 
-      - name: Query Dukascopy historical BID M1
+      - name: Download EURUSD M1 from Dukascopy Node
+        run: |
+          mkdir -p artifacts/dukascopy
+          npx --yes dukascopy-node -i eurusd -from 2026-07-05 -to 2026-07-06 -t m1 -f csv
+          FILE=$(find . -maxdepth 2 -type f -name 'eurusd-2026-07-05-2026-07-06-m1.csv' | head -n 1)
+          test -n "$FILE"
+          cp "$FILE" artifacts/dukascopy/eurusd-2026-07-05-2026-07-06-m1.csv
+          echo "SOURCE_FILE=$FILE"
+
+      - name: Extract four known conflict timestamps
         run: |
           python - <<'PY'
-          import json
-          import urllib.parse
-          import urllib.request
+          import csv, glob
           from datetime import datetime, timezone
-
-          # 2026-07-06 is Monday; use it as a live-data availability probe.
-          start = int(datetime(2026, 7, 6, 12, 20, tzinfo=timezone.utc).timestamp() * 1000)
-          end = int(datetime(2026, 7, 6, 12, 45, tzinfo=timezone.utc).timestamp() * 1000)
-
-          params = {
-              "path": "api/historicalPrices",
-              "instrument": "1",
-              "timeFrame": "1min",
-              "count": "100",
-              "start": str(start),
-              "end": str(end),
-              "dayStartTime": "UTC",
-              "offerSide": "B",
+          path = glob.glob('artifacts/dukascopy/*.csv')[0]
+          targets = {
+              datetime(2026,7,5,22,31,tzinfo=timezone.utc),
+              datetime(2026,7,5,22,32,tzinfo=timezone.utc),
+              datetime(2026,7,5,22,34,tzinfo=timezone.utc),
+              datetime(2026,7,5,22,35,tzinfo=timezone.utc),
           }
-          url = "https://freeserv.dukascopy.com/2.0/?" + urllib.parse.urlencode(params)
-          req = urllib.request.Request(url, headers={"User-Agent": "ForexAI/0.1"})
-
-          with urllib.request.urlopen(req, timeout=60) as response:
-              raw = response.read()
-              status = response.status
-              content_type = response.headers.get("Content-Type", "")
-
-          print("HTTP_STATUS=", status)
-          print("CONTENT_TYPE=", content_type)
-          print("RAW_PREFIX=", raw[:1000].decode("utf-8", errors="replace"))
-
-          text = raw.decode("utf-8", errors="replace").strip()
-          if not text:
-              raise SystemExit(
-                  "REAL_DATA_REQUIRED: Dukascopy returned an empty response; "
-                  "this availability probe cannot validate the feed yet"
-              )
-          try:
-              data = json.loads(text)
-          except json.JSONDecodeError as exc:
-              raise SystemExit(
-                  "REAL_DATA_REQUIRED: Dukascopy response is not valid JSON; "
-                  f"prefix={text[:500]!r}"
-              ) from exc
-
-          print(json.dumps(data, indent=2)[:10000])
+          with open(path, newline='', encoding='utf-8-sig') as f:
+              rows = list(csv.reader(f))
+          print('CSV_HEADER=', rows[0] if rows else [])
+          matches=[]
+          for row in rows[1:]:
+              if not row: continue
+              try: ts=datetime.fromisoformat(row[0].strip().replace('Z','+00:00'))
+              except ValueError: continue
+              if ts in targets: matches.append(row)
+          print('MATCHED_ROWS=', len(matches))
+          for row in matches: print('DUKASCOPY_ROW=', row)
+          with open('artifacts/dukascopy/conflict_crosscheck.csv','w',newline='',encoding='utf-8') as out:
+              w=csv.writer(out)
+              w.writerow(['timestamp_utc','open','high','low','close','volume'])
+              for row in matches: w.writerow(row[:6])
+          if len(matches)==0:
+              raise SystemExit('No known conflict timestamps returned by Dukascopy Node')
           PY
+
+      - name: Upload cross-check artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dukascopy-node-cross-check-2026-07-05
+          path: artifacts/dukascopy/
+          if-no-files-found: error
