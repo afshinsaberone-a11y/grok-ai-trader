@@ -5,7 +5,7 @@ import json
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator, List, Sequence
 
@@ -31,11 +31,9 @@ def parse_histdata_m1(path: str | Path) -> Iterator[OHLCV]:
 
     HistData documents fields as datetime;open;high;low;close;volume and
     states that its M1 Generic ASCII timestamps are EST without DST.
-    We explicitly convert that source timezone to UTC here.
+    We therefore use a fixed UTC-05:00 offset, not a DST-aware US timezone.
     """
-    from zoneinfo import ZoneInfo
-
-    est = ZoneInfo("America/New_York")
+    est = timezone(timedelta(hours=-5), name="EST")
     with Path(path).open("r", encoding="utf-8", newline="") as handle:
         for row_number, row in enumerate(csv.reader(handle, delimiter=";"), start=1):
             if not row:
@@ -54,7 +52,7 @@ def parse_histdata_m1(path: str | Path) -> Iterator[OHLCV]:
 
 
 def validate_ohlcv(rows: Iterable[OHLCV]) -> List[OHLCV]:
-    """Validate and return sorted, unique OHLCV rows; fail on corrupt data."""
+    """Validate and return sorted OHLCV rows; fail on corrupt or duplicate data."""
     data = list(rows)
     if not data:
         raise ValueError("No market-data rows supplied")
@@ -113,7 +111,7 @@ def dukascopy_historical_prices(
     count: int = 5000,
     timeout: float = 30.0,
 ) -> object:
-    """Fetch a single Dukascopy historicalPrices API page.
+    """Fetch one documented Dukascopy historicalPrices API page.
 
     The official API documents timeframe values including '1min' and 'tick',
     a maximum count of 5000, Unix timestamps in milliseconds, and bid/ask side.
@@ -124,6 +122,8 @@ def dukascopy_historical_prices(
         raise ValueError("offer_side must be 'B' or 'A'")
     if not 1 <= count <= 5000:
         raise ValueError("count must be between 1 and 5000")
+    if _ensure_utc(end) <= _ensure_utc(start):
+        raise ValueError("end must be later than start")
 
     params = urllib.parse.urlencode(
         {
