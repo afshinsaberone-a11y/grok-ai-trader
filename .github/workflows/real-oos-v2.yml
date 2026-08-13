@@ -89,11 +89,13 @@ jobs:
             --start "$START" \
             --end "$END" \
             --output artifacts/champion_oos_report.json
-      - name: Upload OOS artifacts
+      - name: Upload OOS and conflict-audit artifacts
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: real-oos-v2-${{ inputs.timeframe }}-${{ inputs.start }}-${{ inputs.end }}
           path: |
             artifacts/champion_oos_report.json
             data/real/normalized/*.manifest.json
-          if-no-files-found: error
+            data/real/conflict_audit/*
+          if-no-files-found: warn
