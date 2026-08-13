@@ -1,9 +1,9 @@
 """HistData.com real EURUSD M1 ingestion.
 
-HistData publishes historical M1 OHLCV archives by year for completed years.
-The source page uses a per-dataset token and POSTs the archive request to
-/get.php. HistData documents its M1 fields as timestamp, Open, High, Low, Close,
-Volume and states that timestamps are fixed EST (UTC-5) without DST adjustments.
+HistData Generic ASCII publishes historical M1 OHLCV archives by year.
+The download page exposes a per-dataset token and the archive is requested
+through /get.php. HistData's M1 schema is timestamp, Open, High, Low, Close,
+Volume; timestamps are fixed EST (UTC-5) without DST adjustments.
 
 No synthetic fallback is permitted.
 """
@@ -34,7 +34,7 @@ from .validator import validate_ohlcv
 
 LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://www.histdata.com"
-DOWNLOAD_PAGE = BASE_URL + "/download-free-forex-historical-data/?/metatrader/1-minute-bar-quotes/eurusd/{year}"
+DOWNLOAD_PAGE = BASE_URL + "/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/eurusd/{year}"
 POST_URL = BASE_URL + "/get.php"
 FIXED_EST = timezone(timedelta(hours=-5))
 
@@ -59,25 +59,33 @@ def _fetch(url: str, *, timeout: int = 60) -> bytes:
 def _hidden_form(html_text: str) -> dict[str, str]:
     fields: dict[str, str] = {}
     for name in ("tk", "date", "datemonth", "platform", "timeframe", "fxpair"):
-        pattern = rf'<input[^>]+name=["\']{re.escape(name)}["\'][^>]+value=["\']([^"\']+)["\']'
-        match = re.search(pattern, html_text, flags=re.IGNORECASE)
-        if not match:
-            # Some markup orders the attributes differently.
-            pattern = rf'<input[^>]+id=["\']{re.escape(name)}["\'][^>]+value=["\']([^"\']+)["\']'
+        patterns = (
+            rf'<input[^>]+name=["\']{re.escape(name)}["\'][^>]+value=["\']([^"\']+)["\']',
+            rf'<input[^>]+id=["\']{re.escape(name)}["\'][^>]+value=["\']([^"\']+)["\']',
+        )
+        for pattern in patterns:
             match = re.search(pattern, html_text, flags=re.IGNORECASE)
-        if match:
-            fields[name] = html.unescape(match.group(1))
+            if match:
+                fields[name] = html.unescape(match.group(1))
+                break
     missing = {k for k in ("tk", "date", "datemonth", "platform", "timeframe", "fxpair") if k not in fields}
     if missing:
         raise HistDataIngestError(f"REAL_DATA_REQUIRED: HistData download form missing fields: {sorted(missing)}")
     return fields
 
 
+def _years_for_range(start: date, end: date) -> list[int]:
+    if end <= start:
+        raise ValueError("end must be after start")
+    last_year = end.year - 1 if (end.month, end.day) == (1, 1) else end.year
+    return list(range(start.year, last_year + 1))
+
+
 def fetch_year_archive(year: int, output_dir: str | Path, *, retries: int = 3, timeout: int = 60) -> DownloadedYear:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    archive = output / f"HISTDATA_ASCII_EURUSD_M1_{year}.zip"
-    if archive.exists() and archive.stat().st_size > 0:
+    archive = output / f"HISTDATA_COM_ASCII_EURUSD_M1_{year}.zip"
+    if archive.exists() and archive.stat().st_size > 0 and zipfile.is_zipfile(archive):
         return DownloadedYear(year, archive, sha256_file(archive))
 
     page_url = DOWNLOAD_PAGE.format(year=year)
@@ -95,18 +103,19 @@ def fetch_year_archive(year: int, output_dir: str | Path, *, retries: int = 3, t
                     "Origin": BASE_URL,
                     "Referer": page_url,
                     "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/zip, application/octet-stream, */*",
                 },
             )
             with urlopen(request, timeout=timeout) as response:
                 content = response.read()
             if not content.startswith(b"PK"):
                 raise HistDataIngestError(f"HistData returned a non-ZIP response for {year}")
-            archive.write_bytes(content)
             digest = hashlib.md5(content).hexdigest()
             if fields["tk"].lower() != digest.lower():
                 raise HistDataIngestError(
                     f"HistData archive token/hash mismatch for {year}: token={fields['tk']} md5={digest}"
                 )
+            archive.write_bytes(content)
             return DownloadedYear(year, archive, sha256_file(archive))
         except (HTTPError, URLError, TimeoutError, OSError, HistDataIngestError) as exc:
             last_error = exc
@@ -153,11 +162,7 @@ def _parse_csv(payload: bytes) -> pd.DataFrame:
 
 
 def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "M1") -> dict[str, object]:
-    if end <= start:
-        raise ValueError("end must be after start")
-    years = list(range(start.year, end.year + (0 if end.month == 1 and end.day == 1 else 0)))
-    # For year archives, fetch every calendar year touched by the requested range.
-    years = list(range(start.year, end.year + 1))
+    years = _years_for_range(start, end)
     all_frames: list[pd.DataFrame] = []
     archives: list[DownloadedYear] = []
     raw_dir = Path(output_dir) / "raw" / "histdata"
@@ -181,7 +186,7 @@ def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "
     source_hash = hashlib.sha256("".join(item.sha256 for item in archives).encode("ascii")).hexdigest()
     manifest = build_manifest(
         df, dataset_id=dataset_id, symbol="EURUSD", timeframe="M1",
-        source="HistData.com MetaTrader/ASCII M1", source_hash=source_hash,
+        source="HistData.com Generic ASCII M1", source_hash=source_hash,
         quality_status=m1_report.status,
         output_path=normalized / f"EURUSD_M1_{dataset_id}.manifest.json",
     )
@@ -209,7 +214,7 @@ def _parse_date(value: str) -> date:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Download and validate real HistData EURUSD M1 data")
+    parser = argparse.ArgumentParser(description="Download and validate real HistData EURUSD data")
     parser.add_argument("--symbol", default="EURUSD", choices=["EURUSD"])
     parser.add_argument("--timeframe", default="M1", choices=["M1", "M5", "M15"])
     parser.add_argument("--start", required=True)
