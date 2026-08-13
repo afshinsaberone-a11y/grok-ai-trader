@@ -161,6 +161,35 @@ def _parse_csv(payload: bytes) -> pd.DataFrame:
     return df
 
 
+def _dedupe_exact_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Remove only exact duplicate source rows and reject conflicting duplicates."""
+    duplicate_mask = df.duplicated(subset=["timestamp"], keep=False)
+    if not duplicate_mask.any():
+        return df, 0
+
+    duplicate_rows = df.loc[duplicate_mask].copy()
+    compare_columns = ["timestamp", "open", "high", "low", "close", "volume"]
+    conflicting_timestamps: list[str] = []
+    removed = 0
+    for timestamp, group in duplicate_rows.groupby("timestamp", sort=False):
+        unique_payloads = group[compare_columns].drop_duplicates()
+        if len(unique_payloads) > 1:
+            conflicting_timestamps.append(str(timestamp))
+        else:
+            removed += len(group) - 1
+
+    if conflicting_timestamps:
+        preview = ", ".join(conflicting_timestamps[:5])
+        raise HistDataIngestError(
+            "REAL_DATA_REQUIRED: conflicting duplicate timestamps in HistData source; "
+            f"examples: {preview}"
+        )
+
+    deduped = df.drop_duplicates(subset=["timestamp"], keep="first").reset_index(drop=True)
+    LOGGER.warning("Removed %d exact duplicate HistData source rows", removed)
+    return deduped, removed
+
+
 def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "M1") -> dict[str, object]:
     years = _years_for_range(start, end)
     all_frames: list[pd.DataFrame] = []
@@ -173,6 +202,7 @@ def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "
         all_frames.append(_parse_csv(payload))
     df = pd.concat(all_frames, ignore_index=True)
     df = df[(df["timestamp"] >= pd.Timestamp(start, tz="UTC")) & (df["timestamp"] < pd.Timestamp(end, tz="UTC"))]
+    df, duplicate_rows_removed = _dedupe_exact_source_timestamps(df)
     df = canonicalize_ohlcv(df, symbol="EURUSD", source="HistData.com")
     m1_report = validate_ohlcv(df, symbol="EURUSD", timeframe="M1")
     if m1_report.status != "PASS":
@@ -196,6 +226,7 @@ def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "
         "manifest": manifest,
         "quality": m1_report.to_dict(),
         "archives": [item.archive for item in archives],
+        "duplicate_rows_removed": duplicate_rows_removed,
     }
     if timeframe != "M1":
         target = resample_ohlcv(df, "5min" if timeframe == "M5" else "15min")
@@ -229,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
         print(result["quality"])
         if args.manifest:
             print(result["manifest"])
+        print({"duplicate_rows_removed": result["duplicate_rows_removed"]})
         return 0
     except HistDataIngestError as exc:
         LOGGER.error(str(exc))
