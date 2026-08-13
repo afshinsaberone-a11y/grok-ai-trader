@@ -1,0 +1,80 @@
+name: OOS Raw Conflict Context v2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install pandas
+
+      - name: Inspect exact raw rows for known UTC conflicts
+        run: |
+          set -euo pipefail
+          mkdir -p data/audit/raw data/audit/out
+          python - <<'PY'
+          import csv
+          import io
+          from datetime import datetime, timezone, timedelta
+          from pathlib import Path
+
+          from research.real_data.histdata_current import fetch_month_archive, _extract_year_csv
+
+          item = fetch_month_archive(2026, 7, "data/audit/raw/histdata")
+          name, payload = _extract_year_csv(item.archive)
+          print("ARCHIVE=", item.archive)
+          print("CSV=", name)
+
+          # Conflict audit timestamps are canonical UTC. HistData raw timestamps are
+          # fixed EST (UTC-5), so convert the exact UTC conflicts back to EST.
+          conflict_utc = [
+              datetime(2026, 7, 5, 22, 31, tzinfo=timezone.utc),
+              datetime(2026, 7, 5, 22, 32, tzinfo=timezone.utc),
+              datetime(2026, 7, 5, 22, 34, tzinfo=timezone.utc),
+              datetime(2026, 7, 5, 22, 35, tzinfo=timezone.utc),
+          ]
+          fixed_est = timezone(timedelta(hours=-5))
+          targets = {ts.astimezone(fixed_est).strftime("%Y%m%d %H%M%S") for ts in conflict_utc}
+          print("TARGET_SOURCE_EST=", sorted(targets))
+
+          wanted = []
+          for raw in io.StringIO(payload.decode("utf-8", errors="replace")).read().splitlines():
+              if not raw or raw.startswith("#"):
+                  continue
+              cols = next(csv.reader([raw], delimiter=";"), [])
+              if len(cols) < 6:
+                  continue
+              if cols[0].strip() in targets:
+                  wanted.append(cols[:6])
+
+          out = Path("data/audit/out/raw_conflict_rows.csv")
+          with out.open("w", newline="", encoding="utf-8") as f:
+              w = csv.writer(f)
+              w.writerow(["source_timestamp_est", "open", "high", "low", "close", "volume"])
+              w.writerows(wanted)
+
+          found = {row[0] for row in wanted}
+          missing = sorted(targets - found)
+          print("MATCHED_ROWS=", len(wanted))
+          print("MISSING_TARGETS=", missing)
+          for row in wanted:
+              print("RAW_ROW=", ";".join(row))
+
+          if missing:
+              raise SystemExit(f"REAL_DATA_REQUIRED: missing raw conflict timestamps: {missing}")
+          PY
+
+      - name: Upload corrected raw conflict context
+        uses: actions/upload-artifact@v4
+        with:
+          name: oos-raw-conflict-context-2026-07-05-corrected
+          path: data/audit/out/raw_conflict_rows.csv
+          if-no-files-found: error
