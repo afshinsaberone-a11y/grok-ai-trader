@@ -22,8 +22,9 @@ jobs:
           import urllib.request
           from datetime import datetime, timezone
 
-          start = int(datetime(2026, 7, 5, 22, 20, tzinfo=timezone.utc).timestamp() * 1000)
-          end = int(datetime(2026, 7, 5, 22, 45, tzinfo=timezone.utc).timestamp() * 1000)
+          # 2026-07-06 is Monday; use it as a live-data availability probe.
+          start = int(datetime(2026, 7, 6, 12, 20, tzinfo=timezone.utc).timestamp() * 1000)
+          end = int(datetime(2026, 7, 6, 12, 45, tzinfo=timezone.utc).timestamp() * 1000)
 
           params = {
               "path": "api/historicalPrices",
@@ -49,7 +50,10 @@ jobs:
 
           text = raw.decode("utf-8", errors="replace").strip()
           if not text:
-              raise SystemExit("REAL_DATA_REQUIRED: Dukascopy returned an empty response")
+              raise SystemExit(
+                  "REAL_DATA_REQUIRED: Dukascopy returned an empty response; "
+                  "this availability probe cannot validate the feed yet"
+              )
           try:
               data = json.loads(text)
           except json.JSONDecodeError as exc:
