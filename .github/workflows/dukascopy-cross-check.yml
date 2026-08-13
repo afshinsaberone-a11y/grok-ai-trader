@@ -20,10 +20,11 @@ jobs:
       - name: Download EURUSD M1 from Dukascopy Node
         run: |
           mkdir -p artifacts/dukascopy
+          rm -f download/*.csv
           npx --yes dukascopy-node -i eurusd -from 2026-07-05 -to 2026-07-06 -t m1 -f csv
-          FILE=$(find . -maxdepth 2 -type f -name 'eurusd-2026-07-05-2026-07-06-m1.csv' | head -n 1)
+          FILE=$(find download -maxdepth 1 -type f -name '*.csv' | head -n 1)
           test -n "$FILE"
-          cp "$FILE" artifacts/dukascopy/eurusd-2026-07-05-2026-07-06-m1.csv
+          cp "$FILE" artifacts/dukascopy/eurusd-m1-bid-2026-07-05-2026-07-06.csv
           echo "SOURCE_FILE=$FILE"
 
       - name: Extract four known conflict timestamps
@@ -31,29 +32,41 @@ jobs:
           python - <<'PY'
           import csv, glob
           from datetime import datetime, timezone
+
           path = glob.glob('artifacts/dukascopy/*.csv')[0]
           targets = {
-              datetime(2026,7,5,22,31,tzinfo=timezone.utc),
-              datetime(2026,7,5,22,32,tzinfo=timezone.utc),
-              datetime(2026,7,5,22,34,tzinfo=timezone.utc),
-              datetime(2026,7,5,22,35,tzinfo=timezone.utc),
+              datetime(2026, 7, 5, 22, 31, tzinfo=timezone.utc),
+              datetime(2026, 7, 5, 22, 32, tzinfo=timezone.utc),
+              datetime(2026, 7, 5, 22, 34, tzinfo=timezone.utc),
+              datetime(2026, 7, 5, 22, 35, tzinfo=timezone.utc),
           }
+
           with open(path, newline='', encoding='utf-8-sig') as f:
               rows = list(csv.reader(f))
+
           print('CSV_HEADER=', rows[0] if rows else [])
-          matches=[]
+          matches = []
           for row in rows[1:]:
-              if not row: continue
-              try: ts=datetime.fromisoformat(row[0].strip().replace('Z','+00:00'))
-              except ValueError: continue
-              if ts in targets: matches.append(row)
+              if not row:
+                  continue
+              try:
+                  ts = datetime.fromisoformat(row[0].strip().replace('Z', '+00:00'))
+              except ValueError:
+                  continue
+              if ts in targets:
+                  matches.append(row)
+
           print('MATCHED_ROWS=', len(matches))
-          for row in matches: print('DUKASCOPY_ROW=', row)
-          with open('artifacts/dukascopy/conflict_crosscheck.csv','w',newline='',encoding='utf-8') as out:
-              w=csv.writer(out)
-              w.writerow(['timestamp_utc','open','high','low','close','volume'])
-              for row in matches: w.writerow(row[:6])
-          if len(matches)==0:
+          for row in matches:
+              print('DUKASCOPY_ROW=', row)
+
+          with open('artifacts/dukascopy/conflict_crosscheck.csv', 'w', newline='', encoding='utf-8') as out:
+              w = csv.writer(out)
+              w.writerow(['timestamp_utc', 'open', 'high', 'low', 'close', 'volume'])
+              for row in matches:
+                  w.writerow(row[:6])
+
+          if len(matches) == 0:
               raise SystemExit('No known conflict timestamps returned by Dukascopy Node')
           PY
 
