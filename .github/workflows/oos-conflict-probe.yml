@@ -1,0 +1,29 @@
+name: oos-conflict-probe
+on:
+  workflow_dispatch:
+    inputs:
+      start: {required: true, default: "2026-01-01", type: string}
+      end: {required: true, default: "2026-08-01", type: string}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-oos-probe-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: histdata-oos-probe-
+      - name: Probe real OOS conflicts
+        run: python -m research.real_data.oos_conflict_probe --start "${{ inputs.start }}" --end "${{ inputs.end }}"
+      - name: Upload conflict report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oos-conflict-report-${{ inputs.start }}-${{ inputs.end }}
+          path: data/real/conflicts/oos_conflicts.json
+          if-no-files-found: ignore
