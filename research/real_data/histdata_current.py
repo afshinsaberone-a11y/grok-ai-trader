@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import json
 import logging
 import time
 import zipfile
@@ -21,6 +22,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
+from .conflict_audit import audit_timestamp_conflicts
 from .histdata_ingest import HistDataIngestError, _dedupe_exact_source_timestamps, _extract_year_csv, _parse_csv
 from .manifest import build_manifest, sha256_file
 from .normalizer import canonicalize_ohlcv, resample_ohlcv
@@ -143,6 +145,15 @@ def month_starts(start: date, end: date) -> list[tuple[int, int]]:
     return result
 
 
+def _write_conflict_audit(output_dir: str | Path, report: pd.DataFrame, summary: dict[str, object]) -> None:
+    artifacts = Path(output_dir) / "conflict_audit"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    report.to_csv(artifacts / "current_year_timestamp_conflicts.csv", index=False)
+    (artifacts / "current_year_timestamp_conflicts.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+
 def ingest_current_year(start: date, end: date, output_dir: str | Path, *, timeframe: str = "M5") -> dict[str, object]:
     if start.year != end.year:
         raise ValueError("Current-year OOS downloader requires a single calendar year")
@@ -156,12 +167,27 @@ def ingest_current_year(start: date, end: date, output_dir: str | Path, *, timef
         item = fetch_month_archive(year, month, raw_dir)
         archives.append(item)
         _, payload = _extract_year_csv(item.archive)
-        frames.append(_parse_csv(payload))
+        frame = _parse_csv(payload)
+        frame["source_year"] = year
+        frame["source_month"] = month
+        frames.append(frame)
 
     df = pd.concat(frames, ignore_index=True)
     df = df[(df["timestamp"] >= pd.Timestamp(start, tz="UTC")) & (df["timestamp"] < pd.Timestamp(end, tz="UTC"))]
     if df.empty:
         raise HistDataIngestError("REAL_DATA_REQUIRED: current-year OOS HistData dataset is empty")
+
+    conflict_report, conflict_summary = audit_timestamp_conflicts(df)
+    _write_conflict_audit(output_dir, conflict_report, conflict_summary.to_dict())
+    if conflict_summary.conflicting_timestamps:
+        raise HistDataIngestError(
+            "REAL_DATA_REQUIRED: conflicting duplicate timestamps detected; "
+            f"count={conflict_summary.conflicting_timestamps}, "
+            f"max_ohlc_diff={conflict_summary.max_abs_ohlc_diff}, "
+            f"audit={Path(output_dir) / 'conflict_audit'}"
+        )
+
+    df = df.drop(columns=["source_year", "source_month"])
     df, duplicate_rows_removed = _dedupe_exact_source_timestamps(df)
     df = canonicalize_ohlcv(df, symbol="EURUSD", source="HistData.com")
     m1_report = validate_ohlcv(df, symbol="EURUSD", timeframe="M1")
