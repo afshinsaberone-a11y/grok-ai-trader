@@ -9,10 +9,21 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from .research_pipeline import chronological_splits, load_real_dataset, run_existing_backtester
+
+
+def _json_default(value: Any) -> Any:
+    """Convert numpy/pandas scalar values into JSON-native Python values."""
+    item = getattr(value, "item", None)
+    if callable(item):
+        return item()
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def _metrics(result: dict, split_name: str, rows: int) -> dict:
@@ -52,7 +63,8 @@ def run(path: str | Path, timeframe: str, output: str | Path) -> dict:
     report["splits"]["OOS"] = {"status": "HELD_OUT", "rows": len(oos)}
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    payload = json.dumps(report, indent=2, sort_keys=True, default=_json_default)
+    output_path.write_text(payload, encoding="utf-8")
     return report
 
 
@@ -63,7 +75,7 @@ def main() -> int:
     parser.add_argument("--output", default="artifacts/real_backtest_report.json")
     args = parser.parse_args()
     report = run(args.data, args.timeframe, args.output)
-    print(json.dumps(report, indent=2, sort_keys=True))
+    print(json.dumps(report, indent=2, sort_keys=True, default=_json_default))
     return 0
 
 
