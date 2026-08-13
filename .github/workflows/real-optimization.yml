@@ -1,0 +1,130 @@
+name: real-optimization
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "UTC start date for the HistData research dataset"
+        required: true
+        default: "2022-01-01"
+        type: string
+      end:
+        description: "UTC end date (exclusive)"
+        required: true
+        default: "2026-01-01"
+        type: string
+      timeframe:
+        description: "Research timeframe"
+        required: true
+        default: "M5"
+        type: choice
+        options:
+          - M5
+          - M15
+      candidates:
+        description: "Deterministic candidate count"
+        required: true
+        default: "100"
+        type: string
+      top_validation:
+        description: "Number of IS finalists evaluated on Validation"
+        required: true
+        default: "10"
+        type: string
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+
+  optimize-real-data:
+    needs: python-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore HistData yearly archive cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-eurusd-m1-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: |
+            histdata-eurusd-m1-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download and validate REAL HistData dataset
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          TIMEFRAME: ${{ inputs.timeframe }}
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --timeframe "$TIMEFRAME" \
+            --start "$START" \
+            --end "$END" \
+            --output data/real \
+            --validate \
+            --manifest
+
+      - name: Locate normalized dataset
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          TIMEFRAME: ${{ inputs.timeframe }}
+        run: |
+          find data/real/normalized -maxdepth 1 -type f -print | sort
+          END_INCLUSIVE=$(date -u -d "$END - 1 day" +%Y%m%d)
+          START_COMPACT=${START//-/}
+          DATA="data/real/normalized/EURUSD_${TIMEFRAME}_${START_COMPACT}_${END_INCLUSIVE}.csv"
+          test -f "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+
+      - name: Run deterministic 100-candidate optimization
+        env:
+          CANDIDATES: ${{ inputs.candidates }}
+          TOP_VALIDATION: ${{ inputs.top_validation }}
+        run: |
+          python -m research.optimization.optimize_existing_strategy \
+            --data "$DATA" \
+            --candidates "$CANDIDATES" \
+            --top-validation "$TOP_VALIDATION" \
+            --output artifacts/optimization_report.json
+
+      - name: Write compact optimization summary
+        run: |
+          python - <<'PY'
+          import json
+          report = json.load(open('artifacts/optimization_report.json', encoding='utf-8'))
+          print(json.dumps({
+              'schema_version': report['schema_version'],
+              'candidate_count': report['candidate_count'],
+              'top_validation_count': report['top_validation_count'],
+              'champion_status': report['champion_status'],
+              'champion': report['champion'],
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload optimization artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-optimization-${{ inputs.timeframe }}-${{ inputs.start }}-${{ inputs.end }}
+          path: |
+            artifacts/optimization_report.json
+            data/real/normalized/*.manifest.json
+          if-no-files-found: error
