@@ -1,8 +1,15 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
-from research.real_data.histdata_ingest import _hidden_form, _parse_csv, _years_for_range
+from research.real_data.histdata_ingest import (
+    _dedupe_exact_source_timestamps,
+    _hidden_form,
+    _parse_csv,
+    _years_for_range,
+    HistDataIngestError,
+)
 
 
 def test_histdata_hidden_form_parses_token_fields():
@@ -42,3 +49,29 @@ def test_histdata_year_range_excludes_exclusive_end_year():
 
 def test_histdata_year_range_includes_partial_end_year():
     assert _years_for_range(date(2022, 1, 1), date(2026, 2, 1)) == [2022, 2023, 2024, 2025, 2026]
+
+
+def _source_frame(rows):
+    return pd.DataFrame(
+        rows,
+        columns=["timestamp", "open", "high", "low", "close", "volume", "spread"],
+    )
+
+
+def test_exact_duplicate_source_timestamp_is_removed():
+    frame = _source_frame([
+        (pd.Timestamp("2022-01-01T00:00:00Z"), 1.1, 1.2, 1.0, 1.15, 10.0, float("nan")),
+        (pd.Timestamp("2022-01-01T00:00:00Z"), 1.1, 1.2, 1.0, 1.15, 10.0, float("nan")),
+    ])
+    deduped, removed = _dedupe_exact_source_timestamps(frame)
+    assert len(deduped) == 1
+    assert removed == 1
+
+
+def test_conflicting_duplicate_source_timestamp_fails():
+    frame = _source_frame([
+        (pd.Timestamp("2022-01-01T00:00:00Z"), 1.1, 1.2, 1.0, 1.15, 10.0, float("nan")),
+        (pd.Timestamp("2022-01-01T00:00:00Z"), 1.1, 1.21, 1.0, 1.15, 11.0, float("nan")),
+    ])
+    with pytest.raises(HistDataIngestError, match="conflicting duplicate timestamps"):
+        _dedupe_exact_source_timestamps(frame)
