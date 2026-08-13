@@ -13,7 +13,7 @@ from .histdata_current import fetch_month_archive, _extract_year_csv, _parse_csv
 from .histdata_ingest import HistDataIngestError, _dedupe_exact_source_timestamps
 from .manifest import build_manifest
 from .normalizer import canonicalize_ohlcv, resample_ohlcv
-from .session_filter import filter_weekly_session
+from .session_filter import filter_closed_fx_session
 from .validator import validate_ohlcv
 
 
@@ -47,13 +47,19 @@ def ingest(start: date, end: date, output_dir: str, timeframe: str) -> dict[str,
     if df.empty:
         raise HistDataIngestError("REAL_DATA_REQUIRED: empty current-year dataset")
 
-    filtered, session_summary = filter_weekly_session(df, sunday_reopen_utc_hour=20)
+    filtered, rows_removed = filter_closed_fx_session(df)
     conflict_report, conflict_summary = audit_timestamp_conflicts(filtered)
     audit_dir = Path(output_dir) / "conflict_audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
     conflict_report.to_csv(audit_dir / "current_year_timestamp_conflicts.csv", index=False)
     (audit_dir / "current_year_timestamp_conflicts.json").write_text(
-        pd.Series({"conflicts": conflict_summary.to_dict(), "weekly_session": session_summary}).to_json(indent=2),
+        pd.Series({
+            "conflicts": conflict_summary.to_dict(),
+            "weekly_session": {
+                "rows_removed_by_weekly_session_filter": rows_removed,
+                "sunday_reopen_utc_hour": 20,
+            },
+        }).to_json(indent=2),
         encoding="utf-8",
     )
     if conflict_summary.conflicting_timestamps:
@@ -84,8 +90,8 @@ def ingest(start: date, end: date, output_dir: str, timeframe: str) -> dict[str,
     out = norm / f"EURUSD_{timeframe}_{dataset_id}.csv"
     target.to_csv(out, index=False)
     build_manifest(target, dataset_id=dataset_id, symbol="EURUSD", timeframe=timeframe, source="HistData.com -> session-filtered -> resampled", source_hash=source_hash, quality_status=quality.status, output_path=norm / f"EURUSD_{timeframe}_{dataset_id}.manifest.json")
-    print({"dataset": str(out), "duplicate_rows_removed": duplicate_rows_removed, "weekly_session": session_summary, "quality": quality.to_dict()})
-    return {"dataset": out, "quality": quality.to_dict(), "weekly_session": session_summary}
+    print({"dataset": str(out), "duplicate_rows_removed": duplicate_rows_removed, "weekly_session": {"rows_removed_by_weekly_session_filter": rows_removed}, "quality": quality.to_dict()})
+    return {"dataset": out, "quality": quality.to_dict(), "weekly_session": {"rows_removed_by_weekly_session_filter": rows_removed}}
 
 
 def main() -> int:
