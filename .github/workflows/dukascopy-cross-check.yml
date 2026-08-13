@@ -23,6 +23,7 @@ jobs:
 
       - name: Download EURUSD M1 from Dukascopy Node
         run: |
+          set -euo pipefail
           mkdir -p artifacts/dukascopy
           rm -f download/*.csv
           npx --yes dukascopy-node -i eurusd -from 2026-07-05 -to 2026-07-06 -t m1 -f csv
@@ -50,12 +51,14 @@ jobs:
 
           def parse_ts(value: str) -> datetime | None:
               s = value.strip()
-              candidates = [
-                  s,
-                  s.replace("Z", "+00:00"),
-                  s.replace(" ", "T"),
-              ]
-              for candidate in candidates:
+              # Dukascopy Node emits epoch milliseconds in the CSV timestamp column.
+              if s.isdigit():
+                  n = int(s)
+                  if n >= 100_000_000_000:  # epoch milliseconds
+                      return datetime.fromtimestamp(n / 1000, tz=timezone.utc)
+                  if n >= 100_000_000:      # epoch seconds, defensive support
+                      return datetime.fromtimestamp(n, tz=timezone.utc)
+              for candidate in (s, s.replace("Z", "+00:00"), s.replace(" ", "T")):
                   try:
                       ts = datetime.fromisoformat(candidate)
                       if ts.tzinfo is None:
@@ -82,7 +85,7 @@ jobs:
           print("RAW_TIMESTAMP_SAMPLES=")
           for row in rows[1:7]:
               if row:
-                  print("  ", repr(row[0]))
+                  print("  ", repr(row[0]), "=>", parse_ts(row[0]))
 
           matches = []
           for row in rows[1:]:
@@ -103,7 +106,7 @@ jobs:
                   w.writerow(row[:6])
 
           if len(matches) == 0:
-              raise SystemExit("No known conflict timestamps returned by Dukascopy Node after flexible timestamp parsing")
+              raise SystemExit("No known conflict timestamps returned by Dukascopy Node after epoch-ms parsing")
           PY
 
       - name: Upload cross-check artifacts
