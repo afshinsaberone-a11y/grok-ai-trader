@@ -22,15 +22,8 @@ jobs:
           import urllib.request
           from datetime import datetime, timezone
 
-          start = int(datetime(
-              2026, 7, 5, 22, 20,
-              tzinfo=timezone.utc
-          ).timestamp() * 1000)
-
-          end = int(datetime(
-              2026, 7, 5, 22, 45,
-              tzinfo=timezone.utc
-          ).timestamp() * 1000)
+          start = int(datetime(2026, 7, 5, 22, 20, tzinfo=timezone.utc).timestamp() * 1000)
+          end = int(datetime(2026, 7, 5, 22, 45, tzinfo=timezone.utc).timestamp() * 1000)
 
           params = {
               "path": "api/historicalPrices",
@@ -42,19 +35,28 @@ jobs:
               "dayStartTime": "UTC",
               "offerSide": "B",
           }
+          url = "https://freeserv.dukascopy.com/2.0/?" + urllib.parse.urlencode(params)
+          req = urllib.request.Request(url, headers={"User-Agent": "ForexAI/0.1"})
 
-          url = (
-              "https://freeserv.dukascopy.com/2.0/?"
-              + urllib.parse.urlencode(params)
-          )
+          with urllib.request.urlopen(req, timeout=60) as response:
+              raw = response.read()
+              status = response.status
+              content_type = response.headers.get("Content-Type", "")
 
-          req = urllib.request.Request(
-              url,
-              headers={"User-Agent": "ForexAI/0.1"}
-          )
+          print("HTTP_STATUS=", status)
+          print("CONTENT_TYPE=", content_type)
+          print("RAW_PREFIX=", raw[:1000].decode("utf-8", errors="replace"))
 
-          with urllib.request.urlopen(req, timeout=60) as r:
-              data = json.loads(r.read().decode("utf-8"))
+          text = raw.decode("utf-8", errors="replace").strip()
+          if not text:
+              raise SystemExit("REAL_DATA_REQUIRED: Dukascopy returned an empty response")
+          try:
+              data = json.loads(text)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(
+                  "REAL_DATA_REQUIRED: Dukascopy response is not valid JSON; "
+                  f"prefix={text[:500]!r}"
+              ) from exc
 
           print(json.dumps(data, indent=2)[:10000])
           PY
