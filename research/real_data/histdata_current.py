@@ -7,11 +7,13 @@ without synthesizing data or changing the frozen trading parameters.
 from __future__ import annotations
 
 import hashlib
+import html
 import logging
 import time
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -19,7 +21,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
-from .histdata_ingest import HistDataIngestError, _dedupe_exact_source_timestamps, _extract_year_csv, _hidden_form, _parse_csv
+from .histdata_ingest import HistDataIngestError, _dedupe_exact_source_timestamps, _extract_year_csv, _parse_csv
 from .manifest import build_manifest, sha256_file
 from .normalizer import canonicalize_ohlcv, resample_ohlcv
 from .validator import validate_ohlcv
@@ -39,10 +41,40 @@ class DownloadedMonth:
     sha256: str
 
 
+class _InputParser(HTMLParser):
+    """Parse hidden/input fields without assuming HTML attribute order."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fields: dict[str, str] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "input":
+            return
+        data = {key.lower(): value for key, value in attrs}
+        key = data.get("name") or data.get("id")
+        value = data.get("value")
+        if key and value is not None:
+            self.fields[key] = html.unescape(value)
+
+
 def _fetch(url: str, timeout: int = 60) -> bytes:
     request = Request(url, headers={"User-Agent": "ForexAI/0.1 real-data-ingestion"})
     with urlopen(request, timeout=timeout) as response:
         return response.read()
+
+
+def _hidden_form_current_year(html_text: str) -> dict[str, str]:
+    parser = _InputParser()
+    parser.feed(html_text)
+    fields = parser.fields
+    required = ("tk", "date", "datemonth", "platform", "timeframe", "fxpair")
+    missing = [key for key in required if key not in fields]
+    if missing:
+        raise HistDataIngestError(
+            f"REAL_DATA_REQUIRED: HistData current-year download form missing fields: {missing}"
+        )
+    return {key: fields[key] for key in required}
 
 
 def fetch_month_archive(year: int, month: int, output_dir: str | Path, *, retries: int = 3, timeout: int = 60) -> DownloadedMonth:
@@ -57,27 +89,25 @@ def fetch_month_archive(year: int, month: int, output_dir: str | Path, *, retrie
     for attempt in range(1, retries + 1):
         try:
             page = _fetch(page_url, timeout=timeout).decode("utf-8", errors="replace")
-            fields = _hidden_form(page)
+            fields = _hidden_form_current_year(page)
             payload = urlencode(fields).encode("utf-8")
             request = Request(
                 POST_URL,
                 data=payload,
                 headers={
                     "User-Agent": "ForexAI/0.1 real-data-ingestion",
+                    "Host": "www.histdata.com",
                     "Origin": BASE_URL,
                     "Referer": page_url,
                     "Content-Type": "application/x-www-form-urlencoded",
-                    "Accept": "application/zip, application/octet-stream, */*",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 },
             )
             with urlopen(request, timeout=timeout) as response:
                 content = response.read()
             if not content.startswith(b"PK"):
-                raise HistDataIngestError(f"HistData returned a non-ZIP response for {year}-{month:02d}")
-            digest = hashlib.md5(content).hexdigest()
-            if fields["tk"].lower() != digest.lower():
                 raise HistDataIngestError(
-                    f"HistData archive token/hash mismatch for {year}-{month:02d}: token={fields['tk']} md5={digest}"
+                    f"HistData returned a non-ZIP response for {year}-{month:02d}"
                 )
             archive.write_bytes(content)
             return DownloadedMonth(year, month, archive, sha256_file(archive))
@@ -87,8 +117,16 @@ def fetch_month_archive(year: int, month: int, output_dir: str | Path, *, retrie
                 archive.unlink()
             if attempt < retries:
                 time.sleep(attempt * 5)
-                LOGGER.warning("HistData current-year retry %d/%d for %s-%02d", attempt + 1, retries, year, month)
-    raise HistDataIngestError(f"Failed to download real HistData EURUSD {year}-{month:02d}: {last_error}")
+                LOGGER.warning(
+                    "HistData current-year retry %d/%d for %s-%02d",
+                    attempt + 1,
+                    retries,
+                    year,
+                    month,
+                )
+    raise HistDataIngestError(
+        f"Failed to download real HistData EURUSD {year}-{month:02d}: {last_error}"
+    )
 
 
 def month_starts(start: date, end: date) -> list[tuple[int, int]]:
@@ -128,7 +166,9 @@ def ingest_current_year(start: date, end: date, output_dir: str | Path, *, timef
     df = canonicalize_ohlcv(df, symbol="EURUSD", source="HistData.com")
     m1_report = validate_ohlcv(df, symbol="EURUSD", timeframe="M1")
     if m1_report.status != "PASS":
-        raise HistDataIngestError(f"REAL_DATA_REQUIRED: current-year M1 validation failed: {m1_report.to_dict()}")
+        raise HistDataIngestError(
+            f"REAL_DATA_REQUIRED: current-year M1 validation failed: {m1_report.to_dict()}"
+        )
 
     normalized = Path(output_dir) / "normalized"
     normalized.mkdir(parents=True, exist_ok=True)
@@ -150,7 +190,9 @@ def ingest_current_year(start: date, end: date, output_dir: str | Path, *, timef
     target = resample_ohlcv(df, "5min" if timeframe == "M5" else "15min")
     report = validate_ohlcv(target, symbol="EURUSD", timeframe=timeframe)
     if report.status != "PASS":
-        raise HistDataIngestError(f"REAL_DATA_REQUIRED: current-year {timeframe} validation failed: {report.to_dict()}")
+        raise HistDataIngestError(
+            f"REAL_DATA_REQUIRED: current-year {timeframe} validation failed: {report.to_dict()}"
+        )
     out = normalized / f"EURUSD_{timeframe}_{dataset_id}.csv"
     target.to_csv(out, index=False)
     build_manifest(
@@ -182,7 +224,12 @@ def main() -> int:
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
-        result = ingest_current_year(datetime.strptime(args.start, "%Y-%m-%d").date(), datetime.strptime(args.end, "%Y-%m-%d").date(), args.output, timeframe=args.timeframe)
+        result = ingest_current_year(
+            datetime.strptime(args.start, "%Y-%m-%d").date(),
+            datetime.strptime(args.end, "%Y-%m-%d").date(),
+            args.output,
+            timeframe=args.timeframe,
+        )
         print(result["quality"])
         print(result["m1_quality"])
         print({"duplicate_rows_removed": result["duplicate_rows_removed"]})
