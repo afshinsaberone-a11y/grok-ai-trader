@@ -128,6 +128,11 @@ def _extract_archive_csv(archive: Path) -> tuple[str, bytes]:
         return name, zf.read(name)
 
 
+def _extract_year_csv(archive: Path) -> tuple[str, bytes]:
+    """Backward-compatible helper used by current-year OOS ingestion."""
+    return _extract_archive_csv(archive)
+
+
 def _parse_csv(payload: bytes) -> pd.DataFrame:
     text = payload.decode("utf-8", errors="replace")
     rows: list[tuple[str, float, float, float, float, float]] = []
@@ -149,19 +154,24 @@ def _parse_csv(payload: bytes) -> pd.DataFrame:
 
 
 def _dedupe_exact_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Drop only exact duplicate source timestamps after conflict auditing.
+    """Remove only byte-for-byte equivalent timestamp duplicates.
 
-    The caller is responsible for auditing conflicting duplicate timestamps
-    before this helper is used. Rows are considered exact duplicates when all
-    source OHLCV values at the same timestamp are identical.
+    Conflicting duplicates must be audited and rejected by the caller before
+    reaching this helper; this helper never chooses between conflicting OHLC rows.
     """
-    if df.empty:
-        return df.copy(), 0
-    compare_columns = [c for c in ["timestamp", "open", "high", "low", "close", "volume"] if c in df.columns]
-    duplicated = df.duplicated(subset=compare_columns, keep="first")
-    removed = int(duplicated.sum())
-    clean = df.loc[~duplicated].copy().reset_index(drop=True)
-    return clean, removed
+    if not df.duplicated(subset=["timestamp"], keep=False).any():
+        return df.reset_index(drop=True), 0
+    compare_columns = ["timestamp", "open", "high", "low", "close", "volume"]
+    ordered = df.reset_index(drop=True)
+    removed = 0
+    keep_mask = pd.Series(True, index=ordered.index)
+    for _, group in ordered.groupby("timestamp", sort=False):
+        idx = group.index
+        if len(group[compare_columns].drop_duplicates()) > 1:
+            raise HistDataIngestError("REAL_DATA_REQUIRED: conflicting duplicate timestamps reached exact-dedupe helper")
+        keep_mask.loc[idx[1:]] = False
+        removed += len(idx) - 1
+    return ordered.loc[keep_mask].reset_index(drop=True), removed
 
 
 def _split_duplicate_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, int]:
