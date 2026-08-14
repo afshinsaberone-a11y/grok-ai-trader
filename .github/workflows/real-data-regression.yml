@@ -1,0 +1,193 @@
+name: Real Data Multi-Day Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/real-data-regression.yml
+      - research/real_data/histdata_ingest.py
+      - research/real_data/timezone_crosscheck.py
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download real Dukascopy multi-day EURUSD M1
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/dukascopy
+          rm -f download/*.csv
+          npx --yes dukascopy-node -i eurusd -from 2026-07-01 -to 2026-07-06 -t m1 -f csv
+          FILE=$(find download -maxdepth 1 -type f -name '*.csv' | head -n 1)
+          test -n "$FILE"
+          test -s "$FILE" || { echo "REAL_DATA_REQUIRED: Dukascopy returned an empty CSV"; exit 2; }
+          HEADER=$(head -n 1 "$FILE")
+          test "$HEADER" = "timestamp,open,high,low,close" || { echo "REAL_DATA_REQUIRED: unexpected Dukascopy header: $HEADER"; exit 2; }
+          ROWS=$(awk 'END{print NR-1}' "$FILE")
+          test "$ROWS" -gt 0 || { echo "REAL_DATA_REQUIRED: Dukascopy returned no rows"; exit 2; }
+          cp "$FILE" artifacts/dukascopy/eurusd-m1-bid-2026-07-01-2026-07-06.csv
+          echo "DUKASCOPY_BYTES=$(wc -c < "$FILE")"
+          echo "DUKASCOPY_DATA_ROWS=$ROWS"
+
+      - name: Download real HistData multi-day EURUSD M1
+        run: |
+          set -euo pipefail
+          rm -rf data/real
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --timeframe M1 \
+            --start 2026-07-01 \
+            --end 2026-07-06 \
+            --output data/real \
+            --validate \
+            --manifest
+          find data/real/normalized -type f -name '*.csv' -print | sort
+
+      - name: Verify timezone policy and multi-day DST handling
+        run: |
+          set -euo pipefail
+          python research/real_data/timezone_crosscheck.py
+          python - <<'PY'
+          from datetime import datetime, timezone
+          from zoneinfo import ZoneInfo
+          zone = ZoneInfo("America/New_York")
+          checks = [
+              datetime(2026, 1, 15, 12, tzinfo=timezone.utc),
+              datetime(2026, 7, 15, 12, tzinfo=timezone.utc),
+          ]
+          for ts in checks:
+              print("DST_CHECK=", ts.isoformat(), "->", ts.astimezone(zone).isoformat())
+          assert checks[0].astimezone(zone).utcoffset().total_seconds() == -5 * 3600
+          assert checks[1].astimezone(zone).utcoffset().total_seconds() == -4 * 3600
+          PY
+
+      - name: Compare all common multi-day timestamps and preserve source conflicts
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          from collections import defaultdict
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          duka_path = Path("artifacts/dukascopy/eurusd-m1-bid-2026-07-01-2026-07-06.csv")
+          normalized = Path("data/real/normalized")
+          canonical_paths = sorted(p for p in normalized.glob("*.csv") if not p.name.endswith("_source_conflicts.csv"))
+          conflict_paths = sorted(p for p in normalized.glob("*_source_conflicts.csv"))
+          if len(canonical_paths) != 1:
+              raise SystemExit(f"Expected exactly one canonical HistData CSV, got {canonical_paths}")
+
+          def parse_ts(value):
+              s = str(value).strip()
+              if s.isdigit():
+                  n = int(s)
+                  if n >= 100_000_000_000:
+                      return datetime.fromtimestamp(n / 1000, tz=timezone.utc)
+                  if n >= 100_000_000:
+                      return datetime.fromtimestamp(n, tz=timezone.utc)
+              for candidate in (s, s.replace("Z", "+00:00"), s.replace(" ", "T")):
+                  try:
+                      ts = datetime.fromisoformat(candidate)
+                      return (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+                  except ValueError:
+                      pass
+              return None
+
+          def read(path):
+              rows = []
+              with path.open(newline="", encoding="utf-8-sig") as f:
+                  for row in csv.DictReader(f):
+                      raw = row.get("timestamp") or row.get("datetime") or row.get("timestamp_utc") or row.get("date")
+                      ts = parse_ts(raw) if raw else None
+                      if ts is not None:
+                          rows.append((ts, row))
+              return rows
+
+          def ohlc(row):
+              vals=[]
+              lower={str(k).strip().lower():v for k,v in row.items()}
+              for key in ("open","high","low","close"):
+                  try:
+                      vals.append(float(lower.get(key) or lower.get(f"{key}_bid")))
+                  except (TypeError, ValueError):
+                      return None
+              return vals
+
+          duka = {ts: row for ts, row in read(duka_path)}
+          hist = {ts: row for ts, row in read(canonical_paths[0])}
+          common = sorted(set(duka) & set(hist))
+          if not common:
+              raise SystemExit("REAL_DATA_REQUIRED: no common timestamps between Dukascopy and HistData")
+
+          mismatches=[]
+          max_diff=0.0
+          for ts in common:
+              dv=ohlc(duka[ts]); hv=ohlc(hist[ts])
+              if dv is None or hv is None:
+                  mismatches.append((ts,"INCOMPLETE")); continue
+              diffs=[abs(a-b) for a,b in zip(hv,dv)]
+              md=max(diffs)
+              max_diff=max(max_diff,md)
+              if md > 1e-12:
+                  mismatches.append((ts,md))
+
+          conflict_rows=[]
+          for path in conflict_paths:
+              conflict_rows.extend((ts,row,path) for ts,row in read(path))
+
+          print("DUKASCOPY_ROWS=", len(duka))
+          print("HISTDATA_CANONICAL_ROWS=", len(hist))
+          print("COMMON_TIMESTAMPS=", len(common))
+          print("CROSSFEED_MISMATCHES=", len(mismatches))
+          print("MAX_ABS_OHLC_DIFF=", f"{max_diff:.10f}")
+          print("SOURCE_CONFLICT_FILES=", len(conflict_paths))
+          print("SOURCE_CONFLICT_ROWS=", len(conflict_rows))
+          for item in conflict_rows[:20]:
+              ts,row,path=item
+              print("SOURCE_CONFLICT_ROW=", ts.isoformat(), path, row)
+
+          out=Path("artifacts/dukascopy/multi_day_crossfeed_summary.csv")
+          with out.open("w",newline="",encoding="utf-8") as f:
+              w=csv.writer(f)
+              w.writerow(["metric","value"])
+              w.writerow(["dukascopy_rows",len(duka)])
+              w.writerow(["histdata_canonical_rows",len(hist)])
+              w.writerow(["common_timestamps",len(common)])
+              w.writerow(["crossfeed_mismatches",len(mismatches)])
+              w.writerow(["max_abs_ohlc_diff",f"{max_diff:.10f}"])
+              w.writerow(["source_conflict_files",len(conflict_paths)])
+              w.writerow(["source_conflict_rows",len(conflict_rows)])
+
+          # Required regression gates.
+          if len(common) < 1000:
+              raise SystemExit(f"REAL_DATA_REQUIRED: expected at least 1000 common M1 timestamps, got {len(common)}")
+          if mismatches:
+              raise SystemExit(f"REAL_DATA_REQUIRED: cross-feed mismatches detected: {len(mismatches)}")
+          if len(conflict_paths) not in (0, 1):
+              raise SystemExit(f"Unexpected number of source conflict files: {len(conflict_paths)}")
+          PY
+
+      - name: Upload regression artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-data-regression-eurusd-2026-07-01-2026-07-06
+          path: |
+            artifacts/dukascopy/
+            data/real/normalized/
+          if-no-files-found: error
