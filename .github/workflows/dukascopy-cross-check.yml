@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/dukascopy-cross-check.yml
+      - research/real_data/histdata_ingest.py
 
 jobs:
   cross-check:
@@ -51,7 +52,7 @@ jobs:
           echo "--- NORMALIZED HISTDATA FILES ---"
           find data/real/normalized -type f -name '*.csv' -print | sort
 
-      - name: Build four-row cross-feed comparison
+      - name: Build four-row cross-feed comparison including unresolved source conflicts
         run: |
           python - <<'PY'
           import csv
@@ -83,7 +84,7 @@ jobs:
                       pass
               return None
 
-          def read_ohlc(path):
+          def read_ohlc_candidates(path):
               found = {}
               with path.open(newline="", encoding="utf-8-sig") as f:
                   reader = csv.DictReader(f)
@@ -93,22 +94,23 @@ jobs:
                           continue
                       ts = parse_ts(raw)
                       if ts in targets:
-                          found[ts] = row
+                          found.setdefault(ts, []).append(row)
               return found
 
-          duka = read_ohlc(duka_path)
+          duka = read_ohlc_candidates(duka_path)
           hist = {}
           hist_sources = {}
           for candidate in sorted(Path("data/real/normalized").rglob("*.csv")):
               try:
-                  candidate_rows = read_ohlc(candidate)
+                  candidate_rows = read_ohlc_candidates(candidate)
               except (OSError, UnicodeDecodeError, csv.Error):
                   continue
-              for ts, row in candidate_rows.items():
-                  hist[ts] = row
-                  hist_sources[ts] = str(candidate)
+              for ts, rows in candidate_rows.items():
+                  for row in rows:
+                      hist.setdefault(ts, []).append(row)
+                      hist_sources.setdefault(ts, []).append(str(candidate))
 
-          fields = ["timestamp_utc","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","match_status","hist_source"]
+          fields = ["timestamp_utc","hist_variant","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","match_status","hist_source"]
 
           def num(row, *names):
               if not row:
@@ -128,33 +130,39 @@ jobs:
 
           rows = []
           for ts in targets:
-              h, d = hist.get(ts), duka.get(ts)
-              hv = [num(h,"open","hist_open"),num(h,"high","hist_high"),num(h,"low","hist_low"),num(h,"close","hist_close")]
+              ds = duka.get(ts, [])
+              hs = hist.get(ts, [])
+              if not ds:
+                  rows.append([ts.isoformat(), "", "", "", "", "", "", "", "", "", "", "", "", "MISSING_DUKASCOPY", ""])
+                  continue
+              d = ds[0]
               dv = [num(d,"open","duka_open"),num(d,"high","duka_high"),num(d,"low","duka_low"),num(d,"close","duka_close")]
-              diffs = [None if a is None or b is None else a-b for a,b in zip(hv,dv)]
-              if h is None:
-                  status = "MISSING_HISTDATA"
-              elif d is None:
-                  status = "MISSING_DUKASCOPY"
-              elif any(x is None for x in diffs):
-                  status = "INCOMPLETE"
-              else:
-                  status = "MATCH" if all(abs(x) < 1e-12 for x in diffs) else "DIFFERENT"
-              rows.append([ts.isoformat(),*map(fmt,hv),*map(fmt,dv),*map(fmt,diffs),status,hist_sources.get(ts,"NOT_FOUND")])
+              if not hs:
+                  rows.append([ts.isoformat(), "", "", "", "", *map(fmt,dv), "", "", "", "", "MISSING_HISTDATA", "NOT_FOUND"])
+                  continue
+              for idx, h in enumerate(hs, 1):
+                  hv = [num(h,"open","hist_open"),num(h,"high","hist_high"),num(h,"low","hist_low"),num(h,"close","hist_close")]
+                  diffs = [None if a is None or b is None else a-b for a,b in zip(hv,dv)]
+                  if any(x is None for x in diffs):
+                      status = "INCOMPLETE"
+                  else:
+                      status = "MATCH" if all(abs(x) < 1e-12 for x in diffs) else "DIFFERENT"
+                  source = hist_sources.get(ts, ["NOT_FOUND"] * len(hs))[min(idx-1, len(hist_sources.get(ts, []))-1)]
+                  rows.append([ts.isoformat(), idx, *map(fmt,hv), *map(fmt,dv), *map(fmt,diffs), status, source])
 
           with out_path.open("w",newline="",encoding="utf-8") as out:
               w=csv.writer(out); w.writerow(fields); w.writerows(rows)
 
-          print("HISTDATA_MATCHED_ROWS=", len(hist))
-          print("HISTDATA_SOURCE_BY_TIMESTAMP=", hist_sources)
-          print("DUKASCOPY_MATCHED_ROWS=", len(duka))
+          print("HISTDATA_MATCHED_TIMESTAMPS=", len(hist))
+          print("HISTDATA_CANDIDATE_ROWS=", sum(len(v) for v in hist.values()))
+          print("DUKASCOPY_MATCHED_TIMESTAMPS=", len(duka))
           print("COMPARISON_FILE=", out_path)
           for row in rows: print("CROSSFEED_ROW=", row)
 
           if len(duka) != 4:
-              raise SystemExit(f"Expected 4 Dukascopy rows, got {len(duka)}")
+              raise SystemExit(f"Expected 4 Dukascopy timestamps, got {len(duka)}")
           if len(hist) != 4:
-              raise SystemExit(f"Expected 4 HistData rows, got {len(hist)}")
+              raise SystemExit(f"Expected 4 HistData conflict timestamps, got {len(hist)}")
           PY
 
       - name: Upload cross-feed artifacts
