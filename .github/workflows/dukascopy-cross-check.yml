@@ -72,26 +72,34 @@ jobs:
                   if ts in targets:
                       duka[ts] = r
 
-          # Repository-side HistData discovery. No values are fabricated.
-          hist_candidates = []
-          for root in (Path("data"), Path("artifacts"), Path("tests"), Path("fixtures")):
-              if root.exists():
-                  hist_candidates.extend(root.rglob("*.csv"))
-          hist_candidates = [p for p in hist_candidates if "crossfeed" not in p.name.lower() and "dukascopy" not in str(p).lower()]
+          # Discover HistData anywhere in the checked-out repository. Values are
+          # never fabricated; only rows actually present in a CSV are accepted.
+          excluded_parts = {".git", "download", "artifacts"}
+          hist_candidates = [
+              p for p in Path(".").rglob("*.csv")
+              if not any(part in excluded_parts for part in p.parts)
+          ]
 
           hist = {}
           hist_sources = {}
-          for hp in hist_candidates:
+          scanned = 0
+          for hp in sorted(hist_candidates):
               try:
                   with hp.open(newline="", encoding="utf-8-sig") as f:
                       reader = csv.DictReader(f)
-                      headers = set(reader.fieldnames or [])
-                      if not ({"timestamp_utc", "timestamp", "datetime"} & headers):
+                      fieldnames = reader.fieldnames or []
+                      lowered_names = {str(h).strip().lower(): h for h in fieldnames}
+                      ts_key = next((lowered_names[k] for k in ("timestamp_utc", "timestamp", "datetime", "date_time") if k in lowered_names), None)
+                      if not ts_key:
                           continue
+                      scanned += 1
                       for row in reader:
-                          raw = row.get("timestamp_utc") or row.get("timestamp") or row.get("datetime")
+                          raw = row.get(ts_key)
                           ts = parse_ts(raw) if raw else None
-                          if ts in targets and any(row.get(k) not in (None, "") for k in ("open", "hist_open")):
+                          if ts not in targets:
+                              continue
+                          lower = {str(k).strip().lower(): v for k, v in row.items()}
+                          if lower.get("open") not in (None, "") or lower.get("hist_open") not in (None, ""):
                               hist[ts] = row
                               hist_sources[ts] = str(hp)
               except (OSError, UnicodeDecodeError, csv.Error):
@@ -100,13 +108,20 @@ jobs:
           fields = ["timestamp_utc","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","match_status","hist_source"]
 
           def num(row, *names):
-              if not row: return None
+              if not row:
+                  return None
+              lower = {str(k).strip().lower(): v for k, v in row.items()}
               for name in names:
-                  if row.get(name) not in (None, ""):
-                      try: return float(row[name])
-                      except ValueError: return None
+                  value = lower.get(name.lower())
+                  if value not in (None, ""):
+                      try:
+                          return float(value)
+                      except (TypeError, ValueError):
+                          return None
               return None
-          def fmt(x): return "" if x is None else f"{x:.5f}"
+
+          def fmt(x):
+              return "" if x is None else f"{x:.5f}"
 
           rows = []
           for ts in targets:
@@ -118,22 +133,26 @@ jobs:
                   status = "MISSING_HISTDATA"
               elif d is None:
                   status = "MISSING_DUKASCOPY"
-              elif all(abs(x) < 1e-12 for x in diffs if x is not None) and all(x is not None for x in diffs):
-                  status = "MATCH"
+              elif any(x is None for x in diffs):
+                  status = "INCOMPLETE"
               else:
-                  status = "DIFFERENT"
+                  status = "MATCH" if all(abs(x) < 1e-12 for x in diffs) else "DIFFERENT"
               rows.append([ts.isoformat(),*map(fmt,hv),*map(fmt,dv),*map(fmt,diffs),status,hist_sources.get(ts,"NOT_FOUND")])
 
-          with out_path.open("w",newline="",encoding="utf-8") as out:
-              w=csv.writer(out); w.writerow(fields); w.writerows(rows)
+          with out_path.open("w", newline="", encoding="utf-8") as out:
+              w = csv.writer(out)
+              w.writerow(fields)
+              w.writerows(rows)
 
-          print("DUKASCOPY_MATCHED_ROWS=",len(duka))
-          print("HISTDATA_MATCHED_ROWS=",len(hist))
-          print("COMPARISON_FILE=",out_path)
-          for row in rows: print("CROSSFEED_ROW=",row)
+          print("HISTDATA_CSV_CANDIDATES=", len(hist_candidates))
+          print("HISTDATA_TIMESTAMP_FILES_SCANNED=", scanned)
+          print("HISTDATA_MATCHED_ROWS=", len(hist))
+          print("HISTDATA_SOURCE_BY_TIMESTAMP=", hist_sources)
+          print("DUKASCOPY_MATCHED_ROWS=", len(duka))
+          print("COMPARISON_FILE=", out_path)
+          for row in rows:
+              print("CROSSFEED_ROW=", row)
 
-          # Never fail merely because repository-side HistData is absent.
-          # The artifact is the authoritative output for manual/next-stage inspection.
           if len(duka) != 4:
               raise SystemExit(f"Expected 4 Dukascopy rows, got {len(duka)}")
           PY
