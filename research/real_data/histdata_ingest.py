@@ -36,14 +36,21 @@ class HistDataIngestError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class DownloadedYear:
+class DownloadedArchive:
     year: int
+    month: int | None
     archive: Path
     sha256: str
 
 
 def _fetch(url: str, *, timeout: int = 60) -> bytes:
-    request = Request(url, headers={"User-Agent": "ForexAI/0.1 real-data-ingestion"})
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "ForexAI/0.1 real-data-ingestion",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+    )
     with urlopen(request, timeout=timeout) as response:
         return response.read()
 
@@ -51,33 +58,21 @@ def _fetch(url: str, *, timeout: int = 60) -> bytes:
 def _input_attrs(tag: str) -> dict[str, str]:
     """Parse an HTML input tag without assuming attribute ordering."""
     attrs: dict[str, str] = {}
-    for match in re.finditer(
-        r"([:\w-]+)\s*=\s*([\"'])(.*?)\2",
-        tag,
-        flags=re.IGNORECASE | re.DOTALL,
-    ):
+    for match in re.finditer(r"([:\w-]+)\s*=\s*([\"'])(.*?)\2", tag, flags=re.IGNORECASE | re.DOTALL):
         attrs[match.group(1).lower()] = html.unescape(match.group(3))
     return attrs
 
 
 def _hidden_form(html_text: str) -> dict[str, str]:
-    """Extract the current HistData download form fields.
-
-    HistData has changed the ordering/markup of its form attributes over time.
-    Parse complete input tags rather than relying on ``name`` appearing before
-    ``value``. This preserves the real-data-only contract: if the live page
-    does not expose the required token, ingestion still fails rather than
-    fabricating a download URL or data.
-    """
+    """Extract the current HistData download form fields."""
     fields: dict[str, str] = {}
     for tag_match in re.finditer(r"<input\b[^>]*>", html_text, flags=re.IGNORECASE | re.DOTALL):
         attrs = _input_attrs(tag_match.group(0))
         key = (attrs.get("name") or attrs.get("id") or "").lower()
         if key in {"tk", "date", "datemonth", "platform", "timeframe", "fxpair"} and "value" in attrs:
             fields[key] = attrs["value"]
-
     required = ("tk", "date", "datemonth", "platform", "timeframe", "fxpair")
-    missing = {k for k in required if k not in fields}
+    missing = {k for k in required if k not in fields or not fields[k]}
     if missing:
         raise HistDataIngestError(
             "REAL_DATA_REQUIRED: HistData download form missing fields: "
@@ -93,19 +88,50 @@ def _years_for_range(start: date, end: date) -> list[int]:
     return list(range(start.year, last_year + 1))
 
 
-def fetch_year_archive(year: int, output_dir: str | Path, *, retries: int = 3, timeout: int = 60) -> DownloadedYear:
+def _month_range_for_year(year: int, start: date, end: date) -> list[int]:
+    first_month = start.month if start.year == year else 1
+    last_month = (end.month - 1) if end.year == year and end.day == 1 else (end.month if end.year == year else 12)
+    return list(range(first_month, last_month + 1))
+
+
+def fetch_archive(
+    year: int,
+    output_dir: str | Path,
+    *,
+    month: int | None = None,
+    retries: int = 3,
+    timeout: int = 60,
+) -> DownloadedArchive:
+    """Download a real HistData archive.
+
+    HistData exposes the current calendar year through month-specific download
+    pages. Older years can use the annual M1 archive. We therefore request the
+    current year month-by-month instead of assuming an annual 2026 archive.
+    """
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    archive = output / f"HISTDATA_COM_ASCII_EURUSD_M1_{year}.zip"
+    suffix = f"{year}{month:02d}" if month is not None else str(year)
+    archive = output / f"HISTDATA_COM_ASCII_EURUSD_M1_{suffix}.zip"
     if archive.exists() and archive.stat().st_size > 0 and zipfile.is_zipfile(archive):
-        return DownloadedYear(year, archive, sha256_file(archive))
+        return DownloadedArchive(year, month, archive, sha256_file(archive))
 
-    page_url = DOWNLOAD_PAGE.format(year=year)
+    if month is not None:
+        page_url = f"{BASE_URL}/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/eurusd/{year}/{month}"
+    else:
+        page_url = DOWNLOAD_PAGE.format(year=year)
+
     last_error: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
             page = _fetch(page_url, timeout=timeout).decode("utf-8", errors="replace")
             fields = _hidden_form(page)
+            if month is not None:
+                fields["date"] = str(year)
+                fields["datemonth"] = f"{year}{month:02d}"
+                fields["platform"] = "ASCII"
+                fields["timeframe"] = "M1"
+                fields["fxpair"] = "EURUSD"
+
             payload = urlencode(fields).encode("utf-8")
             request = Request(
                 POST_URL,
@@ -121,25 +147,35 @@ def fetch_year_archive(year: int, output_dir: str | Path, *, retries: int = 3, t
             with urlopen(request, timeout=timeout) as response:
                 content = response.read()
             if not content.startswith(b"PK"):
-                raise HistDataIngestError(f"HistData returned a non-ZIP response for {year}")
+                preview = content[:300].decode("utf-8", errors="replace").replace("\n", " ")
+                raise HistDataIngestError(
+                    f"HistData returned a non-ZIP response for {year}"
+                    f"/{month:02d}" if month is not None else f"HistData returned a non-ZIP response for {year}"
+                )
             digest = hashlib.md5(content).hexdigest()
             if fields["tk"].lower() != digest.lower():
                 raise HistDataIngestError(
+                    f"HistData archive token/hash mismatch for {year}/{month:02d}: "
+                    f"token={fields['tk']} md5={digest}"
+                ) if month is not None else HistDataIngestError(
                     f"HistData archive token/hash mismatch for {year}: token={fields['tk']} md5={digest}"
                 )
             archive.write_bytes(content)
-            return DownloadedYear(year, archive, sha256_file(archive))
+            return DownloadedArchive(year, month, archive, sha256_file(archive))
         except (HTTPError, URLError, TimeoutError, OSError, HistDataIngestError) as exc:
             last_error = exc
             if archive.exists():
                 archive.unlink()
             if attempt < retries:
                 time.sleep(attempt * 5)
-                LOGGER.warning("HistData retry %d/%d for year %s", attempt + 1, retries, year)
-    raise HistDataIngestError(f"Failed to download real HistData EURUSD {year}: {last_error}")
+                LOGGER.warning("HistData retry %d/%d for %s", attempt + 1, retries, f"{year}/{month:02d}" if month else str(year))
+    raise HistDataIngestError(
+        f"Failed to download real HistData EURUSD {year}/{month:02d}: {last_error}"
+        if month is not None else f"Failed to download real HistData EURUSD {year}: {last_error}"
+    )
 
 
-def _extract_year_csv(archive: Path) -> tuple[str, bytes]:
+def _extract_archive_csv(archive: Path) -> tuple[str, bytes]:
     with zipfile.ZipFile(archive) as zf:
         csv_names = [name for name in zf.namelist() if name.lower().endswith(".csv")]
         if not csv_names:
@@ -153,16 +189,11 @@ def _parse_csv(payload: bytes) -> pd.DataFrame:
     rows: list[tuple[str, float, float, float, float, float]] = []
     reader = csv.reader(io.StringIO(text), delimiter=";")
     for row in reader:
-        if not row or not row[0] or row[0].startswith("#"):
-            continue
-        if len(row) < 6:
+        if not row or not row[0] or row[0].startswith("#") or len(row) < 6:
             continue
         try:
             ts = datetime.strptime(row[0].strip(), "%Y%m%d %H%M%S").replace(tzinfo=FIXED_EST)
-            rows.append((
-                ts.astimezone(timezone.utc).isoformat(),
-                float(row[1]), float(row[2]), float(row[3]), float(row[4]), float(row[5]),
-            ))
+            rows.append((ts.astimezone(timezone.utc).isoformat(), float(row[1]), float(row[2]), float(row[3]), float(row[4]), float(row[5])))
         except ValueError:
             continue
     if not rows:
@@ -189,10 +220,7 @@ def _dedupe_exact_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, int
             removed += len(group) - 1
     if conflicting_timestamps:
         preview = ", ".join(conflicting_timestamps[:5])
-        raise HistDataIngestError(
-            "REAL_DATA_REQUIRED: conflicting duplicate timestamps in HistData source; "
-            f"examples: {preview}"
-        )
+        raise HistDataIngestError("REAL_DATA_REQUIRED: conflicting duplicate timestamps in HistData source; examples: " + preview)
     deduped = df.drop_duplicates(subset=["timestamp"], keep="first").reset_index(drop=True)
     LOGGER.warning("Removed %d exact duplicate HistData source rows", removed)
     return deduped, removed
@@ -201,13 +229,26 @@ def _dedupe_exact_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, int
 def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "M1") -> dict[str, object]:
     years = _years_for_range(start, end)
     all_frames: list[pd.DataFrame] = []
-    archives: list[DownloadedYear] = []
+    archives: list[DownloadedArchive] = []
     raw_dir = Path(output_dir) / "raw" / "histdata"
+    current_year = datetime.now(timezone.utc).year
+
     for year in years:
-        item = fetch_year_archive(year, raw_dir)
-        archives.append(item)
-        _, payload = _extract_year_csv(item.archive)
-        all_frames.append(_parse_csv(payload))
+        # HistData's current-year M1 availability is month-specific. For 2026
+        # (the OOS comparison year) this requests July 2026 instead of a
+        # non-existent/unsupported annual 2026 archive.
+        if year == current_year:
+            for month in _month_range_for_year(year, start, end):
+                item = fetch_archive(year, raw_dir, month=month)
+                archives.append(item)
+                _, payload = _extract_archive_csv(item.archive)
+                all_frames.append(_parse_csv(payload))
+        else:
+            item = fetch_archive(year, raw_dir)
+            archives.append(item)
+            _, payload = _extract_archive_csv(item.archive)
+            all_frames.append(_parse_csv(payload))
+
     df = pd.concat(all_frames, ignore_index=True)
     df = df[(df["timestamp"] >= pd.Timestamp(start, tz="UTC")) & (df["timestamp"] < pd.Timestamp(end, tz="UTC"))]
     df, duplicate_rows_removed = _dedupe_exact_source_timestamps(df)
