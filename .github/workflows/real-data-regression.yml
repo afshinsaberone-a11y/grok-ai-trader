@@ -264,6 +264,63 @@ jobs:
           print("MISMATCH_DIAGNOSTIC_FILE=", out)
           PY
 
+      - name: Classify micro-feed discrepancies
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          from collections import Counter
+          from pathlib import Path
+
+          diag = Path("artifacts/dukascopy/multi_day_mismatch_diagnostic.csv")
+          summary = Path("artifacts/dukascopy/micro_discrepancy_summary.csv")
+          rows = list(csv.DictReader(diag.open(newline="", encoding="utf-8"))) if diag.exists() else []
+
+          tol = 0.00005
+          counts = Counter()
+          field_max = Counter()
+          field_nonzero = Counter()
+          outside = []
+          signed = {k: 0 for k in ("open","high","low","close")}
+
+          for r in rows:
+              mx = float(r["max_abs_diff"])
+              if mx <= tol:
+                  counts["micro_discrepancy"] += 1
+              else:
+                  counts["above_micro_threshold"] += 1
+                  outside.append(r)
+              for k in signed:
+                  d = float(r[f"diff_{k}"])
+                  if d:
+                      field_nonzero[k] += 1
+                      field_max[k] = max(field_max[k], abs(d))
+                      signed[k] += 1 if d > 0 else -1
+
+          print("MICRO_DISCREPANCY_TOLERANCE=", f"{tol:.5f}")
+          print("MICRO_DISCREPANCY_ROWS=", counts["micro_discrepancy"])
+          print("ABOVE_MICRO_THRESHOLD_ROWS=", counts["above_micro_threshold"])
+          print("NON_CONFLICT_ROWS=", sum(r["is_conflict_timestamp"].lower() == "false" for r in rows))
+          print("FIELD_NONZERO_COUNTS=", dict(field_nonzero))
+          print("FIELD_MAX_ABS_DIFF=", {k: f"{v:.5f}" for k,v in field_max.items()})
+
+          with summary.open("w", newline="", encoding="utf-8") as f:
+              w = csv.writer(f)
+              w.writerow(["metric", "value"])
+              w.writerow(["tolerance", f"{tol:.5f}"])
+              w.writerow(["micro_discrepancy_rows", counts["micro_discrepancy"]])
+              w.writerow(["above_micro_threshold_rows", counts["above_micro_threshold"]])
+              for k in signed:
+                  w.writerow([f"nonzero_{k}", field_nonzero[k]])
+                  w.writerow([f"max_abs_{k}", f"{field_max[k]:.5f}"])
+
+          if outside:
+              print("MICRO_THRESHOLD_OUTSIDE_SAMPLE=")
+              for r in outside[:20]:
+                  print(r)
+          PY
+
       - name: Upload regression artifacts
         if: always()
         uses: actions/upload-artifact@v4
