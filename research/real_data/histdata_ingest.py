@@ -148,6 +148,22 @@ def _parse_csv(payload: bytes) -> pd.DataFrame:
     return df
 
 
+def _dedupe_exact_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Drop only exact duplicate source timestamps after conflict auditing.
+
+    The caller is responsible for auditing conflicting duplicate timestamps
+    before this helper is used. Rows are considered exact duplicates when all
+    source OHLCV values at the same timestamp are identical.
+    """
+    if df.empty:
+        return df.copy(), 0
+    compare_columns = [c for c in ["timestamp", "open", "high", "low", "close", "volume"] if c in df.columns]
+    duplicated = df.duplicated(subset=compare_columns, keep="first")
+    removed = int(duplicated.sum())
+    clean = df.loc[~duplicated].copy().reset_index(drop=True)
+    return clean, removed
+
+
 def _split_duplicate_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, int]:
     duplicate_mask = df.duplicated(subset=["timestamp"], keep=False)
     if not duplicate_mask.any():
