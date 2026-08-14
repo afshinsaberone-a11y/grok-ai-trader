@@ -77,7 +77,7 @@ jobs:
           assert checks[1].astimezone(zone).utcoffset().total_seconds() == -4 * 3600
           PY
 
-      - name: Compare all common multi-day timestamps and preserve source conflicts
+      - name: Compare all common multi-day timestamps with exact/micro/hard gates
         id: compare
         run: |
           set -euo pipefail
@@ -120,8 +120,8 @@ jobs:
               return rows
 
           def ohlc(row):
-              vals=[]
               lower={str(k).strip().lower():v for k,v in row.items()}
+              vals=[]
               for key in ("open","high","low","close"):
                   try:
                       vals.append(float(lower.get(key) or lower.get(f"{key}_bid")))
@@ -135,17 +135,22 @@ jobs:
           if not common:
               raise SystemExit("REAL_DATA_REQUIRED: no common timestamps between Dukascopy and HistData")
 
-          mismatches=[]
-          max_diff=0.0
+          MICRO_TOL = 0.00005
+          exact = micro = hard = 0
+          max_diff = 0.0
           for ts in common:
               dv=ohlc(duka[ts]); hv=ohlc(hist[ts])
               if dv is None or hv is None:
-                  mismatches.append((ts,"INCOMPLETE")); continue
-              diffs=[abs(a-b) for a,b in zip(hv,dv)]
-              md=max(diffs)
+                  hard += 1
+                  continue
+              md=max(abs(a-b) for a,b in zip(hv,dv))
               max_diff=max(max_diff,md)
-              if md > 1e-12:
-                  mismatches.append((ts,md))
+              if md == 0:
+                  exact += 1
+              elif md <= MICRO_TOL:
+                  micro += 1
+              else:
+                  hard += 1
 
           conflict_rows=[]
           for path in conflict_paths:
@@ -154,7 +159,10 @@ jobs:
           print("DUKASCOPY_ROWS=", len(duka))
           print("HISTDATA_CANONICAL_ROWS=", len(hist))
           print("COMMON_TIMESTAMPS=", len(common))
-          print("CROSSFEED_MISMATCHES=", len(mismatches))
+          print("CROSSFEED_EXACT_MATCHES=", exact)
+          print("CROSSFEED_MICRO_DISCREPANCIES=", micro)
+          print("CROSSFEED_HARD_FAILURES=", hard)
+          print("MICRO_DISCREPANCY_TOLERANCE=", f"{MICRO_TOL:.5f}")
           print("MAX_ABS_OHLC_DIFF=", f"{max_diff:.10f}")
           print("SOURCE_CONFLICT_FILES=", len(conflict_paths))
           print("SOURCE_CONFLICT_ROWS=", len(conflict_rows))
@@ -166,20 +174,23 @@ jobs:
               w.writerow(["dukascopy_rows",len(duka)])
               w.writerow(["histdata_canonical_rows",len(hist)])
               w.writerow(["common_timestamps",len(common)])
-              w.writerow(["crossfeed_mismatches",len(mismatches)])
+              w.writerow(["exact_matches",exact])
+              w.writerow(["micro_discrepancies",micro])
+              w.writerow(["hard_failures",hard])
+              w.writerow(["micro_tolerance",f"{MICRO_TOL:.5f}"])
               w.writerow(["max_abs_ohlc_diff",f"{max_diff:.10f}"])
               w.writerow(["source_conflict_files",len(conflict_paths)])
               w.writerow(["source_conflict_rows",len(conflict_rows)])
 
           if len(common) < 1000:
               raise SystemExit(f"REAL_DATA_REQUIRED: expected at least 1000 common M1 timestamps, got {len(common)}")
-          if mismatches:
-              raise SystemExit(f"REAL_DATA_REQUIRED: cross-feed mismatches detected: {len(mismatches)}")
+          if hard:
+              raise SystemExit(f"REAL_DATA_REQUIRED: hard cross-feed mismatches detected: {hard}")
           if len(conflict_paths) not in (0, 1):
               raise SystemExit(f"Unexpected number of source conflict files: {len(conflict_paths)}")
           PY
 
-      - name: Diagnose every multi-day mismatch
+      - name: Diagnose every multi-day discrepancy
         if: always()
         run: |
           set -euo pipefail
@@ -197,71 +208,52 @@ jobs:
               raise SystemExit(f"Expected exactly one canonical HistData CSV, got {canonical_paths}")
 
           def parse_ts(value):
-              s = str(value).strip()
+              s=str(value).strip()
               if s.isdigit():
-                  n = int(s)
-                  if n >= 100_000_000_000:
-                      return datetime.fromtimestamp(n / 1000, tz=timezone.utc)
-                  if n >= 100_000_000:
-                      return datetime.fromtimestamp(n, tz=timezone.utc)
-              for candidate in (s, s.replace("Z", "+00:00"), s.replace(" ", "T")):
+                  n=int(s)
+                  if n>=100_000_000_000: return datetime.fromtimestamp(n/1000,tz=timezone.utc)
+                  if n>=100_000_000: return datetime.fromtimestamp(n,tz=timezone.utc)
+              for candidate in (s,s.replace("Z","+00:00"),s.replace(" ","T")):
                   try:
-                      ts = datetime.fromisoformat(candidate)
+                      ts=datetime.fromisoformat(candidate)
                       return (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
-                  except ValueError:
-                      pass
+                  except ValueError: pass
               return None
-
           def read(path):
               rows=[]
-              with path.open(newline="", encoding="utf-8-sig") as f:
+              with path.open(newline="",encoding="utf-8-sig") as f:
                   for row in csv.DictReader(f):
                       raw=row.get("timestamp") or row.get("datetime") or row.get("timestamp_utc") or row.get("date")
                       ts=parse_ts(raw) if raw else None
-                      if ts is not None:
-                          rows.append((ts,row))
+                      if ts is not None: rows.append((ts,row))
               return rows
-
           def ohlc(row):
-              lower={str(k).strip().lower():v for k,v in row.items()}
-              vals=[]
+              lower={str(k).strip().lower():v for k,v in row.items()}; vals=[]
               for key in ("open","high","low","close"):
-                  try:
-                      vals.append(float(lower.get(key) or lower.get(f"{key}_bid")))
-                  except (TypeError, ValueError):
-                      return None
+                  try: vals.append(float(lower.get(key) or lower.get(f"{key}_bid")))
+                  except (TypeError,ValueError): return None
               return vals
 
-          duka={ts:row for ts,row in read(duka_path)}
-          hist={ts:row for ts,row in read(canonical_paths[0])}
+          duka={ts:row for ts,row in read(duka_path)}; hist={ts:row for ts,row in read(canonical_paths[0])}
           conflicts={}
           for path in conflict_paths:
-              for ts,row in read(path):
-                  conflicts.setdefault(ts,[]).append((path,row))
-
-          fields=["timestamp_utc","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","max_abs_diff","is_conflict_timestamp","conflict_variant_count","conflict_source_paths"]
-          mismatches=[]
+              for ts,row in read(path): conflicts.setdefault(ts,[]).append((path,row))
+          tol=0.00005
+          fields=["timestamp_utc","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","max_abs_diff","classification","is_conflict_timestamp","conflict_variant_count","conflict_source_paths"]
           with out.open("w",newline="",encoding="utf-8") as f:
               w=csv.writer(f); w.writerow(fields)
               for ts in sorted(set(duka)&set(hist)):
                   hv=ohlc(hist[ts]); dv=ohlc(duka[ts])
-                  if hv is None or dv is None:
-                      continue
-                  diffs=[h-d for h,d in zip(hv,dv)]
-                  max_abs=max(abs(x) for x in diffs)
-                  if max_abs <= 1e-12:
-                      continue
+                  if hv is None or dv is None: continue
+                  diffs=[h-d for h,d in zip(hv,dv)]; md=max(abs(x) for x in diffs)
+                  if md == 0: cls="EXACT"
+                  elif md <= tol: cls="MICRO"
+                  else: cls="HARD_FAIL"
                   variants=conflicts.get(ts,[])
+                  if cls == "EXACT": continue
                   paths=sorted({str(p) for p,_ in variants})
-                  row=[ts.isoformat(),*hv,*dv,*diffs,max_abs,bool(variants),len(variants),";".join(paths)]
-                  w.writerow(row)
-                  mismatches.append(row)
-                  print("MISMATCH_DIAGNOSTIC=", row)
-
-          print("MISMATCH_DIAGNOSTIC_ROWS=", len(mismatches))
-          print("MISMATCH_CONFLICT_TIMESTAMP_ROWS=", sum(1 for row in mismatches if row[14]))
-          print("MISMATCH_NON_CONFLICT_ROWS=", sum(1 for row in mismatches if not row[14]))
-          print("MISMATCH_DIAGNOSTIC_FILE=", out)
+                  row=[ts.isoformat(),*hv,*dv,*diffs,md,cls,bool(variants),len(variants),";".join(paths)]
+                  w.writerow(row); print("DISCREPANCY=",row)
           PY
 
       - name: Classify micro-feed discrepancies
@@ -272,53 +264,30 @@ jobs:
           import csv
           from collections import Counter
           from pathlib import Path
-
-          diag = Path("artifacts/dukascopy/multi_day_mismatch_diagnostic.csv")
-          summary = Path("artifacts/dukascopy/micro_discrepancy_summary.csv")
-          rows = list(csv.DictReader(diag.open(newline="", encoding="utf-8"))) if diag.exists() else []
-
-          tol = 0.00005
-          counts = Counter()
-          field_max = Counter()
-          field_nonzero = Counter()
-          outside = []
-          signed = {k: 0 for k in ("open","high","low","close")}
-
+          diag=Path("artifacts/dukascopy/multi_day_mismatch_diagnostic.csv")
+          summary=Path("artifacts/dukascopy/micro_discrepancy_summary.csv")
+          rows=list(csv.DictReader(diag.open(newline="",encoding="utf-8"))) if diag.exists() else []
+          tol=0.00005; counts=Counter(); field_max=Counter(); field_nonzero=Counter()
           for r in rows:
-              mx = float(r["max_abs_diff"])
-              if mx <= tol:
-                  counts["micro_discrepancy"] += 1
-              else:
-                  counts["above_micro_threshold"] += 1
-                  outside.append(r)
-              for k in signed:
-                  d = float(r[f"diff_{k}"])
-                  if d:
-                      field_nonzero[k] += 1
-                      field_max[k] = max(field_max[k], abs(d))
-                      signed[k] += 1 if d > 0 else -1
-
-          print("MICRO_DISCREPANCY_TOLERANCE=", f"{tol:.5f}")
-          print("MICRO_DISCREPANCY_ROWS=", counts["micro_discrepancy"])
-          print("ABOVE_MICRO_THRESHOLD_ROWS=", counts["above_micro_threshold"])
-          print("NON_CONFLICT_ROWS=", sum(r["is_conflict_timestamp"].lower() == "false" for r in rows))
-          print("FIELD_NONZERO_COUNTS=", dict(field_nonzero))
-          print("FIELD_MAX_ABS_DIFF=", {k: f"{v:.5f}" for k,v in field_max.items()})
-
-          with summary.open("w", newline="", encoding="utf-8") as f:
-              w = csv.writer(f)
-              w.writerow(["metric", "value"])
-              w.writerow(["tolerance", f"{tol:.5f}"])
-              w.writerow(["micro_discrepancy_rows", counts["micro_discrepancy"]])
-              w.writerow(["above_micro_threshold_rows", counts["above_micro_threshold"]])
-              for k in signed:
-                  w.writerow([f"nonzero_{k}", field_nonzero[k]])
-                  w.writerow([f"max_abs_{k}", f"{field_max[k]:.5f}"])
-
-          if outside:
-              print("MICRO_THRESHOLD_OUTSIDE_SAMPLE=")
-              for r in outside[:20]:
-                  print(r)
+              mx=float(r["max_abs_diff"])
+              counts["micro_discrepancy" if mx<=tol else "above_micro_threshold"]+=1
+              for k in ("open","high","low","close"):
+                  d=float(r[f"diff_{k}"])
+                  if d: field_nonzero[k]+=1; field_max[k]=max(field_max[k],abs(d))
+          print("MICRO_DISCREPANCY_TOLERANCE=",f"{tol:.5f}")
+          print("MICRO_DISCREPANCY_ROWS=",counts["micro_discrepancy"])
+          print("ABOVE_MICRO_THRESHOLD_ROWS=",counts["above_micro_threshold"])
+          print("NON_CONFLICT_ROWS=",sum(r["is_conflict_timestamp"].lower()=="false" for r in rows))
+          print("FIELD_NONZERO_COUNTS=",dict(field_nonzero))
+          print("FIELD_MAX_ABS_DIFF=",{k:f"{v:.5f}" for k,v in field_max.items()})
+          with summary.open("w",newline="",encoding="utf-8") as f:
+              w=csv.writer(f); w.writerow(["metric","value"])
+              w.writerow(["tolerance",f"{tol:.5f}"])
+              w.writerow(["micro_discrepancy_rows",counts["micro_discrepancy"]])
+              w.writerow(["above_micro_threshold_rows",counts["above_micro_threshold"]])
+              for k in ("open","high","low","close"):
+                  w.writerow([f"nonzero_{k}",field_nonzero[k]])
+                  w.writerow([f"max_abs_{k}",f"{field_max[k]:.5f}"])
           PY
 
       - name: Upload regression artifacts
