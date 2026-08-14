@@ -151,6 +151,7 @@ def _write_conflict_audit(
     report: pd.DataFrame,
     summary: dict[str, object],
     session_summary: dict[str, object],
+    excluded_timestamps: list[str],
 ) -> None:
     artifacts = Path(output_dir) / "conflict_audit"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -160,6 +161,10 @@ def _write_conflict_audit(
             {
                 "conflicts": summary,
                 "weekly_session": session_summary,
+                "oos_policy": {
+                    "action": "exclude_entire_conflict_timestamp_groups",
+                    "excluded_timestamps": excluded_timestamps,
+                },
             },
             indent=2,
             sort_keys=True,
@@ -191,20 +196,31 @@ def ingest_current_year(start: date, end: date, output_dir: str | Path, *, timef
     if df.empty:
         raise HistDataIngestError("REAL_DATA_REQUIRED: current-year OOS HistData dataset is empty")
 
-    # Diagnostic only: do not remove all Sunday rows because legitimate FX trading
-    # resumes on Sunday evening UTC. Unambiguously closed-session rows are reported
-    # separately so they cannot be mistaken for valid market data.
     session_summary = audit_weekly_session(df)
     conflict_report, conflict_summary = audit_timestamp_conflicts(df)
-    _write_conflict_audit(output_dir, conflict_report, conflict_summary.to_dict(), session_summary)
+    excluded_conflict_timestamps: list[str] = []
     if conflict_summary.conflicting_timestamps:
-        raise HistDataIngestError(
-            "REAL_DATA_REQUIRED: conflicting duplicate timestamps detected; "
-            f"count={conflict_summary.conflicting_timestamps}, "
-            f"max_ohlc_diff={conflict_summary.max_abs_ohlc_diff}, "
-            f"weekly_session={session_summary}, "
-            f"audit={Path(output_dir) / 'conflict_audit'}"
+        if "timestamp" not in conflict_report.columns or conflict_report.empty:
+            raise HistDataIngestError("REAL_DATA_REQUIRED: conflict audit reported conflicts but no timestamps were available")
+        excluded_conflict_timestamps = sorted({pd.Timestamp(ts).tz_localize("UTC").isoformat() if pd.Timestamp(ts).tzinfo is None else pd.Timestamp(ts).tz_convert("UTC").isoformat() for ts in conflict_report["timestamp"].tolist()})
+        conflict_mask = df["timestamp"].isin(pd.to_datetime(excluded_conflict_timestamps, utc=True))
+        excluded_rows = int(conflict_mask.sum())
+        df = df.loc[~conflict_mask].copy()
+        LOGGER.warning(
+            "Excluded %d rows across %d unresolved HistData conflict timestamps from OOS; full audit preserved",
+            excluded_rows,
+            len(excluded_conflict_timestamps),
         )
+
+    _write_conflict_audit(
+        output_dir,
+        conflict_report,
+        conflict_summary.to_dict(),
+        session_summary,
+        excluded_conflict_timestamps,
+    )
+    if df.empty:
+        raise HistDataIngestError("REAL_DATA_REQUIRED: all current-year OOS rows were excluded by conflict policy")
 
     df = df.drop(columns=["source_year", "source_month"])
     df, duplicate_rows_removed = _dedupe_exact_source_timestamps(df)
@@ -226,7 +242,7 @@ def ingest_current_year(start: date, end: date, output_dir: str | Path, *, timef
         dataset_id=dataset_id,
         symbol="EURUSD",
         timeframe="M1",
-        source="HistData.com Generic ASCII M1 monthly current-year",
+        source="HistData.com Generic ASCII M1 monthly current-year; conflict timestamps excluded",
         source_hash=source_hash,
         quality_status=m1_report.status,
         output_path=normalized / f"EURUSD_M1_{dataset_id}.manifest.json",
@@ -245,7 +261,7 @@ def ingest_current_year(start: date, end: date, output_dir: str | Path, *, timef
         dataset_id=dataset_id,
         symbol="EURUSD",
         timeframe=timeframe,
-        source="HistData.com Generic ASCII M1 monthly current-year -> resampled",
+        source="HistData.com -> conflict timestamps excluded -> resampled",
         source_hash=source_hash,
         quality_status=report.status,
         output_path=normalized / f"EURUSD_{timeframe}_{dataset_id}.manifest.json",
@@ -256,6 +272,7 @@ def ingest_current_year(start: date, end: date, output_dir: str | Path, *, timef
         "m1_quality": m1_report.to_dict(),
         "archives": [item.archive for item in archives],
         "duplicate_rows_removed": duplicate_rows_removed,
+        "excluded_conflict_timestamps": excluded_conflict_timestamps,
         "weekly_session": session_summary,
     }
 
@@ -278,7 +295,7 @@ def main() -> int:
         )
         print(result["quality"])
         print(result["m1_quality"])
-        print({"duplicate_rows_removed": result["duplicate_rows_removed"]})
+        print({"duplicate_rows_removed": result["duplicate_rows_removed"], "excluded_conflict_timestamps": result["excluded_conflict_timestamps"]})
         print({"weekly_session": result["weekly_session"]})
         return 0
     except HistDataIngestError as exc:
