@@ -66,7 +66,7 @@ jobs:
           set -euo pipefail
           python research/real_data/timezone_crosscheck.py
 
-      - name: Build four-row cross-feed comparison including unresolved source conflicts
+      - name: Build canonical and unresolved source-variant cross-feed comparison
         run: |
           python - <<'PY'
           import csv
@@ -74,6 +74,7 @@ jobs:
           from pathlib import Path
 
           duka_path = Path("artifacts/dukascopy/eurusd-m1-bid-2026-07-05-2026-07-06.csv")
+          normalized_dir = Path("data/real/normalized")
           out_path = Path("artifacts/dukascopy/conflict_crossfeed_comparison.csv")
           targets = [
               datetime(2026, 7, 5, 22, 31, tzinfo=timezone.utc),
@@ -96,35 +97,42 @@ jobs:
                       return (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
                   except ValueError:
                       pass
+              for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+                  try:
+                      return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+                  except ValueError:
+                      pass
               return None
 
-          def read_ohlc_candidates(path):
+          def read_rows(path):
               found = {}
               with path.open(newline="", encoding="utf-8-sig") as f:
                   reader = csv.DictReader(f)
                   for row in reader:
                       raw = row.get("timestamp") or row.get("datetime") or row.get("timestamp_utc") or row.get("date")
-                      if not raw:
-                          continue
-                      ts = parse_ts(raw)
+                      ts = parse_ts(raw) if raw else None
                       if ts in targets:
                           found.setdefault(ts, []).append(row)
               return found
 
-          duka = read_ohlc_candidates(duka_path)
-          hist = {}
-          hist_sources = {}
-          for candidate in sorted(Path("data/real/normalized").rglob("*.csv")):
+          duka = read_rows(duka_path)
+          canonical = {}
+          variants = {}
+          sources = {}
+
+          for path in sorted(normalized_dir.rglob("*.csv")):
               try:
-                  candidate_rows = read_ohlc_candidates(candidate)
+                  found = read_rows(path)
               except (OSError, UnicodeDecodeError, csv.Error):
                   continue
-              for ts, rows in candidate_rows.items():
+              is_conflict = path.name.endswith("_source_conflicts.csv")
+              for ts, rows in found.items():
+                  target = variants if is_conflict else canonical
                   for row in rows:
-                      hist.setdefault(ts, []).append(row)
-                      hist_sources.setdefault(ts, []).append(str(candidate))
+                      target.setdefault(ts, []).append(row)
+                      sources.setdefault((ts, "variant" if is_conflict else "canonical"), []).append(str(path))
 
-          fields = ["timestamp_utc","hist_variant","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","match_status","hist_source"]
+          fields = ["timestamp_utc","record_type","variant","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","match_status","hist_source"]
 
           def num(row, *names):
               if not row:
@@ -145,39 +153,46 @@ jobs:
           rows = []
           for ts in targets:
               ds = duka.get(ts, [])
-              hs = hist.get(ts, [])
+              hs = canonical.get(ts, [])
+              vs = variants.get(ts, [])
               if not ds:
-                  rows.append([ts.isoformat(), "", "", "", "", "", "", "", "", "", "", "", "", "", "MISSING_DUKASCOPY", ""])
+                  rows.append([ts.isoformat(), "", "", "", "", "", "", "", "", "", "", "", "", "", "", "MISSING_DUKASCOPY", ""])
                   continue
               d = ds[0]
               dv = [num(d,"open","duka_open"),num(d,"high","duka_high"),num(d,"low","duka_low"),num(d,"close","duka_close")]
-              if not hs:
-                  rows.append([ts.isoformat(), "", "", "", "", "", *map(fmt,dv), "", "", "", "", "MISSING_HISTDATA", "NOT_FOUND"])
-                  continue
-              for idx, h in enumerate(hs, 1):
+              records = [("canonical", i, h) for i,h in enumerate(hs,1)] + [("source_variant", i, h) for i,h in enumerate(vs,1)]
+              if not records:
+                  rows.append([ts.isoformat(), "", "", "", "", "", *map(fmt,dv), "", "", "", "", "MISSING_HISTDATA", ""])
+              for record_type, idx, h in records:
                   hv = [num(h,"open","hist_open"),num(h,"high","hist_high"),num(h,"low","hist_low"),num(h,"close","hist_close")]
                   diffs = [None if a is None or b is None else a-b for a,b in zip(hv,dv)]
-                  if any(x is None for x in diffs):
-                      status = "INCOMPLETE"
-                  else:
-                      status = "MATCH" if all(abs(x) < 1e-12 for x in diffs) else "DIFFERENT"
-                  source_list = hist_sources.get(ts, ["NOT_FOUND"])
+                  status = "INCOMPLETE" if any(x is None for x in diffs) else ("MATCH" if all(abs(x) < 1e-12 for x in diffs) else "DIFFERENT")
+                  source_list = sources.get((ts, "variant" if record_type == "source_variant" else "canonical"), ["NOT_FOUND"])
                   source = source_list[min(idx-1, len(source_list)-1)]
-                  rows.append([ts.isoformat(), idx, *map(fmt,hv), *map(fmt,dv), *map(fmt,diffs), status, source])
+                  rows.append([ts.isoformat(), record_type, idx, *map(fmt,hv), *map(fmt,dv), *map(fmt,diffs), status, source])
 
           with out_path.open("w",newline="",encoding="utf-8") as out:
               w=csv.writer(out); w.writerow(fields); w.writerows(rows)
 
-          print("HISTDATA_MATCHED_TIMESTAMPS=", len(hist))
-          print("HISTDATA_CANDIDATE_ROWS=", sum(len(v) for v in hist.values()))
-          print("DUKASCOPY_MATCHED_TIMESTAMPS=", len(duka))
+          canonical_ts = len(canonical)
+          variant_ts = len(variants)
+          canonical_rows = sum(len(v) for v in canonical.values())
+          variant_rows = sum(len(v) for v in variants.values())
+          duka_ts = len(duka)
+          print("HISTDATA_CANONICAL_MATCHED_TIMESTAMPS=", canonical_ts)
+          print("HISTDATA_CANONICAL_ROWS=", canonical_rows)
+          print("HISTDATA_SOURCE_CONFLICT_TIMESTAMPS=", variant_ts)
+          print("HISTDATA_SOURCE_CONFLICT_ROWS=", variant_rows)
+          print("DUKASCOPY_MATCHED_TIMESTAMPS=", duka_ts)
           print("COMPARISON_FILE=", out_path)
           for row in rows: print("CROSSFEED_ROW=", row)
 
-          if len(duka) != 4:
-              raise SystemExit(f"Expected 4 Dukascopy timestamps, got {len(duka)}")
-          if len(hist) != 4:
-              raise SystemExit(f"Expected 4 HistData conflict timestamps, got {len(hist)}")
+          if duka_ts != 4:
+              raise SystemExit(f"Expected 4 Dukascopy timestamps, got {duka_ts}")
+          if canonical_ts != 4:
+              raise SystemExit(f"Expected 4 canonical HistData timestamps, got {canonical_ts}")
+          if variant_ts not in (0, 4):
+              raise SystemExit(f"Expected either 0 or 4 unresolved conflict timestamps, got {variant_ts}")
           PY
 
       - name: Upload cross-feed artifacts
