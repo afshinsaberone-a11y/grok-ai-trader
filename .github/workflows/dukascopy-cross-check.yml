@@ -49,7 +49,7 @@ jobs:
           ]
 
           def parse_ts(value):
-              s = value.strip()
+              s = str(value).strip()
               if s.isdigit():
                   n = int(s)
                   if n >= 100_000_000_000:
@@ -66,10 +66,13 @@ jobs:
 
           with duka_path.open(newline="", encoding="utf-8-sig") as f:
               reader = csv.DictReader(f)
-              duka = {parse_ts(r["timestamp"]): r for r in reader if parse_ts(r["timestamp"]) in targets}
+              duka = {}
+              for r in reader:
+                  ts = parse_ts(r.get("timestamp", ""))
+                  if ts in targets:
+                      duka[ts] = r
 
-          # Search the checked-out repository recursively for the canonical HistData
-          # conflict dataset. Missing data is never fabricated.
+          # Repository-side HistData discovery. No values are fabricated.
           hist_candidates = []
           for root in (Path("data"), Path("artifacts"), Path("tests"), Path("fixtures")):
               if root.exists():
@@ -77,7 +80,7 @@ jobs:
           hist_candidates = [p for p in hist_candidates if "crossfeed" not in p.name.lower() and "dukascopy" not in str(p).lower()]
 
           hist = {}
-          hist_source = "NOT_FOUND"
+          hist_sources = {}
           for hp in hist_candidates:
               try:
                   with hp.open(newline="", encoding="utf-8-sig") as f:
@@ -87,12 +90,10 @@ jobs:
                           continue
                       for row in reader:
                           raw = row.get("timestamp_utc") or row.get("timestamp") or row.get("datetime")
-                          if not raw:
-                              continue
-                          ts = parse_ts(raw)
+                          ts = parse_ts(raw) if raw else None
                           if ts in targets and any(row.get(k) not in (None, "") for k in ("open", "hist_open")):
                               hist[ts] = row
-                              hist_source = str(hp)
+                              hist_sources[ts] = str(hp)
               except (OSError, UnicodeDecodeError, csv.Error):
                   continue
 
@@ -113,16 +114,28 @@ jobs:
               hv = [num(h,"open","hist_open"),num(h,"high","hist_high"),num(h,"low","hist_low"),num(h,"close","hist_close")]
               dv = [num(d,"open"),num(d,"high"),num(d,"low"),num(d,"close")]
               diffs = [None if a is None or b is None else a-b for a,b in zip(hv,dv)]
-              status = "MISSING_HISTDATA" if h is None else ("MISSING_DUKASCOPY" if d is None else ("MATCH" if all(abs(x)<1e-12 for x in diffs) else "DIFFERENT"))
-              rows.append([ts.isoformat(),*map(fmt,hv),*map(fmt,dv),*map(fmt,diffs),status,hist_source])
+              if h is None:
+                  status = "MISSING_HISTDATA"
+              elif d is None:
+                  status = "MISSING_DUKASCOPY"
+              elif all(abs(x) < 1e-12 for x in diffs if x is not None) and all(x is not None for x in diffs):
+                  status = "MATCH"
+              else:
+                  status = "DIFFERENT"
+              rows.append([ts.isoformat(),*map(fmt,hv),*map(fmt,dv),*map(fmt,diffs),status,hist_sources.get(ts,"NOT_FOUND")])
 
           with out_path.open("w",newline="",encoding="utf-8") as out:
               w=csv.writer(out); w.writerow(fields); w.writerows(rows)
-          print("HISTDATA_SOURCE=",hist_source)
+
           print("DUKASCOPY_MATCHED_ROWS=",len(duka))
           print("HISTDATA_MATCHED_ROWS=",len(hist))
           print("COMPARISON_FILE=",out_path)
           for row in rows: print("CROSSFEED_ROW=",row)
+
+          # Never fail merely because repository-side HistData is absent.
+          # The artifact is the authoritative output for manual/next-stage inspection.
+          if len(duka) != 4:
+              raise SystemExit(f"Expected 4 Dukascopy rows, got {len(duka)}")
           PY
 
       - name: Upload cross-feed artifacts
