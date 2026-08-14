@@ -10,11 +10,9 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import pandas as pd
-
 
 SEED = 20260814
 RISK_PCT = 0.01
@@ -45,7 +43,13 @@ def indicators(df: pd.DataFrame) -> pd.DataFrame:
         (x.low - x.close.shift()).abs(),
     ], axis=1).max(axis=1).rolling(14).mean()
     x["hour"] = x.timestamp.dt.hour
+    x["day"] = x.timestamp.dt.date
     return x
+
+
+def london_range(x: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    overnight = x[x.hour < 7].groupby("day").agg(range_high=("high", "max"), range_low=("low", "min"))
+    return x.day.map(overnight.range_high), x.day.map(overnight.range_low)
 
 
 def signals(x: pd.DataFrame, family: str) -> tuple[pd.Series, pd.Series, float, float]:
@@ -70,15 +74,9 @@ def signals(x: pd.DataFrame, family: str) -> tuple[pd.Series, pd.Series, float, 
         atr_mult, rr = 1.8, 2.5
     elif family == "london_breakout":
         in_window = (x.hour >= 7) & (x.hour < 10)
-        prior = x[(x.hour >= 0) & (x.hour < 7)]
-        range_hi = prior.groupby(prior.timestamp.dt.date).high.transform("max")
-        range_lo = prior.groupby(prior.timestamp.dt.date).low.transform("min")
-        # Map the overnight range back onto the full index by calendar date.
-        daily = x.assign(day=x.timestamp.dt.date).groupby("day").agg(hi=("high", "max"), lo=("low", "min"))
-        session = x.timestamp.dt.date.map(daily.hi).to_numpy(), x.timestamp.dt.date.map(daily.lo).to_numpy()
-        hi, lo = pd.Series(session[0], index=x.index), pd.Series(session[1], index=x.index)
-        long_ = in_window & (x.close > hi.shift(1))
-        short_ = in_window & (x.close < lo.shift(1))
+        hi, lo = london_range(x)
+        long_ = in_window & (x.close > hi)
+        short_ = in_window & (x.close < lo)
         atr_mult, rr = 1.5, 2.0
     else:
         raise ValueError(f"unknown family: {family}")
@@ -103,20 +101,32 @@ def backtest(df: pd.DataFrame, family: str) -> dict:
         row = x.iloc[i]
         if position == 0:
             if sig.iloc[i] == 1:
-                position = 1; entry = row.close; stop = entry - atr_mult * a; tp = entry + rr * (entry - stop)
+                position = 1
+                entry = row.close
+                stop = entry - atr_mult * a
+                tp = entry + rr * (entry - stop)
             elif sig.iloc[i] == -1:
-                position = -1; entry = row.close; stop = entry + atr_mult * a; tp = entry - rr * (stop - entry)
+                position = -1
+                entry = row.close
+                stop = entry + atr_mult * a
+                tp = entry - rr * (stop - entry)
         elif position == 1 and (row.low <= stop or row.high >= tp or sig.iloc[i] == -1):
             exit_ = stop if row.low <= stop else (tp if row.high >= tp else row.close)
             r = (exit_ - entry) / (entry - stop)
-            rs.append(r); equity *= 1 + r * RISK_PCT; position = 0
+            rs.append(r)
+            equity *= 1 + r * RISK_PCT
+            position = 0
         elif position == -1 and (row.high >= stop or row.low <= tp or sig.iloc[i] == 1):
             exit_ = stop if row.high >= stop else (tp if row.low <= tp else row.close)
             r = (entry - exit_) / (stop - entry)
-            rs.append(r); equity *= 1 + r * RISK_PCT; position = 0
-        peak = max(peak, equity); max_dd = max(max_dd, (peak - equity) / peak)
-    wins = sum(r > 0 for r in rs); losses = sum(r <= 0 for r in rs)
-    gp = sum(r for r in rs if r > 0); gl = -sum(r for r in rs if r <= 0)
+            rs.append(r)
+            equity *= 1 + r * RISK_PCT
+            position = 0
+        peak = max(peak, equity)
+        max_dd = max(max_dd, (peak - equity) / peak)
+    wins = sum(r > 0 for r in rs)
+    gp = sum(r for r in rs if r > 0)
+    gl = -sum(r for r in rs if r <= 0)
     pf = gp / gl if gl else (float("inf") if gp else 0.0)
     return {
         "family": family,
@@ -150,8 +160,12 @@ def main() -> int:
     for segment, part in parts.items():
         if part.empty:
             raise ValueError(f"REAL_DATA_REQUIRED: empty segment {segment}")
-        report["results"][segment] = sorted((backtest(part, fam) for fam in FAMILIES), key=lambda r: (-float(r["profit_factor"] if r["profit_factor"] != "inf" else 999), r["max_dd_pct"]))
-    out = Path(args.output); out.parent.mkdir(parents=True, exist_ok=True)
+        report["results"][segment] = sorted(
+            (backtest(part, fam) for fam in FAMILIES),
+            key=lambda r: (-float(r["profit_factor"] if r["profit_factor"] != "inf" else 999), r["max_dd_pct"]),
+        )
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
