@@ -1,0 +1,76 @@
+name: Multi-Family Strategy Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Pre-OOS start"
+        required: true
+        default: "2022-01-01"
+        type: string
+      end:
+        description: "Pre-OOS end (exclusive)"
+        required: true
+        default: "2026-01-01"
+        type: string
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore historical HistData cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-eurusd-m1-pre-oos-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: |
+            histdata-eurusd-m1-pre-oos-
+            histdata-eurusd-m1-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download real pre-OOS HistData only
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD --timeframe M1 \
+            --start "$START" --end "$END" \
+            --output data/real --validate --manifest
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+      - name: Build pre-OOS M5 dataset
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+          src=Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          df=pd.read_csv(src)
+          df['timestamp']=pd.to_datetime(df['timestamp'],utc=True)
+          for c in ['open','high','low','close','volume']:
+              df[c]=pd.to_numeric(df[c])
+          work=df.set_index('timestamp')[['open','high','low','close','volume']]
+          m5=work.resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index()
+          out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv')
+          m5.to_csv(out,index=False)
+          print('PRE_OOS_M5_ROWS=',len(m5))
+          PY
+      - name: Run all strategy families on pre-OOS only
+        run: |
+          python -m research.optimization.multi_family_discovery \
+            --data data/real/normalized/EURUSD_M5_20220101_20251231.csv \
+            --output artifacts/multi_family_discovery.json
+      - name: Upload discovery artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-family-discovery
+          path: |
+            artifacts/multi_family_discovery.json
+            data/real/normalized/*.manifest.json
+          if-no-files-found: warn
