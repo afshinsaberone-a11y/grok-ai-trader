@@ -34,82 +34,112 @@ jobs:
           echo "--- RAW CSV FIRST 8 LINES ---"
           head -n 8 "$FILE"
 
-      - name: Extract four known conflict timestamps
+      - name: Build four-row cross-feed comparison
         run: |
           python - <<'PY'
           import csv
           from datetime import datetime, timezone
           from pathlib import Path
 
-          path = Path("artifacts/dukascopy/eurusd-m1-bid-2026-07-05-2026-07-06.csv")
-          targets = {
+          duka_path = Path("artifacts/dukascopy/eurusd-m1-bid-2026-07-05-2026-07-06.csv")
+          out_path = Path("artifacts/dukascopy/conflict_crossfeed_comparison.csv")
+          targets = [
               datetime(2026, 7, 5, 22, 31, tzinfo=timezone.utc),
               datetime(2026, 7, 5, 22, 32, tzinfo=timezone.utc),
               datetime(2026, 7, 5, 22, 34, tzinfo=timezone.utc),
               datetime(2026, 7, 5, 22, 35, tzinfo=timezone.utc),
-          }
+          ]
 
-          def parse_ts(value: str) -> datetime | None:
+          def parse_ts(value):
               s = value.strip()
-              # Dukascopy Node emits epoch milliseconds in the CSV timestamp column.
               if s.isdigit():
                   n = int(s)
-                  if n >= 100_000_000_000:  # epoch milliseconds
+                  if n >= 100_000_000_000:
                       return datetime.fromtimestamp(n / 1000, tz=timezone.utc)
-                  if n >= 100_000_000:      # epoch seconds, defensive support
+                  if n >= 100_000_000:
                       return datetime.fromtimestamp(n, tz=timezone.utc)
               for candidate in (s, s.replace("Z", "+00:00"), s.replace(" ", "T")):
                   try:
                       ts = datetime.fromisoformat(candidate)
-                      if ts.tzinfo is None:
-                          ts = ts.replace(tzinfo=timezone.utc)
-                      return ts.astimezone(timezone.utc)
-                  except ValueError:
-                      pass
-              for fmt in (
-                  "%Y-%m-%d %H:%M:%S",
-                  "%Y-%m-%d %H:%M",
-                  "%Y/%m/%d %H:%M:%S",
-                  "%Y/%m/%d %H:%M",
-              ):
-                  try:
-                      return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+                      return (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
                   except ValueError:
                       pass
               return None
 
-          with path.open(newline="", encoding="utf-8-sig") as f:
-              rows = list(csv.reader(f))
+          with duka_path.open(newline="", encoding="utf-8-sig") as f:
+              reader = csv.DictReader(f)
+              duka = {}
+              for row in reader:
+                  ts = parse_ts(row["timestamp"])
+                  if ts in targets:
+                      duka[ts] = row
 
-          print("CSV_HEADER=", rows[0] if rows else [])
-          print("RAW_TIMESTAMP_SAMPLES=")
-          for row in rows[1:7]:
-              if row:
-                  print("  ", repr(row[0]), "=>", parse_ts(row[0]))
+          # HistData source is intentionally read only if the repository contains the
+          # canonical conflict dataset. Never fabricate missing HistData values.
+          candidates = [
+              Path("data/histdata/conflicts.csv"),
+              Path("data/conflicts.csv"),
+              Path("artifacts/histdata/conflicts.csv"),
+              Path("artifacts/histdata/conflict_rows.csv"),
+          ]
+          hist_path = next((p for p in candidates if p.exists()), None)
+          hist = {}
+          hist_source = "NOT_FOUND"
+          if hist_path:
+              hist_source = str(hist_path)
+              with hist_path.open(newline="", encoding="utf-8-sig") as f:
+                  reader = csv.DictReader(f)
+                  for row in reader:
+                      raw = row.get("timestamp_utc") or row.get("timestamp") or row.get("datetime")
+                      if not raw:
+                          continue
+                      ts = parse_ts(raw)
+                      if ts in targets:
+                          hist[ts] = row
 
-          matches = []
-          for row in rows[1:]:
-              if not row:
-                  continue
-              ts = parse_ts(row[0])
-              if ts in targets:
-                  matches.append(row)
+          fields = [
+              "timestamp_utc",
+              "hist_open", "hist_high", "hist_low", "hist_close",
+              "duka_open", "duka_high", "duka_low", "duka_close",
+              "diff_open", "diff_high", "diff_low", "diff_close",
+              "match_status", "hist_source",
+          ]
 
-          print("MATCHED_ROWS=", len(matches))
-          for row in matches:
-              print("DUKASCOPY_ROW=", row)
+          def num(row, *names):
+              for name in names:
+                  if row and row.get(name) not in (None, ""):
+                      return float(row[name])
+              return None
 
-          with open("artifacts/dukascopy/conflict_crosscheck.csv", "w", newline="", encoding="utf-8") as out:
+          def fmt(x):
+              return "" if x is None else f"{x:.5f}"
+
+          rows = []
+          for ts in targets:
+              h = hist.get(ts)
+              d = duka.get(ts)
+              dv = [num(d, "open"), num(d, "high"), num(d, "low"), num(d, "close")]
+              hv = [num(h, "open", "hist_open"), num(h, "high", "hist_high"), num(h, "low", "hist_low"), num(h, "close", "hist_close")]
+              diffs = [None if a is None or b is None else a - b for a, b in zip(hv, dv)]
+              status = "MISSING_HISTDATA" if h is None else ("MISSING_DUKASCOPY" if d is None else ("MATCH" if all(abs(x) < 1e-12 for x in diffs) else "DIFFERENT"))
+              rows.append([
+                  ts.isoformat(), *map(fmt, hv), *map(fmt, dv), *map(fmt, diffs), status, hist_source
+              ])
+
+          with out_path.open("w", newline="", encoding="utf-8") as out:
               w = csv.writer(out)
-              w.writerow(["timestamp_utc", "open", "high", "low", "close", "volume"])
-              for row in matches:
-                  w.writerow(row[:6])
+              w.writerow(fields)
+              w.writerows(rows)
 
-          if len(matches) == 0:
-              raise SystemExit("No known conflict timestamps returned by Dukascopy Node after epoch-ms parsing")
+          print("HISTDATA_SOURCE=", hist_source)
+          print("DUKASCOPY_MATCHED_ROWS=", len(duka))
+          print("HISTDATA_MATCHED_ROWS=", len(hist))
+          print("COMPARISON_FILE=", out_path)
+          for row in rows:
+              print("CROSSFEED_ROW=", row)
           PY
 
-      - name: Upload cross-check artifacts
+      - name: Upload cross-feed artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dukascopy-node-cross-check-2026-07-05
