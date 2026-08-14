@@ -1,0 +1,194 @@
+name: Real Feed Micro-Discrepancy Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/micro-discrepancy-diagnostic.yml
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download real Dukascopy EURUSD M1
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/diagnostic
+          rm -rf download
+          npx --yes dukascopy-node -i eurusd -from 2026-07-01 -to 2026-07-06 -t m1 -f csv
+          FILE=$(find download -maxdepth 1 -type f -name '*.csv' | head -n 1)
+          test -n "$FILE"
+          test -s "$FILE"
+          test "$(head -n 1 "$FILE")" = "timestamp,open,high,low,close"
+          cp "$FILE" artifacts/diagnostic/dukascopy.csv
+
+      - name: Download and normalize real HistData EURUSD M1
+        run: |
+          set -euo pipefail
+          rm -rf data/real
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --timeframe M1 \
+            --start 2026-07-01 \
+            --end 2026-07-06 \
+            --output data/real \
+            --validate \
+            --manifest
+
+      - name: Diagnose systematic micro-discrepancies
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          from collections import Counter
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from statistics import mean
+
+          duka_path = Path("artifacts/diagnostic/dukascopy.csv")
+          normalized = Path("data/real/normalized")
+          canonical_paths = sorted(p for p in normalized.glob("*.csv") if not p.name.endswith("_source_conflicts.csv"))
+          conflict_paths = sorted(normalized.glob("*_source_conflicts.csv"))
+          if len(canonical_paths) != 1:
+              raise SystemExit(f"Expected exactly one canonical HistData CSV, got {canonical_paths}")
+
+          def parse_ts(value):
+              s = str(value).strip()
+              if s.isdigit():
+                  n = int(s)
+                  if n >= 100_000_000_000:
+                      return datetime.fromtimestamp(n / 1000, tz=timezone.utc)
+              for candidate in (s, s.replace("Z", "+00:00"), s.replace(" ", "T")):
+                  try:
+                      ts = datetime.fromisoformat(candidate)
+                      return (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+                  except ValueError:
+                      pass
+              return None
+
+          def read(path):
+              result = {}
+              with path.open(newline="", encoding="utf-8-sig") as f:
+                  for row in csv.DictReader(f):
+                      raw = row.get("timestamp") or row.get("datetime") or row.get("timestamp_utc") or row.get("date")
+                      ts = parse_ts(raw) if raw else None
+                      if ts is not None:
+                          result[ts] = row
+              return result
+
+          def ohlc(row):
+              vals=[]
+              lower={str(k).strip().lower():v for k,v in row.items()}
+              for key in ("open","high","low","close"):
+                  try:
+                      vals.append(float(lower.get(key) or lower.get(f"{key}_bid")))
+                  except (TypeError, ValueError):
+                      return None
+              return vals
+
+          duka = read(duka_path)
+          hist = read(canonical_paths[0])
+          conflicts = {}
+          for path in conflict_paths:
+              with path.open(newline="", encoding="utf-8-sig") as f:
+                  for row in csv.DictReader(f):
+                      ts = parse_ts(row.get("timestamp"))
+                      if ts is not None:
+                          conflicts.setdefault(ts, []).append((path, row))
+
+          rows=[]
+          sign_counter=Counter()
+          magnitude=[]
+          changed_fields=Counter()
+          by_hour=Counter()
+          conflict_mismatch=0
+          non_conflict_mismatch=0
+
+          for ts in sorted(set(duka)&set(hist)):
+              hv=ohlc(hist[ts]); dv=ohlc(duka[ts])
+              if hv is None or dv is None:
+                  continue
+              diffs=[h-d for h,d in zip(hv,dv)]
+              max_abs=max(abs(x) for x in diffs)
+              if max_abs <= 1e-12:
+                  continue
+              changed=[i for i,x in enumerate(diffs) if abs(x)>1e-12]
+              changed_fields.update(changed)
+              for x in diffs:
+                  if abs(x)>1e-12:
+                      sign_counter["positive" if x>0 else "negative"] += 1
+                      magnitude.append(abs(x))
+              by_hour[ts.hour]+=1
+              is_conflict=ts in conflicts
+              if is_conflict:
+                  conflict_mismatch += 1
+              else:
+                  non_conflict_mismatch += 1
+              rows.append([ts.isoformat(),*hv,*dv,*diffs,max_abs,is_conflict,len(conflicts.get(ts,[])),len(changed)])
+
+          out=Path("artifacts/diagnostic/micro_discrepancy_diagnostic.csv")
+          with out.open("w",newline="",encoding="utf-8") as f:
+              w=csv.writer(f)
+              w.writerow(["timestamp_utc","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","max_abs_diff","is_conflict_timestamp","conflict_variant_count","changed_field_count"])
+              w.writerows(rows)
+
+          summary=Path("artifacts/diagnostic/micro_discrepancy_summary.csv")
+          with summary.open("w",newline="",encoding="utf-8") as f:
+              w=csv.writer(f)
+              w.writerow(["metric","value"])
+              w.writerow(["mismatch_count",len(rows)])
+              w.writerow(["conflict_mismatch_count",conflict_mismatch])
+              w.writerow(["non_conflict_mismatch_count",non_conflict_mismatch])
+              w.writerow(["max_abs_diff",f"{max(magnitude):.10f}" if magnitude else "0"])
+              w.writerow(["mean_abs_diff",f"{mean(magnitude):.10f}" if magnitude else "0"])
+              w.writerow(["positive_diff_components",sign_counter["positive"]])
+              w.writerow(["negative_diff_components",sign_counter["negative"]])
+              w.writerow(["open_changed_count",changed_fields[0]])
+              w.writerow(["high_changed_count",changed_fields[1]])
+              w.writerow(["low_changed_count",changed_fields[2]])
+              w.writerow(["close_changed_count",changed_fields[3]])
+              for hour,count in sorted(by_hour.items()):
+                  w.writerow([f"mismatch_count_hour_utc_{hour:02d}",count])
+
+          print("MICRO_MISMATCH_COUNT=",len(rows))
+          print("MICRO_CONFLICT_MISMATCH_COUNT=",conflict_mismatch)
+          print("MICRO_NON_CONFLICT_MISMATCH_COUNT=",non_conflict_mismatch)
+          print("MICRO_MAX_ABS_DIFF=",f"{max(magnitude):.10f}" if magnitude else "0")
+          print("MICRO_MEAN_ABS_DIFF=",f"{mean(magnitude):.10f}" if magnitude else "0")
+          print("MICRO_POSITIVE_COMPONENTS=",sign_counter["positive"])
+          print("MICRO_NEGATIVE_COMPONENTS=",sign_counter["negative"])
+          print("MICRO_CHANGED_FIELDS=",dict(changed_fields))
+          print("MICRO_MISMATCH_BY_HOUR_UTC=",dict(sorted(by_hour.items())))
+          for row in rows:
+              print("MICRO_ROW=",row)
+
+          if len(rows) != 12:
+              raise SystemExit(f"Expected 12 known micro-discrepancies, got {len(rows)}")
+          if conflict_mismatch != 0:
+              raise SystemExit(f"Known micro-discrepancies unexpectedly overlap source conflicts: {conflict_mismatch}")
+          PY
+
+      - name: Upload diagnostic artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: micro-discrepancy-diagnostic-2026-07-01-2026-07-06
+          path: |
+            artifacts/diagnostic/
+            data/real/normalized/
+          if-no-files-found: error
