@@ -1,12 +1,4 @@
-"""HistData.com real EURUSD M1 ingestion.
-
-HistData Generic ASCII publishes historical M1 OHLCV archives by year.
-The download page exposes a per-dataset token and the archive is requested
-through /get.php. HistData's M1 schema is timestamp, Open, High, Low, Close,
-Volume; timestamps are fixed EST (UTC-5) without DST adjustments.
-
-No synthetic fallback is permitted.
-"""
+"""HistData.com real EURUSD M1 ingestion."""
 
 from __future__ import annotations
 
@@ -56,21 +48,41 @@ def _fetch(url: str, *, timeout: int = 60) -> bytes:
         return response.read()
 
 
+def _input_attrs(tag: str) -> dict[str, str]:
+    """Parse an HTML input tag without assuming attribute ordering."""
+    attrs: dict[str, str] = {}
+    for match in re.finditer(
+        r"([:\w-]+)\s*=\s*([\"'])(.*?)\2",
+        tag,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        attrs[match.group(1).lower()] = html.unescape(match.group(3))
+    return attrs
+
+
 def _hidden_form(html_text: str) -> dict[str, str]:
+    """Extract the current HistData download form fields.
+
+    HistData has changed the ordering/markup of its form attributes over time.
+    Parse complete input tags rather than relying on ``name`` appearing before
+    ``value``. This preserves the real-data-only contract: if the live page
+    does not expose the required token, ingestion still fails rather than
+    fabricating a download URL or data.
+    """
     fields: dict[str, str] = {}
-    for name in ("tk", "date", "datemonth", "platform", "timeframe", "fxpair"):
-        patterns = (
-            rf'<input[^>]+name=["\']{re.escape(name)}["\'][^>]+value=["\']([^"\']+)["\']',
-            rf'<input[^>]+id=["\']{re.escape(name)}["\'][^>]+value=["\']([^"\']+)["\']',
-        )
-        for pattern in patterns:
-            match = re.search(pattern, html_text, flags=re.IGNORECASE)
-            if match:
-                fields[name] = html.unescape(match.group(1))
-                break
-    missing = {k for k in ("tk", "date", "datemonth", "platform", "timeframe", "fxpair") if k not in fields}
+    for tag_match in re.finditer(r"<input\b[^>]*>", html_text, flags=re.IGNORECASE | re.DOTALL):
+        attrs = _input_attrs(tag_match.group(0))
+        key = (attrs.get("name") or attrs.get("id") or "").lower()
+        if key in {"tk", "date", "datemonth", "platform", "timeframe", "fxpair"} and "value" in attrs:
+            fields[key] = attrs["value"]
+
+    required = ("tk", "date", "datemonth", "platform", "timeframe", "fxpair")
+    missing = {k for k in required if k not in fields}
     if missing:
-        raise HistDataIngestError(f"REAL_DATA_REQUIRED: HistData download form missing fields: {sorted(missing)}")
+        raise HistDataIngestError(
+            "REAL_DATA_REQUIRED: HistData download form missing fields: "
+            f"{sorted(missing)}"
+        )
     return fields
 
 
@@ -162,11 +174,9 @@ def _parse_csv(payload: bytes) -> pd.DataFrame:
 
 
 def _dedupe_exact_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Remove only exact duplicate source rows and reject conflicting duplicates."""
     duplicate_mask = df.duplicated(subset=["timestamp"], keep=False)
     if not duplicate_mask.any():
         return df, 0
-
     duplicate_rows = df.loc[duplicate_mask].copy()
     compare_columns = ["timestamp", "open", "high", "low", "close", "volume"]
     conflicting_timestamps: list[str] = []
@@ -177,14 +187,12 @@ def _dedupe_exact_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, int
             conflicting_timestamps.append(str(timestamp))
         else:
             removed += len(group) - 1
-
     if conflicting_timestamps:
         preview = ", ".join(conflicting_timestamps[:5])
         raise HistDataIngestError(
             "REAL_DATA_REQUIRED: conflicting duplicate timestamps in HistData source; "
             f"examples: {preview}"
         )
-
     deduped = df.drop_duplicates(subset=["timestamp"], keep="first").reset_index(drop=True)
     LOGGER.warning("Removed %d exact duplicate HistData source rows", removed)
     return deduped, removed
