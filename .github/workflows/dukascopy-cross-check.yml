@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/dukascopy-cross-check.yml
       - research/real_data/histdata_ingest.py
+      - research/real_data/timezone_crosscheck.py
 
 jobs:
   cross-check:
@@ -59,6 +60,11 @@ jobs:
             --manifest
           echo "--- NORMALIZED HISTDATA FILES ---"
           find data/real/normalized -type f -name '*.csv' -print | sort
+
+      - name: Diagnose explicit HistData EST to UTC alignment
+        run: |
+          set -euo pipefail
+          python research/real_data/timezone_crosscheck.py
 
       - name: Build four-row cross-feed comparison including unresolved source conflicts
         run: |
@@ -146,7 +152,7 @@ jobs:
               d = ds[0]
               dv = [num(d,"open","duka_open"),num(d,"high","duka_high"),num(d,"low","duka_low"),num(d,"close","duka_close")]
               if not hs:
-                  rows.append([ts.isoformat(), "", "", "", "", *map(fmt,dv), "", "", "", "", "MISSING_HISTDATA", "NOT_FOUND"])
+                  rows.append([ts.isoformat(), "", "", "", "", "", *map(fmt,dv), "", "", "", "", "MISSING_HISTDATA", "NOT_FOUND"])
                   continue
               for idx, h in enumerate(hs, 1):
                   hv = [num(h,"open","hist_open"),num(h,"high","hist_high"),num(h,"low","hist_low"),num(h,"close","hist_close")]
@@ -155,7 +161,8 @@ jobs:
                       status = "INCOMPLETE"
                   else:
                       status = "MATCH" if all(abs(x) < 1e-12 for x in diffs) else "DIFFERENT"
-                  source = hist_sources.get(ts, ["NOT_FOUND"] * len(hs))[min(idx-1, len(hist_sources.get(ts, []))-1)]
+                  source_list = hist_sources.get(ts, ["NOT_FOUND"])
+                  source = source_list[min(idx-1, len(source_list)-1)]
                   rows.append([ts.isoformat(), idx, *map(fmt,hv), *map(fmt,dv), *map(fmt,diffs), status, source])
 
           with out_path.open("w",newline="",encoding="utf-8") as out:
