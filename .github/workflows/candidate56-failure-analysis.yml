@@ -1,0 +1,70 @@
+name: Candidate 56 Failure Analysis
+
+on:
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore historical HistData cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-eurusd-m1-pre-oos-2022-01-01-2026-01-01
+          restore-keys: |
+            histdata-eurusd-m1-pre-oos-
+            histdata-eurusd-m1-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download real pre-OOS HistData only
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --timeframe M1 \
+            --start 2022-01-01 \
+            --end 2026-01-01 \
+            --output data/real \
+            --validate \
+            --manifest
+      - name: Resample and analyze Candidate 56 on pre-OOS only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+          src = Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          if not src.exists():
+              raise SystemExit(f'REAL_DATA_REQUIRED: missing normalized dataset: {src}')
+          df = pd.read_csv(src)
+          df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+          df['open'] = pd.to_numeric(df['open'])
+          df['high'] = pd.to_numeric(df['high'])
+          df['low'] = pd.to_numeric(df['low'])
+          df['close'] = pd.to_numeric(df['close'])
+          out = Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv')
+          rows = []
+          work = df.set_index('timestamp')[['open','high','low','close','volume']]
+          agg = work.resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close'])
+          agg = agg.reset_index().rename(columns={'timestamp':'timestamp','open':'open','high':'high','low':'low','close':'close','volume':'volume'})
+          agg.to_csv(out, index=False)
+          print(f'PRE_OOS_DATA={out}')
+          print(f'PRE_OOS_ROWS={len(agg)}')
+          PY
+          python -m research.optimization.analyze_candidate56_is \
+            --data data/real/normalized/EURUSD_M5_20220101_20251231.csv \
+            --output artifacts/candidate56_failure_analysis.json
+      - name: Upload analysis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate56-failure-analysis
+          path: |
+            artifacts/candidate56_failure_analysis.json
+            data/real/normalized/*.manifest.json
+          if-no-files-found: error
