@@ -13,11 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -34,8 +34,16 @@ jobs:
           npx --yes dukascopy-node -i eurusd -from 2026-07-05 -to 2026-07-06 -t m1 -f csv
           FILE=$(find download -maxdepth 1 -type f -name '*.csv' | head -n 1)
           test -n "$FILE"
+          test -s "$FILE" || { echo "REAL_DATA_REQUIRED: Dukascopy returned an empty CSV: $FILE"; exit 2; }
+          ROWS=$(awk 'END{print NR-1}' "$FILE")
+          test "$ROWS" -gt 0 || { echo "REAL_DATA_REQUIRED: Dukascopy CSV contains no data rows: $FILE"; exit 2; }
+          HEADER=$(head -n 1 "$FILE")
+          test "$HEADER" = "timestamp,open,high,low,close" || { echo "REAL_DATA_REQUIRED: unexpected Dukascopy CSV header: $HEADER"; exit 2; }
           cp "$FILE" artifacts/dukascopy/eurusd-m1-bid-2026-07-05-2026-07-06.csv
           echo "SOURCE_FILE=$FILE"
+          echo "DUKASCOPY_BYTES=$(wc -c < "$FILE")"
+          echo "DUKASCOPY_DATA_ROWS=$ROWS"
+          echo "DUKASCOPY_HEADER=$HEADER"
           head -n 8 "$FILE"
 
       - name: Download canonical REAL HistData EURUSD M1 source
@@ -133,7 +141,7 @@ jobs:
               ds = duka.get(ts, [])
               hs = hist.get(ts, [])
               if not ds:
-                  rows.append([ts.isoformat(), "", "", "", "", "", "", "", "", "", "", "", "", "MISSING_DUKASCOPY", ""])
+                  rows.append([ts.isoformat(), "", "", "", "", "", "", "", "", "", "", "", "", "", "MISSING_DUKASCOPY", ""])
                   continue
               d = ds[0]
               dv = [num(d,"open","duka_open"),num(d,"high","duka_high"),num(d,"low","duka_low"),num(d,"close","duka_close")]
