@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -28,7 +29,7 @@ LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://www.histdata.com"
 DOWNLOAD_PAGE = BASE_URL + "/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/eurusd/{year}"
 POST_URL = BASE_URL + "/get.php"
-FIXED_EST = timezone(timedelta(hours=-5))
+HISTDATA_LOCAL_ZONE = ZoneInfo("America/New_York")
 
 
 class HistDataIngestError(RuntimeError):
@@ -134,8 +135,9 @@ def _parse_csv(payload: bytes) -> pd.DataFrame:
         if not row or not row[0] or row[0].startswith("#") or len(row) < 6:
             continue
         try:
-            ts = datetime.strptime(row[0].strip(), "%Y%m%d %H%M%S").replace(tzinfo=FIXED_EST)
-            rows.append((ts.astimezone(timezone.utc).isoformat(), float(row[1]), float(row[2]), float(row[3]), float(row[4]), float(row[5])))
+            local_ts = datetime.strptime(row[0].strip(), "%Y%m%d %H%M%S").replace(tzinfo=HISTDATA_LOCAL_ZONE)
+            ts = local_ts.astimezone(timezone.utc)
+            rows.append((ts.isoformat(), float(row[1]), float(row[2]), float(row[3]), float(row[4]), float(row[5])))
         except ValueError:
             continue
     if not rows:
@@ -147,12 +149,6 @@ def _parse_csv(payload: bytes) -> pd.DataFrame:
 
 
 def _split_duplicate_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, int]:
-    """Separate exact duplicates from unresolved source conflicts without choosing a winner.
-
-    Conflicting source rows are preserved in a dedicated CSV so downstream cross-feed
-    validation can compare every real HistData candidate against an independent feed.
-    They are excluded from the canonical normalized dataset until resolved.
-    """
     duplicate_mask = df.duplicated(subset=["timestamp"], keep=False)
     if not duplicate_mask.any():
         return df, pd.DataFrame(columns=df.columns), 0
