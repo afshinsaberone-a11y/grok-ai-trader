@@ -20,6 +20,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
       - name: Download EURUSD M1 from Dukascopy Node
         run: |
           set -euo pipefail
@@ -31,6 +36,20 @@ jobs:
           cp "$FILE" artifacts/dukascopy/eurusd-m1-bid-2026-07-05-2026-07-06.csv
           echo "SOURCE_FILE=$FILE"
           head -n 8 "$FILE"
+
+      - name: Download canonical REAL HistData EURUSD M1 source
+        run: |
+          set -euo pipefail
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --timeframe M1 \
+            --start 2026-07-05 \
+            --end 2026-07-06 \
+            --output data/real \
+            --validate \
+            --manifest
+          echo "--- NORMALIZED HISTDATA FILES ---"
+          find data/real/normalized -type f -name '*.csv' -print | sort
 
       - name: Build four-row cross-feed comparison
         run: |
@@ -64,46 +83,30 @@ jobs:
                       pass
               return None
 
-          with duka_path.open(newline="", encoding="utf-8-sig") as f:
-              reader = csv.DictReader(f)
-              duka = {}
-              for r in reader:
-                  ts = parse_ts(r.get("timestamp", ""))
-                  if ts in targets:
-                      duka[ts] = r
+          def read_ohlc(path):
+              found = {}
+              with path.open(newline="", encoding="utf-8-sig") as f:
+                  reader = csv.DictReader(f)
+                  for row in reader:
+                      raw = row.get("timestamp") or row.get("datetime") or row.get("timestamp_utc") or row.get("date")
+                      if not raw:
+                          continue
+                      ts = parse_ts(raw)
+                      if ts in targets:
+                          found[ts] = row
+              return found
 
-          # Discover HistData anywhere in the checked-out repository. Values are
-          # never fabricated; only rows actually present in a CSV are accepted.
-          excluded_parts = {".git", "download", "artifacts"}
-          hist_candidates = [
-              p for p in Path(".").rglob("*.csv")
-              if not any(part in excluded_parts for part in p.parts)
-          ]
-
+          duka = read_ohlc(duka_path)
           hist = {}
           hist_sources = {}
-          scanned = 0
-          for hp in sorted(hist_candidates):
+          for candidate in sorted(Path("data/real/normalized").rglob("*.csv")):
               try:
-                  with hp.open(newline="", encoding="utf-8-sig") as f:
-                      reader = csv.DictReader(f)
-                      fieldnames = reader.fieldnames or []
-                      lowered_names = {str(h).strip().lower(): h for h in fieldnames}
-                      ts_key = next((lowered_names[k] for k in ("timestamp_utc", "timestamp", "datetime", "date_time") if k in lowered_names), None)
-                      if not ts_key:
-                          continue
-                      scanned += 1
-                      for row in reader:
-                          raw = row.get(ts_key)
-                          ts = parse_ts(raw) if raw else None
-                          if ts not in targets:
-                              continue
-                          lower = {str(k).strip().lower(): v for k, v in row.items()}
-                          if lower.get("open") not in (None, "") or lower.get("hist_open") not in (None, ""):
-                              hist[ts] = row
-                              hist_sources[ts] = str(hp)
+                  candidate_rows = read_ohlc(candidate)
               except (OSError, UnicodeDecodeError, csv.Error):
                   continue
+              for ts, row in candidate_rows.items():
+                  hist[ts] = row
+                  hist_sources[ts] = str(candidate)
 
           fields = ["timestamp_utc","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","match_status","hist_source"]
 
@@ -127,7 +130,7 @@ jobs:
           for ts in targets:
               h, d = hist.get(ts), duka.get(ts)
               hv = [num(h,"open","hist_open"),num(h,"high","hist_high"),num(h,"low","hist_low"),num(h,"close","hist_close")]
-              dv = [num(d,"open"),num(d,"high"),num(d,"low"),num(d,"close")]
+              dv = [num(d,"open","duka_open"),num(d,"high","duka_high"),num(d,"low","duka_low"),num(d,"close","duka_close")]
               diffs = [None if a is None or b is None else a-b for a,b in zip(hv,dv)]
               if h is None:
                   status = "MISSING_HISTDATA"
@@ -139,27 +142,26 @@ jobs:
                   status = "MATCH" if all(abs(x) < 1e-12 for x in diffs) else "DIFFERENT"
               rows.append([ts.isoformat(),*map(fmt,hv),*map(fmt,dv),*map(fmt,diffs),status,hist_sources.get(ts,"NOT_FOUND")])
 
-          with out_path.open("w", newline="", encoding="utf-8") as out:
-              w = csv.writer(out)
-              w.writerow(fields)
-              w.writerows(rows)
+          with out_path.open("w",newline="",encoding="utf-8") as out:
+              w=csv.writer(out); w.writerow(fields); w.writerows(rows)
 
-          print("HISTDATA_CSV_CANDIDATES=", len(hist_candidates))
-          print("HISTDATA_TIMESTAMP_FILES_SCANNED=", scanned)
           print("HISTDATA_MATCHED_ROWS=", len(hist))
           print("HISTDATA_SOURCE_BY_TIMESTAMP=", hist_sources)
           print("DUKASCOPY_MATCHED_ROWS=", len(duka))
           print("COMPARISON_FILE=", out_path)
-          for row in rows:
-              print("CROSSFEED_ROW=", row)
+          for row in rows: print("CROSSFEED_ROW=", row)
 
           if len(duka) != 4:
               raise SystemExit(f"Expected 4 Dukascopy rows, got {len(duka)}")
+          if len(hist) != 4:
+              raise SystemExit(f"Expected 4 HistData rows, got {len(hist)}")
           PY
 
       - name: Upload cross-feed artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dukascopy-node-cross-check-2026-07-05
-          path: artifacts/dukascopy/
+          path: |
+            artifacts/dukascopy/
+            data/real/normalized/
           if-no-files-found: error
