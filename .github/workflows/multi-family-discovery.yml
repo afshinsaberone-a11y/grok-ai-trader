@@ -16,8 +16,20 @@ on:
 
 jobs:
   discover:
+    strategy:
+      fail-fast: false
+      matrix:
+        family:
+          - trend_ema_rsi
+          - momentum_breakout
+          - donchian_breakout
+          - bollinger_mean_reversion
+          - rsi_mean_reversion
+          - session_range_breakout
+          - volatility_expansion
+          - sp2l_lite
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,14 +48,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Download real pre-OOS HistData only
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
         run: |
           python -m research.real_data.histdata_ingest \
             --symbol EURUSD --timeframe M1 \
             --start "$START" --end "$END" \
             --output data/real --validate --manifest
-        env:
-          START: ${{ inputs.start }}
-          END: ${{ inputs.end }}
       - name: Build pre-OOS M5 dataset
         run: |
           python - <<'PY'
@@ -60,17 +72,65 @@ jobs:
           m5.to_csv(out,index=False)
           print('PRE_OOS_M5_ROWS=',len(m5))
           PY
-      - name: Run all strategy families on pre-OOS only
+      - name: Run one strategy family on pre-OOS only
+        env:
+          FAMILY: ${{ matrix.family }}
         run: |
           python -m research.optimization.multi_family_discovery \
             --data data/real/normalized/EURUSD_M5_20220101_20251231.csv \
-            --output artifacts/multi_family_discovery.json
-      - name: Upload discovery artifacts
+            --family "$FAMILY" \
+            --output "artifacts/${FAMILY}.json"
+      - name: Upload family discovery artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: multi-family-discovery
+          name: multi-family-${{ matrix.family }}
           path: |
-            artifacts/multi_family_discovery.json
+            artifacts/${{ matrix.family }}.json
             data/real/normalized/*.manifest.json
           if-no-files-found: warn
+
+  aggregate:
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download family artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: multi-family-*
+          path: artifacts/families
+          merge-multiple: false
+      - name: Aggregate family results
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files=sorted(Path('artifacts/families').glob('multi-family-*/**/*.json'))
+          results=[]
+          for p in files:
+              data=json.loads(p.read_text(encoding='utf-8'))
+              results.append(data.get('result', data))
+          champions=[r['champion'] for r in results if r.get('champion')]
+          champions.sort(key=lambda x:(-float(x['robustness_score']), x['family'], x['candidate']))
+          report={
+              'schema_version':'forexai.multi_family_discovery.v2',
+              'results':results,
+              'qualified_count':len(champions),
+              'champion':champions[0] if champions else None,
+              'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},
+              'sp2l_status':'SP2L-lite is an engineering proxy; official SP2L PR #2 is not merged into main',
+          }
+          out=Path('artifacts/multi_family_summary.json')
+          out.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8')
+          print(json.dumps({'qualified_count':len(champions),'champion':report['champion']},indent=2,sort_keys=True))
+          PY
+      - name: Upload aggregate discovery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-family-summary
+          path: artifacts/multi_family_summary.json
