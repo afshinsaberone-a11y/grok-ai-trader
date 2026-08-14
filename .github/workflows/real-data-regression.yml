@@ -78,11 +78,11 @@ jobs:
           PY
 
       - name: Compare all common multi-day timestamps and preserve source conflicts
+        id: compare
         run: |
           set -euo pipefail
           python - <<'PY'
           import csv
-          from collections import defaultdict
           from datetime import datetime, timezone
           from pathlib import Path
 
@@ -158,9 +158,6 @@ jobs:
           print("MAX_ABS_OHLC_DIFF=", f"{max_diff:.10f}")
           print("SOURCE_CONFLICT_FILES=", len(conflict_paths))
           print("SOURCE_CONFLICT_ROWS=", len(conflict_rows))
-          for item in conflict_rows[:20]:
-              ts,row,path=item
-              print("SOURCE_CONFLICT_ROW=", ts.isoformat(), path, row)
 
           out=Path("artifacts/dukascopy/multi_day_crossfeed_summary.csv")
           with out.open("w",newline="",encoding="utf-8") as f:
@@ -174,7 +171,6 @@ jobs:
               w.writerow(["source_conflict_files",len(conflict_paths)])
               w.writerow(["source_conflict_rows",len(conflict_rows)])
 
-          # Required regression gates.
           if len(common) < 1000:
               raise SystemExit(f"REAL_DATA_REQUIRED: expected at least 1000 common M1 timestamps, got {len(common)}")
           if mismatches:
@@ -183,7 +179,93 @@ jobs:
               raise SystemExit(f"Unexpected number of source conflict files: {len(conflict_paths)}")
           PY
 
+      - name: Diagnose every multi-day mismatch
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          duka_path = Path("artifacts/dukascopy/eurusd-m1-bid-2026-07-01-2026-07-06.csv")
+          normalized = Path("data/real/normalized")
+          out = Path("artifacts/dukascopy/multi_day_mismatch_diagnostic.csv")
+          canonical_paths = sorted(p for p in normalized.glob("*.csv") if not p.name.endswith("_source_conflicts.csv"))
+          conflict_paths = sorted(normalized.glob("*_source_conflicts.csv"))
+          if len(canonical_paths) != 1:
+              raise SystemExit(f"Expected exactly one canonical HistData CSV, got {canonical_paths}")
+
+          def parse_ts(value):
+              s = str(value).strip()
+              if s.isdigit():
+                  n = int(s)
+                  if n >= 100_000_000_000:
+                      return datetime.fromtimestamp(n / 1000, tz=timezone.utc)
+                  if n >= 100_000_000:
+                      return datetime.fromtimestamp(n, tz=timezone.utc)
+              for candidate in (s, s.replace("Z", "+00:00"), s.replace(" ", "T")):
+                  try:
+                      ts = datetime.fromisoformat(candidate)
+                      return (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+                  except ValueError:
+                      pass
+              return None
+
+          def read(path):
+              rows=[]
+              with path.open(newline="", encoding="utf-8-sig") as f:
+                  for row in csv.DictReader(f):
+                      raw=row.get("timestamp") or row.get("datetime") or row.get("timestamp_utc") or row.get("date")
+                      ts=parse_ts(raw) if raw else None
+                      if ts is not None:
+                          rows.append((ts,row))
+              return rows
+
+          def ohlc(row):
+              lower={str(k).strip().lower():v for k,v in row.items()}
+              vals=[]
+              for key in ("open","high","low","close"):
+                  try:
+                      vals.append(float(lower.get(key) or lower.get(f"{key}_bid")))
+                  except (TypeError, ValueError):
+                      return None
+              return vals
+
+          duka={ts:row for ts,row in read(duka_path)}
+          hist={ts:row for ts,row in read(canonical_paths[0])}
+          conflicts={}
+          for path in conflict_paths:
+              for ts,row in read(path):
+                  conflicts.setdefault(ts,[]).append((path,row))
+
+          fields=["timestamp_utc","hist_open","hist_high","hist_low","hist_close","duka_open","duka_high","duka_low","duka_close","diff_open","diff_high","diff_low","diff_close","max_abs_diff","is_conflict_timestamp","conflict_variant_count","conflict_source_paths"]
+          mismatches=[]
+          with out.open("w",newline="",encoding="utf-8") as f:
+              w=csv.writer(f); w.writerow(fields)
+              for ts in sorted(set(duka)&set(hist)):
+                  hv=ohlc(hist[ts]); dv=ohlc(duka[ts])
+                  if hv is None or dv is None:
+                      continue
+                  diffs=[h-d for h,d in zip(hv,dv)]
+                  max_abs=max(abs(x) for x in diffs)
+                  if max_abs <= 1e-12:
+                      continue
+                  variants=conflicts.get(ts,[])
+                  paths=sorted({str(p) for p,_ in variants})
+                  row=[ts.isoformat(),*hv,*dv,*diffs,max_abs,bool(variants),len(variants),";".join(paths)]
+                  w.writerow(row)
+                  mismatches.append(row)
+                  print("MISMATCH_DIAGNOSTIC=", row)
+
+          print("MISMATCH_DIAGNOSTIC_ROWS=", len(mismatches))
+          print("MISMATCH_CONFLICT_TIMESTAMP_ROWS=", sum(1 for row in mismatches if row[14]))
+          print("MISMATCH_NON_CONFLICT_ROWS=", sum(1 for row in mismatches if not row[14]))
+          print("MISMATCH_DIAGNOSTIC_FILE=", out)
+          PY
+
       - name: Upload regression artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: real-data-regression-eurusd-2026-07-01-2026-07-06
