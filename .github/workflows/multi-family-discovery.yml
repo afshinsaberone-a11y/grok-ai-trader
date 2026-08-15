@@ -29,7 +29,7 @@ jobs:
           - volatility_expansion
           - sp2l_lite
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -91,6 +91,7 @@ jobs:
           if-no-files-found: warn
 
   aggregate:
+    if: ${{ always() }}
     needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -123,14 +124,17 @@ jobs:
               'qualified_count':len(champions),
               'champion':champions[0] if champions else None,
               'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},
+              'partial_run': any(r.get('family') == 'trend_ema_rsi' and not r.get('top_50') for r in results),
               'sp2l_status':'SP2L-lite is an engineering proxy; official SP2L PR #2 is not merged into main',
           }
           out=Path('artifacts/multi_family_summary.json')
           out.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8')
-          print(json.dumps({'qualified_count':len(champions),'champion':report['champion']},indent=2,sort_keys=True))
+          print(json.dumps({'qualified_count':len(champions),'champion':report['champion'],'partial_run':report['partial_run'],'families_with_results':[r.get('family') for r in results]},indent=2,sort_keys=True))
           PY
       - name: Upload aggregate discovery artifact
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: multi-family-summary
           path: artifacts/multi_family_summary.json
+          if-no-files-found: warn
