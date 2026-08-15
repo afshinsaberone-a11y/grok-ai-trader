@@ -1,0 +1,23 @@
+name: Pre-OOS Champion Ranking v1
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rank:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run ranking from recorded completed-run evidence
+        run: |
+          python -m research.optimization.champion_ranking_v1
+      - name: Upload ranking artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: champion-ranking-v1
+          path: artifacts/champion_ranking_v1.json
+          if-no-files-found: error
