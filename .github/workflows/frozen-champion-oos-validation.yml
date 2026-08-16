@@ -1,0 +1,40 @@
+name: Frozen Champion OOS Validation v1
+
+on:
+  workflow_dispatch:
+
+jobs:
+  validate-champion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Validate frozen Candidate 30 OOS
+        run: |
+          set -euo pipefail
+          python -m research.oos.validate_champion \
+            --family rsi_mean_reversion \
+            --candidate 30 \
+            --symbol EURUSD \
+            --timeframe M5 \
+            --start 2026-01-01 \
+            --end 2026-07-31 \
+            --optimization off \
+            --output artifacts/champion_oos
+
+      - name: Upload OOS report
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-30-oos-report
+          path: artifacts/champion_oos
