@@ -1,0 +1,30 @@
+{
+  "schema_version": "forexai.oos_registry.v1",
+  "policy": {
+    "oos_is_immutable_after_evaluation": true,
+    "oos_results_must_not_feed_discovery": true,
+    "oos_results_must_not_feed_parameter_optimization": true,
+    "new_champion_requires_a_fresh_held_out_period": true
+  },
+  "consumed_test_sets": [
+    {
+      "dataset": "EURUSD M5",
+      "source": "HistData.com Generic ASCII M1, resampled to M5",
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-08-01T00:00:00Z",
+      "status": "CONSUMED",
+      "candidate": 30,
+      "family": "rsi_mean_reversion",
+      "workflow_run": 32116684201,
+      "result": {
+        "trades": 225,
+        "win_rate_pct": 28.89,
+        "total_R": -30.0,
+        "expectancy_R": -0.133,
+        "profit_factor": 0.81,
+        "max_drawdown_pct": 18.91,
+        "final_equity": 8562.14
+      }
+    }
+  ]
+}
