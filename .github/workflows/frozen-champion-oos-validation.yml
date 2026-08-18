@@ -33,11 +33,12 @@ jobs:
             --validate \
             --manifest
 
-      - name: Locate REAL OOS M1 dataset
+      - name: Select exact clean REAL OOS M1 dataset
         run: |
           set -euo pipefail
-          OOS_M1=$(find data/real/normalized -type f -name 'EURUSD_M1_*.csv' -newermt '2026-01-01' | sort | tail -1)
-          test -n "$OOS_M1"
+          OOS_M1="data/real/normalized/EURUSD_M1_20260101_20260731.csv"
+          test -s "$OOS_M1"
+          test ! -f "data/real/normalized/EURUSD_M1_20260101_20260731_source_conflicts.csv" || true
           echo "OOS_M1=$OOS_M1" >> "$GITHUB_ENV"
           echo "REAL_OOS_M1=$OOS_M1"
 
@@ -48,18 +49,29 @@ jobs:
           import os
           from pathlib import Path
           import pandas as pd
+
           src = Path(os.environ['OOS_M1'])
           df = pd.read_csv(src)
           df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
           for c in ['open','high','low','close','volume']:
               df[c] = pd.to_numeric(df[c], errors='raise')
+
           work = df.set_index('timestamp')[['open','high','low','close','volume']]
-          m5 = (work.resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index())
+          m5 = (
+              work.resample('5min')
+              .agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'})
+              .dropna(subset=['open','high','low','close'])
+              .reset_index()
+          )
+
           out = Path('data/real/oos/EURUSD_M5_20260101_20260731.csv')
           out.parent.mkdir(parents=True, exist_ok=True)
           m5.to_csv(out, index=False)
+          print(f'REAL_OOS_M1_ROWS={len(df)}')
           print(f'REAL_OOS_M5_ROWS={len(m5)}')
           print(f'REAL_OOS_M5={out}')
+          if len(df) < 100_000 or len(m5) < 20_000:
+              raise SystemExit('REAL_DATA_REQUIRED: OOS dataset unexpectedly small; refusing to evaluate')
           PY
 
       - name: Validate frozen Candidate 30 on REAL OOS only
@@ -84,4 +96,5 @@ jobs:
             artifacts/champion_oos/
             data/real/oos/
             data/real/normalized/*.manifest.json
+            data/real/normalized/*_source_conflicts.csv
           if-no-files-found: error
