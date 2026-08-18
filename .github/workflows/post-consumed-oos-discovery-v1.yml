@@ -1,0 +1,211 @@
+name: Post-Consumed OOS Discovery v1
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Discovery start (pre-OOS only)"
+        required: true
+        default: "2022-01-01"
+        type: string
+      end:
+        description: "Discovery end (must be 2026-01-01 exclusive or earlier)"
+        required: true
+        default: "2026-01-01"
+        type: string
+
+jobs:
+  discover:
+    strategy:
+      fail-fast: false
+      matrix:
+        family:
+          - trend_ema_rsi
+          - momentum_breakout
+          - donchian_breakout
+          - bollinger_mean_reversion
+          - rsi_mean_reversion
+          - session_range_breakout
+          - volatility_expansion
+          - sp2l_lite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Guard against consumed OOS leakage
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from datetime import date
+          from pathlib import Path
+          import os
+
+          start = date.fromisoformat(os.environ['START'])
+          end = date.fromisoformat(os.environ['END'])
+          cutoff = date(2026, 1, 1)
+          if end > cutoff:
+              raise SystemExit('OOS_LEAKAGE_BLOCKED: discovery end is after consumed OOS cutoff 2026-01-01')
+          if end <= start:
+              raise SystemExit('INVALID_RANGE: end must be after start')
+
+          policy = json.loads(Path('research/oos/consumed_test_sets.json').read_text(encoding='utf-8'))
+          consumed = policy.get('consumed_test_sets', []) if isinstance(policy, dict) else []
+          for item in consumed:
+              if item.get('start') == '2026-01-01' and item.get('end') == '2026-07-31':
+                  print('Consumed OOS confirmed:', item)
+          print('DISCOVERY_RANGE=', start, 'to', end, '(exclusive)')
+          PY
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore historical HistData cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-eurusd-m1-pre-oos-v1-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: |
+            histdata-eurusd-m1-pre-oos-v1-
+            histdata-eurusd-m1-pre-oos-
+            histdata-eurusd-m1-
+
+      - name: Download real pre-OOS HistData only
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD --timeframe M1 \
+            --start "$START" --end "$END" \
+            --output data/real --validate --manifest
+
+      - name: Build validated pre-OOS M5 dataset
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from datetime import date, timedelta
+          from pathlib import Path
+          import os
+          import pandas as pd
+
+          start = date.fromisoformat(os.environ['START'])
+          end = date.fromisoformat(os.environ['END'])
+          dataset_id = f"{start:%Y%m%d}_{(end - timedelta(days=1)):%Y%m%d}"
+          src = Path('data/real/normalized') / f'EURUSD_M1_{dataset_id}.csv'
+          if not src.is_file():
+              raise SystemExit(f'REAL_DATA_REQUIRED: missing clean M1 dataset {src}')
+          df = pd.read_csv(src)
+          if len(df) < 100_000:
+              raise SystemExit('REAL_DATA_REQUIRED: pre-OOS dataset unexpectedly small')
+          df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+          for c in ['open','high','low','close','volume']:
+              df[c] = pd.to_numeric(df[c], errors='raise')
+          work = df.set_index('timestamp')[['open','high','low','close','volume']]
+          m5 = (work.resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index())
+          if len(m5) < 20_000:
+              raise SystemExit('REAL_DATA_REQUIRED: pre-OOS M5 dataset unexpectedly small')
+          out = Path('data/real/normalized') / f'EURUSD_M5_{dataset_id}.csv'
+          m5.to_csv(out, index=False)
+          print('PRE_OOS_M1_ROWS=', len(df))
+          print('PRE_OOS_M5_ROWS=', len(m5))
+          print('PRE_OOS_M5=', out)
+          PY
+
+      - name: Run one strategy family on pre-OOS only
+        env:
+          FAMILY: ${{ matrix.family }}
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python -m research.optimization.multi_family_discovery \
+            --data "data/real/normalized/EURUSD_M5_$(date -u -d "$START" +%Y%m%d)_$(date -u -d "$END - 1 day" +%Y%m%d).csv" \
+            --family "$FAMILY" \
+            --output "artifacts/${FAMILY}.json"
+
+      - name: Upload family discovery artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-consumed-${{ matrix.family }}
+          path: |
+            artifacts/${{ matrix.family }}.json
+            data/real/normalized/*.manifest.json
+            data/real/normalized/*_source_conflicts.csv
+          if-no-files-found: warn
+
+  aggregate:
+    if: ${{ always() }}
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download family artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: post-consumed-*
+          path: artifacts/families
+          merge-multiple: false
+
+      - name: Aggregate fresh pre-OOS candidates
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          files = sorted(Path('artifacts/families').glob('post-consumed-*/**/*.json'))
+          results = []
+          for p in files:
+              data = json.loads(p.read_text(encoding='utf-8'))
+              results.append(data.get('result', data))
+
+          champions = [r['champion'] for r in results if r.get('champion')]
+          champions.sort(key=lambda x: (-float(x['robustness_score']), x['family'], x['candidate']))
+
+          report = {
+              'schema_version': 'forexai.post_consumed.discovery.v1',
+              'selection_range': {'start': '${{ inputs.start }}', 'end': '${{ inputs.end }}'},
+              'consumed_oos_locked': {
+                  'start': '2026-01-01',
+                  'end': '2026-07-31',
+                  'status': 'CONSUMED_AND_EXCLUDED'
+              },
+              'results': results,
+              'qualified_count': len(champions),
+              'champion': champions[0] if champions else None,
+              'oos_loaded': False,
+              'next_step': 'FREEZE_CHAMPION_THEN_RUN_ON_NEW_UNTOUCHED_OOS'
+          }
+
+          out = Path('artifacts/post_consumed_discovery_summary.json')
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(report, indent=2, sort_keys=True), encoding='utf-8')
+          print(json.dumps({'qualified_count': len(champions), 'champion': report['champion'], 'oos_loaded': False}, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload aggregate discovery artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-consumed-discovery-summary
+          path: artifacts/post_consumed_discovery_summary.json
+          if-no-files-found: warn
