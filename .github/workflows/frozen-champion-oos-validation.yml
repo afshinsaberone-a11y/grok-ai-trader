@@ -38,7 +38,6 @@ jobs:
           set -euo pipefail
           OOS_M1="data/real/normalized/EURUSD_M1_20260101_20260731.csv"
           test -s "$OOS_M1"
-          test ! -f "data/real/normalized/EURUSD_M1_20260101_20260731_source_conflicts.csv" || true
           echo "OOS_M1=$OOS_M1" >> "$GITHUB_ENV"
           echo "REAL_OOS_M1=$OOS_M1"
 
@@ -74,24 +73,24 @@ jobs:
               raise SystemExit('REAL_DATA_REQUIRED: OOS dataset unexpectedly small; refusing to evaluate')
           PY
 
-      - name: Validate frozen Candidate 30 on REAL OOS only
+      - name: Validate frozen Candidate 10 on REAL OOS only
         run: |
           set -euo pipefail
           python -m research.oos.validate_champion \
-            --family rsi_mean_reversion \
-            --candidate 30 \
+            --family bollinger_mean_reversion \
+            --candidate 10 \
             --symbol EURUSD \
             --timeframe M5 \
             --start 2026-01-01 \
             --end 2026-08-01 \
             --data data/real/oos/EURUSD_M5_20260101_20260731.csv \
             --optimization off \
-            --output artifacts/champion_oos/candidate_30_oos_2026_report.json
+            --output artifacts/champion_oos/candidate_10_oos_2026_report.json
 
       - name: Upload OOS report
         uses: actions/upload-artifact@v4
         with:
-          name: candidate-30-oos-report
+          name: candidate-10-oos-report
           path: |
             artifacts/champion_oos/
             data/real/oos/
