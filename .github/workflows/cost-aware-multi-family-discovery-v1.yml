@@ -1,0 +1,179 @@
+name: Cost-Aware Multi-Family Discovery v1
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Pre-OOS start"
+        required: true
+        default: "2022-01-01"
+        type: string
+      end:
+        description: "Pre-OOS end (exclusive)"
+        required: true
+        default: "2026-01-01"
+        type: string
+      spread_pips:
+        description: "Conservative spread per side in pips"
+        required: true
+        default: "0.5"
+        type: string
+      slippage_pips:
+        description: "Conservative slippage per side in pips"
+        required: true
+        default: "0.2"
+        type: string
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pytest -q tests/test_cost_aware_discovery.py
+
+  discover:
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        family:
+          - trend_ema_rsi
+          - momentum_breakout
+          - donchian_breakout
+          - bollinger_mean_reversion
+          - rsi_mean_reversion
+          - session_range_breakout
+          - volatility_expansion
+          - sp2l_lite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore historical HistData cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-eurusd-m1-pre-oos-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: |
+            histdata-eurusd-m1-pre-oos-
+            histdata-eurusd-m1-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download real pre-OOS HistData only
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD --timeframe M1 \
+            --start "$START" --end "$END" \
+            --output data/real --validate --manifest
+      - name: Build pre-OOS M5 dataset
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+          src=Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          if not src.exists():
+              raise SystemExit(f'REAL_DATA_REQUIRED: missing {src}')
+          df=pd.read_csv(src)
+          df['timestamp']=pd.to_datetime(df['timestamp'],utc=True)
+          for c in ['open','high','low','close','volume']:
+              df[c]=pd.to_numeric(df[c], errors='raise')
+          work=df.set_index('timestamp')[['open','high','low','close','volume']]
+          m5=work.resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index()
+          out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv')
+          out.parent.mkdir(parents=True,exist_ok=True)
+          m5.to_csv(out,index=False)
+          print('PRE_OOS_M5_ROWS=',len(m5))
+          PY
+      - name: Run cost-aware family discovery
+        env:
+          FAMILY: ${{ matrix.family }}
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          python -m research.optimization.cost_aware_discovery \
+            --data data/real/normalized/EURUSD_M5_20220101_20251231.csv \
+            --family "$FAMILY" \
+            --spread-pips "$SPREAD" \
+            --slippage-pips "$SLIPPAGE" \
+            --output "artifacts/${FAMILY}.json"
+      - name: Upload family artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-aware-${{ matrix.family }}
+          path: |
+            artifacts/${{ matrix.family }}.json
+            data/real/normalized/*.manifest.json
+          if-no-files-found: warn
+
+  aggregate:
+    if: ${{ always() }}
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download family artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cost-aware-*
+          path: artifacts/families
+          merge-multiple: false
+      - name: Aggregate cost-aware results
+        env:
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files=sorted(Path('artifacts/families').glob('cost-aware-*/**/*.json'))
+          results=[]
+          for p in files:
+              data=json.loads(p.read_text(encoding='utf-8'))
+              results.append(data['result'])
+          champions=[r['champion'] for r in results if r.get('champion')]
+          champions.sort(key=lambda x:(-float(x['cost_aware_robustness_score']), x['family'], x['candidate']))
+          report={
+              'schema_version':'forexai.cost_aware_multi_family.v1',
+              'execution_cost_model':{
+                  'spread_pips_per_side':float('${{ inputs.spread_pips }}'),
+                  'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),
+                  'round_trip_pips':2*(float('${{ inputs.spread_pips }}')+float('${{ inputs.slippage_pips }}')),
+              },
+              'results':results,
+              'qualified_count':len(champions),
+              'champion':champions[0] if champions else None,
+              'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},
+              'real_data_required':True,
+              'synthetic_fallback':False,
+              'sp2l_status':'SP2L-lite is an engineering proxy; official SP2L PR #2 is not merged into main',
+          }
+          out=Path('artifacts/cost_aware_summary.json')
+          out.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8')
+          print(json.dumps({'qualified_count':len(champions),'champion':report['champion']},indent=2,sort_keys=True))
+          PY
+      - name: Upload aggregate artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-aware-summary
+          path: artifacts/cost_aware_summary.json
+          if-no-files-found: warn
