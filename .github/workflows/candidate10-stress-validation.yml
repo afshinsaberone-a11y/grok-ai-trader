@@ -1,0 +1,57 @@
+name: Candidate 10 Stress Validation v1
+
+on:
+  workflow_dispatch:
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download frozen OOS artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OOS_RUN_ID: "32543198355"
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          gh run download "$OOS_RUN_ID" -R "$GITHUB_REPOSITORY" -n candidate-10-oos-report -D input
+          find input -maxdepth 4 -type f -print | sort
+
+      - name: Locate REAL OOS M5 dataset
+        run: |
+          set -euo pipefail
+          DATASET="$(find input -type f -name 'EURUSD_M5_20260101_20260731.csv' -print -quit)"
+          test -n "$DATASET"
+          echo "DATASET=$DATASET" >> "$GITHUB_ENV"
+          echo "REAL_OOS_DATASET=$DATASET"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run frozen Candidate 10 stress validation
+        run: |
+          set -euo pipefail
+          python -m research.oos.stress_validate \
+            --data "$DATASET" \
+            --output artifacts/candidate10_stress/stress_report.json
+
+      - name: Upload stress report
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-10-stress-report
+          path: artifacts/candidate10_stress/stress_report.json
+          if-no-files-found: error
