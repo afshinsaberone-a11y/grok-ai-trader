@@ -148,7 +148,13 @@ jobs:
           results=[]
           for p in files:
               data=json.loads(p.read_text(encoding='utf-8'))
-              results.append(data['result'])
+              # Family artifacts are wrapped as {schema_version, result, ...}.
+              # Accept both wrapped and already-unwrapped result payloads so one
+              # malformed/legacy artifact cannot crash the aggregate job.
+              result=data.get('result', data)
+              if not isinstance(result, dict):
+                  raise SystemExit(f'INVALID_ARTIFACT_SCHEMA: {p}')
+              results.append(result)
           champions=[r['champion'] for r in results if r.get('champion')]
           champions.sort(key=lambda x:(-float(x['cost_aware_robustness_score']), x['family'], x['candidate']))
           report={
