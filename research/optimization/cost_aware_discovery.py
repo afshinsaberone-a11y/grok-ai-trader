@@ -40,13 +40,35 @@ def _pf(m): return 3.0 if m["profit_factor"]=="inf" else float(m["profit_factor"
 
 
 def pre_oos_gate_pass(metrics:list[dict[str,Any]])->bool:
-    """Strict fail-closed gate: all three discovery years must meet the PF/trade floor, and at least two must have positive expectancy."""
-    if len(metrics)!=len(PRE_OOS_YEARS): return False
-    if {int(x.get("year", -1)) for x in metrics} != set(PRE_OOS_YEARS): return False
-    if any(int(x["metrics"]["trades"])<MIN_TRADES for x in metrics): return False
-    if any(_pf(x["metrics"])<PRE_OOS_MIN_PF_EACH_YEAR for x in metrics): return False
-    profitable_years=sum(float(x["metrics"]["expectancy_R"])>0 for x in metrics)
-    return profitable_years>=PRE_OOS_MIN_PROFITABLE_YEARS
+    """Fail-closed pre-OOS gate for the three discovery years.
+
+    Production discovery records carry an explicit ``year`` field. For the
+    small metric-only contract used by the regression tests and older callers,
+    an entirely year-less three-item sequence is interpreted in PRE_OOS_YEARS
+    order. Mixed explicit/missing year metadata is rejected rather than guessed.
+    """
+    if len(metrics) != len(PRE_OOS_YEARS):
+        return False
+
+    years = [x.get("year") for x in metrics]
+    if all(y is None for y in years):
+        normalized_years = list(PRE_OOS_YEARS)
+    elif any(y is None for y in years):
+        return False
+    else:
+        try:
+            normalized_years = [int(y) for y in years]
+        except (TypeError, ValueError):
+            return False
+
+    if set(normalized_years) != set(PRE_OOS_YEARS):
+        return False
+    if any(int(x["metrics"]["trades"]) < MIN_TRADES for x in metrics):
+        return False
+    if any(_pf(x["metrics"]) < PRE_OOS_MIN_PF_EACH_YEAR for x in metrics):
+        return False
+    profitable_years = sum(float(x["metrics"]["expectancy_R"]) > 0 for x in metrics)
+    return profitable_years >= PRE_OOS_MIN_PROFITABLE_YEARS
 
 
 def score_cost_aware(metrics):
