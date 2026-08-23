@@ -1,8 +1,10 @@
 """Cost-aware discovery on real pre-OOS data only.
 
-Gate policy v2: every 2022-2024 discovery year must have PF >= 1.0 and
-minimum trade count, with at least two years having positive expectancy.
-2025 is validation only. 2026 remains strictly held out.
+Gate policy v3:
+- 2022-2024 are discovery years and each year must meet PF/trade-count floors.
+- At least two of the three discovery years must have positive expectancy.
+- 2025 is validation only.
+- 2026 is strictly held out.
 """
 from __future__ import annotations
 import argparse, json
@@ -18,6 +20,7 @@ RISK_PCT=0.005
 PRE_OOS_YEARS=(2022,2023,2024)
 PRE_OOS_MIN_PROFITABLE_YEARS=2
 PRE_OOS_MIN_PF_EACH_YEAR=1.0
+PRE_OOS_MIN_EXPECTANCY_R=0.0
 
 
 def round_trip_cost_price(spread_pips:float, slippage_pips:float)->float:
@@ -45,26 +48,18 @@ def _pf(m): return 3.0 if m["profit_factor"]=="inf" else float(m["profit_factor"
 
 
 def pre_oos_gate_pass(metrics:list[dict[str,Any]])->bool:
-    if len(metrics) != len(PRE_OOS_YEARS):
-        return False
-    years = [x.get("year") for x in metrics]
-    if all(y is None for y in years):
-        normalized_years = list(PRE_OOS_YEARS)
-    elif any(y is None for y in years):
-        return False
+    if len(metrics) != len(PRE_OOS_YEARS): return False
+    years=[x.get("year") for x in metrics]
+    if all(y is None for y in years): normalized_years=list(PRE_OOS_YEARS)
+    elif any(y is None for y in years): return False
     else:
-        try:
-            normalized_years = [int(y) for y in years]
-        except (TypeError, ValueError):
-            return False
-    if set(normalized_years) != set(PRE_OOS_YEARS):
-        return False
-    if any(int(x["metrics"]["trades"]) < MIN_TRADES for x in metrics):
-        return False
-    if any(_pf(x["metrics"]) < PRE_OOS_MIN_PF_EACH_YEAR for x in metrics):
-        return False
-    profitable_years = sum(float(x["metrics"]["expectancy_R"]) > 0 for x in metrics)
-    return profitable_years >= PRE_OOS_MIN_PROFITABLE_YEARS
+        try: normalized_years=[int(y) for y in years]
+        except (TypeError,ValueError): return False
+    if set(normalized_years)!=set(PRE_OOS_YEARS): return False
+    if any(int(x["metrics"]["trades"])<MIN_TRADES for x in metrics): return False
+    if any(_pf(x["metrics"])<PRE_OOS_MIN_PF_EACH_YEAR for x in metrics): return False
+    profitable_years=sum(float(x["metrics"]["expectancy_R"])>PRE_OOS_MIN_EXPECTANCY_R for x in metrics)
+    return profitable_years>=PRE_OOS_MIN_PROFITABLE_YEARS
 
 
 def score_cost_aware(metrics):
@@ -79,7 +74,7 @@ def discover_family_cost_aware(df,family,*,spread_pips,slippage_pips):
     for j,params in enumerate(catalog()[family]):
         pre=[{"year":y,"metrics":backtest_cost_aware(years[y],family,params,spread_pips=spread_pips,slippage_pips=slippage_pips)} for y in PRE_OOS_YEARS]
         gate=pre_oos_gate_pass(pre)
-        results.append({"family":family,"candidate":j+1,"params":params,"cost_aware_robustness_score":score_cost_aware(pre),"pre_oos_gate":{"pass":gate,"years":list(PRE_OOS_YEARS),"min_trades_each_year":MIN_TRADES,"min_pf_each_year":PRE_OOS_MIN_PF_EACH_YEAR,"min_profitable_years":PRE_OOS_MIN_PROFITABLE_YEARS},"pre_oos_cost_aware":pre})
+        results.append({"family":family,"candidate":j+1,"params":params,"cost_aware_robustness_score":score_cost_aware(pre),"pre_oos_gate":{"pass":gate,"years":list(PRE_OOS_YEARS),"min_trades_each_year":MIN_TRADES,"min_pf_each_year":PRE_OOS_MIN_PF_EACH_YEAR,"min_profitable_years":PRE_OOS_MIN_PROFITABLE_YEARS,"min_expectancy_R":PRE_OOS_MIN_EXPECTANCY_R},"pre_oos_cost_aware":pre})
     results.sort(key=lambda x:(-x["cost_aware_robustness_score"],x["candidate"])); finalists=[x for x in results if x["pre_oos_gate"]["pass"]][:50]; validated=[]
     for x in finalists:
         vm=backtest_cost_aware(years[2025],family,x["params"],spread_pips=spread_pips,slippage_pips=slippage_pips); q=_pf(vm)>=VALIDATION_MIN_PF and float(vm["max_dd_pct"])<=VALIDATION_MAX_DD and int(vm["trades"])>=MIN_TRADES; validated.append({**x,"validation_2025_cost_aware":vm,"validation_qualifies":q})
@@ -91,6 +86,6 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--data",required=True); ap.add_argument("--family",choices=FAMILIES,required=True); ap.add_argument("--output",default="artifacts/cost_aware_family.json"); ap.add_argument("--spread-pips",type=float,default=DEFAULT_SPREAD_PIPS); ap.add_argument("--slippage-pips",type=float,default=DEFAULT_SLIPPAGE_PIPS); a=ap.parse_args()
     if a.spread_pips<0 or a.slippage_pips<0: raise SystemExit("execution costs cannot be negative")
     df=pd.read_csv(a.data); df["timestamp"]=pd.to_datetime(df["timestamp"],utc=True); df=df.rename(columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"}).set_index("timestamp"); result=discover_family_cost_aware(df,a.family,spread_pips=a.spread_pips,slippage_pips=a.slippage_pips)
-    report={"schema_version":"forexai.cost_aware_discovery.v4","result":result,"oos_policy":{"loaded":False,"start":"2026-01-01","status":"HELD_OUT"},"real_data_required":True,"synthetic_fallback":False,"gate_policy":{"pre_oos_years":list(PRE_OOS_YEARS),"pre_oos_min_profitable_years":PRE_OOS_MIN_PROFITABLE_YEARS,"pre_oos_min_pf_each_year":PRE_OOS_MIN_PF_EACH_YEAR,"pre_oos_min_trades_each_year":MIN_TRADES,"validation_min_pf":VALIDATION_MIN_PF,"validation_max_dd_pct":VALIDATION_MAX_DD,"validation_min_trades":MIN_TRADES,"fail_closed":True}}
+    report={"schema_version":"forexai.cost_aware_discovery.v5","result":result,"oos_policy":{"loaded":False,"start":"2026-01-01","status":"HELD_OUT"},"real_data_required":True,"synthetic_fallback":False,"gate_policy":{"pre_oos_years":list(PRE_OOS_YEARS),"pre_oos_min_profitable_years":PRE_OOS_MIN_PROFITABLE_YEARS,"pre_oos_min_pf_each_year":PRE_OOS_MIN_PF_EACH_YEAR,"pre_oos_min_expectancy_R":PRE_OOS_MIN_EXPECTANCY_R,"pre_oos_min_trades_each_year":MIN_TRADES,"validation_min_pf":VALIDATION_MIN_PF,"validation_max_dd_pct":VALIDATION_MAX_DD,"validation_min_trades":MIN_TRADES,"fail_closed":True}}
     out=Path(a.output); out.parent.mkdir(parents=True,exist_ok=True); out.write_text(json.dumps(_native(report),indent=2,sort_keys=True),encoding="utf-8"); print(json.dumps(_native({"family":a.family,"qualified_count":result["qualified_count"],"champion":result["champion"],"cost_profile":result["cost_profile"]}),indent=2,sort_keys=True)); return 0
 if __name__=="__main__": raise SystemExit(main())
