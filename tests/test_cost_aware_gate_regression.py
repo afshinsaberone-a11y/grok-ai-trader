@@ -27,7 +27,7 @@ def test_two_profitable_pre_oos_years_are_sufficient_when_all_years_meet_pf_floo
     metrics = [
         _m(1.08, expectancy=0.03),
         _m(1.05, expectancy=0.02),
-        _m(0.99, expectancy=-0.01),
+        _m(1.00, expectancy=-0.01),
     ]
     assert pre_oos_gate_pass(metrics) is True
     assert score_cost_aware(metrics) > -999.0
