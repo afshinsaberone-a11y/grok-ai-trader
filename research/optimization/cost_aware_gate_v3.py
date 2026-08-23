@@ -1,8 +1,8 @@
 """Strict Cost-Aware Gate v4 for pre-OOS candidates.
 
 2022-2024 are pre-OOS discovery years and 2025 is validation. 2026 is never loaded.
-Fail closed: a candidate must show positive expectancy in at least 2 of 3 pre-OOS years,
-meet PF/trade floors in every pre-OOS year, and pass the independent 2025 validation gate.
+Fail closed: every pre-OOS year must meet PF/trade floors, at least 2 of 3
+must have positive expectancy, and 2025 must pass the independent validation gate.
 """
 from __future__ import annotations
 from typing import Any
