@@ -1,10 +1,10 @@
 """Cost-aware discovery on real pre-OOS data only.
 
-Gate policy v3:
-- 2022-2024 are discovery years and each year must meet PF/trade-count floors.
-- At least two of the three discovery years must have positive expectancy.
-- 2025 is validation only.
-- 2026 is strictly held out.
+Strict gate v3:
+- 2022-2024: PF >= 1.0 and minimum trades every year.
+- At least 2/3 discovery years must have positive expectancy.
+- 2025: validation only.
+- 2026: strictly held out.
 """
 from __future__ import annotations
 import argparse, json
@@ -22,11 +22,9 @@ PRE_OOS_MIN_PROFITABLE_YEARS=2
 PRE_OOS_MIN_PF_EACH_YEAR=1.0
 PRE_OOS_MIN_EXPECTANCY_R=0.0
 
-
 def round_trip_cost_price(spread_pips:float, slippage_pips:float)->float:
     if spread_pips<0 or slippage_pips<0: raise ValueError("execution costs cannot be negative")
     return 2*(float(spread_pips)+float(slippage_pips))*PIP_SIZE
-
 
 def backtest_cost_aware(df:pd.DataFrame,family:str,params:dict[str,Any],*,spread_pips=DEFAULT_SPREAD_PIPS,slippage_pips=DEFAULT_SLIPPAGE_PIPS)->dict[str,Any]:
     d=indicators(df,params); sig=signal_family(d,family,params); equity=peak=10000.; maxdd=0.; pos=0; entry=stop=tp=0.; rs=[]; cost=round_trip_cost_price(spread_pips,slippage_pips)
@@ -43,31 +41,26 @@ def backtest_cost_aware(df:pd.DataFrame,family:str,params:dict[str,Any],*,spread
     n=len(rs); wins=sum(x>0 for x in rs); gp=sum(x for x in rs if x>0); gl=abs(sum(x for x in rs if x<=0)); pf=gp/gl if gl else (float("inf") if gp>0 else 0.)
     return {"trades":n,"win_rate":round(100*wins/n,2) if n else 0.,"total_R":round(sum(rs),2),"expectancy_R":round(sum(rs)/n,4) if n else 0.,"profit_factor":round(pf,3) if np.isfinite(pf) else "inf","max_dd_pct":round(100*maxdd,2),"final_equity":round(equity,2),"spread_pips":float(spread_pips),"slippage_pips":float(slippage_pips),"round_trip_cost_pips":round(2*(spread_pips+slippage_pips),4)}
 
-
 def _pf(m): return 3.0 if m["profit_factor"]=="inf" else float(m["profit_factor"])
-
 
 def pre_oos_gate_pass(metrics:list[dict[str,Any]])->bool:
     if len(metrics) != len(PRE_OOS_YEARS): return False
-    years=[x.get("year") for x in metrics]
-    if all(y is None for y in years): normalized_years=list(PRE_OOS_YEARS)
-    elif any(y is None for y in years): return False
-    else:
-        try: normalized_years=[int(y) for y in years]
-        except (TypeError,ValueError): return False
-    if set(normalized_years)!=set(PRE_OOS_YEARS): return False
-    if any(int(x["metrics"]["trades"])<MIN_TRADES for x in metrics): return False
-    if any(_pf(x["metrics"])<PRE_OOS_MIN_PF_EACH_YEAR for x in metrics): return False
-    profitable_years=sum(float(x["metrics"]["expectancy_R"])>PRE_OOS_MIN_EXPECTANCY_R for x in metrics)
-    return profitable_years>=PRE_OOS_MIN_PROFITABLE_YEARS
-
+    years=[]
+    for x in metrics:
+        try: years.append(int(x["year"]))
+        except (KeyError,TypeError,ValueError): return False
+    if set(years)!=set(PRE_OOS_YEARS): return False
+    for x in metrics:
+        m=x.get("metrics",{})
+        if int(m.get("trades",0))<MIN_TRADES or _pf(m)<PRE_OOS_MIN_PF_EACH_YEAR: return False
+    profitable=sum(float(x["metrics"].get("expectancy_R",0.0))>PRE_OOS_MIN_EXPECTANCY_R for x in metrics)
+    return profitable>=PRE_OOS_MIN_PROFITABLE_YEARS
 
 def score_cost_aware(metrics):
     if not pre_oos_gate_pass(metrics): return -999.0
     pfs=[_pf(x["metrics"]) for x in metrics]; ex=[float(x["metrics"]["expectancy_R"]) for x in metrics]; dd=[float(x["metrics"]["max_dd_pct"]) for x in metrics]
     avg=sum(pfs)/len(pfs); total=sum(float(x["metrics"]["total_R"]) for x in metrics)
     return round(2.5*min(max(min(pfs),0),2)/2+1.5*min(max(avg,0),2)/2+sum(v>0 for v in ex)/len(ex)+1.5*np.tanh(total/150)-2.5*min(max(max(dd),0),100)/100,6)
-
 
 def discover_family_cost_aware(df,family,*,spread_pips,slippage_pips):
     years={y:df[(df.index>=f"{y}-01-01")&(df.index<f"{y+1}-01-01")] for y in (2022,2023,2024,2025)}; results=[]
@@ -80,7 +73,6 @@ def discover_family_cost_aware(df,family,*,spread_pips,slippage_pips):
         vm=backtest_cost_aware(years[2025],family,x["params"],spread_pips=spread_pips,slippage_pips=slippage_pips); q=_pf(vm)>=VALIDATION_MIN_PF and float(vm["max_dd_pct"])<=VALIDATION_MAX_DD and int(vm["trades"])>=MIN_TRADES; validated.append({**x,"validation_2025_cost_aware":vm,"validation_qualifies":q})
     qualified=[x for x in validated if x["validation_qualifies"]]; qualified.sort(key=lambda x:(-x["cost_aware_robustness_score"],x["candidate"]))
     return {"family":family,"candidate_total":len(results),"cost_profile":{"spread_pips":spread_pips,"slippage_pips":slippage_pips,"round_trip_cost_pips":2*(spread_pips+slippage_pips)},"qualified_count":len(qualified),"champion":qualified[0] if qualified else None,"top_50":validated}
-
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--data",required=True); ap.add_argument("--family",choices=FAMILIES,required=True); ap.add_argument("--output",default="artifacts/cost_aware_family.json"); ap.add_argument("--spread-pips",type=float,default=DEFAULT_SPREAD_PIPS); ap.add_argument("--slippage-pips",type=float,default=DEFAULT_SLIPPAGE_PIPS); a=ap.parse_args()
