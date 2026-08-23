@@ -1,4 +1,4 @@
-name: Cost-Aware Multi-Family Discovery v1
+name: Cost-Aware Multi-Family Discovery v2
 
 on:
   workflow_dispatch:
@@ -98,7 +98,7 @@ jobs:
           m5.to_csv(out,index=False)
           print('PRE_OOS_M5_ROWS=',len(m5))
           PY
-      - name: Run cost-aware family discovery
+      - name: Run cost-aware family discovery v2 gate
         env:
           FAMILY: ${{ matrix.family }}
           SPREAD: ${{ inputs.spread_pips }}
@@ -137,9 +137,6 @@ jobs:
           path: artifacts/families
           merge-multiple: false
       - name: Aggregate cost-aware results
-        env:
-          SPREAD: ${{ inputs.spread_pips }}
-          SLIPPAGE: ${{ inputs.slippage_pips }}
         run: |
           python - <<'PY'
           import json
@@ -155,7 +152,16 @@ jobs:
           champions=[r['champion'] for r in results if r.get('champion')]
           champions.sort(key=lambda x:(-float(x['cost_aware_robustness_score']), x['family'], x['candidate']))
           report={
-              'schema_version':'forexai.cost_aware_multi_family.v1',
+              'schema_version':'forexai.cost_aware_multi_family.v2',
+              'gate_policy':{
+                  'pre_oos_years':[2022,2023,2024],
+                  'pre_oos_min_profitable_years':2,
+                  'pre_oos_min_pf_each_year':1.0,
+                  'validation_min_pf':1.10,
+                  'validation_max_dd_pct':35.0,
+                  'validation_min_trades':100,
+                  'fail_closed':True,
+              },
               'execution_cost_model':{
                   'spread_pips_per_side':float('${{ inputs.spread_pips }}'),
                   'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),
@@ -178,6 +184,6 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: cost-aware-summary
+          name: cost-aware-summary-v2
           path: artifacts/cost_aware_summary.json
           if-no-files-found: warn
