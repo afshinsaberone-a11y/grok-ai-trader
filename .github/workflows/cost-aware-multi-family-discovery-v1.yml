@@ -170,6 +170,7 @@ jobs:
               'sp2l_status':'SP2L-lite is an engineering proxy; official SP2L PR #2 is not merged into main',
           }
           out=Path('artifacts/cost_aware_summary.json')
+          out.parent.mkdir(parents=True,exist_ok=True)
           out.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8')
           print(json.dumps({'qualified_count':len(champions),'champion':report['champion']},indent=2,sort_keys=True))
           PY
