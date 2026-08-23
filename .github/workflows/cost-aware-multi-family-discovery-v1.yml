@@ -50,7 +50,7 @@ jobs:
           assert pre_oos_gate_pass([
               m(2022, 1.05, 0.01),
               m(2023, 1.12, 0.02),
-              m(2024, 0.98, -0.01),
+              m(2024, 1.02, -0.01),
           ])
           # Missing/wrong years fail closed.
           assert not pre_oos_gate_pass([m(2022, 1.1, 0.02), m(2023, 1.1, 0.02)])
@@ -178,6 +178,7 @@ jobs:
                   'pre_oos_years':[2022,2023,2024],
                   'pre_oos_min_profitable_years':2,
                   'pre_oos_min_pf_each_year':1.0,
+                  'pre_oos_min_expectancy_R':0.0,
                   'validation_min_pf':1.10,
                   'validation_max_dd_pct':35.0,
                   'validation_min_trades':100,
