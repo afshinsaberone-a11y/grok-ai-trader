@@ -20,6 +20,12 @@ FAMILIES = (
     "trend_ema_rsi", "momentum_breakout", "donchian_breakout",
     "bollinger_mean_reversion", "rsi_mean_reversion",
     "session_range_breakout", "volatility_expansion", "sp2l_lite",
+    # Research-backed additions using only OHLC-derived information currently
+    # available in the real-data pipeline.
+    "volatility_switch_momentum_reversal",
+    "skew_kurt_momentum",
+    "regime_zscore_reversion",
+    "ichimoku_regime_trend",
 )
 
 
@@ -37,6 +43,18 @@ def indicators(df: pd.DataFrame, p: dict[str, Any]) -> pd.DataFrame:
     d["mom"] = c.pct_change(p.get("mom",10)); n=p.get("bb",20); m=c.rolling(n).mean(); s=c.rolling(n).std(); d["bb_mid"], d["bb_up"], d["bb_dn"] = m, m+p.get("bb_k",2.0)*s, m-p.get("bb_k",2.0)*s
     r=p.get("rsi",14); delta=c.diff(); gain=delta.clip(lower=0).rolling(r).mean(); loss=(-delta.clip(upper=0)).rolling(r).mean(); rs=gain/loss.replace(0,np.nan); d["rsi"] = 100-(100/(1+rs))
     d["hh"] = h.rolling(p.get("don",20)).max().shift(1); d["ll"] = l.rolling(p.get("don",20)).min().shift(1); d["hour"] = d.index.hour; d["session"] = ((d.hour>=7)&(d.hour<=16)) | ((d.hour>=12)&(d.hour<=20))
+    zlook=p.get("zscore_lookback",40); zm=c.rolling(zlook).mean(); zs=c.rolling(zlook).std(); d["zscore"]=(c-zm)/zs.replace(0,np.nan)
+    vlook=p.get("vol_lookback",20); d["atr_base"]=d.atr.rolling(vlook).mean(); d["vol_ratio"]=d.atr/d.atr_base.replace(0,np.nan)
+    statlook=p.get("stat_lookback",50); ret=c.pct_change(); d["ret_skew"]=ret.rolling(statlook).skew(); d["ret_kurt"]=ret.rolling(statlook).kurt()
+    # Ichimoku components; all confirmation lines are shifted so the current
+    # signal does not inspect future bars.
+    tenkan_n=p.get("tenkan",9); kijun_n=p.get("kijun",26); span_n=p.get("span_b",52)
+    d["tenkan"]=(h.rolling(tenkan_n).max()+l.rolling(tenkan_n).min())/2
+    d["kijun"]=(h.rolling(kijun_n).max()+l.rolling(kijun_n).min())/2
+    d["span_a"]=(d.tenkan+d.kijun)/2
+    d["span_b"]=(h.rolling(span_n).max()+l.rolling(span_n).min())/2
+    d["cloud_top"]=pd.concat([d.span_a,d.span_b],axis=1).max(axis=1).shift(p.get("cloud_shift",26))
+    d["cloud_bottom"]=pd.concat([d.span_a,d.span_b],axis=1).min(axis=1).shift(p.get("cloud_shift",26))
     return d
 
 
@@ -55,9 +73,33 @@ def signal_family(d: pd.DataFrame, family: str, p: dict[str, Any]) -> pd.Series:
     elif family=="session_range_breakout":
         day=d.index.floor("D"); prior=(d.hour<7); rh=d.High.where(prior).groupby(day).cummax().shift(1); rl=d.Low.where(prior).groupby(day).cummin().shift(1); sig[(d.hour>=7)&(d.Close>rh)]=1; sig[(d.hour>=7)&(d.Close<rl)]=-1
     elif family=="volatility_expansion":
-        atr_base=d.atr.rolling(p["vol_lookback"]).mean(); expanding=d.atr>atr_base*p["vol_mult"]; sig[expanding&(d.Close>d.ema_t)]=1; sig[expanding&(d.Close<d.ema_t)]=-1
+        expanding=d.atr>d.atr_base*p["vol_mult"]; sig[expanding&(d.Close>d.ema_t)]=1; sig[expanding&(d.Close<d.ema_t)]=-1
     elif family=="sp2l_lite":
         body=(d.Close-d.Open).abs(); rng=d.High-d.Low; spike=(rng>0)&(body/rng>=p["body_ratio"])&(rng>=p["atr_mult"]*d.atr); gap_up=d.Low>d.High.shift(2); gap_dn=d.High<d.Low.shift(2); sig[spike&gap_up&d.Close>d.Open]=1; sig[spike&gap_dn&d.Close<d.Open]=-1
+    elif family=="volatility_switch_momentum_reversal":
+        # 2024 research motivates switching between momentum and reversal as
+        # volatility changes. High-volatility -> breakout/momentum; low-vol ->
+        # mean reversion around the rolling mean.
+        high=d.vol_ratio>=p["high_vol_mult"]; low=d.vol_ratio<=p["low_vol_mult"]
+        sig[high&(d.mom>p["mom_threshold"])&(d.Close>d.hh)]=1; sig[high&(d.mom<-p["mom_threshold"])&(d.Close<d.ll)]=-1
+        sig[low&(d.zscore<-p["reversion_z"])]=1; sig[low&(d.zscore>p["reversion_z"])]=-1
+    elif family=="skew_kurt_momentum":
+        # 2025/2026 FX research suggests conditioning momentum on higher
+        # return-distribution skewness/kurtosis can reduce reversal exposure.
+        winner=(d.mom>p["mom_threshold"]); loser=(d.mom<-p["mom_threshold"])
+        high_shape=(d.ret_skew>=p["skew_min"])&(d.ret_kurt>=p["kurt_min"])
+        low_shape=(d.ret_skew<=p["skew_max_short"])&(d.ret_kurt<=p["kurt_max_short"])
+        sig[winner&high_shape]=1; sig[loser&low_shape]=-1
+    elif family=="regime_zscore_reversion":
+        # Intraday statistical mean reversion conditioned on a higher-TF trend
+        # state, avoiding the classic MR failure during persistent trends.
+        calm=d.vol_ratio<=p["max_vol_ratio"]; z=d.zscore
+        up=d.Close>d.ema_t; dn=d.Close<d.ema_t
+        sig[calm&(z<-p["entry_z"])&up]=1; sig[calm&(z>p["entry_z"])&dn]=-1
+    elif family=="ichimoku_regime_trend":
+        bullish=(d.tenkan>d.kijun)&(d.Close>d.cloud_top)&(d.Close>d.cloud_bottom)
+        bearish=(d.tenkan<d.kijun)&(d.Close<d.cloud_bottom)&(d.Close<d.cloud_top)
+        sig[bullish & (d.tenkan.shift()<=d.kijun.shift())]=1; sig[bearish & (d.tenkan.shift()>=d.kijun.shift())]=-1
     return sig
 
 
@@ -87,6 +129,10 @@ def catalog() -> dict[str, list[dict[str,Any]]]:
         "session_range_breakout":[{**base,"atr_stop":a,"rr":rr} for a in (1.2,1.6,2.0,2.4) for rr in (1.5,2.0,3.0,4.0)],
         "volatility_expansion":[{**base,"vol_lookback":n,"vol_mult":m,"atr_stop":a,"rr":rr} for n in (10,20,40) for m in (1.1,1.25,1.5) for a in (1.4,1.8,2.2) for rr in (1.5,2.5,3.5)],
         "sp2l_lite":[{**base,"body_ratio":b,"atr_mult":m,"atr_stop":a,"rr":rr} for b in (0.55,0.65,0.75) for m in (1.2,1.5,2.0) for a in (1.0,1.5,2.0) for rr in (1.0,1.5,2.0)],
+        "volatility_switch_momentum_reversal":[{**base,"zscore_lookback":z,"mom":m,"mom_threshold":mt,"high_vol_mult":hv,"low_vol_mult":lv,"reversion_z":rz,"atr_stop":a,"rr":rr} for z in (20,40,60) for m in (5,10,20) for mt in (0.001,0.002) for hv in (1.2,1.5) for lv in (0.8,1.0) for rz in (1.0,1.5,2.0) for a in (1.4,1.8) for rr in (1.5,2.5)],
+        "skew_kurt_momentum":[{**base,"mom":m,"mom_threshold":mt,"stat_lookback":sl,"skew_min":sm,"kurt_min":km,"skew_max_short":sx,"kurt_max_short":kx,"atr_stop":a,"rr":rr} for m in (5,10,20) for mt in (0.001,0.002) for sl in (30,50,80) for sm in (0.0,0.2,0.4) for km in (0.5,1.0,1.5) for sx in (0.0,-0.2) for kx in (0.5,1.0) for a in (1.4,1.8) for rr in (1.5,2.5)],
+        "regime_zscore_reversion":[{**base,"zscore_lookback":z,"entry_z":ez,"max_vol_ratio":vr,"trend":t,"atr_stop":a,"rr":rr} for z in (20,40,60) for ez in (1.0,1.5,2.0) for vr in (0.8,1.0,1.2) for t in (100,200,300) for a in (1.2,1.6,2.0) for rr in (1.0,1.5,2.0)],
+        "ichimoku_regime_trend":[{**base,"tenkan":tn,"kijun":kj,"span_b":sb,"cloud_shift":cs,"atr_stop":a,"rr":rr} for tn,kj,sb in ((9,26,52),(7,22,44),(12,30,60)) for cs in (22,26) for a in (1.4,1.8,2.2) for rr in (1.5,2.5,3.5)],
     }
 
 
@@ -113,11 +159,11 @@ def main()->int:
     ap=argparse.ArgumentParser(); ap.add_argument("--data",required=True); ap.add_argument("--output",default="artifacts/multi_family_discovery.json"); ap.add_argument("--family",choices=FAMILIES, default=None)
     args=ap.parse_args(); df=pd.read_csv(args.data); df["timestamp"]=pd.to_datetime(df["timestamp"],utc=True); df=df.rename(columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"}).set_index("timestamp")
     if args.family:
-        result=discover_family(df,args.family); report={"schema_version":"forexai.multi_family_discovery.v1","family":args.family,"result":result,"oos_policy":{"loaded":False,"start":"2026-01-01","status":"HELD_OUT"},"sp2l_status":"SP2L-lite is an engineering proxy; official SP2L PR #2 is not merged into main"}
+        result=discover_family(df,args.family); report={"schema_version":"forexai.multi_family_discovery.v2","family":args.family,"result":result,"oos_policy":{"loaded":False,"start":"2026-01-01","status":"HELD_OUT"},"research_sources":{"volatility_switch":"Butt, Kolari & Sadaqat (2024), Journal of Asset Management","skew_kurt_momentum":"Liu (2025/2026), Journal of International Money and Finance","regime_zscore_reversion":"Bhatti (2026), SSRN","ichimoku_ml_note":"Chandrinos & Lagaros (2025), SSRN"},"sp2l_status":"SP2L-lite is an engineering proxy; official SP2L PR #2 is not merged into main"}
     else:
         all_results=[]
         for fam in FAMILIES: all_results.append(discover_family(df,fam))
         qualified=[x["champion"] for x in all_results if x["champion"] is not None]; qualified.sort(key=lambda x:(-float(x["robustness_score"]),x["family"],x["candidate"]))
-        report={"schema_version":"forexai.multi_family_discovery.v1","families":list(FAMILIES),"results":all_results,"qualified_count":len(qualified),"champion":qualified[0] if qualified else None,"oos_policy":{"loaded":False,"start":"2026-01-01","status":"HELD_OUT"},"sp2l_status":"SP2L-lite is an engineering proxy; official SP2L PR #2 is not merged into main"}
+        report={"schema_version":"forexai.multi_family_discovery.v2","families":list(FAMILIES),"results":all_results,"qualified_count":len(qualified),"champion":qualified[0] if qualified else None,"oos_policy":{"loaded":False,"start":"2026-01-01","status":"HELD_OUT"},"research_sources":{"volatility_switch":"Butt, Kolari & Sadaqat (2024), Journal of Asset Management","skew_kurt_momentum":"Liu (2025/2026), Journal of International Money and Finance","regime_zscore_reversion":"Bhatti (2026), SSRN","ichimoku_ml_note":"Chandrinos & Lagaros (2025), SSRN"},"sp2l_status":"SP2L-lite is an engineering proxy; official SP2L PR #2 is not merged into main"}
     out=Path(args.output); out.parent.mkdir(parents=True,exist_ok=True); out.write_text(json.dumps(_native(report),indent=2,sort_keys=True),encoding="utf-8"); print(json.dumps(_native({"family":args.family,"qualified_count":report.get("result",report).get("qualified_count",report.get("qualified_count",0)),"champion":report.get("result",report).get("champion",report.get("champion"))}),indent=2)); return 0
 if __name__=="__main__": raise SystemExit(main())
