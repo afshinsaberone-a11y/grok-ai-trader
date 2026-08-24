@@ -1,4 +1,4 @@
-"""Strict Cost-Aware Gate v4 for pre-OOS candidates.
+"""Strict Cost-Aware Gate v5 for pre-OOS candidates.
 
 2022-2024 are pre-OOS discovery years and 2025 is validation. 2026 is never loaded.
 Fail closed: every pre-OOS year must meet PF/trade floors, at least 2 of 3
