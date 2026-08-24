@@ -23,28 +23,28 @@ def _years(*rows):
     return [dict(row, year=year) for year, row in zip((2022, 2023, 2024), rows)]
 
 
-def test_pre_oos_gate_requires_all_years_pf_at_least_one():
-    metrics = _years(_m(1.05), _m(1.01), _m(0.99))
+def test_pre_oos_gate_requires_all_years_pf_at_least_1_05():
+    metrics = _years(_m(1.05), _m(1.04), _m(1.10))
     assert pre_oos_gate_pass(metrics) is False
 
 
-def test_pre_oos_gate_accepts_two_profitable_years():
-    metrics = _years(_m(1.05, expectancy=0.01), _m(1.01, expectancy=0.02), _m(1.02, expectancy=-0.01))
+def test_pre_oos_gate_accepts_two_profitable_years_with_all_pf_floors():
+    metrics = _years(_m(1.05, expectancy=0.01), _m(1.08, expectancy=0.02), _m(1.06, expectancy=-0.01))
     assert pre_oos_gate_pass(metrics) is True
 
 
 def test_pre_oos_gate_rejects_low_trade_year():
-    metrics = _years(_m(1.05), _m(1.01), _m(1.02, trades=99))
+    metrics = _years(_m(1.05), _m(1.08), _m(1.06, trades=99))
     assert pre_oos_gate_pass(metrics) is False
 
 
 def test_pre_oos_gate_rejects_high_drawdown_year():
-    metrics = _years(_m(1.05, dd=10), _m(1.01, dd=36), _m(1.02, expectancy=-0.01, dd=12))
+    metrics = _years(_m(1.05, dd=10), _m(1.08, dd=36), _m(1.06, expectancy=-0.01, dd=12))
     assert pre_oos_gate_pass(metrics) is False
 
 
 def test_pre_oos_gate_rejects_missing_years():
-    metrics = [_m(1.05, year=2022), _m(1.01, year=2023), _m(1.02, year=2025)]
+    metrics = [_m(1.05, year=2022), _m(1.08, year=2023), _m(1.06, year=2025)]
     assert pre_oos_gate_pass(metrics) is False
 
 
