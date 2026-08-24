@@ -1,6 +1,6 @@
-"""Strict Cost-Aware Gate v5 for pre-OOS candidates.
+"""Strict cost-aware gate for pre-OOS candidates.
 
-2022-2024 are pre-OOS discovery years and 2025 is validation. 2026 is never loaded.
+2022-2024 are discovery years; 2025 is validation; 2026 is held out.
 Fail closed: every pre-OOS year must meet PF/trade floors, at least 2 of 3
 must have positive expectancy, and 2025 must pass the independent validation gate.
 """
@@ -33,19 +33,12 @@ def pre_oos_gate(metrics: list[dict[str, Any]]) -> bool:
             return False
         if _pf(m) < MIN_PF_EACH_YEAR:
             return False
-    profitable = sum(
-        float(by_year[y]["metrics"].get("expectancy_R", 0.0)) > MIN_EXPECTANCY_R
-        for y in PRE_OOS_YEARS
-    )
+    profitable = sum(float(by_year[y]["metrics"].get("expectancy_R", 0.0)) > MIN_EXPECTANCY_R for y in PRE_OOS_YEARS)
     return profitable >= MIN_PROFITABLE_YEARS
 
 
 def validation_gate(metrics: dict[str, Any]) -> bool:
-    return (
-        _pf(metrics) >= VALIDATION_MIN_PF
-        and float(metrics.get("max_dd_pct", 100.0)) <= VALIDATION_MAX_DD_PCT
-        and int(metrics.get("trades", 0)) >= MIN_TRADES_EACH_YEAR
-    )
+    return _pf(metrics) >= VALIDATION_MIN_PF and float(metrics.get("max_dd_pct", 100.0)) <= VALIDATION_MAX_DD_PCT and int(metrics.get("trades", 0)) >= MIN_TRADES_EACH_YEAR
 
 
 def candidate_gate(pre_oos: list[dict[str, Any]], validation: dict[str, Any]) -> bool:
