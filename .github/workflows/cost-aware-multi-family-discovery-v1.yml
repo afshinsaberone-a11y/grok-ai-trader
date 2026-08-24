@@ -1,4 +1,4 @@
-name: Cost-Aware Multi-Family Discovery v4
+name: Cost-Aware Multi-Family Discovery v5
 
 on:
   workflow_dispatch:
@@ -41,7 +41,7 @@ jobs:
           def m(year,pf,ex,trades=100): return {'year':year,'metrics':{'profit_factor':pf,'expectancy_R':ex,'trades':trades}}
           assert not pre_oos_gate([m(2022,1.013,.01),m(2023,.795,-.03),m(2024,.605,-.05)])
           assert pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02),m(2024,1.02,-.01)])
-          print('STRICT_COST_AWARE_GATE_V4=PASS')
+          print('STRICT_COST_AWARE_GATE_V5=PASS')
           PY
 
   discover:
@@ -95,7 +95,7 @@ jobs:
           m5=df.set_index('timestamp')[['open','high','low','close','volume']].resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index()
           out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv'); out.parent.mkdir(parents=True,exist_ok=True); m5.to_csv(out,index=False); print('PRE_OOS_M5_ROWS=',len(m5))
           PY
-      - name: Run strict cost-aware family discovery v4
+      - name: Run strict cost-aware family discovery v5
         env:
           FAMILY: ${{ matrix.family }}
           SPREAD: ${{ inputs.spread_pips }}
@@ -138,13 +138,13 @@ jobs:
               results.append(result)
           champions=[r['champion'] for r in results if r.get('champion')]
           champions.sort(key=lambda x:(-float(x['cost_aware_robustness_score']),x['family'],x['candidate']))
-          report={'schema_version':'forexai.cost_aware_multi_family.v4','gate_policy':{'pre_oos_years':[2022,2023,2024],'pre_oos_min_profitable_years':2,'pre_oos_min_pf_each_year':1.0,'pre_oos_min_expectancy_R':0.0,'pre_oos_min_trades_each_year':100,'validation_min_pf':1.10,'validation_max_dd_pct':35.0,'validation_min_trades':100,'fail_closed':True},'execution_cost_model':{'spread_pips_per_side':float('${{ inputs.spread_pips }}'),'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),'round_trip_pips':2*(float('${{ inputs.spread_pips }}')+float('${{ inputs.slippage_pips }}'))},'results':results,'qualified_count':len(champions),'champion':champions[0] if champions else None,'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False}
+          report={'schema_version':'forexai.cost_aware_multi_family.v5','gate_policy':{'pre_oos_years':[2022,2023,2024],'pre_oos_min_profitable_years':2,'pre_oos_min_pf_each_year':1.0,'pre_oos_min_expectancy_R':0.0,'pre_oos_min_trades_each_year':100,'validation_min_pf':1.10,'validation_max_dd_pct':35.0,'validation_min_trades':100,'fail_closed':True},'execution_cost_model':{'spread_pips_per_side':float('${{ inputs.spread_pips }}'),'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),'round_trip_pips':2*(float('${{ inputs.spread_pips }}')+float('${{ inputs.slippage_pips }}'))},'results':results,'qualified_count':len(champions),'champion':champions[0] if champions else None,'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False}
           out=Path('artifacts/cost_aware_summary.json'); out.parent.mkdir(parents=True,exist_ok=True); out.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8'); print(json.dumps({'qualified_count':len(champions),'champion':report['champion']},indent=2,sort_keys=True))
           PY
       - name: Upload aggregate artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: cost-aware-summary-v4
+          name: cost-aware-summary-v5
           path: artifacts/cost_aware_summary.json
           if-no-files-found: warn
