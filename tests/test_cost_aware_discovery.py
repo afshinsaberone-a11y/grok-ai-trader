@@ -41,3 +41,13 @@ def test_pre_oos_gate_rejects_low_trade_year():
 def test_pre_oos_gate_rejects_missing_years():
     metrics = [_m(1.05, year=2022), _m(1.01, year=2023), _m(1.02, year=2025)]
     assert pre_oos_gate_pass(metrics) is False
+
+
+def test_pre_oos_gate_rejects_previous_false_champion_profile():
+    # Candidate 239 from the prior run: 2022 barely positive, 2023/2024 negative.
+    metrics = _years(
+        _m(1.013, expectancy=0.01, trades=100),
+        _m(0.795, expectancy=-0.03, trades=100),
+        _m(0.605, expectancy=-0.05, trades=100),
+    )
+    assert pre_oos_gate_pass(metrics) is False
