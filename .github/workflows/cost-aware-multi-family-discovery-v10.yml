@@ -49,7 +49,7 @@ jobs:
       matrix:
         family: [trend_ema_rsi, momentum_breakout, donchian_breakout, bollinger_mean_reversion, rsi_mean_reversion, session_range_breakout, volatility_expansion, sp2l_lite, volatility_switch_momentum_reversal, skew_kurt_momentum, regime_zscore_reversion, ichimoku_regime_trend]
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
