@@ -21,16 +21,24 @@ def round_trip_cost_price(spread_pips:float, slippage_pips:float)->float:
     return 2*(float(spread_pips)+float(slippage_pips))*PIP_SIZE
 
 def backtest_cost_aware(df:pd.DataFrame,family:str,params:dict[str,Any],*,spread_pips=DEFAULT_SPREAD_PIPS,slippage_pips=DEFAULT_SLIPPAGE_PIPS)->dict[str,Any]:
-    d=indicators(df,params); sig=signal_family(d,family,params); equity=peak=10000.; maxdd=0.; pos=0; entry=stop=tp=0.; rs=[]; cost=round_trip_cost_price(spread_pips,slippage_pips)
+    d=indicators(df,params); sig=signal_family(d,family,params)
+    close=d["Close"].to_numpy(dtype=float, copy=False)
+    high=d["High"].to_numpy(dtype=float, copy=False)
+    low=d["Low"].to_numpy(dtype=float, copy=False)
+    atr=d["atr"].to_numpy(dtype=float, copy=False)
+    signals=sig.to_numpy(copy=False)
+    equity=peak=10000.; maxdd=0.; pos=0; entry=stop=tp=0.; rs=[]
+    cost=round_trip_cost_price(spread_pips,slippage_pips)
     for i in range(1,len(d)):
-        r=d.iloc[i]; atr=r.atr
-        if pd.isna(atr) or atr<=0: continue
-        if pos==0 and sig.iloc[i]!=0:
-            pos=int(sig.iloc[i]); entry=float(r.Close); sd=params["atr_stop"]*float(atr); stop=entry-pos*sd; tp=entry+pos*params["rr"]*sd; continue
-        if pos==1 and (r.Low<=stop or r.High>=tp or sig.iloc[i]==-1):
-            ex=stop if r.Low<=stop else (tp if r.High>=tp else r.Close); rs.append((ex-entry)/abs(entry-stop)-cost/abs(entry-stop)); equity*=1+RISK_PCT*rs[-1]; pos=0
-        elif pos==-1 and (r.High>=stop or r.Low<=tp or sig.iloc[i]==1):
-            ex=stop if r.High>=stop else (tp if r.Low<=tp else r.Close); rs.append((entry-ex)/abs(stop-entry)-cost/abs(stop-entry)); equity*=1+RISK_PCT*rs[-1]; pos=0
+        a=atr[i]
+        if not np.isfinite(a) or a<=0: continue
+        s=signals[i]
+        if pos==0 and s!=0:
+            pos=int(s); entry=close[i]; sd=params["atr_stop"]*a; stop=entry-pos*sd; tp=entry+pos*params["rr"]*sd; continue
+        if pos==1 and (low[i]<=stop or high[i]>=tp or s==-1):
+            ex=stop if low[i]<=stop else (tp if high[i]>=tp else close[i]); rs.append((ex-entry)/abs(entry-stop)-cost/abs(entry-stop)); equity*=1+RISK_PCT*rs[-1]; pos=0
+        elif pos==-1 and (high[i]>=stop or low[i]<=tp or s==1):
+            ex=stop if high[i]>=stop else (tp if low[i]<=tp else close[i]); rs.append((entry-ex)/abs(stop-entry)-cost/abs(stop-entry)); equity*=1+RISK_PCT*rs[-1]; pos=0
         peak=max(peak,equity); maxdd=max(maxdd,(peak-equity)/peak)
     n=len(rs); wins=sum(x>0 for x in rs); gp=sum(x for x in rs if x>0); gl=abs(sum(x for x in rs if x<=0)); pf=gp/gl if gl else (float("inf") if gp>0 else 0.)
     return {"trades":n,"win_rate":round(100*wins/n,2) if n else 0.,"total_R":round(sum(rs),2),"expectancy_R":round(sum(rs)/n,4) if n else 0.,"profit_factor":round(pf,3) if np.isfinite(pf) else "inf","max_dd_pct":round(100*maxdd,2),"final_equity":round(equity,2),"spread_pips":float(spread_pips),"slippage_pips":float(slippage_pips),"round_trip_cost_pips":round(2*(spread_pips+slippage_pips),4)}
