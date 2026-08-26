@@ -31,6 +31,10 @@ def backtest_cost_aware(df:pd.DataFrame,family:str,params:dict[str,Any],*,spread
     n=len(rs); wins=sum(x>0 for x in rs); gp=sum(x for x in rs if x>0); gl=abs(sum(x for x in rs if x<=0)); pf=gp/gl if gl else ('inf' if gp>0 else 0.)
     return {'trades':n,'win_rate':round(100*wins/n,2) if n else 0.,'total_R':round(sum(rs),2),'expectancy_R':round(sum(rs)/n,4) if n else 0.,'profit_factor':round(pf,3) if pf!='inf' and np.isfinite(pf) else pf,'max_dd_pct':round(100*maxdd,2),'final_equity':round(equity,2),'spread_pips':float(spread_pips),'slippage_pips':float(slippage_pips),'round_trip_cost_pips':round(2*(spread_pips+slippage_pips),4)}
 
+def pre_oos_gate_pass(metrics):
+    """Compatibility alias for the canonical strict v7 gate."""
+    return bool(pre_oos_gate(metrics))
+
 def _pf(m): return 3.0 if m['profit_factor']=='inf' else float(m['profit_factor'])
 def score_cost_aware(metrics):
     if not pre_oos_gate(metrics): return -999.0
