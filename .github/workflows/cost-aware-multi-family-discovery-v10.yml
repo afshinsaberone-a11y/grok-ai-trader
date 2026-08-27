@@ -77,7 +77,7 @@ jobs:
           Path('data/real/normalized').mkdir(parents=True,exist_ok=True)
           m.to_csv('data/real/normalized/EURUSD_M5_20220101_20251231.csv',index=False)
           PY
-      - name: Run strict cost-aware discovery
+      - name: Run strict cost-aware discovery with reject diagnostics
         env:
           FAMILY: ${{ matrix.family }}
           SPREAD: ${{ inputs.spread_pips }}
@@ -111,31 +111,31 @@ jobs:
           expected = {'trend_ema_rsi','momentum_breakout','donchian_breakout','bollinger_mean_reversion','rsi_mean_reversion','session_range_breakout','volatility_expansion','sp2l_lite','volatility_switch_momentum_reversal','skew_kurt_momentum','regime_zscore_reversion','ichimoku_regime_trend'}
           found = {p.stem for p in Path('artifacts/families').glob('cost-aware-v10-*/**/*.json')}
           missing = sorted(expected - found)
-          if missing:
-              raise SystemExit(f'DISCOVERY_INCOMPLETE: missing artifacts for {missing}')
+          if missing: raise SystemExit(f'DISCOVERY_INCOMPLETE: missing artifacts for {missing}')
           print(f'DISCOVERY_COMPLETE: {len(found)}/{len(expected)} families')
           PY
-      - name: Aggregate strict results
+      - name: Aggregate strict results and reject diagnostics
         run: |
           python - <<'PY'
           import json
+          from collections import Counter
           from pathlib import Path
           from research.optimization.cost_aware_gate_v7 import *
-          results=[]
+          results=[]; pre=Counter(); val=Counter(); rows=[]
           for p in sorted(Path('artifacts/families').glob('cost-aware-v10-*/**/*.json')):
               d=json.loads(p.read_text()); r=d.get('result',d)
               if not isinstance(r,dict): raise SystemExit(f'INVALID_ARTIFACT_SCHEMA: {p}')
               results.append(r)
-          champs=[r['champion'] for r in results if r.get('champion')]
-          champs.sort(key=lambda x:(-float(x['cost_aware_robustness_score']),x['family'],x['candidate']))
-          report={'schema_version':'forexai.cost_aware_multi_family.v10','gate_policy':{'pre_oos_years':list(PRE_OOS_YEARS),'pre_oos_min_profitable_years':MIN_PROFITABLE_YEARS,'pre_oos_min_pf_each_year':MIN_PF_EACH_YEAR,'pre_oos_min_expectancy_R':MIN_EXPECTANCY_R,'pre_oos_min_trades_each_year':MIN_TRADES_EACH_YEAR,'pre_oos_max_dd_pct':PRE_OOS_MAX_DD_PCT,'validation_min_pf':VALIDATION_MIN_PF,'validation_max_dd_pct':VALIDATION_MAX_DD_PCT,'validation_min_trades':VALIDATION_MIN_TRADES,'fail_closed':True},'results':results,'qualified_count':len(champs),'champion':champs[0] if champs else None,'execution_cost_model':{'spread_pips_per_side':float('${{ inputs.spread_pips }}'),'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),'round_trip_pips':2*(float('${{ inputs.spread_pips }}')+float('${{ inputs.slippage_pips }}'))},'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False}
-          Path('artifacts').mkdir(exist_ok=True)
-          Path('artifacts/cost_aware_summary_v10.json').write_text(json.dumps(report,indent=2,sort_keys=True))
-          print(json.dumps({'qualified_count':len(champs),'champion':report['champion']},indent=2))
+              diag=r.get('reject_diagnostics',{})
+              pre.update(diag.get('pre_oos_rejections',{})); val.update(diag.get('validation_rejections',{}))
+              rows.append({'family':r.get('family'),'candidates':r.get('candidate_total',0),'pre_oos_rejected':diag.get('pre_oos_rejected_candidates',0),'pre_oos_passed':diag.get('pre_oos_passed_candidates',0),'validation_rejected':diag.get('validation_rejected_candidates',0),'validation_qualified':diag.get('validation_qualified_candidates',0),'qualified_count':r.get('qualified_count',0)})
+          champs=[r['champion'] for r in results if r.get('champion')]; champs.sort(key=lambda x:(-float(x['cost_aware_robustness_score']),x['family'],x['candidate']))
+          report={'schema_version':'forexai.cost_aware_multi_family.v11','gate_policy':{'pre_oos_years':list(PRE_OOS_YEARS),'pre_oos_min_profitable_years':MIN_PROFITABLE_YEARS,'pre_oos_min_pf_each_year':MIN_PF_EACH_YEAR,'pre_oos_min_expectancy_R':MIN_EXPECTANCY_R,'pre_oos_min_trades_each_year':MIN_TRADES_EACH_YEAR,'pre_oos_max_dd_pct':PRE_OOS_MAX_DD_PCT,'validation_min_pf':VALIDATION_MIN_PF,'validation_max_dd_pct':VALIDATION_MAX_DD_PCT,'validation_min_trades':VALIDATION_MIN_TRADES,'fail_closed':True},'results':results,'diagnostics':{'by_family':rows,'pre_oos_rejection_totals':dict(pre.most_common()),'validation_rejection_totals':dict(val.most_common())},'qualified_count':len(champs),'champion':champs[0] if champs else None,'execution_cost_model':{'spread_pips_per_side':float('${{ inputs.spread_pips }}'),'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),'round_trip_pips':2*(float('${{ inputs.spread_pips }}')+float('${{ inputs.slippage_pips }}'))},'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/cost_aware_summary_v11.json').write_text(json.dumps(report,indent=2,sort_keys=True)); print(json.dumps(report['diagnostics'],indent=2,sort_keys=True)); print(json.dumps({'qualified_count':len(champs),'champion':report['champion']},indent=2))
           PY
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: cost-aware-summary-v10
-          path: artifacts/cost_aware_summary_v10.json
+          name: cost-aware-summary-v11
+          path: artifacts/cost_aware_summary_v11.json
           if-no-files-found: warn
