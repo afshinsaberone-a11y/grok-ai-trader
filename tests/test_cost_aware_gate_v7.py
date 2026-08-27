@@ -13,11 +13,11 @@ def test_candidate_239_style_failure_is_rejected():
     ])
 
 
-def test_requires_all_pre_oos_years_to_clear_pf_trade_and_dd_floors():
+def test_requires_all_pre_oos_years_to_clear_pf_trade_dd_and_expectancy():
     assert pre_oos_gate([
         m(2022, 1.05, 0.01),
         m(2023, 1.12, 0.02),
-        m(2024, 1.05, -0.01),
+        m(2024, 1.05, 0.001),
     ])
     assert not pre_oos_gate([
         m(2022, 1.05, 0.01),
@@ -27,19 +27,11 @@ def test_requires_all_pre_oos_years_to_clear_pf_trade_and_dd_floors():
     assert not pre_oos_gate([
         m(2022, 1.05, 0.01),
         m(2023, 1.12, 0.02, dd=35.01),
-        m(2024, 1.05, -0.01),
+        m(2024, 1.05, 0.01),
     ])
-
-
-def test_requires_two_positive_expectancy_years():
     assert not pre_oos_gate([
         m(2022, 1.05, 0.01),
-        m(2023, 1.05, -0.01),
-        m(2024, 1.05, -0.01),
-    ])
-    assert pre_oos_gate([
-        m(2022, 1.05, 0.001),
-        m(2023, 1.05, 0.001),
+        m(2023, 1.12, 0.02),
         m(2024, 1.05, -0.001),
     ])
 
