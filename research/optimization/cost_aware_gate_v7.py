@@ -1,8 +1,8 @@
-"""Cost-aware discovery gate v10.
+"""Cost-aware discovery gate v11.
 
 2022-2024 are discovery years; 2025 is validation; 2026 is held out.
-Fail closed: every pre-OOS year must clear PF/trade/DD floors and all
-3 pre-OOS years must have positive expectancy; validation is independent.
+Fail closed: every pre-OOS year must clear PF/trade/DD/expectancy floors.
+Validation is independent and must clear PF/DD/trade floors.
 """
 from __future__ import annotations
 from typing import Any
@@ -24,11 +24,12 @@ def _pf(metrics: dict[str, Any]) -> float:
 
 
 def pre_oos_gate(metrics: list[dict[str, Any]]) -> bool:
-    if len(metrics) != 3:
+    if len(metrics) != len(PRE_OOS_YEARS):
         return False
     by_year = {int(x.get("year")): x for x in metrics if x.get("year") is not None}
     if set(by_year) != set(PRE_OOS_YEARS):
         return False
+    profitable_years = 0
     for year in PRE_OOS_YEARS:
         m = by_year[year].get("metrics", {})
         if int(m.get("trades", 0)) < MIN_TRADES_EACH_YEAR:
@@ -39,7 +40,8 @@ def pre_oos_gate(metrics: list[dict[str, Any]]) -> bool:
             return False
         if float(m.get("expectancy_R", 0.0)) <= MIN_EXPECTANCY_R:
             return False
-    return True
+        profitable_years += 1
+    return profitable_years >= MIN_PROFITABLE_YEARS
 
 
 def validation_gate(metrics: dict[str, Any]) -> bool:
