@@ -6,7 +6,7 @@ def m(year,pf,ex,trades=100,dd=10):
 def test_previous_false_champion_rejected():
     assert not pre_oos_gate([m(2022,1.013,.01),m(2023,.795,-.03),m(2024,.605,-.05)])
 
-def test_strict_gate_requires_each_year_pf_and_two_positive_expectancies():
+def test_strict_gate_requires_positive_expectancy_in_all_pre_oos_years():
     assert pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02),m(2024,1.05,.01)])
     assert not pre_oos_gate([m(2022,1.05,.01),m(2023,1.04,.02),m(2024,1.05,.01)])
     assert not pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02),m(2024,1.05,-.01)])
