@@ -1,0 +1,70 @@
+name: Cost-Aware Multi-Family Discovery v10
+on:
+  workflow_dispatch:
+    inputs:
+      start: {required: true, default: "2022-01-01", type: string}
+      end: {required: true, default: "2026-01-01", type: string}
+      spread_pips: {required: true, default: "0.5", type: string}
+      slippage_pips: {required: true, default: "0.2", type: string}
+jobs:
+  discover:
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [trend_ema_rsi, momentum_breakout, donchian_breakout, bollinger_mean_reversion, rsi_mean_reversion, session_range_breakout, volatility_expansion, sp2l_lite, volatility_switch_momentum_reversal, skew_kurt_momentum, regime_zscore_reversion, ichimoku_regime_trend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r requirements.txt
+      - name: Real pre-OOS data
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "${{ inputs.start }}" --end "${{ inputs.end }}" --output data/real --validate --manifest
+      - name: Build M5
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+          p=Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          if not p.exists(): raise SystemExit('REAL_DATA_REQUIRED: missing normalized M1')
+          d=pd.read_csv(p); d.timestamp=pd.to_datetime(d.timestamp,utc=True)
+          for c in ['open','high','low','close','volume']: d[c]=pd.to_numeric(d[c],errors='raise')
+          m=d.set_index('timestamp')[['open','high','low','close','volume']].resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index()
+          Path('data/real/normalized').mkdir(parents=True,exist_ok=True); m.to_csv('data/real/normalized/EURUSD_M5_20220101_20251231.csv',index=False)
+          PY
+      - name: Discover with strict v7 gate
+        run: python -m research.optimization.cost_aware_discovery --data data/real/normalized/EURUSD_M5_20220101_20251231.csv --family "${{ matrix.family }}" --spread-pips "${{ inputs.spread_pips }}" --slippage-pips "${{ inputs.slippage_pips }}" --output "${{ matrix.family }}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: cost-aware-${{ matrix.family }}, path: "${{ matrix.family }}.json", if-no-files-found: error}
+  aggregate:
+    if: always()
+    needs: discover
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with: {pattern: cost-aware-*, path: artifacts/families, merge-multiple: false}
+      - name: Aggregate
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files=sorted(Path('artifacts/families').glob('cost-aware-*/**/*.json'))
+          results=[]
+          for p in files:
+              d=json.loads(p.read_text()); r=d.get('result',d)
+              if isinstance(r,dict): results.append(r)
+          champs=[r['champion'] for r in results if r.get('champion')]
+          champs.sort(key=lambda x:(-float(x['cost_aware_robustness_score']),x['family'],x['candidate']))
+          out={'schema_version':'forexai.cost_aware_multi_family.v10','results':results,'qualified_count':len(champs),'champion':champs[0] if champs else None,'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/cost_aware_summary_v10.json').write_text(json.dumps(out,indent=2,sort_keys=True))
+          print(json.dumps({'qualified_count':len(champs),'champion':out['champion']},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: cost-aware-summary-v10, path: artifacts/cost_aware_summary_v10.json, if-no-files-found: error}
