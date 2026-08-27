@@ -28,9 +28,21 @@ def test_pre_oos_gate_requires_all_years_pf_at_least_1_05():
     assert pre_oos_gate_pass(metrics) is False
 
 
-def test_pre_oos_gate_accepts_two_profitable_years_with_all_pf_floors():
-    metrics = _years(_m(1.05, expectancy=0.01), _m(1.08, expectancy=0.02), _m(1.06, expectancy=-0.01))
+def test_pre_oos_gate_requires_positive_expectancy_in_all_pre_oos_years():
+    metrics = _years(
+        _m(1.05, expectancy=0.01),
+        _m(1.08, expectancy=0.02),
+        _m(1.06, expectancy=0.001),
+    )
     assert pre_oos_gate_pass(metrics) is True
+
+    # A single non-positive expectancy year must fail the strict fail-closed gate.
+    metrics = _years(
+        _m(1.05, expectancy=0.01),
+        _m(1.08, expectancy=0.02),
+        _m(1.06, expectancy=-0.01),
+    )
+    assert pre_oos_gate_pass(metrics) is False
 
 
 def test_pre_oos_gate_rejects_low_trade_year():
@@ -39,7 +51,7 @@ def test_pre_oos_gate_rejects_low_trade_year():
 
 
 def test_pre_oos_gate_rejects_high_drawdown_year():
-    metrics = _years(_m(1.05, dd=10), _m(1.08, dd=36), _m(1.06, expectancy=-0.01, dd=12))
+    metrics = _years(_m(1.05, dd=10), _m(1.08, dd=36), _m(1.06, dd=12))
     assert pre_oos_gate_pass(metrics) is False
 
 
