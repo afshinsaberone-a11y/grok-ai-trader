@@ -34,14 +34,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pytest -q tests/test_cost_aware_discovery.py tests/test_cost_aware_backtest_equivalence.py
+          pytest -q tests/test_cost_aware_discovery.py tests/test_cost_aware_backtest_equivalence.py tests/test_cost_aware_gate_v4.py
           python - <<'PY'
           from research.optimization.cost_aware_gate_v7 import pre_oos_gate
           def m(y,pf,ex,trades=100,dd=10): return {'year':y,'metrics':{'profit_factor':pf,'expectancy_R':ex,'trades':trades,'max_dd_pct':dd}}
+          # Candidate 239 regression: rejected by poor 2023/2024 results.
           assert not pre_oos_gate([m(2022,1.013,.01),m(2023,.795,-.03),m(2024,.605,-.05)])
-          assert not pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02,dd=36),m(2024,1.05,-.01)])
-          assert pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02),m(2024,1.05,-.01)])
-          print('STRICT_COST_AWARE_GATE_V7=PASS')
+          # Strict gate: all three years must clear PF/trade/DD floors and at least two years positive expectancy.
+          assert pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02),m(2024,1.05,.01)])
+          assert not pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02),m(2024,1.05,-.01)])
+          assert not pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02,dd=36),m(2024,1.05,.01)])
+          print('STRICT_COST_AWARE_GATE_V10=PASS')
           PY
   discover:
     needs: tests
@@ -106,10 +109,9 @@ jobs:
       - name: Verify complete discovery before aggregation
         run: |
           python - <<'PY'
-          import json
           from pathlib import Path
           expected = {'trend_ema_rsi','momentum_breakout','donchian_breakout','bollinger_mean_reversion','rsi_mean_reversion','session_range_breakout','volatility_expansion','sp2l_lite','volatility_switch_momentum_reversal','skew_kurt_momentum','regime_zscore_reversion','ichimoku_regime_trend'}
-          found = {p.stem for p in Path('artifacts/families').glob('cost-aware-v10-*/**/*.json')}
+          found = {p.stem.replace('cost-aware-v10-','') for p in Path('artifacts/families').glob('cost-aware-v10-*/**/*.json')}
           missing = sorted(expected - found)
           if missing: raise SystemExit(f'DISCOVERY_INCOMPLETE: missing artifacts for {missing}')
           print(f'DISCOVERY_COMPLETE: {len(found)}/{len(expected)} families')
