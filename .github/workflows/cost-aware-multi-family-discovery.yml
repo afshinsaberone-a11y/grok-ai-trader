@@ -36,7 +36,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pytest -q tests/test_cost_aware_discovery.py tests/test_cost_aware_gate_v11.py
+          pytest -q tests/test_cost_aware_discovery.py tests/test_cost_aware_gate.py
       - name: Verify strict v12 gate
         run: |
           python - <<'PY'
