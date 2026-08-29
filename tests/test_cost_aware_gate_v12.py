@@ -31,3 +31,12 @@ def test_dd_and_trade_floors():
     pre = [{"year": y, "metrics": m()} for y in (2022, 2023, 2024)]
     assert not candidate_gate(pre, m(dd=35.01))
     assert not candidate_gate(pre, m(trades=99))
+
+
+def test_exact_inline_pre_oos_fixture_passes():
+    fixture = [
+        {"year": 2022, "metrics": m(pf=1.05, exp=0.01)},
+        {"year": 2023, "metrics": m(pf=1.12, exp=0.02)},
+        {"year": 2024, "metrics": m(pf=1.06, exp=0.01)},
+    ]
+    assert pre_oos_gate(fixture)
