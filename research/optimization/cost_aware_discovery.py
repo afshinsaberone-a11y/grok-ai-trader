@@ -1,5 +1,5 @@
 """Cost-aware discovery on real pre-OOS data only.
-Uses explicit strict gate v12. 2022-2024 are discovery years; 2025 is validation; 2026 is held out.
+Uses strict gate v13. 2022-2024 are discovery years; 2025 is validation; 2026 is held out.
 """
 from __future__ import annotations
 import argparse,json
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 import numpy as np,pandas as pd
 from research.optimization.multi_family_discovery import FAMILIES,_native,catalog,indicators,signal_family
-from research.optimization.cost_aware_gate_v12 import PRE_OOS_YEARS,MIN_PROFITABLE_YEARS,MIN_PF_EACH_YEAR,MIN_EXPECTANCY_R,MIN_TRADES_EACH_YEAR,PRE_OOS_MAX_DD_PCT,VALIDATION_MIN_PF,VALIDATION_MAX_DD_PCT,VALIDATION_MIN_TRADES,candidate_gate,pre_oos_gate
+from research.optimization.cost_aware_gate_v13 import PRE_OOS_YEARS,MIN_PROFITABLE_YEARS,MIN_PF_EACH_YEAR,MIN_EXPECTANCY_R,MIN_TRADES_EACH_YEAR,PRE_OOS_MAX_DD_PCT,VALIDATION_MIN_PF,VALIDATION_MAX_DD_PCT,VALIDATION_MIN_TRADES,candidate_gate,pre_oos_gate
 PIP_SIZE=.0001; DEFAULT_SPREAD_PIPS=.5; DEFAULT_SLIPPAGE_PIPS=.2; RISK_PCT=.005
 
 def round_trip_cost_price(spread_pips:float,slippage_pips:float)->float:
@@ -71,6 +71,6 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--data',required=True); ap.add_argument('--family',choices=FAMILIES,required=True); ap.add_argument('--output',default='artifacts/cost_aware_family.json'); ap.add_argument('--spread-pips',type=float,default=DEFAULT_SPREAD_PIPS); ap.add_argument('--slippage-pips',type=float,default=DEFAULT_SLIPPAGE_PIPS); a=ap.parse_args()
     if a.spread_pips<0 or a.slippage_pips<0: raise SystemExit('execution costs cannot be negative')
     df=pd.read_csv(a.data); df['timestamp']=pd.to_datetime(df['timestamp'],utc=True); df=df.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'}).set_index('timestamp'); result=discover_family_cost_aware(df,a.family,spread_pips=a.spread_pips,slippage_pips=a.slippage_pips)
-    report={'schema_version':'forexai.cost_aware_discovery.v12','result':result,'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False,'gate_policy':{'pre_oos_years':list(PRE_OOS_YEARS),'pre_oos_min_profitable_years':MIN_PROFITABLE_YEARS,'pre_oos_min_pf_each_year':MIN_PF_EACH_YEAR,'pre_oos_min_expectancy_R':MIN_EXPECTANCY_R,'pre_oos_min_trades_each_year':MIN_TRADES_EACH_YEAR,'pre_oos_max_dd_pct':PRE_OOS_MAX_DD_PCT,'validation_min_pf':VALIDATION_MIN_PF,'validation_max_dd_pct':VALIDATION_MAX_DD_PCT,'validation_min_trades':VALIDATION_MIN_TRADES,'fail_closed':True}}
+    report={'schema_version':'forexai.cost_aware_discovery.v13','result':result,'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False,'gate_policy':{'pre_oos_years':list(PRE_OOS_YEARS),'pre_oos_min_profitable_years':MIN_PROFITABLE_YEARS,'pre_oos_min_pf_each_year':MIN_PF_EACH_YEAR,'pre_oos_min_expectancy_R':MIN_EXPECTANCY_R,'pre_oos_min_trades_each_year':MIN_TRADES_EACH_YEAR,'pre_oos_max_dd_pct':PRE_OOS_MAX_DD_PCT,'validation_min_pf':VALIDATION_MIN_PF,'validation_max_dd_pct':VALIDATION_MAX_DD_PCT,'validation_min_trades':VALIDATION_MIN_TRADES,'fail_closed':True}}
     out=Path(a.output); out.parent.mkdir(parents=True,exist_ok=True); out.write_text(json.dumps(_native(report),indent=2,sort_keys=True),encoding='utf-8'); print(json.dumps(_native({'family':a.family,'qualified_count':result['qualified_count'],'champion':result['champion'],'cost_profile':result['cost_profile'],'reject_diagnostics':result['reject_diagnostics']}),indent=2,sort_keys=True)); return 0
 if __name__=='__main__': raise SystemExit(main())
