@@ -1,7 +1,5 @@
 """Cost-aware discovery on real pre-OOS data only.
-
-Uses strict gate v7. 2022-2024 are discovery years; 2025 is validation;
-2026 is held out. No synthetic fallback.
+Uses explicit strict gate v12. 2022-2024 are discovery years; 2025 is validation; 2026 is held out.
 """
 from __future__ import annotations
 import argparse,json
@@ -10,7 +8,7 @@ from pathlib import Path
 from typing import Any
 import numpy as np,pandas as pd
 from research.optimization.multi_family_discovery import FAMILIES,_native,catalog,indicators,signal_family
-from research.optimization.cost_aware_gate_v7 import PRE_OOS_YEARS,MIN_PROFITABLE_YEARS,MIN_PF_EACH_YEAR,MIN_EXPECTANCY_R,MIN_TRADES_EACH_YEAR,PRE_OOS_MAX_DD_PCT,VALIDATION_MIN_PF,VALIDATION_MAX_DD_PCT,VALIDATION_MIN_TRADES,candidate_gate,pre_oos_gate
+from research.optimization.cost_aware_gate_v12 import PRE_OOS_YEARS,MIN_PROFITABLE_YEARS,MIN_PF_EACH_YEAR,MIN_EXPECTANCY_R,MIN_TRADES_EACH_YEAR,PRE_OOS_MAX_DD_PCT,VALIDATION_MIN_PF,VALIDATION_MAX_DD_PCT,VALIDATION_MIN_TRADES,candidate_gate,pre_oos_gate
 PIP_SIZE=.0001; DEFAULT_SPREAD_PIPS=.5; DEFAULT_SLIPPAGE_PIPS=.2; RISK_PCT=.005
 
 def round_trip_cost_price(spread_pips:float,slippage_pips:float)->float:
@@ -32,15 +30,12 @@ def backtest_cost_aware(df:pd.DataFrame,family:str,params:dict[str,Any],*,spread
     n=len(rs); wins=sum(x>0 for x in rs); gp=sum(x for x in rs if x>0); gl=abs(sum(x for x in rs if x<=0)); pf=gp/gl if gl else ('inf' if gp>0 else 0.)
     return {'trades':n,'win_rate':round(100*wins/n,2) if n else 0.,'total_R':round(sum(rs),2),'expectancy_R':round(sum(rs)/n,4) if n else 0.,'profit_factor':round(pf,3) if pf!='inf' and np.isfinite(pf) else pf,'max_dd_pct':round(100*maxdd,2),'final_equity':round(equity,2),'spread_pips':float(spread_pips),'slippage_pips':float(slippage_pips),'round_trip_cost_pips':round(2*(spread_pips+slippage_pips),4)}
 
-def pre_oos_gate_pass(metrics):
-    return bool(pre_oos_gate(metrics))
-
+def pre_oos_gate_pass(metrics): return bool(pre_oos_gate(metrics))
 def _pf(m): return 3.0 if m['profit_factor']=='inf' else float(m['profit_factor'])
 def score_cost_aware(metrics):
     if not pre_oos_gate(metrics): return -999.0
     pfs=[_pf(x['metrics']) for x in metrics]; ex=[float(x['metrics']['expectancy_R']) for x in metrics]; dd=[float(x['metrics']['max_dd_pct']) for x in metrics]; avg=sum(pfs)/3; total=sum(float(x['metrics']['total_R']) for x in metrics)
     return round(2.5*min(max(min(pfs),0),2)/2+1.5*min(max(avg,0),2)/2+sum(v>0 for v in ex)/3+1.5*np.tanh(total/150)-2.5*min(max(max(dd),0),100)/100,6)
-
 def _pre_oos_reasons(pre):
     reasons=[]; by_year={int(x['year']):x['metrics'] for x in pre}
     for y in PRE_OOS_YEARS:
@@ -48,17 +43,16 @@ def _pre_oos_reasons(pre):
         if int(m.get('trades',0))<MIN_TRADES_EACH_YEAR: reasons.append(f'trades<{MIN_TRADES_EACH_YEAR}:{y}')
         if _pf(m)<MIN_PF_EACH_YEAR: reasons.append(f'pf<{MIN_PF_EACH_YEAR}:{y}')
         if float(m.get('max_dd_pct',100))>PRE_OOS_MAX_DD_PCT: reasons.append(f'dd>{PRE_OOS_MAX_DD_PCT}:{y}')
+        if float(m.get('expectancy_R',0))<=MIN_EXPECTANCY_R: reasons.append(f'expectancy<={MIN_EXPECTANCY_R}:{y}')
     profitable=sum(float(by_year[y].get('expectancy_R',0))>MIN_EXPECTANCY_R for y in PRE_OOS_YEARS)
     if profitable<MIN_PROFITABLE_YEARS: reasons.append(f'profitable_years<{MIN_PROFITABLE_YEARS}')
     return reasons
-
 def _validation_reasons(m):
     reasons=[]
     if _pf(m)<VALIDATION_MIN_PF: reasons.append(f'validation_pf<{VALIDATION_MIN_PF}')
     if float(m.get('max_dd_pct',100))>VALIDATION_MAX_DD_PCT: reasons.append(f'validation_dd>{VALIDATION_MAX_DD_PCT}')
     if int(m.get('trades',0))<VALIDATION_MIN_TRADES: reasons.append(f'validation_trades<{VALIDATION_MIN_TRADES}')
     return reasons
-
 def discover_family_cost_aware(df,family,*,spread_pips,slippage_pips):
     years={y:df[(df.index>=f'{y}-01-01')&(df.index<f'{y+1}-01-01')] for y in (2022,2023,2024,2025)}; results=[]; reject_counts=Counter(); validation_reject_counts=Counter(); examples=[]
     for j,params in enumerate(catalog()[family]):
@@ -73,11 +67,10 @@ def discover_family_cost_aware(df,family,*,spread_pips,slippage_pips):
         validated.append({**x,'validation_2025_cost_aware':vm,'validation_qualifies':not vr})
     qualified=[x for x in validated if x['validation_qualifies']]; qualified.sort(key=lambda x:(-x['cost_aware_robustness_score'],x['candidate']))
     return {'family':family,'candidate_total':len(results),'cost_profile':{'spread_pips':spread_pips,'slippage_pips':slippage_pips,'round_trip_cost_pips':2*(spread_pips+slippage_pips)},'qualified_count':len(qualified),'champion':qualified[0] if qualified else None,'top_50':validated,'reject_diagnostics':{'pre_oos_rejections':dict(sorted(reject_counts.items(),key=lambda x:(-x[1],x[0]))),'pre_oos_rejected_candidates':sum(1 for x in results if not x['pre_oos_gate']['pass']),'pre_oos_passed_candidates':len(finalists),'validation_rejections':dict(sorted(validation_reject_counts.items(),key=lambda x:(-x[1],x[0]))),'validation_rejected_candidates':sum(1 for x in validated if not x['validation_qualifies']),'validation_qualified_candidates':len(qualified),'examples':examples}}
-
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--data',required=True); ap.add_argument('--family',choices=FAMILIES,required=True); ap.add_argument('--output',default='artifacts/cost_aware_family.json'); ap.add_argument('--spread-pips',type=float,default=DEFAULT_SPREAD_PIPS); ap.add_argument('--slippage-pips',type=float,default=DEFAULT_SLIPPAGE_PIPS); a=ap.parse_args()
     if a.spread_pips<0 or a.slippage_pips<0: raise SystemExit('execution costs cannot be negative')
     df=pd.read_csv(a.data); df['timestamp']=pd.to_datetime(df['timestamp'],utc=True); df=df.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'}).set_index('timestamp'); result=discover_family_cost_aware(df,a.family,spread_pips=a.spread_pips,slippage_pips=a.slippage_pips)
-    report={'schema_version':'forexai.cost_aware_discovery.v11','result':result,'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False,'gate_policy':{'pre_oos_years':list(PRE_OOS_YEARS),'pre_oos_min_profitable_years':MIN_PROFITABLE_YEARS,'pre_oos_min_pf_each_year':MIN_PF_EACH_YEAR,'pre_oos_min_expectancy_R':MIN_EXPECTANCY_R,'pre_oos_min_trades_each_year':MIN_TRADES_EACH_YEAR,'pre_oos_max_dd_pct':PRE_OOS_MAX_DD_PCT,'validation_min_pf':VALIDATION_MIN_PF,'validation_max_dd_pct':VALIDATION_MAX_DD_PCT,'validation_min_trades':VALIDATION_MIN_TRADES,'fail_closed':True}}
+    report={'schema_version':'forexai.cost_aware_discovery.v12','result':result,'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False,'gate_policy':{'pre_oos_years':list(PRE_OOS_YEARS),'pre_oos_min_profitable_years':MIN_PROFITABLE_YEARS,'pre_oos_min_pf_each_year':MIN_PF_EACH_YEAR,'pre_oos_min_expectancy_R':MIN_EXPECTANCY_R,'pre_oos_min_trades_each_year':MIN_TRADES_EACH_YEAR,'pre_oos_max_dd_pct':PRE_OOS_MAX_DD_PCT,'validation_min_pf':VALIDATION_MIN_PF,'validation_max_dd_pct':VALIDATION_MAX_DD_PCT,'validation_min_trades':VALIDATION_MIN_TRADES,'fail_closed':True}}
     out=Path(a.output); out.parent.mkdir(parents=True,exist_ok=True); out.write_text(json.dumps(_native(report),indent=2,sort_keys=True),encoding='utf-8'); print(json.dumps(_native({'family':a.family,'qualified_count':result['qualified_count'],'champion':result['champion'],'cost_profile':result['cost_profile'],'reject_diagnostics':result['reject_diagnostics']}),indent=2,sort_keys=True)); return 0
 if __name__=='__main__': raise SystemExit(main())
