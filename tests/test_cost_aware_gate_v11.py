@@ -1,4 +1,4 @@
-from research.optimization.cost_aware_gate_v7 import pre_oos_gate, validation_gate
+from research.optimization.cost_aware_gate_v12 import pre_oos_gate, validation_gate
 
 
 def m(year, pf, ex, trades=100, dd=10):
