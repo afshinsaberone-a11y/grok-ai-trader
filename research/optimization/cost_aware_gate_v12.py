@@ -1,4 +1,4 @@
-"""Strict cost-aware discovery gate v12.
+"""Strict cost-aware discovery gate v13.
 2022-2024 are pre-OOS discovery; 2025 is validation; 2026 is held out.
 Fail closed: every pre-OOS year must satisfy all floors.
 """
@@ -21,7 +21,7 @@ def _pf(m: dict[str, Any]) -> float:
 
 
 def pre_oos_gate(metrics: list[dict[str, Any]]) -> bool:
-    """Require every pre-OOS year to pass the full robustness floor."""
+    """Require all pre-OOS years to pass the full robustness floor."""
     if len(metrics) != len(PRE_OOS_YEARS):
         return False
     by = {int(x.get("year")): x for x in metrics if x.get("year") is not None}
@@ -41,6 +41,7 @@ def pre_oos_gate(metrics: list[dict[str, Any]]) -> bool:
 
 
 def validation_gate(m: dict[str, Any]) -> bool:
+    """Validation year must also pass independently; never relax this for ranking."""
     return (
         _pf(m) >= VALIDATION_MIN_PF
         and float(m.get("max_dd_pct", 100.0)) <= VALIDATION_MAX_DD_PCT
@@ -49,4 +50,5 @@ def validation_gate(m: dict[str, Any]) -> bool:
 
 
 def candidate_gate(pre_oos: list[dict[str, Any]], validation: dict[str, Any]) -> bool:
+    """Final qualification requires both strict pre-OOS and validation gates."""
     return pre_oos_gate(pre_oos) and validation_gate(validation)
