@@ -1,8 +1,7 @@
-"""Cost-aware discovery gate v11.
+"""Cost-aware discovery gate v12.
 
 2022-2024 are discovery years; 2025 is validation; 2026 is held out.
 Fail closed: every pre-OOS year must clear PF/trade/DD/expectancy floors.
-Validation is independent and must clear PF/DD/trade floors.
 """
 from __future__ import annotations
 from typing import Any
