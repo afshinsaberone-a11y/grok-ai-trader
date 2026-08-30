@@ -1,0 +1,64 @@
+name: ForexAI Research Loop v2 — Clean Reset
+
+on:
+  workflow_dispatch:
+    inputs:
+      discovery_start:
+        description: 'Discovery start (UTC)'
+        required: true
+        default: '2022-01-01'
+      discovery_end:
+        description: 'Discovery end (UTC, exclusive of OOS)'
+        required: true
+        default: '2024-12-31'
+      validation_start:
+        description: 'Validation start (UTC)'
+        required: true
+        default: '2025-01-01'
+      validation_end:
+        description: 'Validation end (UTC)'
+        required: true
+        default: '2025-12-31'
+      oos_start:
+        description: 'Final OOS start (UTC)'
+        required: true
+        default: '2026-01-01'
+      spread_pips_per_side:
+        description: 'Spread cost per side in pips'
+        required: true
+        default: '0.5'
+      slippage_pips_per_side:
+        description: 'Slippage cost per side in pips'
+        required: true
+        default: '0.2'
+
+jobs:
+  protocol-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependency
+        run: python -m pip install -q pytest
+      - name: Run protocol guards
+        run: pytest -q tests/test_research_loop_v2.py
+      - name: Verify no synthetic fallback markers in new protocol
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('research/research_loop_v2.py').read_text(encoding='utf-8')
+          forbidden = ('synthetic', 'fallback')
+          assert not any(x in text.lower() for x in forbidden), 'Protocol code must remain real-data-only'
+          print('protocol_guard=PASS')
+          PY
+      - name: Print canonical split
+        run: |
+          printf '%s\n' \
+            'DISCOVERY=2022-01-01..2024-12-31' \
+            'VALIDATION=2025-01-01..2025-12-31' \
+            'OOS=2026-01-01..OPEN' \
+            'OOS_ACCESS_FROM_PRE_OOS=FORBIDDEN' \
+            'OOS_OPTIMIZATION=FORBIDDEN'
