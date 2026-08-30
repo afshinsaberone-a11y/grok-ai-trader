@@ -1,7 +1,7 @@
 """Strict fail-closed cost-aware discovery gate.
 
 Discovery years: 2022-2024. Validation year: 2025. OOS 2026 is never loaded.
-A candidate must pass every annual pre-OOS floor; no best-year rescue is allowed.
+Every pre-OOS year must pass its floors; validation must independently pass.
 """
 from typing import Any
 
