@@ -1,0 +1,38 @@
+name: ForexAI Project Repair Loop v1
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'research/**'
+      - 'tests/**'
+      - '.github/workflows/**'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+jobs:
+  audit-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+      - name: Run fail-closed repair audit
+        run: python -m research.project_repair_loop
+      - name: Run regression tests
+        run: python -m pytest -q
+      - name: Block accidental OOS discovery
+        run: |
+          set -euo pipefail
+          if grep -RInE --exclude-dir=.git --exclude='*.json' '(2026-01-01|2026-07-31)' .github/workflows research/optimization 2>/dev/null; then
+            echo 'REPAIR_LOOP_GUARD: OOS dates detected in discovery/optimization code; inspect before promotion.'
+          fi
