@@ -12,8 +12,8 @@ def test_negative_cost_rejected():
         round_trip_cost_price(-0.1, 0.2)
 
 
-def _m(pf, expectancy=0.01, trades=100, dd=10.0, year=None):
-    row = {"metrics": {"profit_factor": pf, "expectancy_R": expectancy, "trades": trades, "max_dd_pct": dd}}
+def _m(pf, expectancy=0.01, trades=100, dd=10.0, total_r=10.0, year=None):
+    row = {"metrics": {"profit_factor": pf, "expectancy_R": expectancy, "trades": trades, "max_dd_pct": dd, "total_R": total_r}}
     if year is not None:
         row["year"] = year
     return row
@@ -28,19 +28,25 @@ def test_pre_oos_gate_requires_all_years_pf_at_least_1_05():
     assert pre_oos_gate_pass(metrics) is False
 
 
-def test_pre_oos_gate_requires_positive_expectancy_in_all_pre_oos_years():
+def test_pre_oos_gate_requires_positive_expectancy_and_total_r_in_all_pre_oos_years():
     metrics = _years(
-        _m(1.05, expectancy=0.01),
-        _m(1.08, expectancy=0.02),
-        _m(1.06, expectancy=0.001),
+        _m(1.05, expectancy=0.01, total_r=1.0),
+        _m(1.08, expectancy=0.02, total_r=2.0),
+        _m(1.06, expectancy=0.001, total_r=0.1),
     )
     assert pre_oos_gate_pass(metrics) is True
 
-    # A single non-positive expectancy year must fail the strict fail-closed gate.
     metrics = _years(
-        _m(1.05, expectancy=0.01),
-        _m(1.08, expectancy=0.02),
-        _m(1.06, expectancy=-0.01),
+        _m(1.05, expectancy=0.01, total_r=1.0),
+        _m(1.08, expectancy=0.02, total_r=2.0),
+        _m(1.06, expectancy=-0.01, total_r=-1.0),
+    )
+    assert pre_oos_gate_pass(metrics) is False
+
+    metrics = _years(
+        _m(1.05, expectancy=0.01, total_r=1.0),
+        _m(1.08, expectancy=0.02, total_r=2.0),
+        _m(1.06, expectancy=0.001, total_r=0.0),
     )
     assert pre_oos_gate_pass(metrics) is False
 
@@ -61,10 +67,9 @@ def test_pre_oos_gate_rejects_missing_years():
 
 
 def test_pre_oos_gate_rejects_previous_false_champion_profile():
-    # Candidate 239 from the prior run: 2022 barely positive, 2023/2024 negative.
     metrics = _years(
-        _m(1.013, expectancy=0.01, trades=100),
-        _m(0.795, expectancy=-0.03, trades=100),
-        _m(0.605, expectancy=-0.05, trades=100),
+        _m(1.013, expectancy=0.01, trades=100, total_r=1.88),
+        _m(0.795, expectancy=-0.03, trades=100, total_r=-28.72),
+        _m(0.605, expectancy=-0.05, trades=100, total_r=-71.75),
     )
     assert pre_oos_gate_pass(metrics) is False
