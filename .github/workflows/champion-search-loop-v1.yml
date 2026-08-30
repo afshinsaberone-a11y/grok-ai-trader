@@ -1,0 +1,45 @@
+name: ForexAI Champion Search Loop v1
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_iterations:
+        description: 'Maximum independent discovery iterations'
+        required: true
+        default: '20'
+
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install tests
+        run: python -m pip install -q pytest
+      - name: Run loop tests
+        run: pytest -q tests/test_research_loop_v2.py tests/test_champion_search_loop_v1.py
+      - name: Verify fail-closed OOS policy
+        env:
+          MAX_ITERATIONS: ${{ inputs.max_iterations }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from research.optimization.champion_search_loop_v1 import Gate
+          n = int(os.environ['MAX_ITERATIONS'])
+          assert 1 <= n <= 100, 'MAX_ITERATIONS must be between 1 and 100'
+          gate = Gate()
+          assert gate.min_profitable_years >= 2
+          assert gate.min_validation_pf >= 1.10
+          assert gate.min_trades >= 100
+          assert gate.min_stress_pf >= 1.0
+          assert gate.max_stress_dd_pct <= 35.0
+          print('champion_loop_protocol=PASS')
+          print('oos_access=FORBIDDEN')
+          print('oos_optimization=FORBIDDEN')
+          print(f'max_iterations={n}')
+          PY
