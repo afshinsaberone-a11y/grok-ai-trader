@@ -2,8 +2,7 @@
 
 The controller never relaxes gates, never reads final OOS during discovery, and never
 promotes an optimizer result directly. Each iteration consumes only pre-OOS evidence
-and may either return a frozen candidate or request another independent discovery
-iteration.
+and may either return a frozen candidate or request another independent discovery iteration.
 """
 from __future__ import annotations
 
@@ -13,12 +12,13 @@ from typing import Mapping, Sequence
 
 @dataclass(frozen=True)
 class Gate:
-    min_profitable_years: int = 2
-    min_pf_each_discovery_year: float = 1.0
+    min_profitable_years: int = 3
+    min_pf_each_discovery_year: float = 1.05
     min_validation_pf: float = 1.10
     max_validation_dd_pct: float = 35.0
     min_trades: int = 100
     min_expectancy_r: float = 0.0
+    min_total_r: float = 0.0
     max_stress_dd_pct: float = 35.0
     min_stress_pf: float = 1.0
 
@@ -51,10 +51,14 @@ def passes_gate(candidate: Mapping[str, object], gate: Gate) -> tuple[bool, list
             reasons.append("invalid discovery year record")
             continue
         pf = _num(row.get("pf"))
-        if pf >= gate.min_pf_each_discovery_year:
+        trades = _num(row.get("trades"), 0.0)
+        expectancy = _num(row.get("expectancy_r"), 0.0)
+        total_r = _num(row.get("total_R"), 0.0)
+        dd = _num(row.get("max_dd_pct"), 100.0)
+        if pf >= gate.min_pf_each_discovery_year and trades >= gate.min_trades and expectancy > gate.min_expectancy_r and total_r > gate.min_total_r and dd <= gate.max_validation_dd_pct:
             profitable += 1
         else:
-            reasons.append(f"discovery year PF below {gate.min_pf_each_discovery_year}")
+            reasons.append("discovery year failed strict annual floor")
     if profitable < gate.min_profitable_years:
         reasons.append(f"profitable discovery years {profitable} < {gate.min_profitable_years}")
 
@@ -70,6 +74,8 @@ def passes_gate(candidate: Mapping[str, object], gate: Gate) -> tuple[bool, list
             reasons.append("validation trades below gate")
         if _num(validation.get("expectancy_r")) <= gate.min_expectancy_r:
             reasons.append("validation expectancy not positive")
+        if _num(validation.get("total_R")) <= gate.min_total_r:
+            reasons.append("validation total R not positive")
 
     stress = candidate.get("stress")
     if not isinstance(stress, Mapping):
@@ -94,11 +100,7 @@ def run_loop(
     gate: Gate = Gate(),
     max_iterations: int = 20,
 ) -> LoopDecision:
-    """Search iteration-by-iteration until a candidate passes; otherwise stop.
-
-    The caller supplies independently produced discovery batches. This function does
-    not invent metrics and deliberately does not access final OOS data.
-    """
+    """Search iteration-by-iteration until a candidate passes; otherwise stop."""
     for iteration, candidates in enumerate(candidates_by_iteration[:max_iterations], start=1):
         ranked = sorted(candidates, key=lambda c: _num(c.get("score"), float("-inf")), reverse=True)
         for candidate in ranked:
