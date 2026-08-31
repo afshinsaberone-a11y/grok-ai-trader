@@ -1,19 +1,29 @@
 name: ForexAI SP2L Cost-Aware Optimization v15.4
+
 on:
   workflow_dispatch:
     inputs:
       start:
+        description: Real data start
         required: true
         default: '2022-01-01'
+        type: string
       end:
+        description: Real data end exclusive; must be <= 2026-01-01
         required: true
         default: '2026-01-01'
+        type: string
       spread_pips:
+        description: Spread per side in pips
         required: true
         default: '0.5'
+        type: string
       slippage_pips:
+        description: Slippage per side in pips
         required: true
         default: '0.2'
+        type: string
+
 jobs:
   optimize:
     runs-on: ubuntu-latest
@@ -27,6 +37,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+      - name: Validate requested window
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime
+          s=datetime.fromisoformat(os.environ['START'])
+          e=datetime.fromisoformat(os.environ['END'])
+          holdout=datetime(2026,1,1)
+          assert s < e, 'INVALID_WINDOW'
+          assert e <= holdout, 'HOLDOUT_2026_MUST_NOT_BE_LOADED'
+          print('WINDOW_OK')
+          PY
       - name: Ingest REAL EURUSD M5
         env:
           START: ${{ inputs.start }}
@@ -41,14 +66,18 @@ jobs:
           test -s "$DATA" || { echo 'REAL_DATA_REQUIRED'; exit 2; }
           echo "DATA=$DATA" >> "$GITHUB_ENV"
       - name: Run cost-aware SP2L discovery
-        run: python -m research.optimization.cost_aware_discovery_v14 --data "$DATA" --family sp2l_lite --spread-pips "${{ inputs.spread_pips }}" --slippage-pips "${{ inputs.slippage_pips }}" --output artifacts/sp2l-cost-aware-v15-4.json
+        run: |
+          mkdir -p artifacts
+          python -m research.optimization.cost_aware_discovery_v14 --data "$DATA" --family sp2l_lite --spread-pips "${{ inputs.spread_pips }}" --slippage-pips "${{ inputs.slippage_pips }}" --output artifacts/sp2l-cost-aware-v15-4.json
       - name: Assert holdout is excluded
-        run: python - <<'PY'
-import json
-d=json.load(open('artifacts/sp2l-cost-aware-v15-4.json'))
-assert d['oos_policy']['status']=='HELD_OUT' and d['oos_policy']['loaded'] is False
-print('HOLDOUT_2026_OK')
-PY
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('artifacts/sp2l-cost-aware-v15-4.json', encoding='utf-8'))
+          assert d.get('oos_policy',{}).get('status') == 'HELD_OUT'
+          assert d.get('oos_policy',{}).get('loaded') is False
+          print('HOLDOUT_2026_OK')
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
