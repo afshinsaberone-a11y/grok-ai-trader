@@ -1,0 +1,53 @@
+name: ForexAI Engine Audit v15.1
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: 'Real data start'
+        required: true
+        default: '2022-01-01'
+      end:
+        description: 'Real data end exclusive; never beyond 2026-01-01'
+        required: true
+        default: '2026-01-01'
+      timeframe:
+        description: 'Audit timeframe'
+        required: true
+        default: 'M5'
+        type: choice
+        options: [M5, M15]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download and validate REAL data
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          TF: ${{ inputs.timeframe }}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe "$TF" --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Locate normalized dataset
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          TF: ${{ inputs.timeframe }}
+        run: |
+          DATA="data/real/normalized/EURUSD_${TF}_$(date -u -d "$START" +%Y%m%d)_$(date -u -d "$END - 1 day" +%Y%m%d).csv"
+          test -s "$DATA" || { echo "REAL_DATA_REQUIRED: missing $DATA"; exit 2; }
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Run engine audit
+        run: python -m research.optimization.engine_audit_v15_1 --data "$DATA" --output artifacts/engine-audit-v15-1.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: engine-audit-v15-1
+          path: artifacts/engine-audit-v15-1.json
+          if-no-files-found: warn
