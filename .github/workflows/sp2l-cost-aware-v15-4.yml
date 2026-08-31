@@ -1,0 +1,57 @@
+name: ForexAI SP2L Cost-Aware Optimization v15.4
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        required: true
+        default: '2022-01-01'
+      end:
+        required: true
+        default: '2026-01-01'
+      spread_pips:
+        required: true
+        default: '0.5'
+      slippage_pips:
+        required: true
+        default: '0.2'
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Ingest REAL EURUSD M5
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Locate normalized REAL dataset
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          DATA="data/real/normalized/EURUSD_M5_$(date -u -d "$START" +%Y%m%d)_$(date -u -d "$END - 1 day" +%Y%m%d).csv"
+          test -s "$DATA" || { echo 'REAL_DATA_REQUIRED'; exit 2; }
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Run cost-aware SP2L discovery
+        run: python -m research.optimization.cost_aware_discovery_v14 --data "$DATA" --family sp2l_lite --spread-pips "${{ inputs.spread_pips }}" --slippage-pips "${{ inputs.slippage_pips }}" --output artifacts/sp2l-cost-aware-v15-4.json
+      - name: Assert holdout is excluded
+        run: python - <<'PY'
+import json
+d=json.load(open('artifacts/sp2l-cost-aware-v15-4.json'))
+assert d['oos_policy']['status']=='HELD_OUT' and d['oos_policy']['loaded'] is False
+print('HOLDOUT_2026_OK')
+PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sp2l-cost-aware-v15-4
+          path: artifacts/sp2l-cost-aware-v15-4.json
+          if-no-files-found: warn
