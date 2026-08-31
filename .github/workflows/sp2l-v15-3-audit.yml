@@ -1,0 +1,59 @@
+name: ForexAI SP2L v15.3 Audit
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: Real data start
+        required: true
+        default: '2022-01-01'
+      end:
+        description: Real data end exclusive
+        required: true
+        default: '2026-01-01'
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Ingest REAL EURUSD M5
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Locate dataset and exclude holdout
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          DATA="data/real/normalized/EURUSD_M5_$(date -u -d "$START" +%Y%m%d)_$(date -u -d "$END - 1 day" +%Y%m%d).csv"
+          test -s "$DATA" || { echo "REAL_DATA_REQUIRED: $DATA"; exit 2; }
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Audit SP2L v15.3
+        run: |
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+          from research.optimization.sp2l_v15_3 import Params, audit
+          p=Path(__import__('os').environ['DATA'])
+          d=pd.read_csv(p)
+          d['timestamp']=pd.to_datetime(d['timestamp'],utc=True)
+          d=d.set_index('timestamp').sort_index()
+          d=d[d.index < pd.Timestamp('2026-01-01',tz='UTC')]
+          r=audit(d,Params())
+          r['data_path']=str(p); r['holdout_2026_excluded']=True
+          Path('artifacts').mkdir(exist_ok=True)
+          Path('artifacts/sp2l-v15-3-audit.json').write_text(json.dumps(r,indent=2))
+          print(json.dumps(r,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sp2l-v15-3-audit
+          path: artifacts/sp2l-v15-3-audit.json
