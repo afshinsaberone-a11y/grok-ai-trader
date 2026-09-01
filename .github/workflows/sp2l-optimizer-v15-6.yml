@@ -1,0 +1,44 @@
+name: ForexAI SP2L Optimizer v15.6
+on:
+  workflow_dispatch:
+    inputs:
+      start: {required: true, default: '2022-01-01'}
+      end: {required: true, default: '2025-01-01'}
+      spread_pips: {required: true, default: '0.5'}
+      slippage_pips: {required: true, default: '0.2'}
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: pip install -r requirements.txt
+      - name: Validate train-only window
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime
+          s=datetime.fromisoformat(os.environ['START']); e=datetime.fromisoformat(os.environ['END'])
+          assert s<e and e<=datetime(2025,1,1), 'TRAIN_WINDOW_ONLY'
+          print('TRAIN_WINDOW_OK')
+          PY
+      - name: Ingest REAL EURUSD M5
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Locate dataset
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
+        run: |
+          DATA="data/real/normalized/EURUSD_M5_$(date -u -d "$START" +%Y%m%d)_$(date -u -d "$END - 1 day" +%Y%m%d).csv"
+          test -s "$DATA" || { echo REAL_DATA_REQUIRED; exit 2; }
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Run bounded SP2L optimization
+        run: python -m research.optimization.sp2l_optimizer_v15_6 --data "$DATA" --spread-pips "${{ inputs.spread_pips }}" --slippage-pips "${{ inputs.slippage_pips }}" --output artifacts/sp2l-v15-6.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sp2l-v15-6
+          path: artifacts/sp2l-v15-6.json
+          if-no-files-found: warn
