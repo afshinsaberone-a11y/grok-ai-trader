@@ -1,4 +1,4 @@
-name: ForexAI v19.1.1 Compositional Context-Aware Discovery
+name: ForexAI v19.1.2 Compositional Context-Aware Discovery
 
 on:
   workflow_dispatch:
@@ -6,7 +6,11 @@ on:
 jobs:
   discovery:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # v19.1.1 was cancelled by the 60-minute job timeout while the
+    # exhaustive compositional grid was still executing. Keep the
+    # real-data/execution logic unchanged and give the discovery pass
+    # enough wall-clock time to complete deterministically.
+    timeout-minutes: 120
     env:
       START: '2022-01-01'
       END: '2026-01-01'
@@ -94,12 +98,17 @@ jobs:
           exits=[(0.75,1.25,30),(1.0,1.5,60),(1.0,2.0,90),(1.5,2.5,120)]
           years=sorted(df.time.dt.year.dropna().unique().tolist())
           results=[]
+          total_variants=len(entries)*3*4*4*len(exits)
+          variant_no=0
           for ename,sig in entries.items():
             for tname,tmask in [('any_trend',contexts['all']),('up',contexts['trend_up']),('down',contexts['trend_down'])]:
               for vname,vmask in [('any_vol',contexts['all']),('high',contexts['high_vol']),('normal',contexts['normal_vol']),('low',contexts['low_vol'])]:
                 for sname,smask in [('any_session',contexts['all']),('london',contexts['london']),('ny',contexts['ny']),('overlap',contexts['overlap'])]:
                   mask=tmask&vmask&smask&contexts['weekday']
                   for slm,tpm,exp in exits:
+                    variant_no += 1
+                    if variant_no % 50 == 0:
+                      print(f'progress={variant_no}/{total_variants}', flush=True)
                     trades=[]; i=200
                     while i<len(df)-2:
                       if not bool(mask.iloc[i]) or sig[i]==0 or not np.isfinite(atr.iloc[i]) or atr.iloc[i]<=0: i+=1; continue
@@ -132,7 +141,7 @@ jobs:
                     results.append({'entry':ename,'trend':tname,'volatility':vname,'session':sname,'sl_atr':slm,'tp_atr':tpm,'expiry':exp,'trades':len(arr),'win_rate':wins/len(arr)*100,'pf':pf,'expectancy_pips':expct,'net_pips':float(arr.sum()),'max_dd_pips':dd,'positive_years':positive_years,'stable_pf_years':stable_pf,'yearly':yearly,'score':score})
           results.sort(key=lambda x:x['score'],reverse=True)
           eligible=[r for r in results if r['pf']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
-          out={'schema':'forexai.strategy_discovery.v19.1.1','data':{'candles':len(df),'start':str(df.time.min()),'end':str(df.time.max()),'missing_bars_estimate':int(max(0,round((df.time.max()-df.time.min()).total_seconds()/60)+1-len(df)))},'cost_model':{'spread_pips_per_side':0.5,'slippage_pips_per_side':0.2,'round_trip_pips':ROUND_TRIP_COST_PIPS},'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_candidates':results[:20]}
+          out={'schema':'forexai.strategy_discovery.v19.1.2','data':{'candles':len(df),'start':str(df.time.min()),'end':str(df.time.max()),'missing_bars_estimate':int(max(0,round((df.time.max()-df.time.min()).total_seconds()/60)+1-len(df)))},'cost_model':{'spread_pips_per_side':0.5,'slippage_pips_per_side':0.2,'round_trip_pips':ROUND_TRIP_COST_PIPS},'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_candidates':results[:20]}
           Path('artifacts').mkdir(exist_ok=True); Path('artifacts/strategy-discovery-v19.1.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
           print(json.dumps({'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top':results[:5]},indent=2))
           if not eligible: print('NO_CHAMPION')
@@ -142,6 +151,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: strategy-discovery-v19-1-1
+          name: strategy-discovery-v19-1-2
           path: artifacts/strategy-discovery-v19.1.json
           if-no-files-found: ignore
