@@ -1,0 +1,114 @@
+name: ForexAI v19 Context-Aware Cost-Aware Discovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      START: "2022-01-01"
+      END: "2026-01-01"
+      MIN_TRADES: "150"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pandas numpy requests
+      - name: Ingest REAL EURUSD M1
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Context-aware discovery
+        run: |
+          mkdir -p artifacts/strategy-discovery-v19
+          cat > /tmp/v19.py <<'PY'
+          import json, os
+          from pathlib import Path
+          import numpy as np, pandas as pd
+          files=list(Path('data/real').rglob('*.csv'))
+          if not files: raise SystemExit('FAIL: REAL EURUSD M1 data unavailable')
+          fs=[]
+          for p in files:
+            try: d=pd.read_csv(p)
+            except Exception: continue
+            cl={x.lower():x for x in d.columns}; tc=next((cl[x] for x in ['time','datetime','timestamp','date'] if x in cl),None)
+            if not tc: continue
+            ren={cl[x]:x for x in ['open','high','low','close'] if x in cl}; d=d.rename(columns=ren)
+            if not all(x in d for x in ['open','high','low','close']): continue
+            d['time']=pd.to_datetime(d[tc],utc=True,errors='coerce'); d=d.dropna(subset=['time','open','high','low','close'])
+            fs.append(d[['time','open','high','low','close']])
+          if not fs: raise SystemExit('FAIL: REAL data parse failed')
+          df=pd.concat(fs).drop_duplicates('time').sort_values('time').reset_index(drop=True)
+          o,h,l,c=[df[x].astype(float) for x in ['open','high','low','close']]
+          pc=c.shift(1); tr=pd.concat([h-l,(h-pc).abs(),(l-pc).abs()],axis=1).max(axis=1); atr=tr.rolling(14).mean()
+          ema20=c.ewm(span=20,adjust=False).mean(); ema50=c.ewm(span=50,adjust=False).mean(); ema200=c.ewm(span=200,adjust=False).mean()
+          hh20=h.shift(1).rolling(20).max(); ll20=l.shift(1).rolling(20).min(); hh60=h.shift(1).rolling(60).max(); ll60=l.shift(1).rolling(60).min()
+          rng=h-l; body=(c-o).abs(); hour=df.time.dt.hour; dow=df.time.dt.dayofweek
+          atr_s=atr.rolling(50).mean(); vol_ratio=atr/atr_s
+          contexts={
+            'all':pd.Series(True,index=df.index),
+            'trend_up':(ema20>ema50)&(ema50>ema200), 'trend_down':(ema20<ema50)&(ema50<ema200),
+            'high_vol':vol_ratio>=1.25, 'normal_vol':(vol_ratio>=0.85)&(vol_ratio<1.25), 'low_vol':vol_ratio<0.85,
+            'london':(hour>=8)&(hour<13), 'ny':(hour>=13)&(hour<18), 'overlap':(hour>=13)&(hour<16),
+            'weekday':dow<5,
+          }
+          entries={
+            'trend_pullback_long':((ema20>ema50)&(c.shift(1)<=ema20.shift(1))&(c>ema20)).astype(int),
+            'trend_pullback_short':((ema20<ema50)&(c.shift(1)>=ema20.shift(1))&(c<ema20)).astype(int)*-1,
+            'breakout20':(c>hh20).astype(int)-(c<ll20).astype(int),
+            'breakout60':(c>hh60).astype(int)-(c<ll60).astype(int),
+            'momentum20':(c>c.shift(20)).astype(int)-(c<c.shift(20)).astype(int),
+            'range_expansion':((rng>1.25*atr)&(body/rng>=0.55)).astype(int)-( (rng>1.25*atr)&(body/rng>=0.55)&(c<o)).astype(int),
+          }
+          # Costs: 0.5 pip spread + 0.2 pip slippage each side = 1.4 pip round trip.
+          cost_pips=1.4; min_tr=int(os.environ.get('MIN_TRADES','150')); results=[]
+          exits=[(0.75,1.25,30),(1.0,1.5,60),(1.0,2.0,90),(1.5,2.5,120)]
+          n=len(df)
+          for en,sig0 in entries.items():
+            for cn,cm in contexts.items():
+              s=sig0.where(cm,0).fillna(0).astype(int).to_numpy()
+              for slm,tpm,exp in exits:
+                pn=[]; i=250
+                while i<n-2:
+                  d=int(s[i])
+                  if not d or not np.isfinite(atr.iloc[i]) or atr.iloc[i]<=0: i+=1; continue
+                  ent=float(c.iloc[i+1]); a=float(atr.iloc[i]); sl=ent-d*slm*a; tp=ent+d*tpm*a; end=min(n-1,i+exp); ex=float(c.iloc[end])
+                  for j in range(i+1,end+1):
+                    hi,lo=float(h.iloc[j]),float(l.iloc[j])
+                    if d>0:
+                      if lo<=sl: ex=sl; break
+                      if hi>=tp: ex=tp; break
+                    else:
+                      if hi>=sl: ex=sl; break
+                      if lo<=tp: ex=tp; break
+                  pn.append((ex-ent)*d/0.0001-cost_pips); i=max(i+1,end)
+                if len(pn)<min_tr: continue
+                a=np.array(pn); w=a[a>0]; z=a[a<0]
+                if not len(w) or not len(z): continue
+                pf=w.sum()/-z.sum(); expct=a.mean(); eq=np.cumsum(a); dd=float((np.maximum.accumulate(eq)-eq).max())
+                results.append({'entry':en,'context':cn,'sl_atr':slm,'tp_atr':tpm,'expiry':exp,'trades':len(a),'win_rate':float((a>0).mean()),'profit_factor':float(pf),'expectancy_pips':float(expct),'net_pips':float(a.sum()),'max_drawdown_pips':dd})
+          # Never rank zero/invalid-loss candidates. Require genuine wins AND losses.
+          results=[r for r in results if r['trades']>=min_tr and np.isfinite(r['profit_factor']) and np.isfinite(r['expectancy_pips'])]
+          for r in results:
+            r['eligible']=r['profit_factor']>1.0 and r['expectancy_pips']>0
+            r['score']=float(np.log1p(r['trades'])*max(r['profit_factor']-1,0)*max(r['expectancy_pips'],0)/(1+r['max_drawdown_pips']/1000))
+          results.sort(key=lambda r:r['score'],reverse=True)
+          out={'schema':'forexai.strategy_discovery.v19','symbol':'EURUSD','timeframe':'M1','timezone':'UTC','data_mode':'REAL_ONLY','cost_model':{'spread_pips_per_side':0.5,'slippage_pips_per_side':0.2,'round_trip_pips':1.4},'candidate_count':len(results),'eligible_count':sum(r['eligible'] for r in results),'candidates':results[:100]}
+          Path('artifacts/strategy-discovery-v19/summary.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
+          print(json.dumps({'candidate_count':out['candidate_count'],'eligible_count':out['eligible_count'],'top':results[:10]},indent=2))
+          if out['eligible_count']==0: print('NO_CHAMPION: no cost-aware candidate passed PF>1 and positive expectancy')
+          PY
+          python /tmp/v19.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: strategy-discovery-v19
+          path: artifacts/strategy-discovery-v19
