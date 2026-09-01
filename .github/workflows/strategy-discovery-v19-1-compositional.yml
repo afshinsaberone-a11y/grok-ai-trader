@@ -1,4 +1,4 @@
-name: ForexAI v19.1 Compositional Context-Aware Discovery
+name: ForexAI v19.1.1 Compositional Context-Aware Discovery
 
 on:
   workflow_dispatch:
@@ -34,10 +34,15 @@ jobs:
       - name: Run compositional discovery
         run: |
           cat > /tmp/discover_v191.py <<'PY'
-          import json, math
+          import json, math, os
           from pathlib import Path
           import numpy as np
           import pandas as pd
+
+          START=os.environ['START']
+          END=os.environ['END']
+          MIN_TRADES=int(os.environ['MIN_TRADES'])
+          ROUND_TRIP_COST_PIPS=float(os.environ['ROUND_TRIP_COST_PIPS'])
 
           files=list(Path('data/real').rglob('*.csv'))+list(Path('data/real').rglob('*.parquet'))
           if not files: raise SystemExit('No real data')
@@ -57,8 +62,9 @@ jobs:
           for a,b in [('open','o'),('high','h'),('low','l'),('close','c')]:
               if a in df.columns: rename[a]=b
           df=df.rename(columns=rename).dropna(subset=['time','o','h','l','c']).sort_values('time').drop_duplicates('time').reset_index(drop=True)
-          df=df[(df.time>=pd.Timestamp('${START}',tz='UTC')) & (df.time<pd.Timestamp('${END}',tz='UTC'))].copy()
+          df=df[(df.time>=pd.Timestamp(START,tz='UTC')) & (df.time<pd.Timestamp(END,tz='UTC'))].copy()
           if len(df)<10000: raise SystemExit('Insufficient real data')
+
           o,h,l,c=[df[x].astype(float) for x in ['o','h','l','c']]
           prev=c.shift(1)
           tr=pd.concat([(h-l),(h-prev).abs(),(l-prev).abs()],axis=1).max(axis=1)
@@ -109,9 +115,9 @@ jobs:
                           if lo<=tp: exit_px=tp; break
                         j+=1
                       if exit_px is None: exit_px=float(c.iloc[end])
-                      pnl=(exit_px-entry)*direction*10000-float('${ROUND_TRIP_COST_PIPS}')
+                      pnl=(exit_px-entry)*direction*10000-ROUND_TRIP_COST_PIPS
                       trades.append((df.time.iloc[i+1].year,pnl)); i=j+1
-                    if len(trades)<int('${MIN_TRADES}'): continue
+                    if len(trades)<MIN_TRADES: continue
                     arr=np.array([x[1] for x in trades]); gp=arr[arr>0].sum(); gl=-arr[arr<0].sum(); pf=gp/gl if gl>0 else np.nan; expct=float(arr.mean()); wins=int((arr>0).sum()); dd=float(np.max(np.maximum.accumulate(np.cumsum(arr))-np.cumsum(arr)))
                     if not np.isfinite(pf) or not np.isfinite(expct) or wins==0 or wins==len(arr): continue
                     yearly=[]
@@ -126,14 +132,16 @@ jobs:
                     results.append({'entry':ename,'trend':tname,'volatility':vname,'session':sname,'sl_atr':slm,'tp_atr':tpm,'expiry':exp,'trades':len(arr),'win_rate':wins/len(arr)*100,'pf':pf,'expectancy_pips':expct,'net_pips':float(arr.sum()),'max_dd_pips':dd,'positive_years':positive_years,'stable_pf_years':stable_pf,'yearly':yearly,'score':score})
           results.sort(key=lambda x:x['score'],reverse=True)
           eligible=[r for r in results if r['pf']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
-          out={'schema':'forexai.strategy_discovery.v19.1','data':{'candles':len(df),'start':str(df.time.min()),'end':str(df.time.max()),'missing_bars_estimate':int(max(0,round((df.time.max()-df.time.min()).total_seconds()/60)+1-len(df)))},'cost_model':{'spread_pips_per_side':0.5,'slippage_pips_per_side':0.2,'round_trip_pips':1.4},'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_candidates':results[:20]}
+          out={'schema':'forexai.strategy_discovery.v19.1.1','data':{'candles':len(df),'start':str(df.time.min()),'end':str(df.time.max()),'missing_bars_estimate':int(max(0,round((df.time.max()-df.time.min()).total_seconds()/60)+1-len(df)))},'cost_model':{'spread_pips_per_side':0.5,'slippage_pips_per_side':0.2,'round_trip_pips':ROUND_TRIP_COST_PIPS},'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_candidates':results[:20]}
           Path('artifacts').mkdir(exist_ok=True); Path('artifacts/strategy-discovery-v19.1.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
           print(json.dumps({'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top':results[:5]},indent=2))
           if not eligible: print('NO_CHAMPION')
           PY
           python /tmp/discover_v191.py
       - name: Upload discovery artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: strategy-discovery-v19-1
+          name: strategy-discovery-v19-1-1
           path: artifacts/strategy-discovery-v19.1.json
+          if-no-files-found: ignore
