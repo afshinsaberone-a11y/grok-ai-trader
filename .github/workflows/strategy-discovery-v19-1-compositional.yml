@@ -1,0 +1,139 @@
+name: ForexAI v19.1 Compositional Context-Aware Discovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      START: '2022-01-01'
+      END: '2026-01-01'
+      MIN_TRADES: '150'
+      ROUND_TRIP_COST_PIPS: '1.4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt && pip install pandas numpy requests
+      - name: Ingest real EURUSD M1 data
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Fail if real data is unavailable
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          files=list(Path('data/real').rglob('*.csv'))+list(Path('data/real').rglob('*.parquet'))
+          if not files:
+              raise SystemExit('REAL_DATA_REQUIRED: no downloaded market data found')
+          print('real_data_files=', len(files))
+          PY
+      - name: Run compositional discovery
+        run: |
+          cat > /tmp/discover_v191.py <<'PY'
+          import json, math
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+
+          files=list(Path('data/real').rglob('*.csv'))+list(Path('data/real').rglob('*.parquet'))
+          if not files: raise SystemExit('No real data')
+          frames=[]
+          for p in files:
+              try:
+                  x=pd.read_parquet(p) if p.suffix=='.parquet' else pd.read_csv(p)
+                  frames.append(x)
+              except Exception: pass
+          if not frames: raise SystemExit('Unable to parse real data')
+          df=pd.concat(frames, ignore_index=True)
+          df.columns=[str(c).lower() for c in df.columns]
+          time_col=next((c for c in ['time','timestamp','datetime','date'] if c in df.columns),None)
+          if not time_col: raise SystemExit('No time column')
+          df['time']=pd.to_datetime(df[time_col],utc=True,errors='coerce')
+          rename={}
+          for a,b in [('open','o'),('high','h'),('low','l'),('close','c')]:
+              if a in df.columns: rename[a]=b
+          df=df.rename(columns=rename).dropna(subset=['time','o','h','l','c']).sort_values('time').drop_duplicates('time').reset_index(drop=True)
+          df=df[(df.time>=pd.Timestamp('${START}',tz='UTC')) & (df.time<pd.Timestamp('${END}',tz='UTC'))].copy()
+          if len(df)<10000: raise SystemExit('Insufficient real data')
+          o,h,l,c=[df[x].astype(float) for x in ['o','h','l','c']]
+          prev=c.shift(1)
+          tr=pd.concat([(h-l),(h-prev).abs(),(l-prev).abs()],axis=1).max(axis=1)
+          atr=tr.rolling(14).mean(); atr50=atr.rolling(50).mean()
+          ema20=c.ewm(span=20,adjust=False).mean(); ema50=c.ewm(span=50,adjust=False).mean(); ema200=c.ewm(span=200,adjust=False).mean()
+          rng=h-l; body=(c-o).abs()
+          hour=df.time.dt.hour; dow=df.time.dt.dayofweek
+          contexts={
+            'all':pd.Series(True,index=df.index),
+            'trend_up':(ema20>ema50)&(ema50>ema200),
+            'trend_down':(ema20<ema50)&(ema50<ema200),
+            'high_vol':(atr/atr50)>=1.25,
+            'normal_vol':(atr/atr50>=0.85)&(atr/atr50<1.25),
+            'low_vol':(atr/atr50)<0.85,
+            'london':hour.between(8,12),
+            'ny':hour.between(13,17),
+            'overlap':hour.between(13,15),
+            'weekday':dow<5,
+          }
+          entries={
+            'trend_pullback':np.where((ema20>ema50)&(c<=ema20)&(c.shift(1)>ema20.shift(1)),1,np.where((ema20<ema50)&(c>=ema20)&(c.shift(1)<ema20.shift(1)),-1,0)),
+            'breakout20':np.where(c>h.shift(1).rolling(20).max(),1,np.where(c<l.shift(1).rolling(20).min(),-1,0)),
+            'breakout60':np.where(c>h.shift(1).rolling(60).max(),1,np.where(c<l.shift(1).rolling(60).min(),-1,0)),
+            'momentum20':np.where(c>c.shift(20),1,np.where(c<c.shift(20),-1,0)),
+            'range_expansion':np.where((rng>1.25*atr)&(body/rng>=0.55)&(c>o),1,np.where((rng>1.25*atr)&(body/rng>=0.55)&(c<o),-1,0)),
+          }
+          exits=[(0.75,1.25,30),(1.0,1.5,60),(1.0,2.0,90),(1.5,2.5,120)]
+          years=sorted(df.time.dt.year.dropna().unique().tolist())
+          results=[]
+          for ename,sig in entries.items():
+            for tname,tmask in [('any_trend',contexts['all']),('up',contexts['trend_up']),('down',contexts['trend_down'])]:
+              for vname,vmask in [('any_vol',contexts['all']),('high',contexts['high_vol']),('normal',contexts['normal_vol']),('low',contexts['low_vol'])]:
+                for sname,smask in [('any_session',contexts['all']),('london',contexts['london']),('ny',contexts['ny']),('overlap',contexts['overlap'])]:
+                  mask=tmask&vmask&smask&contexts['weekday']
+                  for slm,tpm,exp in exits:
+                    trades=[]; i=200
+                    while i<len(df)-2:
+                      if not bool(mask.iloc[i]) or sig[i]==0 or not np.isfinite(atr.iloc[i]) or atr.iloc[i]<=0: i+=1; continue
+                      direction=int(sig[i]); entry=float(o.iloc[i+1]); a=float(atr.iloc[i]); sl=entry-direction*slm*a; tp=entry+direction*tpm*a; end=min(len(df)-1,i+1+exp); exit_px=None
+                      j=i+1
+                      while j<=end:
+                        hi,lo=float(h.iloc[j]),float(l.iloc[j])
+                        if direction>0:
+                          if lo<=sl: exit_px=sl; break
+                          if hi>=tp: exit_px=tp; break
+                        else:
+                          if hi>=sl: exit_px=sl; break
+                          if lo<=tp: exit_px=tp; break
+                        j+=1
+                      if exit_px is None: exit_px=float(c.iloc[end])
+                      pnl=(exit_px-entry)*direction*10000-float('${ROUND_TRIP_COST_PIPS}')
+                      trades.append((df.time.iloc[i+1].year,pnl)); i=j+1
+                    if len(trades)<int('${MIN_TRADES}'): continue
+                    arr=np.array([x[1] for x in trades]); gp=arr[arr>0].sum(); gl=-arr[arr<0].sum(); pf=gp/gl if gl>0 else np.nan; expct=float(arr.mean()); wins=int((arr>0).sum()); dd=float(np.max(np.maximum.accumulate(np.cumsum(arr))-np.cumsum(arr)))
+                    if not np.isfinite(pf) or not np.isfinite(expct) or wins==0 or wins==len(arr): continue
+                    yearly=[]
+                    for y in years:
+                      ya=np.array([p for yy,p in trades if yy==y])
+                      if len(ya)==0: continue
+                      yg=ya[ya>0].sum(); yl=-ya[ya<0].sum(); ypf=yg/yl if yl>0 else np.nan
+                      yearly.append({'year':int(y),'trades':int(len(ya)),'net_pips':float(ya.sum()),'pf':float(ypf) if np.isfinite(ypf) else None,'expectancy':float(ya.mean())})
+                    positive_years=sum(1 for y in yearly if y['net_pips']>0)
+                    stable_pf=sum(1 for y in yearly if y['pf'] is not None and y['pf']>1.0)
+                    score=math.log1p(len(arr))*max(pf-1,0)*max(expct,0)*max(positive_years,0)/(1+dd/1000)
+                    results.append({'entry':ename,'trend':tname,'volatility':vname,'session':sname,'sl_atr':slm,'tp_atr':tpm,'expiry':exp,'trades':len(arr),'win_rate':wins/len(arr)*100,'pf':pf,'expectancy_pips':expct,'net_pips':float(arr.sum()),'max_dd_pips':dd,'positive_years':positive_years,'stable_pf_years':stable_pf,'yearly':yearly,'score':score})
+          results.sort(key=lambda x:x['score'],reverse=True)
+          eligible=[r for r in results if r['pf']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
+          out={'schema':'forexai.strategy_discovery.v19.1','data':{'candles':len(df),'start':str(df.time.min()),'end':str(df.time.max()),'missing_bars_estimate':int(max(0,round((df.time.max()-df.time.min()).total_seconds()/60)+1-len(df)))},'cost_model':{'spread_pips_per_side':0.5,'slippage_pips_per_side':0.2,'round_trip_pips':1.4},'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_candidates':results[:20]}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/strategy-discovery-v19.1.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
+          print(json.dumps({'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top':results[:5]},indent=2))
+          if not eligible: print('NO_CHAMPION')
+          PY
+          python /tmp/discover_v191.py
+      - name: Upload discovery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-discovery-v19-1
+          path: artifacts/strategy-discovery-v19.1.json
