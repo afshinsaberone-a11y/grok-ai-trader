@@ -1,0 +1,68 @@
+name: ForexAI SP2L v16 Rule Diagnosis
+on:
+  workflow_dispatch:
+    inputs:
+      start: {required: true, default: '2022-01-01', type: string}
+      end: {required: true, default: '2025-01-01', type: string}
+      spread_pips: {required: true, default: '0.5', type: string}
+      slippage_pips: {required: true, default: '0.2', type: string}
+jobs:
+  diagnosis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Ingest real EURUSD M1
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Run deterministic SP2L rule diagnosis
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          python - <<'PY'
+          import os,glob,json
+          from pathlib import Path
+          import pandas as pd,numpy as np
+          from research.optimization.sp2l_v15_7 import Params,signals
+          files=glob.glob('data/real/normalized/EURUSD_M1_*.csv')
+          if not files: raise SystemExit('REAL_M1_REQUIRED')
+          p=max(files,key=lambda x:Path(x).stat().st_size); d=pd.read_csv(p); cols={c.lower():c for c in d.columns}; ts=next(c for c in d.columns if c.lower() in ('timestamp','time','datetime'))
+          d=d.rename(columns={cols[k]:k.title() for k in ('open','high','low','close')}); d[ts]=pd.to_datetime(d[ts],utc=True); d=d.set_index(ts).sort_index(); d=d[~d.index.duplicated()]; d=d[(d.index>=pd.Timestamp(os.environ['START'],tz='UTC'))&(d.index<pd.Timestamp(os.environ['END'],tz='UTC'))]
+          s=signals(d,Params()).to_numpy(); H=d.High.to_numpy(); L=d.Low.to_numpy(); C=d.Close.to_numpy(); pip=.0001; cost=2*(float(os.environ['SPREAD'])+float(os.environ['SLIPPAGE']))
+          idx=np.flatnonzero(s); rows=[]
+          for i in idx:
+            if i+1>=len(d): continue
+            risk=max(H[i]-L[i],pip); entry=C[i+1]; direction=int(s[i]); sl=entry-risk if direction>0 else entry+risk; tp=entry+1.5*risk if direction>0 else entry-1.5*risk; outcome=None; bars=0
+            for j in range(i+1,min(len(d),i+1+Params().expiry_bars)):
+              bars+=1
+              if direction>0:
+                if L[j]<=sl: outcome=-risk/pip-cost; break
+                if H[j]>=tp: outcome=1.5*risk/pip-cost; break
+              else:
+                if H[j]>=sl: outcome=-risk/pip-cost; break
+                if L[j]<=tp: outcome=1.5*risk/pip-cost; break
+            if outcome is not None: rows.append((i,d.index[i],direction,risk/pip,outcome,bars))
+          r=pd.DataFrame(rows,columns=['i','timestamp','direction','risk_pips','pnl_pips','holding_bars']); r['side']=np.where(r.direction>0,'long','short'); r['risk_bin']=pd.cut(r.risk_pips,bins=[0,2,5,10,20,50,100,10000],include_lowest=True)
+          def stats(x):
+            a=x.pnl_pips.to_numpy(); gp=a[a>0].sum() if len(a) else 0; gl=-a[a<0].sum() if len(a) else 0; eq=np.cumsum(a) if len(a) else np.array([0]); return {'trades':int(len(a)),'win_rate_pct':float((a>0).mean()*100) if len(a) else 0,'profit_factor':float(gp/gl) if gl else 999.,'net_pips':float(a.sum()) if len(a) else 0,'expectancy_pips':float(a.mean()) if len(a) else 0,'max_dd_pips':float((np.maximum.accumulate(eq)-eq).max()) if len(a) else 0}
+          out={'schema_version':'forexai.sp2l_rule_diagnosis.v16','cost_pips_round_trip':cost,'baseline':stats(r)}
+          out['by_side']={k:stats(v) for k,v in r.groupby('side',observed=True)}; out['by_risk_bin']={str(k):stats(v) for k,v in r.groupby('risk_bin',observed=True)}
+          # Regime-neutral time slices diagnose whether losses are concentrated in periods.
+          r['year']=pd.to_datetime(r.timestamp).dt.year; out['by_year']={str(k):stats(v) for k,v in r.groupby('year')}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/sp2l-v16-rule-diagnosis.json').write_text(json.dumps(out,indent=2)); r.to_csv('artifacts/sp2l-v16-trades.csv',index=False); print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sp2l-v16-rule-diagnosis
+          path: artifacts/
+          if-no-files-found: warn
