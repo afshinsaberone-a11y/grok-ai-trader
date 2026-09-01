@@ -1,20 +1,23 @@
-name: ForexAI SP2L Optimizer v15.6
+name: ForexAI SP2L Audit + Optimizer v15.7
 on:
   workflow_dispatch:
     inputs:
-      start: {required: true, default: '2022-01-01'}
-      end: {required: true, default: '2025-01-01'}
-      spread_pips: {required: true, default: '0.5'}
-      slippage_pips: {required: true, default: '0.2'}
+      start: {required: true, default: '2022-01-01', type: string}
+      end: {required: true, default: '2025-01-01', type: string}
+      spread_pips: {required: true, default: '0.5', type: string}
+      slippage_pips: {required: true, default: '0.2', type: string}
 jobs:
-  optimize:
+  audit-optimize:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.11'}
-      - run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
       - name: Validate train-only window
         env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
         run: |
@@ -28,17 +31,32 @@ jobs:
       - name: Ingest REAL EURUSD M5
         env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
         run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
-      - name: Locate dataset
+      - name: Locate REAL dataset
         env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
         run: |
           DATA="data/real/normalized/EURUSD_M5_$(date -u -d "$START" +%Y%m%d)_$(date -u -d "$END - 1 day" +%Y%m%d).csv"
           test -s "$DATA" || { echo REAL_DATA_REQUIRED; exit 2; }
           echo "DATA=$DATA" >> "$GITHUB_ENV"
-      - name: Run bounded SP2L optimization
-        run: python -m research.optimization.sp2l_optimizer_v15_6 --data "$DATA" --spread-pips "${{ inputs.spread_pips }}" --slippage-pips "${{ inputs.slippage_pips }}" --output artifacts/sp2l-v15-6.json
-      - uses: actions/upload-artifact@v4
+      - name: Audit corrected SP2L v15.7
+        run: |
+          python - <<'PY'
+          import json, pandas as pd
+          from research.optimization.sp2l_v15_7 import Params, signals
+          d=pd.read_csv("$DATA")
+          cols={c.lower():c for c in d.columns}; d=d.rename(columns={cols[k]:k.title() for k in ('open','high','low','close') if k in cols})
+          ts=next(c for c in d.columns if c.lower() in ('timestamp','time','datetime'))
+          d[ts]=pd.to_datetime(d[ts],utc=True); d=d.set_index(ts).sort_index()
+          p=Params()
+          s=signals(d,p)
+          out={'schema_version':'forexai.sp2l_audit.v15.7','rows':len(d),'signals':int((s!=0).sum()),'long_signals':int((s>0).sum()),'short_signals':int((s<0).sum()),'train_end_exclusive':'2025-01-01','holdout_excluded':True}
+          import pathlib; pathlib.Path('artifacts').mkdir(exist_ok=True); pathlib.Path('artifacts/sp2l-v15-7-audit.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - name: Run corrected bounded optimization
+        run: python -m research.optimization.sp2l_optimizer_v15_6 --data "$DATA" --spread-pips "${{ inputs.spread_pips }}" --slippage-pips "${{ inputs.slippage_pips }}" --output artifacts/sp2l-v15-7-optimization.json
+      - name: Upload audit and optimization
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: sp2l-v15-6
-          path: artifacts/sp2l-v15-6.json
+          name: sp2l-v15-7-audit-optimization
+          path: artifacts/
           if-no-files-found: warn
