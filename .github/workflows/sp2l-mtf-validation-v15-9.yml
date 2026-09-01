@@ -1,0 +1,71 @@
+name: ForexAI SP2L v15.9 Multi-Timeframe Validation
+on:
+  workflow_dispatch:
+    inputs:
+      start: {required: true, default: '2022-01-01', type: string}
+      end: {required: true, default: '2025-01-01', type: string}
+      spread_pips: {required: true, default: '0.5', type: string}
+      slippage_pips: {required: true, default: '0.2', type: string}
+jobs:
+  mtf-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Validate train-only window
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime
+          s=datetime.fromisoformat(os.environ['START']); e=datetime.fromisoformat(os.environ['END'])
+          assert s<e and e<=datetime(2025,1,1), 'TRAIN_WINDOW_ONLY'
+          PY
+      - name: Ingest REAL EURUSD M1
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Ingest REAL EURUSD M5
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Ingest REAL EURUSD M15
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M15 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Run MTF data-aware validation
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          python - <<'PY'
+          import os,json,glob
+          from pathlib import Path
+          import pandas as pd
+          out={'schema_version':'forexai.sp2l_mtf_validation.v15.9','train_end_exclusive':os.environ['END'],'holdout_excluded':True,'timeframes':{}}
+          for tf in ('M1','M5','M15'):
+              files=glob.glob(f'data/real/normalized/EURUSD_{tf}_*.csv')
+              if not files: raise SystemExit(f'REAL_DATA_REQUIRED_{tf}')
+              p=max(files,key=lambda x:Path(x).stat().st_size)
+              d=pd.read_csv(p)
+              cols={c.lower():c for c in d.columns}
+              for k in ('open','high','low','close'):
+                  if k not in cols: raise SystemExit(f'OHLC_REQUIRED_{tf}')
+              ts=next((c for c in d.columns if c.lower() in ('timestamp','time','datetime')),None)
+              if ts is None: raise SystemExit(f'TIMESTAMP_REQUIRED_{tf}')
+              t=pd.to_datetime(d[ts],utc=True).sort_values(); dup=int(t.duplicated().sum()); invalid=int(((d[cols['high']]<d[cols['low']]) | (d[cols['open']]<=0) | (d[cols['high']]<=0) | (d[cols['low']]<=0) | (d[cols['close']]<=0)).sum())
+              out['timeframes'][tf]={'file':p,'rows':len(d),'duplicates':dup,'invalid_ohlc':invalid,'start':str(t.min()),'end':str(t.max())}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/sp2l-v15-9-mtf-validation.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sp2l-v15-9-mtf-validation
+          path: artifacts/
+          if-no-files-found: warn
