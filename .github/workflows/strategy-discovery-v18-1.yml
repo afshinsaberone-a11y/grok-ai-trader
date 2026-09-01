@@ -1,0 +1,149 @@
+name: ForexAI v18.1 Corrected Cost-Aware Strategy Discovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      START: "2022-01-01"
+      END: "2026-01-01"
+      SPREAD_PIPS_PER_SIDE: "0.5"
+      SLIPPAGE_PIPS_PER_SIDE: "0.2"
+      MIN_TRADES: "100"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pandas numpy requests
+
+      - name: Ingest REAL EURUSD M1 data
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --timeframe M1 \
+            --start "$START" \
+            --end "$END" \
+            --output data/real \
+            --validate \
+            --manifest
+
+      - name: Corrected cost-aware discovery
+        run: |
+          mkdir -p artifacts/strategy-discovery-v18-1
+          cat > /tmp/discover_v18_1.py <<'PY'
+          import json, math
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+
+          root = Path("data/real")
+          files = list(root.rglob("*.csv"))
+          if not files:
+              raise SystemExit("FAIL: no REAL EURUSD M1 CSV data found")
+          frames=[]
+          for p in files:
+              try:
+                  d=pd.read_csv(p)
+              except Exception:
+                  continue
+              cols={c.lower():c for c in d.columns}
+              tcol=next((cols[x] for x in ["time","datetime","timestamp","date"] if x in cols),None)
+              if not tcol: continue
+              rename={}
+              for want in ["open","high","low","close"]:
+                  if want in cols: rename[cols[want]]=want
+              d=d.rename(columns=rename)
+              if not all(x in d for x in ["open","high","low","close"]): continue
+              d["time"]=pd.to_datetime(d[tcol],utc=True,errors="coerce")
+              d=d.dropna(subset=["time","open","high","low","close"])
+              frames.append(d[["time","open","high","low","close"]])
+          if not frames: raise SystemExit("FAIL: REAL data could not be parsed")
+          df=pd.concat(frames).drop_duplicates("time").sort_values("time").reset_index(drop=True)
+          if len(df)<10000: raise SystemExit(f"FAIL: insufficient REAL candles: {len(df)}")
+
+          h,l,c,o=[df[x].astype(float) for x in ["high","low","close","open"]]
+          prev_c=c.shift(1)
+          tr=pd.concat([(h-l),(h-prev_c).abs(),(l-prev_c).abs()],axis=1).max(axis=1)
+          atr=tr.rolling(14).mean()
+          ema20=c.ewm(span=20,adjust=False).mean(); ema50=c.ewm(span=50,adjust=False).mean()
+          prior20h=h.shift(1).rolling(20).max(); prior20l=l.shift(1).rolling(20).min()
+          rng=h-l
+          hour=df.time.dt.hour
+          body=(c-o).abs(); upper=h-np.maximum(o,c); lower=np.minimum(o,c)-l
+
+          # One-position-at-a-time execution. Costs are charged once per round trip.
+          cost=2*(0.5+0.2)*0.0001
+          entries={
+            "trend": ((ema20>ema50)&(c>ema20)).astype(int)-((ema20<ema50)&(c<ema20)).astype(int),
+            "breakout20": (c>prior20h).astype(int)-(c<prior20l).astype(int),
+            "momentum10": (c>c.shift(10)).astype(int)-(c<c.shift(10)).astype(int),
+            "volbreak": ((rng>1.5*atr)&(c>o)).astype(int)-((rng>1.5*atr)&(c<o)).astype(int),
+          }
+          regimes={
+            "all": pd.Series(True,index=df.index),
+            "high_vol": rng>=1.5*atr,
+            "normal_vol": (rng>=0.75*atr)&(rng<1.5*atr),
+            "low_vol": rng<0.75*atr,
+            "london": (hour>=8)&(hour<13),
+            "ny": (hour>=13)&(hour<18),
+          }
+          exits=[(0.75,1.0,30),(1.0,1.5,60),(1.5,2.0,90),(1.0,2.5,90)]
+          results=[]
+          n=len(df)
+          for ename, sig in entries.items():
+            for rname, rmask in regimes.items():
+              s=sig.where(rmask,0).fillna(0).astype(int).to_numpy()
+              for slm,tpm,expiry in exits:
+                pnl=[]; i=50
+                while i<n-2:
+                  direction=int(s[i])
+                  if direction==0 or not np.isfinite(atr.iloc[i]) or atr.iloc[i]<=0:
+                    i+=1; continue
+                  entry=float(c.iloc[i+1]); a=float(atr.iloc[i]); sl=entry-direction*slm*a; tp=entry+direction*tpm*a
+                  exit_i=min(n-1,i+expiry); exit_px=float(c.iloc[exit_i]); hit=False
+                  for j in range(i+1,exit_i+1):
+                    hi=float(h.iloc[j]); lo=float(l.iloc[j])
+                    if direction>0:
+                      if lo<=sl and hi>=tp: exit_px=sl; hit=True; break
+                      if lo<=sl: exit_px=sl; hit=True; break
+                      if hi>=tp: exit_px=tp; hit=True; break
+                    else:
+                      if hi>=sl and lo<=tp: exit_px=sl; hit=True; break
+                      if hi>=sl: exit_px=sl; hit=True; break
+                      if lo<=tp: exit_px=tp; hit=True; break
+                  pips=(exit_px-entry)*direction/0.0001-1.4
+                  pnl.append(pips); i=max(i+1,exit_i)
+                if len(pnl)<int(__import__('os').environ.get('MIN_TRADES','100')): continue
+                arr=np.array(pnl,float); wins=arr[arr>0]; losses=arr[arr<0]
+                if len(wins)==0 or len(losses)==0: continue
+                gp=wins.sum(); gl=-losses.sum(); pf=gp/gl; expectancy=arr.mean()
+                eq=np.cumsum(arr); peak=np.maximum.accumulate(eq); dd=float((peak-eq).max())
+                results.append({"entry":ename,"regime":rname,"sl_atr":slm,"tp_atr":tpm,"expiry":expiry,"trades":len(arr),"win_rate":float((arr>0).mean()),"profit_factor":float(pf),"expectancy_pips":float(expectancy),"net_pips":float(arr.sum()),"max_drawdown_pips":dd})
+          results.sort(key=lambda x:(x["profit_factor"],x["expectancy_pips"],x["trades"]),reverse=True)
+          out={"schema":"forexai.strategy_discovery.v18.1","symbol":"EURUSD","timeframe":"M1","timezone":"UTC","data_mode":"REAL_ONLY","cost_model":{"spread_pips_per_side":0.5,"slippage_pips_per_side":0.2,"round_trip_pips":1.4},"candidate_count":len(results),"eligible_count":sum(1 for x in results if x["profit_factor"]>1 and x["expectancy_pips"]>0),"candidates":results[:100]}
+          Path("artifacts/strategy-discovery-v18-1/summary.json").write_text(json.dumps(out,indent=2),encoding="utf-8")
+          if not results: print("NO_VALID_CANDIDATES: minimum sample or valid PF conditions not met")
+          else: print(json.dumps({k:out[k] for k in ["candidate_count","eligible_count"]},indent=2)); print(json.dumps(results[:10],indent=2))
+          PY
+          python /tmp/discover_v18_1.py
+
+      - name: Upload discovery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-discovery-v18-1
+          path: artifacts/strategy-discovery-v18-1
