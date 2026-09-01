@@ -1,0 +1,60 @@
+name: ForexAI v17.2 Walk-Forward Multi-Family Discovery
+on:
+  workflow_dispatch:
+    inputs:
+      start: {required: true, default: '2022-01-01', type: string}
+      end: {required: true, default: '2025-01-01', type: string}
+      spread_pips: {required: true, default: '0.5', type: string}
+      slippage_pips: {required: true, default: '0.2', type: string}
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: pip install -r requirements.txt
+      - name: Ingest REAL EURUSD M1
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}'}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Walk-forward train/test discovery
+        env: {START: '${{ inputs.start }}', END: '${{ inputs.end }}', SPREAD: '${{ inputs.spread_pips }}', SLIPPAGE: '${{ inputs.slippage_pips }}'}
+        run: |
+          python - <<'PY'
+          import os,glob,json
+          from pathlib import Path
+          import pandas as pd,numpy as np
+          fs=glob.glob('data/real/normalized/EURUSD_M1_*.csv')
+          if not fs: raise SystemExit('REAL_M1_REQUIRED')
+          d=pd.read_csv(max(fs,key=lambda x:Path(x).stat().st_size)); c={x.lower():x for x in d.columns}; ts=next(x for x in d if x.lower() in ('timestamp','time','datetime'))
+          d=d.rename(columns={c[k]:k.title() for k in ('open','high','low','close')}); d[ts]=pd.to_datetime(d[ts],utc=True); d=d.set_index(ts).sort_index(); d=d[(d.index>=pd.Timestamp(os.environ['START'],tz='UTC'))&(d.index<pd.Timestamp(os.environ['END'],tz='UTC'))]
+          O,H,L,C=d.Open.to_numpy(),d.High.to_numpy(),d.Low.to_numpy(),d.Close.to_numpy(); pip=.0001; cost=2*(float(os.environ['SPREAD'])+float(os.environ['SLIPPAGE'])); r=pd.Series(H-L); atr=r.rolling(60,min_periods=60).mean().to_numpy(); ema20=pd.Series(C).ewm(span=20,adjust=False).mean().to_numpy(); ema50=pd.Series(C).ewm(span=50,adjust=False).mean().to_numpy(); sma20=pd.Series(C).rolling(20).mean().to_numpy(); std20=pd.Series(C).rolling(20).std().to_numpy(); hh20=pd.Series(H).rolling(20).max().shift(1).to_numpy(); ll20=pd.Series(L).rolling(20).min().shift(1).to_numpy(); hh50=pd.Series(H).rolling(50).max().shift(1).to_numpy(); ll50=pd.Series(L).rolling(50).min().shift(1).to_numpy(); mom10=np.r_[np.zeros(10),C[10:]-C[:-10]]; hour=d.index.hour.to_numpy()
+          families={'trend_ema':np.where((ema20>ema50)&(C>ema20),1,np.where((ema20<ema50)&(C<ema20),-1,0)),'momentum_10':np.where(mom10>0,1,np.where(mom10<0,-1,0)),'breakout_20':np.where(C>hh20,1,np.where(C<ll20,-1,0)),'breakout_50':np.where(C>hh50,1,np.where(C<ll50,-1,0)),'meanrev_sma':np.where(C<sma20-std20,1,np.where(C>sma20+std20,-1,0)),'meanrev_ema':np.where(C<ema20-1.5*np.nan_to_num(atr),1,np.where(C>ema20+1.5*np.nan_to_num(atr),-1,0)),'range_expansion':np.where((H-L>np.nan_to_num(atr)*1.5)&(C>O),1,np.where((H-L>np.nan_to_num(atr)*1.5)&(C<O),-1,0)),'inside_break':np.where(C>pd.Series(H).shift(1).to_numpy(),1,np.where(C<pd.Series(L).shift(1).to_numpy(),-1,0)),'gap_continuation':np.where(O>pd.Series(H).shift(1).to_numpy(),1,np.where(O<pd.Series(L).shift(1).to_numpy(),-1,0)),'pullback_trend':np.where((ema20>ema50)&(C<ema20)&(C>ema50),1,np.where((ema20<ema50)&(C>ema20)&(C<ema50),-1,0)),'vol_breakout':np.where((H-L>np.nan_to_num(atr)*2)&(C>O),1,np.where((H-L>np.nan_to_num(atr)*2)&(C<O),-1,0)),'london_breakout':np.where((hour>=8)&(hour<12)&(C>hh20),1,np.where((hour>=8)&(hour<12)&(C<ll20),-1,0))}
+          def execute(sig,lo,hi):
+            idx=np.flatnonzero((np.arange(len(d))>=lo)&(np.arange(len(d))<hi)&(sig!=0)); pn=[]; i=0; expiry=60; last=-1
+            for k in idx:
+              if k<=last or k+1>=hi or not np.isfinite(atr[k]): continue
+              direction=int(sig[k]); entry=C[k+1]; risk=max(H[k]-L[k],pip); sl=entry-risk if direction>0 else entry+risk; tp=entry+1.5*risk if direction>0 else entry-1.5*risk; hit=None; ex=None
+              for j in range(k+1,min(hi,k+1+expiry)):
+                if direction>0:
+                  if L[j]<=sl: hit=-risk/pip-cost; ex=j; break
+                  if H[j]>=tp: hit=1.5*risk/pip-cost; ex=j; break
+                else:
+                  if H[j]>=sl: hit=-risk/pip-cost; ex=j; break
+                  if L[j]<=tp: hit=1.5*risk/pip-cost; ex=j; break
+              if hit is not None: pn.append(hit); last=ex
+            a=np.asarray(pn); gp=a[a>0].sum() if len(a) else 0; gl=-a[a<0].sum() if len(a) else 0; eq=np.cumsum(a) if len(a) else np.array([0]); return {'trades':int(len(a)),'win_rate_pct':float((a>0).mean()*100) if len(a) else 0,'profit_factor':float(gp/gl) if gl else 999.,'net_pips':float(a.sum()) if len(a) else 0,'expectancy_pips':float(a.mean()) if len(a) else 0,'max_dd_pips':float((np.maximum.accumulate(eq)-eq).max()) if len(a) else 0}
+          n=len(d); windows=[]; train=365*1440; test=90*1440; step=test; start=0
+          while start+train+test<=n: windows.append((start,start+train,start+train,start+train+test)); start+=step
+          results={k:[] for k in families}
+          for k,s in families.items():
+            for a,b,c2,e in windows: results[k].append({'train':execute(s,a,b),'test':execute(s,c2,e)})
+          summary={}
+          for k,ws in results.items():
+            tests=[w['test'] for w in ws if w['test']['trades']>=30]; pf=np.array([w['profit_factor'] for w in tests]); summary[k]={'windows':len(ws),'eligible_test_windows':len(tests),'median_test_pf':float(np.median(pf)) if len(pf) else 0,'positive_test_windows':int((pf>1).sum()),'total_test_trades':int(sum(w['trades'] for w in tests)),'total_test_net_pips':float(sum(w['net_pips'] for w in tests))}
+          ranking=sorted(summary.items(),key=lambda kv:(kv[1]['positive_test_windows'],kv[1]['median_test_pf'],kv[1]['total_test_net_pips']),reverse=True); out={'schema_version':'forexai.multi_family_walk_forward.v17.2','cost_pips_round_trip':cost,'windowing':'365d_train_90d_test_step_90d','summary':summary,'ranking':[{'family':k,**v} for k,v in ranking]}; Path('artifacts').mkdir(exist_ok=True); Path('artifacts/multi-family-v17-2-walk-forward.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: multi-family-v17-2-walk-forward, path: artifacts/, if-no-files-found: warn}
