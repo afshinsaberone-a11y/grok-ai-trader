@@ -38,18 +38,19 @@ jobs:
           test -s "$DATA" || { echo REAL_DATA_REQUIRED; exit 2; }
           echo "DATA=$DATA" >> "$GITHUB_ENV"
       - name: Audit corrected SP2L v15.7
+        env: {DATA: '${{ env.DATA }}'}
         run: |
           python - <<'PY'
-          import json, pandas as pd
-          from research.optimization.sp2l_v15_7 import Params, signals
-          d=pd.read_csv("$DATA")
+          import os,json,pandas as pd
+          from research.optimization.sp2l_v15_7 import Params,signals
+          path=os.environ['DATA']
+          d=pd.read_csv(path)
           cols={c.lower():c for c in d.columns}; d=d.rename(columns={cols[k]:k.title() for k in ('open','high','low','close') if k in cols})
           ts=next(c for c in d.columns if c.lower() in ('timestamp','time','datetime'))
           d[ts]=pd.to_datetime(d[ts],utc=True); d=d.set_index(ts).sort_index()
-          p=Params()
-          s=signals(d,p)
+          p=Params(); s=signals(d,p)
           out={'schema_version':'forexai.sp2l_audit.v15.7','rows':len(d),'signals':int((s!=0).sum()),'long_signals':int((s>0).sum()),'short_signals':int((s<0).sum()),'train_end_exclusive':'2025-01-01','holdout_excluded':True}
-          import pathlib; pathlib.Path('artifacts').mkdir(exist_ok=True); pathlib.Path('artifacts/sp2l-v15-7-audit.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          from pathlib import Path; Path('artifacts').mkdir(exist_ok=True); Path('artifacts/sp2l-v15-7-audit.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - name: Run corrected bounded optimization
         run: python -m research.optimization.sp2l_optimizer_v15_6 --data "$DATA" --spread-pips "${{ inputs.spread_pips }}" --slippage-pips "${{ inputs.slippage_pips }}" --output artifacts/sp2l-v15-7-optimization.json
