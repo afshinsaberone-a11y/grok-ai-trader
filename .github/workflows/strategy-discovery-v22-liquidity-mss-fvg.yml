@@ -6,7 +6,7 @@ on:
 jobs:
   discovery:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,14 +37,14 @@ jobs:
           df = df.copy()
           df['time'] = pd.to_datetime(df['time'], utc=True)
           df = df.sort_values('time').drop_duplicates('time').reset_index(drop=True)
-          if len(df) < 1000: raise RuntimeError('Insufficient real market data')
+          if len(df) < 1000:
+              raise RuntimeError('Insufficient real market data')
           o,h,l,c = [df[x].to_numpy(float) for x in ('o','h','l','c')]
           n=len(df); s=pd.Series
           prev=s(c).shift(1).to_numpy()
           tr=np.maximum.reduce([h-l,np.abs(h-prev),np.abs(l-prev)])
           atr=s(tr).rolling(14,min_periods=14).mean().to_numpy()
 
-          # Completed M5/M15 closes only. No current/incomplete HTF bar is used.
           base=df.set_index('time')[['c']].sort_index()
           m5=base.c.resample('5min',label='right',closed='right').last().shift(1).reindex(df.time,method='ffill').to_numpy()
           m15=base.c.resample('15min',label='right',closed='right').last().shift(1).reindex(df.time,method='ffill').to_numpy()
@@ -52,66 +52,52 @@ jobs:
           m5e50=s(m5).ewm(span=50,adjust=False,min_periods=50).mean().to_numpy()
           m15e20=s(m15).ewm(span=20,adjust=False,min_periods=20).mean().to_numpy()
 
-          # Confirmed M1 pivots. A pivot is only usable after two bars of confirmation.
           shi=np.full(n,np.nan); slo=np.full(n,np.nan)
           for i in range(2,n-2):
               if h[i]>h[i-1] and h[i]>=h[i-2] and h[i]>=h[i+1] and h[i]>h[i+2]: shi[i]=h[i]
               if l[i]<l[i-1] and l[i]<=l[i-2] and l[i]<=l[i+1] and l[i]<l[i+2]: slo[i]=l[i]
           last_hi=s(shi).ffill().shift(1).to_numpy(); last_lo=s(slo).ffill().shift(1).to_numpy()
 
-          # Completed same-day Asia range (00:00-06:59 UTC), exposed only from 07:00.
-          ts=df.time; day=ts.dt.floor('D')
-          asia_mask=ts.dt.hour<7
+          ts=df.time; day=ts.dt.floor('D'); asia_mask=ts.dt.hour<7
           tmp=pd.DataFrame({'day':day,'h':h,'l':l,'asia_h':np.where(asia_mask,h,np.nan),'asia_l':np.where(asia_mask,l,np.nan)})
-          daily=tmp.groupby('day').agg(asia_h=('asia_h','max'),asia_l=('asia_l','min'),day_h=('h','max'),day_l=('l','min'))
+          daily=tmp.groupby('day').agg(asia_h=('asia_h','max'),asia_l=('asia_l','min'))
           asia_h=day.map(daily.asia_h).to_numpy(); asia_l=day.map(daily.asia_l).to_numpy()
-          # Availability guard: Asia levels are valid only after 07:00 UTC.
           asia_ready=ts.dt.hour.to_numpy()>=7
 
-          # Liquidity events: sweep confirmed swing or completed Asia level, then reclaim.
-          bull_sweep=(l<last_lo)&(c>last_lo)
-          bear_sweep=(h>last_hi)&(c<last_hi)
+          bull_sweep=(l<last_lo)&(c>last_lo); bear_sweep=(h>last_hi)&(c<last_hi)
           asia_bull=asia_ready & np.isfinite(asia_l) & (l<asia_l)&(c>asia_l)
           asia_bear=asia_ready & np.isfinite(asia_h) & (h>asia_h)&(c<asia_h)
-
           body=np.abs(c-o); rng=h-l
           disp=(rng>=1.20*atr)&(body/np.maximum(rng,1e-12)>=0.65)
           bull_disp=disp&(c>o); bear_disp=disp&(c<o)
 
-          # FVG definition on completed candles: bullish if low[t] > high[t-2], bearish if high[t] < low[t-2].
+          # Three-candle FVG, indexed by the third candle. Zone is the actual gap.
           bull_fvg=np.zeros(n,dtype=bool); bear_fvg=np.zeros(n,dtype=bool)
-          bull_fvg[2:]=l[2:]>h[:-2]
-          bear_fvg[2:]=h[2:]<l[:-2]
+          bull_fvg[2:]=l[2:]>h[:-2]; bear_fvg[2:]=h[2:]<l[:-2]
 
-          # Precompute event candidates once. Sequence:
-          # sweep/reclaim -> MSS+displacement within 1..8 bars -> FVG -> first FVG fill within 1..40 bars.
           event_rows=[]
           families=[('swing',bull_sweep,bear_sweep),('asia',asia_bull,asia_bear)]
           for family,bs,ss in families:
               for direction,sweep in ((1,bs),(-1,ss)):
                   for i in np.flatnonzero(sweep):
-                      end_m=min(i+9,n)
-                      found=False
-                      for m in range(i+1,end_m):
-                          if direction==1:
-                              if not (bull_disp[m] and np.isfinite(last_hi[m]) and c[m]>last_hi[m]): continue
-                          else:
-                              if not (bear_disp[m] and np.isfinite(last_lo[m]) and c[m]<last_lo[m]): continue
-                          # Require an FVG created by the displacement candle or immediately adjacent completed candle.
+                      for m in range(i+1,min(i+9,n)):
+                          valid_disp=(bull_disp[m] and np.isfinite(last_hi[m]) and c[m]>last_hi[m]) if direction==1 else (bear_disp[m] and np.isfinite(last_lo[m]) and c[m]<last_lo[m])
+                          if not valid_disp: continue
+                          # FVG must be created by the displacement candle itself or by the next completed candle.
                           fvg_idx=None
                           for q in (m,m+1):
-                              if q>=n: continue
-                              if direction==1 and bull_fvg[q]: fvg_idx=q; break
-                              if direction==-1 and bear_fvg[q]: fvg_idx=q; break
+                              if q<n and ((direction==1 and bull_fvg[q]) or (direction==-1 and bear_fvg[q])):
+                                  fvg_idx=q; break
                           if fvg_idx is None: continue
-                          if direction==1: zone_lo=h[fvg_idx-2]; zone_hi=l[fvg_idx]
-                          else: zone_lo=h[fvg_idx]; zone_hi=l[fvg_idx-2]
-                          # First touch/fill of the FVG; entry on the following bar.
+                          if direction==1:
+                              zone_lo=h[fvg_idx-2]; zone_hi=l[fvg_idx]
+                          else:
+                              zone_lo=h[fvg_idx]; zone_hi=l[fvg_idx-2]
                           for r in range(fvg_idx+1,min(fvg_idx+41,n)):
-                              touch=(l[r]<=zone_hi and h[r]>=zone_lo) if direction==1 else (h[r]>=zone_lo and l[r]<=zone_hi)
+                              touch=(l[r]<=zone_hi and h[r]>=zone_lo)
                               if touch and r+1<n:
-                                  event_rows.append((r+1,direction,zone_lo,zone_hi,family,i,m,fvg_idx)); found=True; break
-                          if found: break
+                                  event_rows.append((r+1,direction,zone_lo,zone_hi,family,i,m,fvg_idx)); break
+                          break
 
           events=sorted(set(event_rows),key=lambda x:x[0])
           contexts=['any','htf_agree','htf_up','htf_down','london','ny','overlap','high_vol','normal_vol']
@@ -119,40 +105,40 @@ jobs:
           hours=ts.dt.hour.to_numpy(); atr_med=s(atr).rolling(240,min_periods=60).median().to_numpy()
           rows=[]
           for family in ('swing','asia'):
-            fam_events=[e for e in events if e[5]==family]
-            for ctx in contexts:
-              for slx,tpx,expiry in exits:
-                last_exit=-1; vals=[]; times=[]
-                for j,direction,zlo,zhi,_,i,m,fidx in fam_events:
-                  if j<=last_exit or j>=n-1 or not np.isfinite(atr[j]): continue
-                  if ctx=='htf_agree': ok=(direction==1 and m5e20[j]>m5e50[j] and m15[j]>m15e20[j]) or (direction==-1 and m5e20[j]<m5e50[j] and m15[j]<m15e20[j])
-                  elif ctx=='htf_up': ok=m5e20[j]>m5e50[j] and m15[j]>m15e20[j]
-                  elif ctx=='htf_down': ok=m5e20[j]<m5e50[j] and m15[j]<m15e20[j]
-                  elif ctx=='london': ok=7<=hours[j]<12
-                  elif ctx=='ny': ok=12<=hours[j]<17
-                  elif ctx=='overlap': ok=12<=hours[j]<16
-                  elif ctx=='high_vol': ok=np.isfinite(atr_med[j]) and atr[j]>atr_med[j]
-                  elif ctx=='normal_vol': ok=np.isfinite(atr_med[j]) and atr[j]<=atr_med[j]
-                  else: ok=True
-                  if not ok: continue
-                  entry=o[j]; sl=entry-direction*slx*atr[j]; tp=entry+direction*tpx*atr[j]
-                  exit_i=min(j+expiry,n-1); pnl=None
-                  for k in range(j,exit_i+1):
+              fam_events=[e for e in events if e[4]==family]
+              for ctx in contexts:
+                for slx,tpx,expiry in exits:
+                  last_exit=-1; vals=[]; times=[]
+                  for j,direction,zlo,zhi,_,i,m,fidx in fam_events:
+                    if j<=last_exit or j>=n-1 or not np.isfinite(atr[j]): continue
+                    if ctx=='htf_agree': ok=(direction==1 and m5e20[j]>m5e50[j] and m15[j]>m15e20[j]) or (direction==-1 and m5e20[j]<m5e50[j] and m15[j]<m15e20[j])
+                    elif ctx=='htf_up': ok=m5e20[j]>m5e50[j] and m15[j]>m15e20[j]
+                    elif ctx=='htf_down': ok=m5e20[j]<m5e50[j] and m15[j]<m15e20[j]
+                    elif ctx=='london': ok=7<=hours[j]<12
+                    elif ctx=='ny': ok=12<=hours[j]<17
+                    elif ctx=='overlap': ok=12<=hours[j]<16
+                    elif ctx=='high_vol': ok=np.isfinite(atr_med[j]) and atr[j]>atr_med[j]
+                    elif ctx=='normal_vol': ok=np.isfinite(atr_med[j]) and atr[j]<=atr_med[j]
+                    else: ok=True
+                    if not ok: continue
+                    entry=o[j]; sl=entry-direction*slx*atr[j]; tp=entry+direction*tpx*atr[j]
+                    exit_i=min(j+expiry,n-1); pnl=None
+                    for k in range(j,exit_i+1):
                       if direction==1:
-                          if l[k]<=sl: pnl=(sl-entry)/0.0001-cost; exit_i=k; break
-                          if h[k]>=tp: pnl=(tp-entry)/0.0001-cost; exit_i=k; break
+                        if l[k]<=sl: pnl=(sl-entry)/0.0001-cost; exit_i=k; break
+                        if h[k]>=tp: pnl=(tp-entry)/0.0001-cost; exit_i=k; break
                       else:
-                          if h[k]>=sl: pnl=(entry-sl)/0.0001-cost; exit_i=k; break
-                          if l[k]<=tp: pnl=(entry-tp)/0.0001-cost; exit_i=k; break
-                  if pnl is None: pnl=(c[exit_i]-entry)*direction/0.0001-cost
-                  vals.append(pnl); times.append(ts.iloc[j]); last_exit=exit_i
-                if len(vals)<min_trades: continue
-                v=np.asarray(vals); gp=v[v>0].sum(); gl=-v[v<0].sum(); pf=float(gp/gl) if gl>0 else 0.0
-                yrs=pd.to_datetime(times).year.to_numpy(); uniq=sorted(set(yrs))
-                pos_years=sum(v[yrs==y].sum()>0 for y in uniq)
-                pf_years=sum((v[yrs==y][v[yrs==y]>0].sum()/(-v[yrs==y][v[yrs==y]<0].sum()))>1 for y in uniq if np.any(v[yrs==y]<0))
-                eq=np.cumsum(v); dd=float(np.max(np.maximum.accumulate(eq)-eq))
-                rows.append({'family':family,'context':ctx,'sl_atr':slx,'tp_atr':tpx,'expiry_m1':expiry,'trades':len(v),'win_rate':float((v>0).mean()),'profit_factor':pf,'expectancy_pips':float(v.mean()),'net_pips':float(v.sum()),'max_drawdown_pips':dd,'positive_years':int(pos_years),'stable_pf_years':int(pf_years)})
+                        if h[k]>=sl: pnl=(entry-sl)/0.0001-cost; exit_i=k; break
+                        if l[k]<=tp: pnl=(entry-tp)/0.0001-cost; exit_i=k; break
+                    if pnl is None: pnl=(c[exit_i]-entry)*direction/0.0001-cost
+                    vals.append(pnl); times.append(ts.iloc[j]); last_exit=exit_i
+                  if len(vals)<min_trades: continue
+                  v=np.asarray(vals); gp=v[v>0].sum(); gl=-v[v<0].sum(); pf=float(gp/gl) if gl>0 else 0.0
+                  yrs=pd.to_datetime(times).year.to_numpy(); uniq=sorted(set(yrs))
+                  pos_years=sum(v[yrs==y].sum()>0 for y in uniq)
+                  pf_years=sum((v[yrs==y][v[yrs==y]>0].sum()/(-v[yrs==y][v[yrs==y]<0].sum()))>1 for y in uniq if np.any(v[yrs==y]<0))
+                  eq=np.cumsum(v); dd=float(np.max(np.maximum.accumulate(eq)-eq))
+                  rows.append({'family':family,'context':ctx,'sl_atr':slx,'tp_atr':tpx,'expiry_m1':expiry,'trades':len(v),'win_rate':float((v>0).mean()),'profit_factor':pf,'expectancy_pips':float(v.mean()),'net_pips':float(v.sum()),'max_drawdown_pips':dd,'positive_years':int(pos_years),'stable_pf_years':int(pf_years)})
           rows.sort(key=lambda x:(x['profit_factor'],x['expectancy_pips'],x['net_pips']),reverse=True)
           eligible=[r for r in rows if r['profit_factor']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
           out={'schema':'forexai.strategy_discovery.v22','data':{'symbol':'EURUSD','timeframe':'M1','start':start,'end':end,'candles':n,'synthetic':False,'cost_round_trip_pips':cost,'method':'liquidity_sweep_mss_displacement_fvg_pullback'},'discovery':{'families':2,'contexts':len(contexts),'exit_variants':len(exits),'candidate_results':len(rows),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_results':rows[:30]}}
