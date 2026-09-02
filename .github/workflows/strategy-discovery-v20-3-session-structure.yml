@@ -1,0 +1,132 @@
+name: ForexAI v20.3 Same-Day Session Structure Discovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      START: '2022-01-01'
+      END: '2026-01-01'
+      MIN_TRADES: '100'
+      ROUND_TRIP_COST_PIPS: '1.4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt && pip install pandas numpy requests
+      - name: Ingest real EURUSD M1 data
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Fail if real data is unavailable
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          f=list(Path('data/real').rglob('*.csv'))+list(Path('data/real').rglob('*.parquet'))
+          if not f: raise SystemExit('REAL_DATA_REQUIRED: no downloaded market data found')
+          print('real_data_files=',len(f))
+          PY
+      - name: Run v20.3 session-structure discovery
+        run: |
+          cat > /tmp/v20_3.py <<'PY'
+          import json, math, os
+          from pathlib import Path
+          import numpy as np, pandas as pd
+          START=os.environ['START']; END=os.environ['END']; MIN_TRADES=int(os.environ['MIN_TRADES']); COST=float(os.environ['ROUND_TRIP_COST_PIPS'])
+          files=list(Path('data/real').rglob('*.csv'))+list(Path('data/real').rglob('*.parquet')); frames=[]
+          for p in files:
+            try: frames.append(pd.read_parquet(p) if p.suffix=='.parquet' else pd.read_csv(p))
+            except Exception: pass
+          if not frames: raise SystemExit('Unable to parse real data')
+          df=pd.concat(frames,ignore_index=True); df.columns=[str(x).lower() for x in df.columns]
+          tc=next((x for x in ['time','timestamp','datetime','date'] if x in df.columns),None)
+          if not tc: raise SystemExit('No time column')
+          df['time']=pd.to_datetime(df[tc],utc=True,errors='coerce')
+          for a,b in [('open','o'),('high','h'),('low','l'),('close','c')]:
+            if a in df.columns: df=df.rename(columns={a:b})
+          df=df.dropna(subset=['time','o','h','l','c']).sort_values('time').drop_duplicates('time').reset_index(drop=True)
+          df=df[(df.time>=pd.Timestamp(START,tz='UTC'))&(df.time<pd.Timestamp(END,tz='UTC'))].reset_index(drop=True)
+          if len(df)<10000: raise SystemExit('Insufficient real data')
+          o,h,l,c=[df[x].astype(float) for x in ['o','h','l','c']]; prev=c.shift(1)
+          tr=pd.concat([h-l,(h-prev).abs(),(l-prev).abs()],axis=1).max(axis=1); atr=tr.rolling(14).mean(); atr50=atr.rolling(50).mean()
+          ema20=c.ewm(span=20,adjust=False).mean(); ema50=c.ewm(span=50,adjust=False).mean(); ema200=c.ewm(span=200,adjust=False).mean(); rng=(h-l); body=(c-o).abs()
+          hour=df.time.dt.hour; minute=df.time.dt.minute; london=hour.between(7,11); ny=hour.between(13,16); overlap=hour.between(13,14)
+          # Completed higher-timeframe closes only.
+          base=df.set_index('time')[['c']].sort_index(); m5=base.c.resample('5min',label='right',closed='right').last().shift(1).reindex(df.time,method='ffill').to_numpy(); m15=base.c.resample('15min',label='right',closed='right').last().shift(1).reindex(df.time,method='ffill').to_numpy()
+          m5s=pd.Series(m5); m15s=pd.Series(m15); m5e20=m5s.ewm(span=20,adjust=False).mean(); m5e50=m5s.ewm(span=50,adjust=False).mean(); m15e20=m15s.ewm(span=20,adjust=False).mean(); m15e50=m15s.ewm(span=50,adjust=False).mean()
+          agree_up=(m5e20>m5e50)&(m15e20>m15e50); agree_dn=(m5e20<m5e50)&(m15e20<m15e50)
+          # SAME-DAY Asia range: 00:00-06:59 UTC, only exposed after 07:00 UTC.
+          day=df.time.dt.floor('D'); asia_mask=hour.between(0,6); asia_h=df.h.where(asia_mask).groupby(day).transform('max'); asia_l=df.l.where(asia_mask).groupby(day).transform('min'); asia_ready=london & asia_h.notna() & asia_l.notna()
+          # Prior-day completed range retained only as a separate control family.
+          daily=df.assign(day=day).groupby('day').agg(day_h=('h','max'),day_l=('l','min')).shift(1); prior_h=day.map(daily.day_h).to_numpy(); prior_l=day.map(daily.day_l).to_numpy()
+          # Liquidity levels use only bars strictly before the signal candle.
+          p20h=h.shift(1).rolling(20).max(); p20l=l.shift(1).rolling(20).min(); p60h=h.shift(1).rolling(60).max(); p60l=l.shift(1).rolling(60).min()
+          # Displacement confirmation is on the signal candle; entry occurs on the next M1 open.
+          bull=(body/rng>=0.65)&(rng>=1.15*atr)&(c>o); bear=(body/rng>=0.65)&(rng>=1.15*atr)&(c<o)
+          # Sweep/reclaim must occur on the immediately preceding completed candle.
+          s20u=(l.shift(1)<p20l.shift(1))&(c.shift(1)>p20l.shift(1)); s20d=(h.shift(1)>p20h.shift(1))&(c.shift(1)<p20h.shift(1))
+          s60u=(l.shift(1)<p60l.shift(1))&(c.shift(1)>p60l.shift(1)); s60d=(h.shift(1)>p60h.shift(1))&(c.shift(1)<p60h.shift(1))
+          asu=(l.shift(1)<asia_l.shift(1))&(c.shift(1)>asia_l.shift(1)); asd=(h.shift(1)>asia_h.shift(1))&(c.shift(1)<asia_h.shift(1))
+          pdu=(l.shift(1)<pd.Series(prior_l).shift(1))&(c.shift(1)>pd.Series(prior_l).shift(1)); pdd=(h.shift(1)>pd.Series(prior_h).shift(1))&(c.shift(1)<pd.Series(prior_h).shift(1))
+          # Break-and-retest uses a level from completed prior bars and a prior-bar breakout.
+          br_u=(c.shift(1)>p20h.shift(1))&(l<=p20h)&bull; br_d=(c.shift(1)<p20l.shift(1))&(h>=p20l)&bear
+          entries={
+            'asia_sweep_displacement':np.where(asia_ready & asu & bull,1,np.where(asia_ready & asd & bear,-1,0)),
+            'sweep20_displacement':np.where(s20u&bull,1,np.where(s20d&bear,-1,0)),
+            'sweep60_displacement':np.where(s60u&bull,1,np.where(s60d&bear,-1,0)),
+            'prior_day_sweep_displacement':np.where(pdu&bull,1,np.where(pdd&bear,-1,0)),
+            'break_retest20':np.where(br_u,1,np.where(br_d,-1,0)),
+          }
+          contexts={'any':pd.Series(True,index=df.index),'htf_agree':agree_up|agree_dn,'htf_up':agree_up,'htf_down':agree_dn,'trend_up':(ema20>ema50)&(ema50>ema200)&agree_up,'trend_down':(ema20<ema50)&(ema50<ema200)&agree_dn,'london':london,'ny':ny,'overlap':overlap,'high_vol':(atr/atr50)>=1.2,'normal_vol':(atr/atr50>=0.85)&(atr/atr50<1.2)}
+          exits=[(0.75,1.25,30),(1.0,1.5,60),(1.0,2.0,90),(1.5,2.5,120)]
+          variants=[]
+          for name,sig in entries.items():
+            for ctx,mask in contexts.items():
+              if ctx=='htf_up': sig2=np.where(sig>0,sig,0)
+              elif ctx=='htf_down': sig2=np.where(sig<0,sig,0)
+              elif ctx=='trend_up': sig2=np.where(sig>0,sig,0)
+              elif ctx=='trend_down': sig2=np.where(sig<0,sig,0)
+              else: sig2=sig
+              for sl,tp,exp in exits: variants.append((name,ctx,sl,tp,exp,sig2,mask))
+          print('variants=',len(variants),flush=True); results=[]
+          for n,(name,ctx,slm,tpm,expiry,sig,mask) in enumerate(variants,1):
+            if n%25==0: print(f'progress={n}/{len(variants)}',flush=True)
+            trades=[]; i=250
+            while i<len(df)-2:
+              if not bool(mask.iloc[i]) or sig[i]==0 or not np.isfinite(atr.iloc[i]) or atr.iloc[i]<=0: i+=1; continue
+              direction=int(np.sign(sig[i])); entry=float(o.iloc[i+1]); a=float(atr.iloc[i]); sl=entry-direction*slm*a; tp=entry+direction*tpm*a; end=min(len(df)-1,i+1+expiry); j=i+1; px=None
+              while j<=end:
+                hi,lo=float(h.iloc[j]),float(l.iloc[j])
+                if direction>0:
+                  if lo<=sl: px=sl; break
+                  if hi>=tp: px=tp; break
+                else:
+                  if hi>=sl: px=sl; break
+                  if lo<=tp: px=tp; break
+                j+=1
+              if px is None: px=float(c.iloc[end])
+              trades.append((int(df.time.iloc[i+1].year),(px-entry)*direction*10000-COST)); i=j+1
+            if len(trades)<MIN_TRADES: continue
+            a=np.array([x[1] for x in trades]); gp=a[a>0].sum(); gl=-a[a<0].sum()
+            if gp<=0 or gl<=0: continue
+            pf=gp/gl; ex=float(a.mean()); wins=int((a>0).sum()); curve=np.cumsum(a); dd=float(np.max(np.maximum.accumulate(curve)-curve)); years=[]
+            for y in sorted(set(x[0] for x in trades)):
+              ya=np.array([x[1] for x in trades if x[0]==y]); yg=ya[ya>0].sum(); yl=-ya[ya<0].sum(); years.append({'year':y,'trades':len(ya),'net_pips':float(ya.sum()),'pf':float(yg/yl) if yl>0 else None})
+            pos=sum(y['net_pips']>0 for y in years); stable=sum(y['pf'] is not None and y['pf']>1 for y in years); score=math.log1p(len(a))*max(pf-1,0)*max(ex,0)*pos/(1+dd/1000)
+            results.append({'entry':name,'context':ctx,'sl_atr':slm,'tp_atr':tpm,'expiry':expiry,'trades':len(a),'win_rate':wins/len(a)*100,'pf':pf,'expectancy_pips':ex,'net_pips':float(a.sum()),'max_dd_pips':dd,'positive_years':pos,'stable_pf_years':stable,'yearly':years,'score':score})
+          results.sort(key=lambda x:x['score'],reverse=True); eligible=[r for r in results if r['pf']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
+          out={'schema':'forexai.strategy_discovery.v20.3','data':{'candles':len(df),'start':str(df.time.min()),'end':str(df.time.max()),'synthetic_data':False},'cost_model':{'round_trip_pips':COST},'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_candidates':results[:20]}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/strategy-discovery-v20.3.json').write_text(json.dumps(out,indent=2),encoding='utf-8'); print(json.dumps({'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top':results[:5]},indent=2));
+          if not eligible: print('NO_CHAMPION')
+          PY
+          python /tmp/v20_3.py
+      - name: Upload discovery artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-discovery-v20-3
+          path: artifacts/strategy-discovery-v20.3.json
+          if-no-files-found: ignore
