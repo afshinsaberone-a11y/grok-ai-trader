@@ -1,0 +1,182 @@
+name: ForexAI v20.4.1 Optimized Event Sequence Discovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      START: '2022-01-01'
+      END: '2026-01-01'
+      MIN_TRADES: '100'
+      ROUND_TRIP_COST_PIPS: '1.4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt && pip install pandas numpy requests
+      - name: Ingest real EURUSD M1 data
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Fail if real data is unavailable
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          f=list(Path('data/real').rglob('*.csv'))+list(Path('data/real').rglob('*.parquet'))
+          if not f: raise SystemExit('REAL_DATA_REQUIRED: no downloaded market data found')
+          print('real_data_files=',len(f))
+          PY
+      - name: Run optimized v20.4.1 discovery
+        run: |
+          cat > /tmp/v20_4_1.py <<'PY'
+          import json, math, os
+          from pathlib import Path
+          import numpy as np, pandas as pd
+
+          START=os.environ['START']; END=os.environ['END']
+          MIN_TRADES=int(os.environ['MIN_TRADES']); COST=float(os.environ['ROUND_TRIP_COST_PIPS'])
+          files=list(Path('data/real').rglob('*.csv'))+list(Path('data/real').rglob('*.parquet'))
+          frames=[]
+          for p in files:
+              try: frames.append(pd.read_parquet(p) if p.suffix=='.parquet' else pd.read_csv(p))
+              except Exception: pass
+          if not frames: raise SystemExit('Unable to parse real data')
+          df=pd.concat(frames,ignore_index=True); df.columns=[str(x).lower() for x in df.columns]
+          tc=next((x for x in ['time','timestamp','datetime','date'] if x in df.columns),None)
+          if not tc: raise SystemExit('No time column')
+          df['time']=pd.to_datetime(df[tc],utc=True,errors='coerce')
+          for a,b in [('open','o'),('high','h'),('low','l'),('close','c')]:
+              if a in df.columns: df=df.rename(columns={a:b})
+          df=df.dropna(subset=['time','o','h','l','c']).sort_values('time').drop_duplicates('time').reset_index(drop=True)
+          df=df[(df.time>=pd.Timestamp(START,tz='UTC'))&(df.time<pd.Timestamp(END,tz='UTC'))].reset_index(drop=True)
+          if len(df)<10000: raise SystemExit('Insufficient real data')
+
+          o=df.o.astype(float).to_numpy(); h=df.h.astype(float).to_numpy(); l=df.l.astype(float).to_numpy(); c=df.c.astype(float).to_numpy()
+          times=df.time.to_numpy(); n=len(df)
+          prev=np.r_[np.nan,c[:-1]]
+          tr=np.maximum.reduce([h-l,np.abs(h-prev),np.abs(l-prev)])
+          atr=pd.Series(tr).rolling(14).mean().to_numpy(); atr50=pd.Series(atr).rolling(50).mean().to_numpy()
+          rng=h-l; body=np.abs(c-o); hours=df.time.dt.hour.to_numpy()
+          london=(hours>=7)&(hours<=11); ny=(hours>=13)&(hours<=16); overlap=(hours>=13)&(hours<=14)
+
+          base=df.set_index('time')['c'].sort_index()
+          m5=base.resample('5min',label='right',closed='right').last().shift(1).reindex(df.time,method='ffill').to_numpy()
+          m15=base.resample('15min',label='right',closed='right').last().shift(1).reindex(df.time,method='ffill').to_numpy()
+          m5e20=pd.Series(m5).ewm(span=20,adjust=False).mean().to_numpy(); m5e50=pd.Series(m5).ewm(span=50,adjust=False).mean().to_numpy()
+          m15e20=pd.Series(m15).ewm(span=20,adjust=False).mean().to_numpy(); m15e50=pd.Series(m15).ewm(span=50,adjust=False).mean().to_numpy()
+          agree_up=(m5e20>m5e50)&(m15e20>m15e50); agree_dn=(m5e20<m5e50)&(m15e20<m15e50)
+
+          day=df.time.dt.floor('D')
+          day_h=pd.Series(h).groupby(day).transform('max').to_numpy(); day_l=pd.Series(l).groupby(day).transform('min').to_numpy()
+          # Same-day Asia 00:00-06:59 UTC, exposed only after 07:00.
+          asia_h=pd.Series(np.where((hours>=0)&(hours<=6),h,np.nan)).groupby(day).transform('max').to_numpy()
+          asia_l=pd.Series(np.where((hours>=0)&(hours<=6),l,np.nan)).groupby(day).transform('min').to_numpy()
+          daily=df.assign(day=day).groupby('day').agg(day_h=('h','max'),day_l=('l','min')).shift(1)
+          prior_h=day.map(daily.day_h).to_numpy(); prior_l=day.map(daily.day_l).to_numpy()
+
+          p20h=pd.Series(h).shift(1).rolling(20).max().to_numpy(); p20l=pd.Series(l).shift(1).rolling(20).min().to_numpy()
+          p60h=pd.Series(h).shift(1).rolling(60).max().to_numpy(); p60l=pd.Series(l).shift(1).rolling(60).min().to_numpy()
+
+          contexts={
+              'any':np.ones(n,dtype=bool), 'htf_agree':agree_up|agree_dn, 'htf_up':agree_up,
+              'htf_down':agree_dn, 'london':london, 'ny':ny, 'overlap':overlap,
+              'high_vol':(atr/atr50)>=1.2, 'normal_vol':(atr/atr50>=0.85)&(atr/atr50<1.2)
+          }
+          exits=[(0.75,1.25,30),(1.0,1.5,60),(1.0,2.0,90),(1.5,2.5,120)]
+          families={
+              'sweep20':(p20l,p20h), 'sweep60':(p60l,p60h),
+              'asia':(asia_l,asia_h), 'prior_day':(prior_l,prior_h)
+          }
+
+          # Extract each event exactly once per family. The expensive event search is
+          # independent of context and exit parameters; those are evaluated afterward.
+          events=[]
+          for family,(lo,hi) in families.items():
+              valid=np.isfinite(lo)&np.isfinite(hi)&np.isfinite(atr)
+              if family=='asia': valid &= hours>=7
+              up=(l<lo)&(c>lo)&valid
+              dn=(h>hi)&(c<hi)&valid
+              sweep_idx=np.flatnonzero(up|dn)
+              print(f'{family}: sweep_candidates={len(sweep_idx)}',flush=True)
+              for s in sweep_idx:
+                  direction=1 if up[s] else -1
+                  level=float(lo[s] if direction>0 else hi[s])
+                  # Displacement must be one of the next 1..5 completed candles.
+                  d=None
+                  for k in range(1,6):
+                      j=s+k
+                      if j>=n or not np.isfinite(atr[j]) or rng[j]<=0: continue
+                      if body[j]/rng[j] < 0.65 or rng[j] < 1.15*atr[j]: continue
+                      if direction>0 and c[j] <= o[j]: continue
+                      if direction<0 and c[j] >= o[j]: continue
+                      d=j; break
+                  if d is None: continue
+                  # First retest after displacement.
+                  r=None
+                  maxr=min(n-2,d+121)
+                  for j in range(d+1,maxr):
+                      touched=(l[j]<=level) if direction>0 else (h[j]>=level)
+                      if touched:
+                          r=j; break
+                  if r is None: continue
+                  entry_i=r+1
+                  if entry_i>=n or not np.isfinite(atr[r]): continue
+                  events.append((family,direction,s,d,r,entry_i,level))
+          print('events=',len(events),flush=True)
+
+          # Evaluate all 144 variants from the same precomputed event set.
+          results=[]
+          for family in families:
+              fam_events=[e for e in events if e[0]==family]
+              for ctx,mask in contexts.items():
+                  for slm,tpm,expiry in exits:
+                      trades=[]; last_exit=-1
+                      for _,direction,s,d,r,entry_i,level in fam_events:
+                          if entry_i<=last_exit: continue
+                          if not mask[r]: continue
+                          entry=o[entry_i]; a=atr[r]
+                          if not np.isfinite(entry) or not np.isfinite(a): continue
+                          sl=entry-direction*slm*a; tp=entry+direction*tpm*a
+                          end=min(n-1,entry_i+expiry); px=None; j=entry_i
+                          while j<=end:
+                              if direction>0:
+                                  if l[j]<=sl: px=sl; break
+                                  if h[j]>=tp: px=tp; break
+                              else:
+                                  if h[j]>=sl: px=sl; break
+                                  if l[j]<=tp: px=tp; break
+                              j+=1
+                          if px is None: px=c[end]
+                          trades.append((int(pd.Timestamp(times[entry_i]).year),(px-entry)*direction*10000-COST))
+                          last_exit=j
+                      if len(trades)<MIN_TRADES: continue
+                      a=np.array([x[1] for x in trades]); gp=a[a>0].sum(); gl=-a[a<0].sum()
+                      if gp<=0 or gl<=0: continue
+                      pf=gp/gl; ex=float(a.mean()); wins=int((a>0).sum()); curve=np.cumsum(a); dd=float(np.max(np.maximum.accumulate(curve)-curve))
+                      years=[]
+                      for y in sorted(set(x[0] for x in trades)):
+                          ya=np.array([x[1] for x in trades if x[0]==y]); yg=ya[ya>0].sum(); yl=-ya[ya<0].sum()
+                          years.append({'year':y,'trades':len(ya),'net_pips':float(ya.sum()),'pf':float(yg/yl) if yl>0 else None})
+                      pos=sum(y['net_pips']>0 for y in years); stable=sum(y['pf'] is not None and y['pf']>1 for y in years)
+                      score=math.log1p(len(a))*max(pf-1,0)*max(ex,0)*pos/(1+dd/1000)
+                      results.append({'entry_family':family,'context':ctx,'sl_atr':slm,'tp_atr':tpm,'expiry':expiry,'trades':len(a),'win_rate':wins/len(a)*100,'pf':pf,'expectancy_pips':ex,'net_pips':float(a.sum()),'max_dd_pips':dd,'positive_years':pos,'stable_pf_years':stable,'yearly':years,'score':score})
+
+          results.sort(key=lambda x:x['score'],reverse=True)
+          eligible=[r for r in results if r['pf']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
+          out={'schema':'forexai.strategy_discovery.v20.4.1','data':{'candles':n,'start':str(df.time.min()),'end':str(df.time.max()),'synthetic_data':False},'cost_model':{'round_trip_pips':COST},'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_candidates':results[:20]}
+          Path('artifacts').mkdir(exist_ok=True)
+          Path('artifacts/strategy-discovery-v20.4.1.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
+          print(json.dumps({'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top':results[:5]},indent=2))
+          if not eligible: print('NO_CHAMPION')
+          PY
+          python /tmp/v20_4_1.py
+      - name: Upload discovery artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-discovery-v20-4-1
+          path: artifacts/strategy-discovery-v20.4.1.json
+          if-no-files-found: ignore
