@@ -1,0 +1,119 @@
+name: ForexAI v24 Extreme Mean Reversion Discovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run v24 extreme mean reversion discovery
+        env:
+          START: '2022-01-01'
+          END: '2026-01-01'
+          MIN_TRADES: '100'
+          ROUND_TRIP_COST_PIPS: '1.4'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+          from research.real_data.histdata_ingest import load_eurusd_m1
+
+          start, end = os.environ['START'], os.environ['END']
+          cost = float(os.environ['ROUND_TRIP_COST_PIPS'])
+          min_trades = int(os.environ['MIN_TRADES'])
+          df = load_eurusd_m1(start=start, end=end)
+          if df is None or len(df) == 0:
+              raise RuntimeError('REAL EURUSD M1 data unavailable; refusing synthetic fallback')
+          df = df.copy()
+          df['time'] = pd.to_datetime(df['time'], utc=True)
+          df = df.sort_values('time').drop_duplicates('time').reset_index(drop=True)
+          if len(df) < 1000:
+              raise RuntimeError('Insufficient real market data')
+          o,h,l,c = [df[x].to_numpy(float) for x in ('o','h','l','c')]
+          n=len(df); s=pd.Series; ts=df.time
+          prev=s(c).shift(1).to_numpy()
+          tr=np.maximum.reduce([h-l,np.abs(h-prev),np.abs(l-prev)])
+          atr=s(tr).rolling(14,min_periods=14).mean().to_numpy()
+          ret=np.log(np.maximum(c,1e-12)/np.maximum(prev,1e-12))
+          zmean=s(c).rolling(60,min_periods=60).mean().to_numpy()
+          zstd=s(c).rolling(60,min_periods=60).std().to_numpy()
+          z=(c-zmean)/np.maximum(zstd,1e-12)
+          rsi_delta=s(c).diff(); gain=s(rsi_delta.clip(lower=0)).rolling(14,min_periods=14).mean(); loss=s((-rsi_delta.clip(upper=0))).rolling(14,min_periods=14).mean(); rs=gain/np.maximum(loss,1e-12); rsi=(100-100/(1+rs)).to_numpy()
+          atr_med=s(atr).rolling(240,min_periods=60).median().to_numpy()
+          base=df.set_index('time')[['c']].sort_index()
+          m5=base.c.resample('5min',label='right',closed='right').last().shift(1).reindex(df.time,method='ffill').to_numpy()
+          m15=base.c.resample('15min',label='right',closed='right').last().shift(1).reindex(df.time,method='ffill').to_numpy()
+          m5e20=s(m5).ewm(span=20,adjust=False,min_periods=20).mean().to_numpy(); m5e50=s(m5).ewm(span=50,adjust=False,min_periods=50).mean().to_numpy()
+          m15e20=s(m15).ewm(span=20,adjust=False,min_periods=20).mean().to_numpy()
+          hours=ts.dt.hour.to_numpy()
+          # Only act on completed bars; entry is next M1 open after the signal.
+          signals=[]
+          for lookback,zthr,rsilo,rsihi in [(30,1.5,30,70),(60,1.75,28,72),(120,2.0,25,75)]:
+              mean=s(c).rolling(lookback,min_periods=lookback).mean().to_numpy(); std=s(c).rolling(lookback,min_periods=lookback).std().to_numpy(); zz=(c-mean)/np.maximum(std,1e-12)
+              for i in range(lookback+2,n-1):
+                  if not np.isfinite(zz[i]) or not np.isfinite(atr[i]): continue
+                  # Extreme move away from local mean, followed by a rejection candle.
+                  long_sig=zz[i]<=-zthr and rsi[i]<=rsilo and c[i]>o[i] and (h[i]-l[i])>=0.75*atr[i]
+                  short_sig=zz[i]>=zthr and rsi[i]>=rsihi and c[i]<o[i] and (h[i]-l[i])>=0.75*atr[i]
+                  if long_sig: signals.append((i+1,1,lookback,zthr))
+                  elif short_sig: signals.append((i+1,-1,lookback,zthr))
+          signals=sorted(set(signals),key=lambda x:x[0])
+          contexts=['any','htf_agree','htf_up','htf_down','london','ny','overlap','high_vol','normal_vol']
+          exits=[(0.75,0.75,30),(1.0,1.0,60),(1.0,1.5,90),(1.5,2.0,120)]
+          rows=[]
+          for lookback,zthr in sorted(set((x[2],x[3]) for x in signals)):
+            family=[x for x in signals if x[2]==lookback and x[3]==zthr]
+            for ctx in contexts:
+              for slx,tpx,expiry in exits:
+                last_exit=-1; vals=[]; times=[]
+                for j,direction,_,_ in family:
+                  if j<=last_exit or j>=n-1 or not np.isfinite(atr[j]): continue
+                  if ctx=='htf_agree': ok=(direction==1 and m5e20[j]>m5e50[j] and m15[j]>m15e20[j]) or (direction==-1 and m5e20[j]<m5e50[j] and m15[j]<m15e20[j])
+                  elif ctx=='htf_up': ok=m5e20[j]>m5e50[j] and m15[j]>m15e20[j]
+                  elif ctx=='htf_down': ok=m5e20[j]<m5e50[j] and m15[j]<m15e20[j]
+                  elif ctx=='london': ok=7<=hours[j]<12
+                  elif ctx=='ny': ok=12<=hours[j]<17
+                  elif ctx=='overlap': ok=12<=hours[j]<16
+                  elif ctx=='high_vol': ok=np.isfinite(atr_med[j]) and atr[j]>atr_med[j]
+                  elif ctx=='normal_vol': ok=np.isfinite(atr_med[j]) and atr[j]<=atr_med[j]
+                  else: ok=True
+                  if not ok: continue
+                  entry=o[j]; sl=entry-direction*slx*atr[j]; tp=entry+direction*tpx*atr[j]; exit_i=min(j+expiry,n-1); pnl=None
+                  for k in range(j,exit_i+1):
+                    if direction==1:
+                      if l[k]<=sl: pnl=(sl-entry)/0.0001-cost; exit_i=k; break
+                      if h[k]>=tp: pnl=(tp-entry)/0.0001-cost; exit_i=k; break
+                    else:
+                      if h[k]>=sl: pnl=(entry-sl)/0.0001-cost; exit_i=k; break
+                      if l[k]<=tp: pnl=(entry-tp)/0.0001-cost; exit_i=k; break
+                  if pnl is None: pnl=(c[exit_i]-entry)*direction/0.0001-cost
+                  vals.append(pnl); times.append(ts.iloc[j]); last_exit=exit_i
+                if len(vals)<min_trades: continue
+                v=np.asarray(vals); gp=v[v>0].sum(); gl=-v[v<0].sum(); pf=float(gp/gl) if gl>0 else 0.0
+                yrs=pd.to_datetime(times).year.to_numpy(); uniq=sorted(set(yrs)); pos=sum(v[yrs==y].sum()>0 for y in uniq); stable=sum((v[yrs==y][v[yrs==y]>0].sum()/(-v[yrs==y][v[yrs==y]<0].sum()))>1 for y in uniq if np.any(v[yrs==y]<0))
+                eq=np.cumsum(v); dd=float(np.max(np.maximum.accumulate(eq)-eq))
+                rows.append({'family':f'zscore_reversion_{lookback}','context':ctx,'z_threshold':zthr,'sl_atr':slx,'tp_atr':tpx,'expiry_m1':expiry,'trades':len(v),'win_rate':float((v>0).mean()),'profit_factor':pf,'expectancy_pips':float(v.mean()),'net_pips':float(v.sum()),'max_drawdown_pips':dd,'positive_years':int(pos),'stable_pf_years':int(stable)})
+          rows.sort(key=lambda x:(x['profit_factor'],x['expectancy_pips'],x['net_pips']),reverse=True)
+          eligible=[r for r in rows if r['profit_factor']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
+          out={'schema':'forexai.strategy_discovery.v24','data':{'symbol':'EURUSD','timeframe':'M1','start':start,'end':end,'candles':n,'synthetic':False,'cost_round_trip_pips':cost,'method':'extreme_zscore_rsi_reversion_rejection'},'discovery':{'contexts':len(contexts),'exit_variants':len(exits),'candidate_results':len(rows),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_results':rows[:30]}}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/strategy-discovery-v24.json').write_text(json.dumps(out,indent=2,default=str),encoding='utf-8')
+          print(json.dumps(out['discovery'],indent=2))
+          if not rows: raise RuntimeError('No valid candidate results produced')
+          PY
+      - name: Upload v24 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-discovery-v24
+          path: artifacts/strategy-discovery-v24.json
+          if-no-files-found: warn
