@@ -1,0 +1,157 @@
+name: ForexAI v21 MSS Pullback Discovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run v21 MSS pullback discovery
+        env:
+          START: '2022-01-01'
+          END: '2026-01-01'
+          MIN_TRADES: '100'
+          ROUND_TRIP_COST_PIPS: '1.4'
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+          from research.real_data.histdata_ingest import load_eurusd_m1
+
+          start, end = os.environ['START'], os.environ['END']
+          cost = float(os.environ['ROUND_TRIP_COST_PIPS'])
+          min_trades = int(os.environ['MIN_TRADES'])
+
+          df = load_eurusd_m1(start=start, end=end)
+          if df is None or len(df) == 0:
+              raise RuntimeError('REAL EURUSD M1 data unavailable; refusing synthetic fallback')
+          df = df.copy()
+          df['time'] = pd.to_datetime(df['time'], utc=True)
+          df = df.sort_values('time').drop_duplicates('time').reset_index(drop=True)
+          if len(df) < 1000:
+              raise RuntimeError('Insufficient real market data')
+
+          o = df['o'].to_numpy(float); h = df['h'].to_numpy(float)
+          l = df['l'].to_numpy(float); c = df['c'].to_numpy(float)
+          n = len(df)
+          prev_c = pd.Series(c).shift(1).to_numpy()
+          tr = np.maximum.reduce([h-l, np.abs(h-prev_c), np.abs(l-prev_c)])
+          atr = pd.Series(tr).rolling(14, min_periods=14).mean().to_numpy()
+
+          # Completed higher-timeframe closes only; no look-ahead.
+          base = df.set_index('time')[['c']].sort_index()
+          m5 = base['c'].resample('5min', label='right', closed='right').last().shift(1).reindex(df['time'], method='ffill').to_numpy()
+          m15 = base['c'].resample('15min', label='right', closed='right').last().shift(1).reindex(df['time'], method='ffill').to_numpy()
+          ema20 = pd.Series(m5).ewm(span=20, adjust=False, min_periods=20).mean().to_numpy()
+          ema50 = pd.Series(m5).ewm(span=50, adjust=False, min_periods=50).mean().to_numpy()
+          m15_up = m15 > pd.Series(m15).ewm(span=20, adjust=False, min_periods=20).mean().to_numpy()
+          m15_dn = m15 < pd.Series(m15).ewm(span=20, adjust=False, min_periods=20).mean().to_numpy()
+
+          # Confirmed swing points on M1 using a symmetric 2-bar pivot.
+          swing_hi = np.full(n, np.nan); swing_lo = np.full(n, np.nan)
+          for i in range(2, n-2):
+              if h[i] > h[i-1] and h[i] >= h[i-2] and h[i] >= h[i+1] and h[i] > h[i+2]: swing_hi[i] = h[i]
+              if l[i] < l[i-1] and l[i] <= l[i-2] and l[i] <= l[i+1] and l[i] < l[i+2]: swing_lo[i] = l[i]
+          last_hi = pd.Series(swing_hi).ffill().shift(1).to_numpy()
+          last_lo = pd.Series(swing_lo).ffill().shift(1).to_numpy()
+
+          # Sweep a confirmed swing, then MSS through the opposite structure level.
+          bull_sweep = (l < last_lo) & (c > last_lo)
+          bear_sweep = (h > last_hi) & (c < last_hi)
+          body = np.abs(c-o); rng = h-l
+          displacement = (rng >= 1.15*atr) & (body/np.maximum(rng, 1e-12) >= 0.60)
+          bull_disp = displacement & (c > o)
+          bear_disp = displacement & (c < o)
+
+          events=[]
+          for direction, sweep in ((1,bull_sweep),(-1,bear_sweep)):
+              idxs=np.flatnonzero(sweep)
+              for i in idxs:
+                  if i+1 >= n: continue
+                  # MSS must occur within 1..8 completed candles after sweep.
+                  for m in range(i+1, min(i+9,n)):
+                      if direction == 1:
+                          if not (bull_disp[m] and c[m] > last_hi[m]): continue
+                          level = c[m]
+                      else:
+                          if not (bear_disp[m] and c[m] < last_lo[m]): continue
+                          level = c[m]
+                      # Pullback/retest of displacement candle body midpoint or close zone.
+                      zone = (o[m]+c[m])/2.0
+                      for r in range(m+1, min(m+61,n)):
+                          if direction == 1:
+                              retest = l[r] <= zone and c[r] >= zone
+                          else:
+                              retest = h[r] >= zone and c[r] <= zone
+                          if retest and r+1 < n:
+                              events.append((r+1,direction,zone,m,i)); break
+                      break
+
+          # Deduplicate event entries while preserving chronology.
+          events = sorted(set(events), key=lambda x:x[0])
+          contexts = ['any','htf_agree','htf_up','htf_down','london','ny','overlap','high_vol','normal_vol']
+          exits=[(0.75,1.25,30),(1.0,1.5,60),(1.0,2.0,90),(1.5,2.5,120)]
+          hours=df['time'].dt.hour.to_numpy()
+          atr_med=pd.Series(atr).rolling(240,min_periods=60).median().to_numpy()
+          rows=[]
+          for ctx in contexts:
+              for slx,tpx,expiry in exits:
+                  last_exit=-1; trades=[]
+                  for j,direction,zone,m,i in events:
+                      if j<=last_exit or j>=n-1 or not np.isfinite(atr[j]): continue
+                      ok=True
+                      if ctx=='htf_agree': ok=(direction==1 and ema20[j]>ema50[j] and m15_up[j]) or (direction==-1 and ema20[j]<ema50[j] and m15_dn[j])
+                      elif ctx=='htf_up': ok=ema20[j]>ema50[j] and m15_up[j]
+                      elif ctx=='htf_down': ok=ema20[j]<ema50[j] and m15_dn[j]
+                      elif ctx=='london': ok=7<=hours[j]<12
+                      elif ctx=='ny': ok=12<=hours[j]<17
+                      elif ctx=='overlap': ok=12<=hours[j]<16
+                      elif ctx=='high_vol': ok=np.isfinite(atr_med[j]) and atr[j]>atr_med[j]
+                      elif ctx=='normal_vol': ok=np.isfinite(atr_med[j]) and atr[j]<=atr_med[j]
+                      if not ok: continue
+                      entry=o[j]
+                      sl=entry-direction*slx*atr[j]; tp=entry+direction*tpx*atr[j]
+                      exit_i=min(j+expiry,n-1); pnl=None
+                      for k in range(j,exit_i+1):
+                          if direction==1:
+                              if l[k]<=sl: pnl=(sl-entry)/(0.0001)-cost; exit_i=k; break
+                              if h[k]>=tp: pnl=(tp-entry)/(0.0001)-cost; exit_i=k; break
+                          else:
+                              if h[k]>=sl: pnl=(entry-sl)/(0.0001)-cost; exit_i=k; break
+                              if l[k]<=tp: pnl=(entry-tp)/(0.0001)-cost; exit_i=k; break
+                      if pnl is None: pnl=(c[exit_i]-entry)*direction/0.0001-cost
+                      trades.append((df['time'].iloc[j],pnl)); last_exit=exit_i
+                  if len(trades)<min_trades: continue
+                  vals=np.array([x[1] for x in trades]); gp=vals[vals>0].sum(); gl=-vals[vals<0].sum()
+                  pf=float(gp/gl) if gl>0 else 0.0
+                  years=pd.to_datetime([x[0] for x in trades]).year.to_numpy()
+                  pos_years=sum(vals[years==y].sum()>0 for y in sorted(set(years)))
+                  pf_years=sum((vals[years==y][vals[years==y]>0].sum()/(-vals[years==y][vals[years==y]<0].sum()))>1 for y in sorted(set(years)) if np.any(vals[years==y]<0))
+                  rows.append({'family':'mss_pullback','context':ctx,'sl_atr':slx,'tp_atr':tpx,'expiry_m1':expiry,'trades':len(vals),'win_rate':float((vals>0).mean()),'profit_factor':pf,'expectancy_pips':float(vals.mean()),'net_pips':float(vals.sum()),'max_drawdown_pips':float(np.max(np.maximum.accumulate(np.cumsum(vals))-np.cumsum(vals))), 'positive_years':int(pos_years),'stable_pf_years':int(pf_years)})
+
+          rows.sort(key=lambda x:(x['profit_factor'],x['expectancy_pips'],x['net_pips']), reverse=True)
+          eligible=[r for r in rows if r['profit_factor']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
+          out={'schema':'forexai.strategy_discovery.v21','data':{'symbol':'EURUSD','timeframe':'M1','start':start,'end':end,'candles':n,'synthetic':False,'missing_bars':None,'cost_round_trip_pips':cost},'discovery':{'families':1,'contexts':len(contexts),'exit_variants':len(exits),'candidate_results':len(rows),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_results':rows[:30]}}
+          Path('artifacts').mkdir(exist_ok=True)
+          Path('artifacts/strategy-discovery-v21.json').write_text(json.dumps(out,indent=2,default=str),encoding='utf-8')
+          print(json.dumps(out['discovery'],indent=2))
+          if not rows: raise RuntimeError('No valid candidate results produced')
+          PY
+      - name: Upload v21 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-discovery-v21
+          path: artifacts/strategy-discovery-v21.json
+          if-no-files-found: warn
