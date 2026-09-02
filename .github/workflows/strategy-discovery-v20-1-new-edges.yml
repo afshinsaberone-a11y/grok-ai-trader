@@ -1,4 +1,4 @@
-name: ForexAI v20.1 New Edge Discovery
+name: ForexAI v20.1.1 New Edge Discovery
 
 on:
   workflow_dispatch:
@@ -30,9 +30,9 @@ jobs:
           if not files: raise SystemExit('REAL_DATA_REQUIRED: no downloaded market data found')
           print('real_data_files=',len(files))
           PY
-      - name: Run v20.1 rule-based edge discovery
+      - name: Run v20.1.1 rule-based edge discovery
         run: |
-          cat > /tmp/discover_v20_1.py <<'PY'
+          cat > /tmp/discover_v20_1_1.py <<'PY'
           import json, math, os
           from pathlib import Path
           import numpy as np
@@ -52,30 +52,46 @@ jobs:
           for a,b in [('open','o'),('high','h'),('low','l'),('close','c')]:
               if a in df.columns: df=df.rename(columns={a:b})
           df=df.dropna(subset=['time','o','h','l','c']).sort_values('time').drop_duplicates('time').reset_index(drop=True)
-          df=df[(df.time>=pd.Timestamp(START,tz='UTC'))&(df.time<pd.Timestamp(END,tz='UTC'))].copy()
+          df=df[(df.time>=pd.Timestamp(START,tz='UTC'))&(df.time<pd.Timestamp(END,tz='UTC'))].copy().reset_index(drop=True)
           if len(df)<10000: raise SystemExit('Insufficient real data')
           o,h,l,c=[df[x].astype(float) for x in ['o','h','l','c']]
           prev=c.shift(1); tr=pd.concat([h-l,(h-prev).abs(),(l-prev).abs()],axis=1).max(axis=1)
           atr14=tr.rolling(14).mean(); atr50=atr14.rolling(50).mean()
           ema20=c.ewm(span=20,adjust=False).mean(); ema50=c.ewm(span=50,adjust=False).mean(); ema200=c.ewm(span=200,adjust=False).mean()
-          hour=df.time.dt.hour; dow=df.time.dt.dayofweek; minute=df.time.dt.minute
-          rng=h-l; body=(c-o).abs(); upper=h-np.maximum(o,c); lower=np.minimum(o,c)-l
-          # Higher-timeframe confirmation is constructed only from completed M5/M15 bars.
-          m5=c.resample('5min',on='time').last().reindex(df.time,method='ffill')
-          m15=c.resample('15min',on='time').last().reindex(df.time,method='ffill')
-          m5ema20=m5.ewm(span=20,adjust=False).mean(); m5ema50=m5.ewm(span=50,adjust=False).mean()
-          m15ema20=m15.ewm(span=20,adjust=False).mean(); m15ema50=m15.ewm(span=50,adjust=False).mean()
+          hour=df.time.dt.hour; dow=df.time.dt.dayofweek
+          rng=h-l; body=(c-o).abs()
+
+          # Build completed higher-timeframe bars. The shift(1) means an M1 bar
+          # can only see an M5/M15 candle that closed before that M1 timestamp.
+          base=df.set_index('time')[['o','h','l','c']].sort_index()
+          m5_close=base['c'].resample('5min',label='right',closed='right').last().shift(1)
+          m15_close=base['c'].resample('15min',label='right',closed='right').last().shift(1)
+          m5=m5_close.reindex(df['time'],method='ffill').to_numpy()
+          m15=m15_close.reindex(df['time'],method='ffill').to_numpy()
+          m5s=pd.Series(m5,index=df.index); m15s=pd.Series(m15,index=df.index)
+          m5ema20=m5s.ewm(span=20,adjust=False).mean(); m5ema50=m5s.ewm(span=50,adjust=False).mean()
+          m15ema20=m15s.ewm(span=20,adjust=False).mean(); m15ema50=m15s.ewm(span=50,adjust=False).mean()
           m5up=m5ema20>m5ema50; m5down=m5ema20<m5ema50; m15up=m15ema20>m15ema50; m15down=m15ema20<m15ema50
-          day=df.time.dt.date; dk=day.astype(str)
-          asia=(hour>=0)&(hour<7); london=(hour>=7)&(hour<12); ny=(hour>=13)&(hour<17); overlap=(hour>=13)&(hour<15)
-          # Completed prior-day/session levels only.
-          prior_day_h=df['h'].groupby(dk).transform('max').groupby(dk).transform('first').shift(1)
-          prior_day_l=df['l'].groupby(dk).transform('min').groupby(dk).transform('first').shift(1)
-          asia_h=df['h'].where(asia).groupby(dk).transform('max').groupby(dk).transform('first').shift(1)
-          asia_l=df['l'].where(asia).groupby(dk).transform('min').groupby(dk).transform('first').shift(1)
+
+          # Session levels are calculated from completed sessions and mapped to
+          # every eligible row. No current-session high/low is used by reversal rules.
+          work=df[['time','h','l']].copy()
+          work['day']=work['time'].dt.date
+          work['asia_h']=work['h'].where(work['time'].dt.hour.between(0,6))
+          work['asia_l']=work['l'].where(work['time'].dt.hour.between(0,6))
+          daily=work.groupby('day').agg(day_h=('h','max'),day_l=('l','min'),asia_h=('asia_h','max'),asia_l=('asia_l','min'))
+          daily.index=pd.to_datetime(daily.index)
+          daily_prev=daily.shift(1)
+          day_key=pd.to_datetime(work['day'])
+          prior_day_h=day_key.map(daily_prev['day_h']).to_numpy()
+          prior_day_l=day_key.map(daily_prev['day_l']).to_numpy()
+          prior_asia_h=day_key.map(daily_prev['asia_h']).to_numpy()
+          prior_asia_l=day_key.map(daily_prev['asia_l']).to_numpy()
+
+          # 20/60-bar levels exclude the current M1 candle.
           prev20h=h.shift(1).rolling(20).max(); prev20l=l.shift(1).rolling(20).min()
           prev60h=h.shift(1).rolling(60).max(); prev60l=l.shift(1).rolling(60).min()
-          # Rule families: failure/rejection, liquidity sweeps, displacement-pullback, and prior-range retests.
+          london=hour.between(7,11); ny=hour.between(13,16); overlap=hour.between(13,14)
           bull_disp=(body/rng>=0.65)&(rng>=1.25*atr14)&(c>o)
           bear_disp=(body/rng>=0.65)&(rng>=1.25*atr14)&(c<o)
           candidates={
@@ -85,10 +101,9 @@ jobs:
             'sweep_reclaim60':np.where((l<prev60l)&(c>prev60l),1,np.where((h>prev60h)&(c<prev60h),-1,0)),
             'displacement_long':bull_disp.astype(int),
             'displacement_short':-bear_disp.astype(int),
-            'asia_sweep_reversal':np.where(london&(l<asia_l)&(c>asia_l),1,np.where(london&(h>asia_h)&(c<asia_h),-1,0)),
+            'asia_sweep_reversal':np.where(london&(l<prior_asia_l)&(c>prior_asia_l),1,np.where(london&(h>prior_asia_h)&(c<prior_asia_h),-1,0)),
             'prior_day_sweep_reversal':np.where((l<prior_day_l)&(c>prior_day_l),1,np.where((h>prior_day_h)&(c<prior_day_h),-1,0)),
           }
-          # Only combine signals with completed/current-bar information; entry is next M1 open.
           contexts={
             'any':pd.Series(True,index=df.index),
             'm5_m15_agree':(m5up&m15up)|(m5down&m15down),
@@ -139,16 +154,16 @@ jobs:
             results.append({'entry':name,'context':ctx,'sl_atr':slm,'tp_atr':tpm,'expiry':expiry,'trades':len(arr),'win_rate':wins/len(arr)*100,'pf':pf,'expectancy_pips':ex,'net_pips':float(arr.sum()),'max_dd_pips':dd,'positive_years':pos,'stable_pf_years':stable,'yearly':yearly,'score':score})
           results.sort(key=lambda x:x['score'],reverse=True)
           eligible=[r for r in results if r['pf']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
-          out={'schema':'forexai.strategy_discovery.v20.1','data':{'candles':len(df),'start':str(df.time.min()),'end':str(df.time.max()),'synthetic_data':False},'cost_model':{'round_trip_pips':COST},'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_candidates':results[:20]}
-          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/strategy-discovery-v20.1.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
+          out={'schema':'forexai.strategy_discovery.v20.1.1','data':{'candles':len(df),'start':str(df.time.min()),'end':str(df.time.max()),'synthetic_data':False},'cost_model':{'round_trip_pips':COST},'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_candidates':results[:20]}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/strategy-discovery-v20.1.1.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
           print(json.dumps({'candidate_count':len(results),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top':results[:5]},indent=2))
           if not eligible: print('NO_CHAMPION')
           PY
-          python /tmp/discover_v20_1.py
+          python /tmp/discover_v20_1_1.py
       - name: Upload discovery artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: strategy-discovery-v20-1
-          path: artifacts/strategy-discovery-v20.1.json
+          name: strategy-discovery-v20-1-1
+          path: artifacts/strategy-discovery-v20.1.1.json
           if-no-files-found: ignore
