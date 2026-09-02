@@ -1,9 +1,6 @@
 name: ForexAI Execution Integrity Audit v28.2 M15
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       start:
@@ -20,31 +17,45 @@ permissions:
 
 jobs:
   audit:
+    name: M15 execution integrity audit
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       START: '2022-01-01'
       END: '2026-01-01'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Apply manual dates when dispatched
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Apply manual dates
         env:
           START_INPUT: ${{ inputs.start }}
           END_INPUT: ${{ inputs.end }}
         run: |
-          echo "START=$START_INPUT" >> "$GITHUB_ENV"
-          echo "END=$END_INPUT" >> "$GITHUB_ENV"
+          if [ -n "$START_INPUT" ]; then echo "START=$START_INPUT" >> "$GITHUB_ENV"; fi
+          if [ -n "$END_INPUT" ]; then echo "END=$END_INPUT" >> "$GITHUB_ENV"; fi
+
       - name: Download REAL M15 data only
         run: |
-          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M15 --start "$START" --end "$END" --output data/real --validate --manifest
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --timeframe M15 \
+            --start "$START" \
+            --end "$END" \
+            --output data/real \
+            --validate \
+            --manifest
+
       - name: Locate and validate M15 dataset
         run: |
           DATA="data/real/normalized/EURUSD_M15_$(date -u -d "$START" +%Y%m%d)_$(date -u -d "$END - 1 day" +%Y%m%d).csv"
@@ -66,8 +77,13 @@ if median != 15.0:
     raise SystemExit(f'TIMEFRAME_GUARD_FAILED: expected 15 minutes, got {median}')
 PY
           echo "DATA=$DATA" >> "$GITHUB_ENV"
+
       - name: Run v28.2 M15 execution integrity audit
-        run: python -m research.optimization.execution_integrity_audit_v28_1 --data "$DATA" --output artifacts/execution-integrity-audit-v28-2-m15.json
+        run: |
+          python -m research.optimization.execution_integrity_audit_v28_1 \
+            --data "$DATA" \
+            --output artifacts/execution-integrity-audit-v28-2-m15.json
+
       - name: Verify audit artifact schema
         run: |
           python - <<'PY'
@@ -76,11 +92,12 @@ PY
           p=Path('artifacts/execution-integrity-audit-v28-2-m15.json')
           if not p.exists() or p.stat().st_size == 0:
               raise SystemExit('M15_AUDIT_ARTIFACT_MISSING')
-          data=json.loads(p.read_text())
+          data=json.loads(p.read_text(encoding='utf-8'))
           data['schema_version']='forexai.execution_integrity_audit.v28.2_m15'
           data['timeframe']='M15'
-          p.write_text(json.dumps(data,indent=2))
+          p.write_text(json.dumps(data,indent=2),encoding='utf-8')
           PY
+
       - name: Upload M15 audit artifact
         if: always()
         uses: actions/upload-artifact@v4
