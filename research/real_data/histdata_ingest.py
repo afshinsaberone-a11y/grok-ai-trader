@@ -154,11 +154,7 @@ def _parse_csv(payload: bytes) -> pd.DataFrame:
 
 
 def _dedupe_exact_source_timestamps(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Remove only byte-for-byte equivalent timestamp duplicates.
-
-    Conflicting duplicates must be audited and rejected by the caller before
-    reaching this helper; this helper never chooses between conflicting OHLC rows.
-    """
+    """Remove only byte-for-byte equivalent timestamp duplicates."""
     if not df.duplicated(subset=["timestamp"], keep=False).any():
         return df.reset_index(drop=True), 0
     compare_columns = ["timestamp", "open", "high", "low", "close", "volume"]
@@ -245,6 +241,25 @@ def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "
         result["dataset"] = out
         result["quality"] = report.to_dict()
     return result
+
+
+def load_eurusd_m1(*, start: str, end: str, output_dir: str | Path = "data/real") -> pd.DataFrame:
+    """Compatibility API for discovery workflows.
+
+    Downloads/loads validated REAL HistData EURUSD M1 data and returns the
+    canonical discovery columns: time, o, h, l, c, volume. There is no
+    synthetic fallback; ingestion errors propagate as HistDataIngestError.
+    """
+    result = ingest(_parse_date(start), _parse_date(end), output_dir, timeframe="M1")
+    path = Path(result["dataset"])
+    df = pd.read_csv(path)
+    rename = {"timestamp": "time", "open": "o", "high": "h", "low": "l", "close": "c"}
+    df = df.rename(columns=rename)
+    required = ["time", "o", "h", "l", "c"]
+    missing = [column for column in required if column not in df.columns]
+    if missing:
+        raise HistDataIngestError(f"REAL_DATA_REQUIRED: normalized EURUSD M1 dataset missing columns: {missing}")
+    return df
 
 
 def _parse_date(value: str) -> date:
