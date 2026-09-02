@@ -1,0 +1,52 @@
+name: ForexAI Execution Integrity Audit v28.1
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        required: true
+        default: '2022-01-01'
+      end:
+        required: true
+        default: '2026-01-01'
+        
+      timeframe:
+        required: true
+        default: 'M5'
+        type: choice
+        options: [M5, M15]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download REAL data only
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          TF: ${{ inputs.timeframe }}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe "$TF" --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Locate dataset
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          TF: ${{ inputs.timeframe }}
+        run: |
+          DATA="data/real/normalized/EURUSD_${TF}_$(date -u -d "$START" +%Y%m%d)_$(date -u -d "$END - 1 day" +%Y%m%d).csv"
+          test -s "$DATA" || { echo "REAL_DATA_REQUIRED: missing $DATA"; exit 2; }
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Run v28.1 execution integrity audit
+        run: python -m research.optimization.execution_integrity_audit_v28_1 --data "$DATA" --output artifacts/execution-integrity-audit-v28-1.json
+      - name: Upload audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-integrity-audit-v28-1
+          path: artifacts/execution-integrity-audit-v28-1.json
