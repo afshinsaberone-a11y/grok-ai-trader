@@ -1,0 +1,184 @@
+name: ForexAI v23 Compression Breakout Retest Discovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run v23 compression breakout retest discovery
+        env:
+          START: '2022-01-01'
+          END: '2026-01-01'
+          MIN_TRADES: '100'
+          ROUND_TRIP_COST_PIPS: '1.4'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+          from research.real_data.histdata_ingest import load_eurusd_m1
+
+          start, end = os.environ['START'], os.environ['END']
+          cost = float(os.environ['ROUND_TRIP_COST_PIPS'])
+          min_trades = int(os.environ['MIN_TRADES'])
+          df = load_eurusd_m1(start=start, end=end)
+          if df is None or len(df) == 0:
+              raise RuntimeError('REAL EURUSD M1 data unavailable; refusing synthetic fallback')
+          df = df.copy()
+          df['time'] = pd.to_datetime(df['time'], utc=True)
+          df = df.sort_values('time').drop_duplicates('time').reset_index(drop=True)
+          if len(df) < 1000:
+              raise RuntimeError('Insufficient real market data')
+
+          o,h,l,c = [df[x].to_numpy(float) for x in ('o','h','l','c')]
+          n = len(df); S = pd.Series; ts = df['time']
+          prev = S(c).shift(1).to_numpy()
+          tr = np.maximum.reduce([h-l, np.abs(h-prev), np.abs(l-prev)])
+          atr = S(tr).rolling(14, min_periods=14).mean().to_numpy()
+          atr50 = S(atr).rolling(50, min_periods=50).mean().to_numpy()
+          range20_hi = S(h).rolling(20, min_periods=20).max().shift(1).to_numpy()
+          range20_lo = S(l).rolling(20, min_periods=20).min().shift(1).to_numpy()
+          range60_hi = S(h).rolling(60, min_periods=60).max().shift(1).to_numpy()
+          range60_lo = S(l).rolling(60, min_periods=60).min().shift(1).to_numpy()
+          atr_pct = S(atr).rolling(240, min_periods=120).rank(pct=True).to_numpy()
+
+          # Completed higher-timeframe closes only; no look-ahead.
+          base = df.set_index('time')[['c']].sort_index()
+          m5c = base['c'].resample('5min', label='right', closed='right').last().shift(1).reindex(ts, method='ffill').to_numpy()
+          m15c = base['c'].resample('15min', label='right', closed='right').last().shift(1).reindex(ts, method='ffill').to_numpy()
+          m5e20 = S(m5c).ewm(span=20, adjust=False, min_periods=20).mean().to_numpy()
+          m5e50 = S(m5c).ewm(span=50, adjust=False, min_periods=50).mean().to_numpy()
+          m15e20 = S(m15c).ewm(span=20, adjust=False, min_periods=20).mean().to_numpy()
+
+          # Session ranges are completed before breakout evaluation.
+          hour = ts.dt.hour.to_numpy(); minute = ts.dt.minute.to_numpy()
+          day = ts.dt.floor('D')
+          def session_levels(start_h, end_h):
+              mask = (hour >= start_h) & (hour < end_h)
+              z = pd.DataFrame({'day':day, 'h':np.where(mask,h,np.nan), 'l':np.where(mask,l,np.nan)})
+              g = z.groupby('day').agg(sh=('h','max'), sl=('l','min'))
+              return day.map(g['sh']).to_numpy(), day.map(g['sl']).to_numpy()
+          asia_h, asia_l = session_levels(0,7)
+          london_h, london_l = session_levels(7,10)
+
+          # Compression is measured from already completed bars; breakout occurs on a close outside the box.
+          box20_hi = S(h).rolling(20, min_periods=20).max().shift(1).to_numpy()
+          box20_lo = S(l).rolling(20, min_periods=20).min().shift(1).to_numpy()
+          box12_hi = S(h).rolling(12, min_periods=12).max().shift(1).to_numpy()
+          box12_lo = S(l).rolling(12, min_periods=12).min().shift(1).to_numpy()
+          box20_width = box20_hi-box20_lo
+          box12_width = box12_hi-box12_lo
+          body = np.abs(c-o); rng = h-l
+          bull_close = (c > o) & (body/np.maximum(rng,1e-12) >= 0.55)
+          bear_close = (c < o) & (body/np.maximum(rng,1e-12) >= 0.55)
+
+          families = []
+          # Family A: generic volatility compression -> range breakout.
+          families.append(('box20_breakout', box20_hi, box20_lo, box20_width))
+          # Family B: short compression -> breakout, deliberately distinct from the generic 20-bar box.
+          families.append(('box12_breakout', box12_hi, box12_lo, box12_width))
+
+          # Event tuple: entry_index, direction, box_lo, box_hi, family, breakout_index.
+          events = []
+          for family, bhi, blo, bw in families:
+              # Require compression before breakout: box width below ATR multiple and below recent width percentile.
+              for i in range(60, n-2):
+                  if not (np.isfinite(atr[i]) and np.isfinite(bw[i])): continue
+                  comp = (bw[i] <= 1.6*atr[i]) and (atr_pct[i] <= 0.40)
+                  if not comp: continue
+                  # Breakout must occur immediately after compression and close outside the completed box.
+                  if c[i+1] > bhi[i] and bull_close[i+1]: direction=1
+                  elif c[i+1] < blo[i] and bear_close[i+1]: direction=-1
+                  else: continue
+                  b=i+1
+                  # Retest within the next 1..20 bars; entry on next bar after first valid retest.
+                  for r in range(b+1, min(b+21,n-1)):
+                      if direction==1:
+                          retest = l[r] <= bhi[i] + 0.15*atr[r] and c[r] >= bhi[i]
+                      else:
+                          retest = h[r] >= blo[i] - 0.15*atr[r] and c[r] <= blo[i]
+                      if retest:
+                          events.append((r+1,direction,blo[i],bhi[i],family,b)); break
+
+          # Session-opening range breakouts with retest; range must be completed first.
+          for family, sh, sl, start_h, break_h0, break_h1 in [
+              ('asia_range_breakout', asia_h, asia_l, 0, 7, 12),
+              ('london_range_breakout', london_h, london_l, 7, 10, 14),
+          ]:
+              for i in range(1,n-1):
+                  if hour[i] < break_h0 or hour[i] >= break_h1: continue
+                  if not (np.isfinite(sh[i]) and np.isfinite(sl[i]) and np.isfinite(atr[i])): continue
+                  if c[i] > sh[i] and bull_close[i]: direction=1
+                  elif c[i] < sl[i] and bear_close[i]: direction=-1
+                  else: continue
+                  for r in range(i+1,min(i+21,n-1)):
+                      if direction==1: retest = l[r] <= sh[i]+0.15*atr[r] and c[r] >= sh[i]
+                      else: retest = h[r] >= sl[i]-0.15*atr[r] and c[r] <= sl[i]
+                      if retest:
+                          events.append((r+1,direction,sl[i],sh[i],family,i)); break
+
+          events = sorted(set(events), key=lambda x:x[0])
+          contexts = ['any','htf_agree','htf_up','htf_down','london','ny','overlap','high_vol','low_vol']
+          exits = [(0.75,1.25,30),(1.0,1.5,60),(1.0,2.0,90),(1.5,2.5,120)]
+          rows=[]
+          for family in sorted(set(e[4] for e in events)):
+              fam_events=[e for e in events if e[4]==family]
+              for ctx in contexts:
+                  for slx,tpx,expiry in exits:
+                      last_exit=-1; vals=[]; times=[]
+                      for j,direction,zlo,zhi,_,b in fam_events:
+                          if j<=last_exit or j>=n-1 or not np.isfinite(atr[j]): continue
+                          if ctx=='htf_agree': ok=(direction==1 and m5e20[j]>m5e50[j] and m15c[j]>m15e20[j]) or (direction==-1 and m5e20[j]<m5e50[j] and m15c[j]<m15e20[j])
+                          elif ctx=='htf_up': ok=m5e20[j]>m5e50[j] and m15c[j]>m15e20[j]
+                          elif ctx=='htf_down': ok=m5e20[j]<m5e50[j] and m15c[j]<m15e20[j]
+                          elif ctx=='london': ok=7<=hour[j]<12
+                          elif ctx=='ny': ok=12<=hour[j]<17
+                          elif ctx=='overlap': ok=12<=hour[j]<16
+                          elif ctx=='high_vol': ok=np.isfinite(atr_pct[j]) and atr_pct[j]>=0.60
+                          elif ctx=='low_vol': ok=np.isfinite(atr_pct[j]) and atr_pct[j]<=0.40
+                          else: ok=True
+                          if not ok: continue
+                          entry=o[j]; sl=entry-direction*slx*atr[j]; tp=entry+direction*tpx*atr[j]
+                          exit_i=min(j+expiry,n-1); pnl=None
+                          for k in range(j,exit_i+1):
+                              if direction==1:
+                                  if l[k]<=sl: pnl=(sl-entry)/0.0001-cost; exit_i=k; break
+                                  if h[k]>=tp: pnl=(tp-entry)/0.0001-cost; exit_i=k; break
+                              else:
+                                  if h[k]>=sl: pnl=(entry-sl)/0.0001-cost; exit_i=k; break
+                                  if l[k]<=tp: pnl=(entry-tp)/0.0001-cost; exit_i=k; break
+                          if pnl is None: pnl=(c[exit_i]-entry)*direction/0.0001-cost
+                          vals.append(pnl); times.append(ts.iloc[j]); last_exit=exit_i
+                      if len(vals)<min_trades: continue
+                      v=np.asarray(vals); gp=v[v>0].sum(); gl=-v[v<0].sum(); pf=float(gp/gl) if gl>0 else 0.0
+                      years=pd.to_datetime(times).year.to_numpy(); uniq=sorted(set(years))
+                      pos_years=sum(v[years==y].sum()>0 for y in uniq)
+                      stable_pf=sum((v[years==y][v[years==y]>0].sum()/(-v[years==y][v[years==y]<0].sum()))>1 for y in uniq if np.any(v[years==y]<0))
+                      eq=np.cumsum(v); dd=float(np.max(np.maximum.accumulate(eq)-eq))
+                      rows.append({'family':family,'context':ctx,'sl_atr':slx,'tp_atr':tpx,'expiry_m1':expiry,'trades':len(v),'win_rate':float((v>0).mean()),'profit_factor':pf,'expectancy_pips':float(v.mean()),'net_pips':float(v.sum()),'max_drawdown_pips':dd,'positive_years':int(pos_years),'stable_pf_years':int(stable_pf)})
+
+          rows.sort(key=lambda x:(x['profit_factor'],x['expectancy_pips'],x['net_pips']),reverse=True)
+          eligible=[r for r in rows if r['profit_factor']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
+          out={'schema':'forexai.strategy_discovery.v23','data':{'symbol':'EURUSD','timeframe':'M1','start':start,'end':end,'candles':n,'synthetic':False,'cost_round_trip_pips':cost,'method':'compression_breakout_retest_and_session_range_breakout_retest'},'discovery':{'families':4,'contexts':len(contexts),'exit_variants':len(exits),'candidate_results':len(rows),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_results':rows[:30]}}
+          Path('artifacts').mkdir(exist_ok=True)
+          Path('artifacts/strategy-discovery-v23.json').write_text(json.dumps(out,indent=2,default=str),encoding='utf-8')
+          print(json.dumps(out['discovery'],indent=2))
+          if not rows: raise RuntimeError('No valid candidate results produced')
+          PY
+      - name: Upload v23 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-discovery-v23
+          path: artifacts/strategy-discovery-v23.json
+          if-no-files-found: warn
