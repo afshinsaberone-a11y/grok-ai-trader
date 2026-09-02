@@ -1,0 +1,99 @@
+name: ForexAI v25 Volatility-Conditioned Momentum Discovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run v25 volatility-conditioned momentum discovery
+        env:
+          START: '2022-01-01'
+          END: '2026-01-01'
+          MIN_TRADES: '100'
+          COST: '1.4'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import numpy as np, pandas as pd
+          from research.real_data.histdata_ingest import load_eurusd_m1
+
+          start,end=os.environ['START'],os.environ['END']; cost=float(os.environ['COST']); min_trades=int(os.environ['MIN_TRADES'])
+          df=load_eurusd_m1(start=start,end=end)
+          if df is None or len(df)==0: raise RuntimeError('REAL EURUSD data unavailable; refusing synthetic fallback')
+          df=df.copy(); df['time']=pd.to_datetime(df['time'],utc=True); df=df.sort_values('time').drop_duplicates('time').reset_index(drop=True)
+          if len(df)<1000: raise RuntimeError('Insufficient real market data')
+          o,h,l,c=[df[x].to_numpy(float) for x in ('o','h','l','c')]; n=len(df); ts=df.time
+          prev=pd.Series(c).shift(1).to_numpy(); tr=np.maximum.reduce([h-l,np.abs(h-prev),np.abs(l-prev)])
+          atr=pd.Series(tr).rolling(14,min_periods=14).mean().to_numpy(); atr50=pd.Series(atr).rolling(50,min_periods=50).median().to_numpy()
+          ema20=pd.Series(c).ewm(span=20,adjust=False,min_periods=20).mean().to_numpy(); ema50=pd.Series(c).ewm(span=50,adjust=False,min_periods=50).mean().to_numpy()
+          ret=np.log(np.maximum(c,1e-12)/np.maximum(prev,1e-12)); rv=pd.Series(ret).rolling(60,min_periods=60).std().to_numpy()
+          rv_med=pd.Series(rv).rolling(240,min_periods=60).median().to_numpy()
+          base=df.set_index('time')[['c']].sort_index(); m15=base.c.resample('15min',label='right',closed='right').last().shift(1).reindex(df.time,method='ffill').to_numpy(); m15e20=pd.Series(m15).ewm(span=20,adjust=False,min_periods=20).mean().to_numpy(); m15e50=pd.Series(m15).ewm(span=50,adjust=False,min_periods=50).mean().to_numpy()
+          hh20=pd.Series(h).shift(1).rolling(20,min_periods=20).max().to_numpy(); ll20=pd.Series(l).shift(1).rolling(20,min_periods=20).min().to_numpy(); hh50=pd.Series(h).shift(1).rolling(50,min_periods=50).max().to_numpy(); ll50=pd.Series(l).shift(1).rolling(50,min_periods=50).min().to_numpy()
+          hours=ts.dt.hour.to_numpy(); days=ts.dt.floor('D')
+          # Precompute breakout/impulse events once. Entry occurs at next M1 open, so no same-bar execution.
+          families=[]
+          for lb,atr_mult,body_min in [(20,1.0,0.55),(20,1.25,0.65),(50,1.0,0.55),(50,1.25,0.65)]:
+            hi=hh20 if lb==20 else hh50; lo=ll20 if lb==20 else ll50
+            ev=[]
+            for i in range(max(lb+2,60),n-1):
+              if not np.isfinite(atr[i]) or atr[i]<=0: continue
+              rng=h[i]-l[i]; body=abs(c[i]-o[i])
+              bull=c[i]>hi[i] and rng>=atr_mult*atr[i] and body/max(rng,1e-12)>=body_min
+              bear=c[i]<lo[i] and rng>=atr_mult*atr[i] and body/max(rng,1e-12)>=body_min
+              if bull: ev.append((i+1,1))
+              elif bear: ev.append((i+1,-1))
+            families.append((lb,atr_mult,body_min,ev))
+          contexts=['any','htf_agree','high_vol','normal_vol','london','ny','overlap']
+          exits=[(0.75,1.25,30),(1.0,1.5,60),(1.0,2.0,90),(1.5,2.5,120)]
+          rows=[]
+          for lb,am,bm,events in families:
+            for ctx in contexts:
+              for slx,tpx,expiry in exits:
+                last_exit=-1; vals=[]; years=[]
+                for j,d in events:
+                  if j<=last_exit or j>=n-1 or not np.isfinite(atr[j]): continue
+                  if ctx=='htf_agree': ok=(d==1 and m15e20[j]>m15e50[j]) or (d==-1 and m15e20[j]<m15e50[j])
+                  elif ctx=='high_vol': ok=np.isfinite(rv_med[j]) and rv[j]>rv_med[j]
+                  elif ctx=='normal_vol': ok=np.isfinite(rv_med[j]) and rv[j]<=rv_med[j]
+                  elif ctx=='london': ok=7<=hours[j]<12
+                  elif ctx=='ny': ok=12<=hours[j]<17
+                  elif ctx=='overlap': ok=12<=hours[j]<16
+                  else: ok=True
+                  if not ok: continue
+                  entry=o[j]; sl=entry-d*slx*atr[j]; tp=entry+d*tpx*atr[j]; exit_i=min(j+expiry,n-1); pnl=None
+                  for k in range(j,exit_i+1):
+                    if d==1:
+                      if l[k]<=sl: pnl=(sl-entry)/0.0001-cost; exit_i=k; break
+                      if h[k]>=tp: pnl=(tp-entry)/0.0001-cost; exit_i=k; break
+                    else:
+                      if h[k]>=sl: pnl=(entry-sl)/0.0001-cost; exit_i=k; break
+                      if l[k]<=tp: pnl=(entry-tp)/0.0001-cost; exit_i=k; break
+                  if pnl is None: pnl=(c[exit_i]-entry)*d/0.0001-cost
+                  vals.append(pnl); years.append(ts.iloc[j].year); last_exit=exit_i
+                if len(vals)<min_trades: continue
+                v=np.asarray(vals); gp=v[v>0].sum(); gl=-v[v<0].sum(); pf=float(gp/gl) if gl>0 else 0.0; eq=np.cumsum(v); dd=float(np.max(np.maximum.accumulate(eq)-eq)); ys=np.asarray(years); uy=sorted(set(ys)); pos=sum(v[ys==y].sum()>0 for y in uy); stable=sum((v[ys==y][v[ys==y]>0].sum()/(-v[ys==y][v[ys==y]<0].sum()))>1 for y in uy if np.any(v[ys==y]<0))
+                rows.append({'family':f'breakout_{lb}_atr{am}_body{bm}','context':ctx,'sl_atr':slx,'tp_atr':tpx,'expiry_m1':expiry,'trades':len(v),'win_rate':float((v>0).mean()),'profit_factor':pf,'expectancy_pips':float(v.mean()),'net_pips':float(v.sum()),'max_drawdown_pips':dd,'positive_years':int(pos),'stable_pf_years':int(stable)})
+          rows.sort(key=lambda x:(x['profit_factor'],x['expectancy_pips'],x['net_pips']),reverse=True)
+          eligible=[r for r in rows if r['profit_factor']>1 and r['expectancy_pips']>0 and r['positive_years']>=3 and r['stable_pf_years']>=2]
+          out={'schema':'forexai.strategy_discovery.v25','data':{'symbol':'EURUSD','timeframe':'M1','start':start,'end':end,'candles':n,'synthetic':False,'cost_round_trip_pips':cost,'method':'volatility_conditioned_breakout_momentum'},'discovery':{'families':len(families),'contexts':len(contexts),'exit_variants':len(exits),'candidate_results':len(rows),'eligible_count':len(eligible),'champion':eligible[0] if eligible else None,'top_results':rows[:30]}}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/strategy-discovery-v25.json').write_text(json.dumps(out,indent=2,default=str),encoding='utf-8'); print(json.dumps(out['discovery'],indent=2))
+          if not rows: raise RuntimeError('No valid candidate results produced')
+          PY
+      - name: Upload v25 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-discovery-v25
+          path: artifacts/strategy-discovery-v25.json
+          if-no-files-found: warn
