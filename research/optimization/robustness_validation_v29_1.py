@@ -24,6 +24,7 @@ PIP = 0.0001
 COST_PIPS_PER_SIDE = 0.7
 ROUND_TRIP_PIPS = 1.4
 EXPIRY_BARS = 30
+YEARLY_WARMUP_BARS = 500
 START = pd.Timestamp("2022-01-01", tz="UTC")
 VALIDATION_START = pd.Timestamp("2025-01-01", tz="UTC")
 OOS_START = pd.Timestamp("2026-01-01", tz="UTC")
@@ -49,7 +50,11 @@ def _signals(df: pd.DataFrame) -> pd.DataFrame:
     return GrokHybridStrategy().generate_signals(df.copy())
 
 
-def _execute(df: pd.DataFrame, params: dict[str, float]) -> tuple[dict[str, Any], list[float]]:
+def _execute(
+    df: pd.DataFrame,
+    params: dict[str, float],
+    trade_start: pd.Timestamp | None = None,
+) -> tuple[dict[str, Any], list[float]]:
     d = _signals(df)
     o = d.Open.to_numpy(float); h = d.High.to_numpy(float)
     l = d.Low.to_numpy(float); c = d.Close.to_numpy(float)
@@ -59,6 +64,8 @@ def _execute(df: pd.DataFrame, params: dict[str, float]) -> tuple[dict[str, Any]
     rs: list[float] = []; position = 0; entry_i = -1; entry_px = stop = target = 0.0
     for i in range(len(d) - 1):
         if position == 0:
+            if trade_start is not None and d.index[i] < trade_start:
+                continue
             if not np.isfinite(atr[i]) or atr[i] <= 0 or sig[i] == 0:
                 continue
             position = int(sig[i]); entry_i = i + 1
@@ -122,10 +129,24 @@ def _mc(rs: list[float], iterations: int = 1000, seed: int = 2901) -> dict[str, 
 
 
 def _yearly(df: pd.DataFrame, params: dict[str, float]) -> dict[str, Any]:
+    """Compute yearly diagnostics with indicator warm-up, without using OOS data.
+
+    The prior implementation sliced each calendar year before calculating
+    indicators. That discarded the rolling-history warm-up at every year
+    boundary and could produce artificial zero-trade years. We now prepend a
+    deterministic 500-bar warm-up from the same validation dataset and only
+    permit new entries on/after the target year's start.
+    """
     out = {}
     for year in (2022, 2023, 2024, 2025):
-        part = df.loc[(df.index >= f"{year}-01-01") & (df.index < f"{year+1}-01-01")]
-        out[str(year)] = _execute(part, params)[0]
+        year_start = pd.Timestamp(f"{year}-01-01", tz="UTC")
+        year_end = pd.Timestamp(f"{year+1}-01-01", tz="UTC")
+        end = min(year_end, OOS_START)
+        idx = df.index[df.index < year_start]
+        warmup_start = idx[-YEARLY_WARMUP_BARS] if len(idx) > YEARLY_WARMUP_BARS else df.index.min()
+        part = df.loc[(df.index >= warmup_start) & (df.index < end)]
+        out[str(year)] = _execute(part, params, trade_start=year_start)[0]
+        out[str(year)]["indicator_warmup_bars"] = min(YEARLY_WARMUP_BARS, max(0, len(idx)))
     return out
 
 
