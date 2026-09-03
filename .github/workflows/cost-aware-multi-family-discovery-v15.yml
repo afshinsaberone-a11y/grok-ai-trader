@@ -109,9 +109,18 @@ jobs:
           if not src.exists(): raise SystemExit(f'REAL_DATA_REQUIRED: missing {src}')
           df=pd.read_csv(src); df['timestamp']=pd.to_datetime(df['timestamp'],utc=True)
           for c in ['open','high','low','close','volume']: df[c]=pd.to_numeric(df[c],errors='raise')
+          if not df['timestamp'].is_monotonic_increasing or df['timestamp'].duplicated().any():
+              raise SystemExit('INVALID_M1_TIMESTAMP_ORDER_OR_DUPLICATES')
+          if not (df['timestamp'].dt.second.eq(0) & df['timestamp'].dt.microsecond.eq(0)).all():
+              raise SystemExit('INVALID_M1_TIMESTAMP_ALIGNMENT')
           m5=df.set_index('timestamp')[['open','high','low','close','volume']].resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index()
-          if not m5['timestamp'].diff().dropna().eq(pd.Timedelta('5min')).all(): raise SystemExit('INVALID_M5_CADENCE')
-          out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv'); out.parent.mkdir(parents=True,exist_ok=True); m5.to_csv(out,index=False); print('REAL_M5_ROWS=',len(m5))
+          diffs=m5['timestamp'].diff().dropna()
+          if not ((diffs % pd.Timedelta('5min')) == pd.Timedelta(0)).all():
+              raise SystemExit('INVALID_M5_TIMESTAMP_ALIGNMENT')
+          if m5.empty: raise SystemExit('REAL_DATA_REQUIRED: empty M5 dataset')
+          print('REAL_M5_ROWS=',len(m5))
+          print('REAL_M5_GAPS_GT_5MIN=',int((diffs > pd.Timedelta('5min')).sum()))
+          out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv'); out.parent.mkdir(parents=True,exist_ok=True); m5.to_csv(out,index=False)
           PY
       - name: Run v15 execution-equivalent discovery
         env:
