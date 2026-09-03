@@ -1,0 +1,164 @@
+name: Execution-Equivalent Real Discovery v30
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: "Research timeframe"
+        required: true
+        default: "M5"
+        type: choice
+        options: [M5, M1, M15]
+      start:
+        description: "Pre-OOS start"
+        required: true
+        default: "2022-01-01"
+        type: string
+      end:
+        description: "Pre-OOS end (exclusive)"
+        required: true
+        default: "2026-01-01"
+        type: string
+      spread_pips:
+        description: "Conservative spread per side"
+        required: true
+        default: "0.5"
+        type: string
+      slippage_pips:
+        description: "Conservative slippage per side"
+        required: true
+        default: "0.2"
+        type: string
+
+jobs:
+  discover:
+    strategy:
+      fail-fast: false
+      matrix:
+        family:
+          - trend_ema_rsi
+          - momentum_breakout
+          - donchian_breakout
+          - bollinger_mean_reversion
+          - rsi_mean_reversion
+          - session_range_breakout
+          - volatility_expansion
+          - sp2l_lite
+          - volatility_switch_momentum_reversal
+          - skew_kurt_momentum
+          - regime_zscore_reversion
+          - ichimoku_regime_trend
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Compile v30 implementation
+        run: python -m py_compile research/optimization/cost_aware_discovery_v30.py
+      - name: Download REAL pre-OOS HistData only
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Build requested REAL research timeframe
+        env:
+          TF: ${{ inputs.timeframe }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import pandas as pd
+          tf=os.environ['TF']
+          if tf not in {'M1','M5','M15'}: raise SystemExit('INVALID_TIMEFRAME')
+          src=Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          if not src.exists(): raise SystemExit(f'REAL_DATA_REQUIRED: missing {src}')
+          df=pd.read_csv(src)
+          df['timestamp']=pd.to_datetime(df['timestamp'],utc=True)
+          for c in ['open','high','low','close','volume']:
+              df[c]=pd.to_numeric(df[c],errors='raise')
+          if df['timestamp'].dt.year.max()>=2026: raise SystemExit('OOS_POLICY_VIOLATION: input contains 2026+')
+          if tf=='M1': out=df
+          else:
+              rule='5min' if tf=='M5' else '15min'
+              out=df.set_index('timestamp')[['open','high','low','close','volume']].resample(rule).agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index()
+          path=Path(f'data/real/normalized/EURUSD_{tf}_20220101_20251231.csv')
+          out.to_csv(path,index=False)
+          print(f'REQUESTED_TIMEFRAME={tf}')
+          print(f'REAL_DATASET={path}')
+          print(f'ROWS={len(out)}')
+          PY
+      - name: Run execution-equivalent family discovery
+        env:
+          FAMILY: ${{ matrix.family }}
+          TF: ${{ inputs.timeframe }}
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          test -f "data/real/normalized/EURUSD_${TF}_20220101_20251231.csv"
+          python -m research.optimization.cost_aware_discovery_v30 --data "data/real/normalized/EURUSD_${TF}_20220101_20251231.csv" --family "$FAMILY" --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE" --output "artifacts/${FAMILY}-${TF}.json"
+      - name: Upload family artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-equivalent-v30-${{ matrix.family }}-${{ inputs.timeframe }}
+          path: artifacts/${{ matrix.family }}-${{ inputs.timeframe }}.json
+          if-no-files-found: warn
+
+  aggregate:
+    if: ${{ always() }}
+    needs: discover
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download discovery artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: execution-equivalent-v30-*
+          path: artifacts/families
+          merge-multiple: false
+      - name: Build discovery summary
+        env:
+          TF: ${{ inputs.timeframe }}
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          files=sorted(Path('artifacts/families').glob('execution-equivalent-v30-*/**/*.json'))
+          results=[]
+          for p in files:
+              data=json.loads(p.read_text(encoding='utf-8'))
+              results.append(data)
+          if not results: raise SystemExit('NO_DISCOVERY_ARTIFACTS')
+          report={
+              'schema_version':'forexai.execution_equivalent_discovery.v30',
+              'requested_timeframe':os.environ['TF'],
+              'execution_model':{'entry':'next_bar_open','exit_stop_target':'intrabar_actual_level','opposite_signal_exit':'next_bar_open','same_bar_ambiguity':'SL_first','max_hold_bars':30,'one_position_at_a_time':True},
+              'execution_cost_model':{'spread_pips_per_side':float(os.environ['SPREAD']),'slippage_pips_per_side':float(os.environ['SLIPPAGE']),'round_trip_pips':2*(float(os.environ['SPREAD'])+float(os.environ['SLIPPAGE']))},
+              'real_data_required':True,'synthetic_fallback':False,
+              'oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},
+              'results':results,
+          }
+          out=Path('artifacts/execution_equivalent_discovery_v30_summary.json')
+          out.parent.mkdir(parents=True,exist_ok=True)
+          out.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8')
+          print(json.dumps({'schema_version':report['schema_version'],'requested_timeframe':report['requested_timeframe'],'families':len(results),'oos_2026':'HELD_OUT'},indent=2))
+          PY
+      - name: Upload summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-equivalent-v30-summary-${{ inputs.timeframe }}
+          path: artifacts/execution_equivalent_discovery_v30_summary.json
+          if-no-files-found: warn
