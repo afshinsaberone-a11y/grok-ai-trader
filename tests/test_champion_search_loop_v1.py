@@ -5,8 +5,12 @@ def candidate(**overrides):
     base = {
         "candidate_id": "C1",
         "score": 10.0,
-        "discovery_years": [{"pf": 1.05}, {"pf": 1.12}, {"pf": 1.08}],
-        "validation": {"pf": 1.15, "max_dd_pct": 20, "trades": 500, "expectancy_r": 0.05},
+        "discovery_years": [
+            {"pf": 1.05, "trades": 100, "expectancy_r": 0.01, "total_R": 1.0, "max_dd_pct": 10},
+            {"pf": 1.12, "trades": 100, "expectancy_r": 0.02, "total_R": 2.0, "max_dd_pct": 10},
+            {"pf": 1.08, "trades": 100, "expectancy_r": 0.01, "total_R": 1.0, "max_dd_pct": 10},
+        ],
+        "validation": {"pf": 1.15, "max_dd_pct": 20, "trades": 500, "expectancy_r": 0.05, "total_R": 25.0},
         "stress": {"worst_pf": 1.02, "worst_dd_pct": 25},
         "config_hash": "abc123",
         "oos_loaded": False,
@@ -36,7 +40,7 @@ def test_gate_rejects_cost_stress_failure():
 
 def test_loop_freezes_first_passing_candidate():
     result = run_loop([
-        [candidate(candidate_id="bad", score=20, validation={"pf": 0.9, "max_dd_pct": 20, "trades": 500, "expectancy_r": 0.05})],
+        [candidate(candidate_id="bad", score=20, validation={"pf": 0.9, "max_dd_pct": 20, "trades": 500, "expectancy_r": 0.05, "total_R": 25.0})],
         [candidate(candidate_id="good", score=5)],
     ])
     assert result.status == "FROZEN_CANDIDATE"
