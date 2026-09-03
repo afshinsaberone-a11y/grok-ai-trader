@@ -1,0 +1,139 @@
+name: ForexAI v29.1 Robustness Validation — M15
+
+on:
+  workflow_dispatch:
+
+env:
+  TIMEFRAME: M15
+
+jobs:
+  robustness-validation-m15:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify runtime
+        run: python --version
+
+      - name: Download REAL EURUSD M1 dataset
+        run: |
+          set -euo pipefail
+          mkdir -p data/real/raw
+          curl -fL --retry 3 --retry-delay 2 -o data/real/raw/EURUSD_M1_20220101_20251231.zip \
+            'https://www.histdata.com/download-free-forex-historical-data/?/metatrader/1-minute-bar-quotes/EURUSD/2025'
+          test -s data/real/raw/EURUSD_M1_20220101_20251231.zip
+          unzip -o data/real/raw/EURUSD_M1_20220101_20251231.zip -d data/real/raw
+
+      - name: Locate REAL M15 dataset
+        run: |
+          set -euo pipefail
+          mkdir -p data/real/normalized
+          M1=$(find data/real/raw -type f \( -iname '*.csv' -o -iname '*.txt' \) | head -n 1)
+          test -n "$M1"
+          python - "$M1" <<'PY'
+          import sys
+          import pandas as pd
+          from pathlib import Path
+          src = Path(sys.argv[1])
+          df = pd.read_csv(src, header=None)
+          if len(df.columns) < 5:
+              raise SystemExit('REAL source does not contain OHLC data')
+          df = df.iloc[:, :5].copy()
+          df.columns = ['timestamp','open','high','low','close']
+          ts = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
+          if ts.isna().all():
+              raise SystemExit('REAL source timestamp parsing failed')
+          df['timestamp'] = ts
+          for c in ['open','high','low','close']:
+              df[c] = pd.to_numeric(df[c], errors='coerce')
+          df = df.dropna(subset=['timestamp','open','high','low','close'])
+          df = df.sort_values('timestamp').drop_duplicates('timestamp', keep='first').set_index('timestamp')
+          out = pd.DataFrame({
+              'open': df['open'].resample('15min', label='left', closed='left').first(),
+              'high': df['high'].resample('15min', label='left', closed='left').max(),
+              'low': df['low'].resample('15min', label='left', closed='left').min(),
+              'close': df['close'].resample('15min', label='left', closed='left').last(),
+          }).dropna(subset=['open','high','low','close'])
+          if out.empty:
+              raise SystemExit('REAL M15 aggregation produced no rows')
+          out.to_csv('data/real/normalized/EURUSD_M15_20220101_20251231.csv', index_label='timestamp')
+          print(f'rows={len(out)}')
+          PY
+
+      - name: Validate REAL M15 dataset and cadence
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          p=Path('data/real/normalized/EURUSD_M15_20220101_20251231.csv')
+          if not p.exists() or p.stat().st_size == 0:
+              raise SystemExit('REAL M15 dataset missing')
+          df=pd.read_csv(p, parse_dates=['timestamp']).sort_values('timestamp')
+          if len(df) < 1000:
+              raise SystemExit('REAL M15 dataset unexpectedly small')
+          for c in ['open','high','low','close']:
+              if not pd.api.types.is_numeric_dtype(df[c]): raise SystemExit(f'non-numeric {c}')
+          if ((df.high < df[['open','close','low']].max(axis=1)) | (df.low > df[['open','close','high']].min(axis=1))).any():
+              raise SystemExit('OHLC invariant failure')
+          d=df.timestamp.diff().dropna().dt.total_seconds().div(60)
+          if d.median() != 15.0:
+              raise SystemExit(f'cadence median is {d.median()}, expected 15')
+          print(f'rows={len(df)} median_cadence_minutes={d.median()}')
+          PY
+
+      - name: Run v29.1 frozen robustness validation — M15
+        run: |
+          set -euo pipefail
+          python -m research.optimization.robustness_validation_v29_1 \
+            --data data/real/normalized/EURUSD_M15_20220101_20251231.csv \
+            --timeframe M15 \
+            --output artifacts/robustness-validation-v29-1-M15.json
+
+      - name: Assert output timeframe is M15
+        run: |
+          python - <<'PY'
+          import json
+          p='artifacts/robustness-validation-v29-1-M15.json'
+          d=json.load(open(p, encoding='utf-8'))
+          if d.get('timeframe') != 'M15': raise SystemExit(f"wrong timeframe: {d.get('timeframe')}")
+          PY
+
+      - name: Validate fail-closed promotion state
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('artifacts/robustness-validation-v29-1-M15.json', encoding='utf-8'))
+          if d.get('real_data_only') is not True: raise SystemExit('real_data_only must be true')
+          if d.get('oos_evaluated') is not False: raise SystemExit('OOS must remain held out')
+          if d.get('optimization_enabled') is not False: raise SystemExit('optimization must be disabled')
+          ex=d.get('execution', {})
+          if ex.get('entry_model') != 'next_bar_open': raise SystemExit('wrong entry model')
+          if ex.get('round_trip_cost_pips') != 1.4: raise SystemExit('wrong execution cost')
+          if ex.get('same_bar_ambiguity') != 'sl_first': raise SystemExit('wrong ambiguity policy')
+          if ex.get('one_position_at_a_time') is not True: raise SystemExit('position overlap policy violated')
+          promo=d.get('promotion', {})
+          if promo.get('ready_for_oos') is True and promo.get('robustness_pass') is not True: raise SystemExit('fail-closed promotion violation')
+          if promo.get('ready_for_oos') is True and promo.get('strict_validation_pass') is not True: raise SystemExit('strict gate bypass')
+          print('fail-closed checks passed')
+          PY
+
+      - name: Upload v29.1 M15 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: robustness-validation-v29-1-M15
+          path: artifacts/robustness-validation-v29-1-M15.json
+          if-no-files-found: error
