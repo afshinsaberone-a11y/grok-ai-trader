@@ -45,8 +45,7 @@ jobs:
           python - <<'PY'
           import pandas as pd
           from research.optimization.cost_aware_discovery_v15 import backtest_execution_equivalent
-          df=pd.DataFrame({'timestamp':pd.date_range('2022-01-01',periods=80,freq='5min',tz='UTC'),'Open':1.10,'High':1.101,'Low':1.099,'Close':1.10,'Volume':100})
-          df=df.set_index('timestamp')
+          df=pd.DataFrame({'timestamp':pd.date_range('2022-01-01',periods=80,freq='5min',tz='UTC'),'Open':1.10,'High':1.101,'Low':1.099,'Close':1.10,'Volume':100}).set_index('timestamp')
           m=backtest_execution_equivalent(df,'trend_ema_rsi',{'atr_stop':1.0,'rr':2.0})
           assert m['execution_model']=='v28.1_next_bar_open'
           assert m['round_trip_cost_pips']==1.4
@@ -101,26 +100,66 @@ jobs:
         run: |
           python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
       - name: Build deterministic REAL M5 dataset
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
         run: |
           python - <<'PY'
           from pathlib import Path
+          import os
           import pandas as pd
+
           src=Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
-          if not src.exists(): raise SystemExit(f'REAL_DATA_REQUIRED: missing {src}')
-          df=pd.read_csv(src); df['timestamp']=pd.to_datetime(df['timestamp'],utc=True)
-          for c in ['open','high','low','close','volume']: df[c]=pd.to_numeric(df[c],errors='raise')
+          if not src.exists():
+              raise SystemExit(f'REAL_DATA_REQUIRED: missing {src}')
+
+          df=pd.read_csv(src)
+          df['timestamp']=pd.to_datetime(df['timestamp'],utc=True)
+          for c in ['open','high','low','close','volume']:
+              df[c]=pd.to_numeric(df[c],errors='raise')
+
           if not df['timestamp'].is_monotonic_increasing or df['timestamp'].duplicated().any():
               raise SystemExit('INVALID_M1_TIMESTAMP_ORDER_OR_DUPLICATES')
           if not (df['timestamp'].dt.second.eq(0) & df['timestamp'].dt.microsecond.eq(0)).all():
               raise SystemExit('INVALID_M1_TIMESTAMP_ALIGNMENT')
-          m5=df.set_index('timestamp')[['open','high','low','close','volume']].resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index()
-          diffs=m5['timestamp'].diff().dropna()
-          if not ((diffs % pd.Timedelta('5min')) == pd.Timedelta(0)).all():
+
+          # Restrict strictly to requested pre-OOS interval.
+          start=pd.Timestamp(os.environ['START'],tz='UTC')
+          end=pd.Timestamp(os.environ['END'],tz='UTC')
+          df=df[(df['timestamp']>=start)&(df['timestamp']<end)].copy()
+          if df.empty:
+              raise SystemExit('REAL_DATA_REQUIRED: empty requested interval')
+
+          grouped=df.set_index('timestamp')[['open','high','low','close','volume']].resample('5min')
+          m5=grouped.agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'})
+          counts=grouped['close'].count()
+
+          # Real-market gaps are expected. Never fill/synthesize missing bars.
+          complete_mask=counts.eq(5)
+          incomplete_buckets=int((~complete_mask).sum())
+          partial_rows=int((counts[~complete_mask]).sum())
+          m5=m5.loc[complete_mask].dropna(subset=['open','high','low','close']).reset_index()
+
+          if m5.empty:
+              raise SystemExit('REAL_DATA_REQUIRED: no fully observed M5 buckets')
+
+          if m5['timestamp'].duplicated().any():
+              raise SystemExit('INVALID_M5_DUPLICATES')
+          if not m5['timestamp'].dt.minute.mod(5).eq(0).all():
               raise SystemExit('INVALID_M5_TIMESTAMP_ALIGNMENT')
-          if m5.empty: raise SystemExit('REAL_DATA_REQUIRED: empty M5 dataset')
+
+          # Validate only alignment of retained bars. Do not require market-closed gaps
+          # to disappear; report them explicitly instead.
+          diffs=m5['timestamp'].diff().dropna()
           print('REAL_M5_ROWS=',len(m5))
-          print('REAL_M5_GAPS_GT_5MIN=',int((diffs > pd.Timedelta('5min')).sum()))
-          out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv'); out.parent.mkdir(parents=True,exist_ok=True); m5.to_csv(out,index=False)
+          print('REAL_M5_INCOMPLETE_5MIN_BUCKETS_DROPPED=',incomplete_buckets)
+          print('REAL_M5_SOURCE_ROWS_IN_INCOMPLETE_BUCKETS=',partial_rows)
+          print('REAL_M5_GAPS_GT_5MIN_AFTER_FILTER=',int((diffs > pd.Timedelta('5min')).sum()))
+          print('REAL_M5_NO_SYNTHETIC_FILL=true')
+
+          out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv')
+          out.parent.mkdir(parents=True,exist_ok=True)
+          m5.to_csv(out,index=False)
           PY
       - name: Run v15 execution-equivalent discovery
         env:
@@ -128,12 +167,16 @@ jobs:
           SPREAD: ${{ inputs.spread_pips }}
           SLIPPAGE: ${{ inputs.slippage_pips }}
         run: |
-          python -m research.optimization.cost_aware_discovery_v15 --data data/real/normalized/EURUSD_M5_20220101_20251231.csv --family "$FAMILY" --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE" --output "artifacts/${FAMILY}.json"
+          python -m research.optimization.cost_aware_discovery_v15 --data data/real/normalized/EURUSD_M5_20220101_20251231.csv --family "$FAMILY" --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE" --output "artifacts/$FAMILY.json"
           python - <<'PY'
           import json,os
-          p=f"artifacts/{os.environ['FAMILY']}.json"; d=json.load(open(p,encoding='utf-8')); r=d['result']
-          assert d['real_data_required'] is True and d['synthetic_fallback'] is False
-          assert d['oos_policy']['status']=='HELD_OUT' and d['oos_policy']['loaded'] is False
+          p=f"artifacts/{os.environ['FAMILY']}.json"
+          d=json.load(open(p,encoding='utf-8'))
+          r=d['result']
+          assert d['real_data_required'] is True
+          assert d['synthetic_fallback'] is False
+          assert d['oos_policy']['status']=='HELD_OUT'
+          assert d['oos_policy']['loaded'] is False
           assert r['execution_model']=='v28.1_next_bar_open'
           print(json.dumps({'family':r['family'],'candidate_total':r['candidate_total'],'qualified_count':r['qualified_count']}))
           PY
@@ -168,14 +211,20 @@ jobs:
           files=sorted(Path('artifacts/families').glob('cost-aware-v15-*/**/*.json'))
           results=[]
           for p in files:
-              d=json.loads(p.read_text(encoding='utf-8')); r=d.get('result',d)
-              if not isinstance(r,dict): raise SystemExit(f'INVALID_ARTIFACT_SCHEMA: {p}')
-              if r.get('execution_model')!='v28.1_next_bar_open': raise SystemExit(f'EXECUTION_MODEL_MISMATCH: {p}')
+              d=json.loads(p.read_text(encoding='utf-8'))
+              r=d.get('result',d)
+              if not isinstance(r,dict):
+                  raise SystemExit(f'INVALID_ARTIFACT_SCHEMA: {p}')
+              if r.get('execution_model')!='v28.1_next_bar_open':
+                  raise SystemExit(f'EXECUTION_MODEL_MISMATCH: {p}')
               results.append(r)
           qualified=[r['champion'] for r in results if r.get('champion')]
           qualified.sort(key=lambda x:(-float(x['cost_aware_robustness_score']),x['family'],x['candidate']))
-          report={'schema_version':'forexai.cost_aware_multi_family.v15','execution_model':'v28.1_next_bar_open','execution_cost_model':{'spread_pips_per_side':float('${{ inputs.spread_pips }}'),'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),'round_trip_pips':2*(float('${{ inputs.spread_pips }}')+float('${{ inputs.slippage_pips }}'))},'results':results,'qualified_count':len(qualified),'candidate_pool':qualified[:20],'champion':None,'promotion_status':'NOT_PROMOTED','oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False}
-          out=Path('artifacts/cost_aware_summary_v15.json'); out.parent.mkdir(parents=True,exist_ok=True); out.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8'); print(json.dumps({'families':len(results),'qualified_count':len(qualified),'champion':None,'promotion_status':'NOT_PROMOTED'},indent=2))
+          report={'schema_version':'forexai.cost_aware_multi_family.v15','research_timeframe':'M5','execution_model':'v28.1_next_bar_open','execution_cost_model':{'spread_pips_per_side':float('${{ inputs.spread_pips }}'),'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),'round_trip_pips':2*(float('${{ inputs.spread_pips }}')+float('${{ inputs.slippage_pips }}'))},'results':results,'qualified_count':len(qualified),'candidate_pool':qualified[:20],'champion':None,'promotion_status':'NOT_PROMOTED','oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False}
+          out=Path('artifacts/cost_aware_summary_v15.json')
+          out.parent.mkdir(parents=True,exist_ok=True)
+          out.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8')
+          print(json.dumps({'families':len(results),'qualified_count':len(qualified),'champion':None,'promotion_status':'NOT_PROMOTED'},indent=2))
           PY
       - name: Upload aggregate artifact
         if: ${{ always() }}
@@ -183,4 +232,4 @@ jobs:
         with:
           name: cost-aware-summary-v15
           path: artifacts/cost_aware_summary_v15.json
-          if-no-files-found: warn
+          if-no-files-found: error
