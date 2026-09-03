@@ -4,14 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       timeframe:
-        description: Research timeframe
+        description: Research timeframe (must be explicitly selected)
         required: true
-        default: M1
+        default: M5
         type: choice
         options: [M1, M5, M15]
 
 permissions:
   contents: read
+
+env:
+  REQUESTED_TIMEFRAME: ${{ inputs.timeframe }}
 
 jobs:
   robustness-validation:
@@ -20,6 +23,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate requested timeframe
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_TIMEFRAME" in
+            M1|M5|M15) ;;
+            *) echo "ERROR: invalid requested timeframe: $REQUESTED_TIMEFRAME"; exit 1 ;;
+          esac
+          echo "REQUESTED_TIMEFRAME=$REQUESTED_TIMEFRAME"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -44,7 +57,7 @@ jobs:
             --symbol EURUSD \
             --start 2022-01-01 \
             --end 2026-01-01 \
-            --timeframe '${{ inputs.timeframe }}' \
+            --timeframe "$REQUESTED_TIMEFRAME" \
             --output data/real \
             --validate \
             --manifest
@@ -53,10 +66,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TF='${{ inputs.timeframe }}'
+          TF="$REQUESTED_TIMEFRAME"
           DATA="$(find data/real/normalized -type f -name "EURUSD_${TF}_20220101_20251231.csv" | sort | head -n1)"
           test -n "$DATA"
           test -f "$DATA"
+          case "$DATA" in
+            *"EURUSD_${TF}_20220101_20251231.csv") ;;
+            *) echo "ERROR: located dataset does not match requested timeframe: $DATA"; exit 1 ;;
+          esac
           echo "DATA=$DATA" >> "$GITHUB_ENV"
           echo "Selected timeframe: $TF"
           echo "Using REAL dataset: $DATA"
@@ -66,7 +83,7 @@ jobs:
           python - <<'PY'
           import os, pandas as pd
           p=os.environ['DATA']
-          tf='${{ inputs.timeframe }}'
+          tf=os.environ['REQUESTED_TIMEFRAME']
           expected={'M1':1.0,'M5':5.0,'M15':15.0}[tf]
           df=pd.read_csv(p)
           ts='timestamp' if 'timestamp' in df.columns else 'time'
@@ -76,7 +93,7 @@ jobs:
               raise SystemExit('dataset does not contain required pre-OOS and validation history')
           med=t.diff().dropna().dt.total_seconds().div(60).median()
           if abs(float(med)-expected)>0.01: raise SystemExit(f'cadence mismatch: {med} vs {expected}')
-          print('selected_timeframe',tf)
+          print('requested_timeframe',tf)
           print('rows',len(df),'median_cadence_minutes',med,'synthetic_fallback','FORBIDDEN')
           PY
 
@@ -84,15 +101,22 @@ jobs:
         run: |
           python -m research.optimization.robustness_validation_v29_1 \
             --data "$DATA" \
-            --timeframe '${{ inputs.timeframe }}' \
+            --timeframe "$REQUESTED_TIMEFRAME" \
             --output artifacts/robustness-validation-v29-1.json
 
-      - name: Validate fail-closed promotion state
+      - name: Validate fail-closed promotion state and timeframe
         run: |
           python - <<'PY'
-          import json
+          import json, os
           p='artifacts/robustness-validation-v29-1.json'
           d=json.load(open(p,encoding='utf-8'))
+          requested=os.environ['REQUESTED_TIMEFRAME']
+          selected=d.get('timeframe') or d.get('selected_timeframe') or d.get('research_timeframe')
+          if selected is not None and selected != requested:
+              raise SystemExit(f'timeframe mismatch: requested={requested}, artifact={selected}')
+          data_path=d.get('data_path') or d.get('dataset') or d.get('dataset_path')
+          if data_path is not None and f'EURUSD_{requested}_' not in str(data_path):
+              raise SystemExit(f'dataset/timeframe mismatch: requested={requested}, artifact={data_path}')
           assert d['real_data_only'] is True
           assert d['oos_evaluated'] is False
           assert d['optimization_enabled'] is False
@@ -104,6 +128,8 @@ jobs:
           if d['promotion_gate']['ready_for_oos']:
               assert d['validation']['strict_gate_pass'] is True
           print('V29.1_VALIDATION_SCHEMA_OK')
+          print('requested_timeframe=', requested)
+          print('artifact_timeframe=', selected)
           print('robustness_pass=', d['promotion_gate']['robustness_pass'])
           print('ready_for_oos=', d['promotion_gate']['ready_for_oos'])
           PY
@@ -112,6 +138,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: robustness-validation-v29-1-${{ inputs.timeframe }}
+          name: robustness-validation-v29-1-${{ env.REQUESTED_TIMEFRAME }}
           path: artifacts/robustness-validation-v29-1.json
           if-no-files-found: error
