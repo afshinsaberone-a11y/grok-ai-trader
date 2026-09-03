@@ -1,0 +1,110 @@
+name: ForexAI v28.5 M5 Execution Integrity Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: v28.5 M5 workflow smoke-to-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify Python runtime
+        run: |
+          python - <<'PY'
+          import numpy, pandas, backtesting
+          print('numpy', numpy.__version__)
+          print('pandas', pandas.__version__)
+          print('backtesting', backtesting.__version__)
+          PY
+
+      - name: Run real M5 execution-integrity audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=2022-01-01
+          END=2026-01-01
+          mkdir -p data/real artifacts
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --start "$START" \
+            --end "$END" \
+            --timeframe M5 \
+            --output data/real \
+            --validate \
+            --manifest
+
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M5_*.csv' | sort | tail -n 1)"
+          test -n "$DATA"
+          test -s "$DATA"
+          case "$DATA" in *'_M5_'*) ;; *) echo 'ERROR: expected M5 dataset filename' >&2; exit 1;; esac
+          export DATA
+
+          python - <<'PY'
+          import os
+          import pandas as pd
+          p=os.environ['DATA']
+          d=pd.read_csv(p)
+          if d.empty:
+              raise SystemExit('ERROR: M5 dataset is empty')
+          t=pd.to_datetime(d['timestamp'], utc=True).sort_values().drop_duplicates()
+          delta=t.diff().dropna().dt.total_seconds()/60
+          median=float(delta.median())
+          print(f'M5 rows={len(d)} median_cadence_minutes={median}')
+          if abs(median-5.0) > 1e-9:
+              raise SystemExit(f'ERROR: invalid M5 cadence: {median}')
+          PY
+
+          python -m research.optimization.execution_integrity_audit_v28_1 \
+            --data "$DATA" \
+            --output artifacts/execution-integrity-audit-v28-5-m5.json
+
+      - name: Validate audit artifact
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('artifacts/execution-integrity-audit-v28-5-m5.json')
+          if not p.exists() or p.stat().st_size == 0:
+              raise SystemExit('ERROR: audit artifact missing or empty')
+          data=json.loads(p.read_text(encoding='utf-8'))
+          print(json.dumps(data, indent=2)[:12000])
+          if data.get('real_data_only') is not True:
+              raise SystemExit('ERROR: real_data_only invariant failed')
+          if data.get('holdout_2026_excluded') is not True:
+              raise SystemExit('ERROR: 2026 holdout exclusion invariant failed')
+          checks=data.get('execution_checks', {})
+          required={
+              'next_bar_open_entry': True,
+              'actual_entry_price_for_stops': True,
+              'non_overlap_invariant': True,
+          }
+          for k,v in required.items():
+              if checks.get(k) is not v:
+                  raise SystemExit(f'ERROR: execution invariant failed: {k}={checks.get(k)!r}')
+          if float(checks.get('round_trip_cost_pips', -1)) != 1.4:
+              raise SystemExit('ERROR: expected 1.4 pip round-trip cost')
+          PY
+
+      - name: Upload v28.5 M5 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-integrity-audit-v28-5-m5
+          path: artifacts/execution-integrity-audit-v28-5-m5.json
+          if-no-files-found: error
