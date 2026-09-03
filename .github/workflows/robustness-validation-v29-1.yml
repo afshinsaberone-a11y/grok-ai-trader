@@ -38,13 +38,13 @@ jobs:
           print('pandas', pandas.__version__)
           PY
 
-      - name: Download REAL EURUSD M1 source
+      - name: Download REAL EURUSD dataset
         run: |
           python -m research.real_data.histdata_ingest \
             --symbol EURUSD \
             --start 2022-01-01 \
             --end 2026-01-01 \
-            --timeframe M1 \
+            --timeframe '${{ inputs.timeframe }}' \
             --output data/real \
             --validate \
             --manifest
@@ -54,11 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           TF='${{ inputs.timeframe }}'
-          if [[ "$TF" == "M1" ]]; then
-            DATA="$(find data/real/normalized -type f -name 'EURUSD_M1_*.csv' | sort | head -n1)"
-          else
-            DATA="$(find data/real/normalized -type f -name "EURUSD_${TF}_*.csv" | sort | head -n1)"
-          fi
+          DATA="$(find data/real/normalized -type f -name "EURUSD_${TF}_20220101_20251231.csv" | sort | head -n1)"
           test -n "$DATA"
           test -f "$DATA"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
@@ -73,7 +69,7 @@ jobs:
           ts='timestamp' if 'timestamp' in df.columns else 'time'
           t=pd.to_datetime(df[ts], utc=True).sort_values()
           if t.duplicated().any(): raise SystemExit('duplicate timestamps')
-          if not ((pd.to_datetime(t).min() < pd.Timestamp('2025-01-01', tz='UTC')) and (pd.to_datetime(t).max() >= pd.Timestamp('2025-12-31', tz='UTC'))):
+          if not ((t.min() < pd.Timestamp('2025-01-01', tz='UTC')) and (t.max() >= pd.Timestamp('2025-12-31', tz='UTC'))):
               raise SystemExit('dataset does not contain required pre-OOS and validation history')
           expected={'M1':1.0,'M5':5.0,'M15':15.0}['${{ inputs.timeframe }}']
           med=t.diff().dropna().dt.total_seconds().div(60).median()
