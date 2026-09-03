@@ -2,6 +2,11 @@ name: ForexAI Execution Integrity Audit v28.3 M15
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/execution-integrity-audit-v28-3-m15.yml'
 
 permissions:
   contents: read
