@@ -160,6 +160,7 @@ def run(path: str | Path, timeframe: str, output: str | Path) -> dict[str, Any]:
     if df.empty or df.index.min() >= OOS_START: raise RuntimeError("V29_1_REAL_DATA_REQUIRED")
     pre = df.loc[(df.index >= START) & (df.index < VALIDATION_START)]
     val = df.loc[(df.index >= VALIDATION_START) & (df.index < OOS_START)]
+    yearly_history = df.loc[(df.index >= START) & (df.index < OOS_START)]
     oos_rows = int((df.index >= OOS_START).sum())
     if pre.empty or val.empty: raise RuntimeError("V29_1_INCOMPLETE_SPLIT")
     center_val, center_rs = _execute(val, CENTER)
@@ -177,7 +178,7 @@ def run(path: str | Path, timeframe: str, output: str | Path) -> dict[str, Any]:
         "oos_rows_available_but_not_evaluated": oos_rows, "oos_evaluated": False, "optimization_enabled": False,
         "frozen_candidate": {"params": CENTER, "config_hash": _hash(CENTER), "source": "v29_selected_candidate"},
         "execution_model": {"entry": "next_bar_open", "cost_pips_per_side": COST_PIPS_PER_SIDE, "round_trip_cost_pips": ROUND_TRIP_PIPS, "same_bar_resolution": "SL first (conservative)", "expiry_bars": EXPIRY_BARS, "overlap": "one position at a time"},
-        "validation": {"metrics": center_val, "strict_gate_pass": strict_pass, "yearly": _yearly(val, CENTER)},
+        "validation": {"metrics": center_val, "strict_gate_pass": strict_pass, "yearly": _yearly(yearly_history, CENTER)},
         "neighborhood": {"variant_count": len(variants), "median_profit_factor": round(float(np.median(pfs)),4), "positive_total_R_variants": positive, "variants": variants},
         "monte_carlo_trade_order": _mc(center_rs),
         "promotion_gate": {"strict_validation_pass": strict_pass, "robustness_pass": robustness_pass, "ready_for_oos": robustness_pass},
