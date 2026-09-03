@@ -1,0 +1,15 @@
+name: ForexAI Actions Run Button Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run button smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Actions execution
+        run: echo "FOREXAI_RUN_BUTTON_OK"
