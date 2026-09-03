@@ -43,6 +43,7 @@ jobs:
             *) echo "Invalid M15 dataset filename: $DATA"; exit 1 ;;
           esac
           echo "DATA=$DATA"
+          export DATA
 
           python - <<'PY'
           import os
