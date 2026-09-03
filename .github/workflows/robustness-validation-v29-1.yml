@@ -49,20 +49,41 @@ jobs:
             --validate \
             --manifest
 
-      - name: Locate REAL dataset
+      - name: Locate REAL M1 dataset
         shell: bash
         run: |
           set -euo pipefail
-          TF='${{ inputs.timeframe }}'
-          if [[ "$TF" == "M1" ]]; then
-            DATA="$(find data/real/normalized -type f -name 'EURUSD_M1_*.csv' | sort | head -n1)"
-          else
-            DATA="$(find data/real/normalized -type f -name "EURUSD_${TF}_*.csv" | sort | head -n1)"
-          fi
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M1_*.csv' | sort | head -n1)"
           test -n "$DATA"
           test -f "$DATA"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
-          echo "Using REAL dataset: $DATA"
+          echo "Using REAL M1 dataset: $DATA"
+
+      - name: Build deterministic research timeframe
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import pandas as pd
+          src=Path(os.environ['DATA'])
+          tf='${{ inputs.timeframe }}'
+          df=pd.read_csv(src)
+          ts='timestamp' if 'timestamp' in df.columns else 'time'
+          df[ts]=pd.to_datetime(df[ts],utc=True)
+          df=df.sort_values(ts).drop_duplicates(ts,keep=False).set_index(ts)
+          for c in ('open','high','low','close','volume'):
+              if c not in df.columns and c.capitalize() in df.columns: df[c]=df[c.capitalize()]
+          if tf=='M1': out=df.reset_index()
+          else:
+              rule={'M5':'5min','M15':'15min'}[tf]
+              agg={'open':'first','high':'max','low':'min','close':'last'}
+              if 'volume' in df.columns: agg['volume']='sum'
+              out=df.resample(rule,label='left',closed='left').agg(agg).dropna(subset=['open','high','low','close']).reset_index()
+          dest=Path('data/real/normalized')/f'EURUSD_{tf}_20220101_20260101.csv'
+          out.to_csv(dest,index=False)
+          print('derived_real_timeframe=',tf,'rows=',len(out),'path=',dest)
+          PY
+          echo "DATA=$GITHUB_WORKSPACE/data/real/normalized/EURUSD_${{ inputs.timeframe }}_20220101_20260101.csv" >> "$GITHUB_ENV"
 
       - name: Validate REAL dataset and cadence
         run: |
@@ -73,12 +94,12 @@ jobs:
           ts='timestamp' if 'timestamp' in df.columns else 'time'
           t=pd.to_datetime(df[ts], utc=True).sort_values()
           if t.duplicated().any(): raise SystemExit('duplicate timestamps')
-          if not ((pd.to_datetime(t).min() < pd.Timestamp('2025-01-01', tz='UTC')) and (pd.to_datetime(t).max() >= pd.Timestamp('2025-12-31', tz='UTC'))):
+          if not ((t.min() < pd.Timestamp('2025-01-01', tz='UTC')) and (t.max() >= pd.Timestamp('2025-12-31', tz='UTC'))):
               raise SystemExit('dataset does not contain required pre-OOS and validation history')
           expected={'M1':1.0,'M5':5.0,'M15':15.0}['${{ inputs.timeframe }}']
           med=t.diff().dropna().dt.total_seconds().div(60).median()
           if abs(float(med)-expected)>0.01: raise SystemExit(f'cadence mismatch: {med} vs {expected}')
-          print('rows',len(df),'median_cadence_minutes',med,'synthetic_fallback','FORBIDDEN')
+          print('rows',len(df),'median_cadence_minutes',med,'source','REAL_EURUSD_M1_DETERMINISTIC_AGGREGATION')
           PY
 
       - name: Run v29.1 frozen robustness validation
