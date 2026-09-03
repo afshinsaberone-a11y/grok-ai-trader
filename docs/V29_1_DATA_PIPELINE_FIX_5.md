@@ -1,0 +1,1 @@
+M5/M15 research bars are deterministically aggregated from the downloaded real EURUSD M1 source. No synthetic market data is generated and 2026 remains held out.
