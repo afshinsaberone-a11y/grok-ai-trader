@@ -1,0 +1,118 @@
+name: ForexAI v29.1 Robustness Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: Research timeframe
+        required: true
+        default: M5
+        type: choice
+        options: [M1, M5, M15]
+
+permissions:
+  contents: read
+
+jobs:
+  robustness-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify runtime
+        run: |
+          python - <<'PY'
+          import numpy, pandas
+          print('numpy', numpy.__version__)
+          print('pandas', pandas.__version__)
+          PY
+
+      - name: Download REAL EURUSD M1 source
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --start 2022-01-01 \
+            --end 2026-01-01 \
+            --timeframe M1 \
+            --output data/real \
+            --validate \
+            --manifest
+
+      - name: Locate REAL dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          TF='${{ inputs.timeframe }}'
+          if [[ "$TF" == "M1" ]]; then
+            DATA="$(find data/real/normalized -type f -name 'EURUSD_M1_*.csv' | sort | head -n1)"
+          else
+            DATA="$(find data/real/normalized -type f -name "EURUSD_${TF}_*.csv" | sort | head -n1)"
+          fi
+          test -n "$DATA"
+          test -f "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "Using REAL dataset: $DATA"
+
+      - name: Validate REAL dataset and cadence
+        run: |
+          python - <<'PY'
+          import os, pandas as pd
+          p=os.environ['DATA']
+          df=pd.read_csv(p)
+          ts='timestamp' if 'timestamp' in df.columns else 'time'
+          t=pd.to_datetime(df[ts], utc=True).sort_values()
+          if t.duplicated().any(): raise SystemExit('duplicate timestamps')
+          if not ((pd.to_datetime(t).min() < pd.Timestamp('2025-01-01', tz='UTC')) and (pd.to_datetime(t).max() >= pd.Timestamp('2025-12-31', tz='UTC'))):
+              raise SystemExit('dataset does not contain required pre-OOS and validation history')
+          expected={'M1':1.0,'M5':5.0,'M15':15.0}['${{ inputs.timeframe }}']
+          med=t.diff().dropna().dt.total_seconds().div(60).median()
+          if abs(float(med)-expected)>0.01: raise SystemExit(f'cadence mismatch: {med} vs {expected}')
+          print('rows',len(df),'median_cadence_minutes',med,'synthetic_fallback','FORBIDDEN')
+          PY
+
+      - name: Run v29.1 frozen robustness validation
+        run: |
+          python -m research.optimization.robustness_validation_v29_1 \
+            --data "$DATA" \
+            --timeframe '${{ inputs.timeframe }}' \
+            --output artifacts/robustness-validation-v29-1.json
+
+      - name: Validate fail-closed promotion state
+        run: |
+          python - <<'PY'
+          import json
+          p='artifacts/robustness-validation-v29-1.json'
+          d=json.load(open(p,encoding='utf-8'))
+          assert d['real_data_only'] is True
+          assert d['oos_evaluated'] is False
+          assert d['optimization_enabled'] is False
+          assert d['execution_model']['entry']=='next_bar_open'
+          assert d['execution_model']['round_trip_cost_pips']==1.4
+          assert d['execution_model']['same_bar_resolution']=='SL first (conservative)'
+          assert d['execution_model']['overlap']=='one position at a time'
+          assert d['promotion_gate']['ready_for_oos'] == d['promotion_gate']['robustness_pass']
+          if d['promotion_gate']['ready_for_oos']:
+              assert d['validation']['strict_gate_pass'] is True
+          print('V29.1_VALIDATION_SCHEMA_OK')
+          print('robustness_pass=', d['promotion_gate']['robustness_pass'])
+          print('ready_for_oos=', d['promotion_gate']['ready_for_oos'])
+          PY
+
+      - name: Upload v29.1 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: robustness-validation-v29-1-${{ inputs.timeframe }}
+          path: artifacts/robustness-validation-v29-1.json
+          if-no-files-found: error
