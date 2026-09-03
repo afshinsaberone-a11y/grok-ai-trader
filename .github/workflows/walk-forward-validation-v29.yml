@@ -1,0 +1,116 @@
+name: ForexAI v29 Real Walk-Forward Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: "Validation timeframe"
+        required: true
+        default: "M5"
+        type: choice
+        options: [M1, M5, M15]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: v29 real walk-forward (${{ inputs.timeframe }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verify runtime
+        run: |
+          python - <<'PY'
+          import numpy, pandas
+          print("numpy", numpy.__version__)
+          print("pandas", pandas.__version__)
+          PY
+
+      - name: Download REAL EURUSD M1 data
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --start 2022-01-01 \
+            --end 2026-01-01 \
+            --timeframe M1 \
+            --output data/real
+
+      - name: Locate and validate REAL dataset
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real -type f -iname '*EURUSD*M1*.csv' | sort | head -n 1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          export DATA
+          python - <<'PY'
+          import os
+          import pandas as pd
+          from pathlib import Path
+          p = Path(os.environ["DATA"])
+          if "EURUSD" not in p.name.upper() or "M1" not in p.name.upper():
+              raise SystemExit(f"STRICT_REAL_DATA_GUARD: unexpected file {p}")
+          df = pd.read_csv(p)
+          ts = pd.to_datetime(df["timestamp"], utc=True)
+          if len(df) < 100_000:
+              raise SystemExit("REAL_DATA_REQUIRED: unexpectedly small dataset")
+          if ts.min() >= pd.Timestamp("2025-01-01", tz="UTC"):
+              raise SystemExit("REAL_DATA_REQUIRED: no discovery history")
+          if ts.max() < pd.Timestamp("2025-12-01", tz="UTC"):
+              raise SystemExit("REAL_DATA_REQUIRED: validation period incomplete")
+          print("rows", len(df))
+          print("start", ts.min())
+          print("end", ts.max())
+          PY
+
+      - name: Run v29 validation
+        run: |
+          python -m research.optimization.walk_forward_validation_v29 \
+            --data "$DATA" \
+            --timeframe "${{ inputs.timeframe }}" \
+            --output artifacts/walk-forward-validation-v29-${{ inputs.timeframe }}.json
+
+      - name: Validate v29 artifact
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("artifacts/walk-forward-validation-v29-${{ inputs.timeframe }}.json")
+          d = json.loads(p.read_text())
+          required = ["schema", "real_data_only", "selected_candidate", "validation", "promotion_gate", "oos"]
+          missing = [k for k in required if k not in d]
+          if missing:
+              raise SystemExit(f"V29_ARTIFACT_INVALID: missing {missing}")
+          if d["schema"] != "forexai.walk_forward_validation.v29":
+              raise SystemExit("V29_SCHEMA_MISMATCH")
+          if d["real_data_only"] is not True:
+              raise SystemExit("V29_REAL_DATA_ONLY_FAILED")
+          if d["oos_loaded"] is not False or d["oos"]["evaluated"] is not False:
+              raise SystemExit("V29_OOS_ISOLATION_FAILED")
+          if d["validation"]["pass"] and not d["promotion_gate"]["ready_for_oos"]:
+              raise SystemExit("V29_GATE_INCONSISTENT")
+          print("V29_VALIDATION_ARTIFACT_OK")
+          print("selected", d["selected_candidate"]["params"])
+          print("validation_pass", d["validation"]["pass"])
+          print("ready_for_oos", d["promotion_gate"]["ready_for_oos"])
+          PY
+
+      - name: Upload v29 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: walk-forward-validation-v29-${{ inputs.timeframe }}
+          path: artifacts/walk-forward-validation-v29-${{ inputs.timeframe }}.json
+          if-no-files-found: error
