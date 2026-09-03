@@ -50,7 +50,7 @@ jobs:
             --start "$START" \
             --end "$END" \
             --timeframe M15 \
-            --output-dir data/real \
+            --output data/real \
             --validate \
             --manifest
 
