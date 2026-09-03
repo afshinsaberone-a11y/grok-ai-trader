@@ -1,0 +1,177 @@
+name: Cost-Aware Multi-Family Discovery v15
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: "Research timeframe"
+        required: true
+        default: "M5"
+        type: choice
+        options: [M5]
+      start:
+        description: "Pre-OOS start"
+        required: true
+        default: "2022-01-01"
+        type: string
+      end:
+        description: "Pre-OOS end (exclusive; 2026 remains holdout)"
+        required: true
+        default: "2026-01-01"
+        type: string
+      spread_pips:
+        description: "Adverse spread cost per side in pips"
+        required: true
+        default: "0.5"
+        type: string
+      slippage_pips:
+        description: "Adverse slippage cost per side in pips"
+        required: true
+        default: "0.2"
+        type: string
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m py_compile research/optimization/cost_aware_discovery_v15.py
+          python - <<'PY'
+          import pandas as pd
+          from research.optimization.cost_aware_discovery_v15 import backtest_execution_equivalent
+          df=pd.DataFrame({'timestamp':pd.date_range('2022-01-01',periods=80,freq='5min',tz='UTC'),'Open':1.10,'High':1.101,'Low':1.099,'Close':1.10,'Volume':100})
+          df=df.set_index('timestamp')
+          m=backtest_execution_equivalent(df,'trend_ema_rsi',{'atr_stop':1.0,'rr':2.0})
+          assert m['execution_model']=='v28.1_next_bar_open'
+          assert m['round_trip_cost_pips']==1.4
+          print('DISCOVERY_V15_EXECUTION_TEST=PASS')
+          PY
+
+  discover:
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        family:
+          - trend_ema_rsi
+          - momentum_breakout
+          - donchian_breakout
+          - bollinger_mean_reversion
+          - rsi_mean_reversion
+          - session_range_breakout
+          - volatility_expansion
+          - sp2l_lite
+          - volatility_switch_momentum_reversal
+          - skew_kurt_momentum
+          - regime_zscore_reversion
+          - ichimoku_regime_trend
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate requested timeframe
+        env:
+          TF: ${{ inputs.timeframe }}
+        run: test "$TF" = "M5"
+      - name: Restore real HistData cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-eurusd-m1-pre-oos-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: |
+            histdata-eurusd-m1-pre-oos-
+            histdata-eurusd-m1-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download REAL M1 data only
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Build deterministic REAL M5 dataset
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+          src=Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          if not src.exists(): raise SystemExit(f'REAL_DATA_REQUIRED: missing {src}')
+          df=pd.read_csv(src); df['timestamp']=pd.to_datetime(df['timestamp'],utc=True)
+          for c in ['open','high','low','close','volume']: df[c]=pd.to_numeric(df[c],errors='raise')
+          m5=df.set_index('timestamp')[['open','high','low','close','volume']].resample('5min').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna(subset=['open','high','low','close']).reset_index()
+          if not m5['timestamp'].diff().dropna().eq(pd.Timedelta('5min')).all(): raise SystemExit('INVALID_M5_CADENCE')
+          out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv'); out.parent.mkdir(parents=True,exist_ok=True); m5.to_csv(out,index=False); print('REAL_M5_ROWS=',len(m5))
+          PY
+      - name: Run v15 execution-equivalent discovery
+        env:
+          FAMILY: ${{ matrix.family }}
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          python -m research.optimization.cost_aware_discovery_v15 --data data/real/normalized/EURUSD_M5_20220101_20251231.csv --family "$FAMILY" --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE" --output "artifacts/${FAMILY}.json"
+          python - <<'PY'
+          import json,os
+          p=f"artifacts/{os.environ['FAMILY']}.json"; d=json.load(open(p,encoding='utf-8')); r=d['result']
+          assert d['real_data_required'] is True and d['synthetic_fallback'] is False
+          assert d['oos_policy']['status']=='HELD_OUT' and d['oos_policy']['loaded'] is False
+          assert r['execution_model']=='v28.1_next_bar_open'
+          print(json.dumps({'family':r['family'],'candidate_total':r['candidate_total'],'qualified_count':r['qualified_count']}))
+          PY
+      - name: Upload family artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-aware-v15-${{ matrix.family }}
+          path: artifacts/${{ matrix.family }}.json
+          if-no-files-found: warn
+
+  aggregate:
+    if: ${{ always() }}
+    needs: discover
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download family artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cost-aware-v15-*
+          path: artifacts/families
+          merge-multiple: false
+      - name: Aggregate without manufacturing a Champion
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files=sorted(Path('artifacts/families').glob('cost-aware-v15-*/**/*.json'))
+          results=[]
+          for p in files:
+              d=json.loads(p.read_text(encoding='utf-8')); r=d.get('result',d)
+              if not isinstance(r,dict): raise SystemExit(f'INVALID_ARTIFACT_SCHEMA: {p}')
+              if r.get('execution_model')!='v28.1_next_bar_open': raise SystemExit(f'EXECUTION_MODEL_MISMATCH: {p}')
+              results.append(r)
+          qualified=[r['champion'] for r in results if r.get('champion')]
+          qualified.sort(key=lambda x:(-float(x['cost_aware_robustness_score']),x['family'],x['candidate']))
+          report={'schema_version':'forexai.cost_aware_multi_family.v15','execution_model':'v28.1_next_bar_open','execution_cost_model':{'spread_pips_per_side':float('${{ inputs.spread_pips }}'),'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),'round_trip_pips':2*(float('${{ inputs.spread_pips }}')+float('${{ inputs.slippage_pips }}'))},'results':results,'qualified_count':len(qualified),'candidate_pool':qualified[:20],'champion':None,'promotion_status':'NOT_PROMOTED','oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False}
+          out=Path('artifacts/cost_aware_summary_v15.json'); out.parent.mkdir(parents=True,exist_ok=True); out.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8'); print(json.dumps({'families':len(results),'qualified_count':len(qualified),'champion':None,'promotion_status':'NOT_PROMOTED'},indent=2))
+          PY
+      - name: Upload aggregate artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-aware-summary-v15
+          path: artifacts/cost_aware_summary_v15.json
+          if-no-files-found: warn
