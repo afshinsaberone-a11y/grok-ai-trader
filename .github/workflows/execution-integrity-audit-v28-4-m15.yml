@@ -1,0 +1,89 @@
+name: ForexAI Execution Integrity Audit v28.4 M15
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: v28.4 M15 workflow smoke-to-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Python runtime
+        run: |
+          python --version
+          python - <<'PY'
+          print("FOREXAI_V28_4_JOB_OK")
+          PY
+
+      - name: Run real M15 execution-integrity audit
+        env:
+          START: "2022-01-01"
+          END: "2026-01-01"
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --start "$START" \
+            --end "$END" \
+            --timeframe M15 \
+            --output-dir data/real \
+            --validate \
+            --manifest
+
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M15_*.csv' -print -quit)"
+          test -n "$DATA"
+          case "$DATA" in
+            *"_M15_"*.csv) ;;
+            *) echo "Invalid M15 dataset filename: $DATA"; exit 1 ;;
+          esac
+          echo "DATA=$DATA"
+          export DATA
+
+          python - <<'PY'
+          import os
+          import pandas as pd
+          from pathlib import Path
+          p = Path(os.environ["DATA"])
+          d = pd.read_csv(p, parse_dates=["timestamp"])
+          if d.empty:
+              raise SystemExit("M15 dataset is empty")
+          ts = pd.to_datetime(d["timestamp"], utc=True).sort_values()
+          cadence = ts.diff().dropna().dt.total_seconds().div(60)
+          median = float(cadence.median()) if not cadence.empty else float("nan")
+          print(f"M15_CANDLES={len(d)}")
+          print(f"M15_MEDIAN_CADENCE_MINUTES={median}")
+          if abs(median - 15.0) > 1e-9:
+              raise SystemExit(f"Unexpected M15 median cadence: {median}")
+          PY
+
+          python -m research.optimization.execution_integrity_audit_v28_1 \
+            --data "$DATA" \
+            --output artifacts/execution-integrity-audit-v28-4-m15.json
+
+      - name: Validate audit artifact
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("artifacts/execution-integrity-audit-v28-4-m15.json")
+          if not p.exists():
+              raise SystemExit("Audit artifact was not created")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          print(json.dumps(data, indent=2)[:12000])
+          if not data:
+              raise SystemExit("Audit artifact is empty")
+          PY
+
+      - name: Upload v28.4 artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-integrity-audit-v28-4-m15
+          path: artifacts/execution-integrity-audit-v28-4-m15.json
+          if-no-files-found: error
