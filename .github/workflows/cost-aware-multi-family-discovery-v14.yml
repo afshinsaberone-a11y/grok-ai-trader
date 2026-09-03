@@ -40,9 +40,9 @@ jobs:
         run: |
           python - <<'PY'
           from research.optimization.cost_aware_gate_v14 import pre_oos_gate
-          def m(year,pf,ex,trades=100,dd=10):
-              return {'year':year,'metrics':{'profit_factor':pf,'expectancy_R':ex,'trades':trades,'max_dd_pct':dd}}
-          assert not pre_oos_gate([m(2022,1.013,.01),m(2023,.795,-.03),m(2024,.605,-.05)])
+          def m(year,pf,ex,trades=100,dd=10,total_r=10):
+              return {'year':year,'metrics':{'profit_factor':pf,'expectancy_R':ex,'trades':trades,'max_dd_pct':dd,'total_R':total_r}}
+          assert not pre_oos_gate([m(2022,1.013,.01),m(2023,.795,-.03,total_r=-3),m(2024,.605,-.05,total_r=-5)])
           assert not pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02,dd=36),m(2024,1.02,.01)])
           assert pre_oos_gate([m(2022,1.05,.01),m(2023,1.12,.02),m(2024,1.06,.01)])
           print('STRICT_COST_AWARE_GATE_V14=PASS')
