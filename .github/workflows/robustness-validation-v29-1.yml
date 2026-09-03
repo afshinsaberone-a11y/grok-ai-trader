@@ -6,7 +6,7 @@ on:
       timeframe:
         description: Research timeframe
         required: true
-        default: M5
+        default: M1
         type: choice
         options: [M1, M5, M15]
 
@@ -58,6 +58,7 @@ jobs:
           test -n "$DATA"
           test -f "$DATA"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "Selected timeframe: $TF"
           echo "Using REAL dataset: $DATA"
 
       - name: Validate REAL dataset and cadence
@@ -65,15 +66,17 @@ jobs:
           python - <<'PY'
           import os, pandas as pd
           p=os.environ['DATA']
+          tf='${{ inputs.timeframe }}'
+          expected={'M1':1.0,'M5':5.0,'M15':15.0}[tf]
           df=pd.read_csv(p)
           ts='timestamp' if 'timestamp' in df.columns else 'time'
           t=pd.to_datetime(df[ts], utc=True).sort_values()
           if t.duplicated().any(): raise SystemExit('duplicate timestamps')
           if not ((t.min() < pd.Timestamp('2025-01-01', tz='UTC')) and (t.max() >= pd.Timestamp('2025-12-31', tz='UTC'))):
               raise SystemExit('dataset does not contain required pre-OOS and validation history')
-          expected={'M1':1.0,'M5':5.0,'M15':15.0}['${{ inputs.timeframe }}']
           med=t.diff().dropna().dt.total_seconds().div(60).median()
           if abs(float(med)-expected)>0.01: raise SystemExit(f'cadence mismatch: {med} vs {expected}')
+          print('selected_timeframe',tf)
           print('rows',len(df),'median_cadence_minutes',med,'synthetic_fallback','FORBIDDEN')
           PY
 
