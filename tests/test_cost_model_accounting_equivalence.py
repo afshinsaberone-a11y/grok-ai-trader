@@ -30,7 +30,7 @@ def test_round_trip_cost_is_two_sided():
 
 def test_zero_cost_cannot_be_worse_due_to_execution_costs():
     df = _bars()
-    params = {"atr_period": 14, "atr_stop": 1.5, "rr": 2.0}
+    params = {"atr_period": 14, "atr_stop": 1.5, "rr": 2.0, "threshold": 0.001}
     free = backtest_cost_aware(df, "momentum_breakout", params, spread_pips=0.0, slippage_pips=0.0)
     costly = backtest_cost_aware(df, "momentum_breakout", params, spread_pips=0.5, slippage_pips=0.2)
     assert costly["trades"] == free["trades"]
@@ -40,4 +40,4 @@ def test_zero_cost_cannot_be_worse_due_to_execution_costs():
 
 def test_negative_execution_costs_fail_closed():
     with pytest.raises(ValueError, match="execution costs cannot be negative"):
-        backtest_cost_aware(_bars(), "momentum_breakout", {"atr_period": 14, "atr_stop": 1.5, "rr": 2.0}, spread_pips=-0.1, slippage_pips=0.0)
+        backtest_cost_aware(_bars(), "momentum_breakout", {"atr_period": 14, "atr_stop": 1.5, "rr": 2.0, "threshold": 0.001}, spread_pips=-0.1, slippage_pips=0.0)
