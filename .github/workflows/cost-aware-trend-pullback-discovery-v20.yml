@@ -36,7 +36,7 @@ jobs:
           python -m py_compile research/optimization/cost_aware_trend_pullback_v20.py
           python - <<'PY'
           from research.optimization.cost_aware_trend_pullback_v20 import catalog
-          c=catalog(); assert len(c)==972; assert len({tuple(sorted(x.items())) for x in c})==972
+          c=catalog(); assert len(c)==324; assert len({tuple(sorted(x.items())) for x in c})==324
           print('v20 catalog OK:',len(c))
           PY
   discover:
