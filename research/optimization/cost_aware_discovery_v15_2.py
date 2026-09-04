@@ -75,29 +75,37 @@ def backtest(df: pd.DataFrame, family: str, params: dict[str, Any], *, spread_pi
             if s==0 or not np.isfinite(a) or a<=0: continue
             pos=int(s); raw=op[i]; entry=raw+(adverse if pos==1 else -adverse)
             sd=float(params["atr_stop"])*a; stop=entry-pos*sd; tp=entry+pos*float(params["rr"])*sd; entry_i=i; entries+=1; continue
-        s=sig[i-1]; ex=None
+        s=sig[i-1]; ex=None; trade_r=None
         if pos==1:
             if lo[i] <= stop: ex=stop
             elif hi[i] >= tp: ex=tp
             elif s==-1: ex=cl[i]-adverse
             elif i-entry_i >= MAX_HOLD_BARS: ex=cl[i]-adverse
             if ex is not None:
-                rs.append((ex-entry)/abs(entry-stop)); pos=0; exits+=1
+                trade_r=(ex-entry)/abs(entry-stop); rs.append(trade_r); pos=0; exits+=1
         else:
             if hi[i] >= stop: ex=stop
             elif lo[i] <= tp: ex=tp
             elif s==1: ex=cl[i]+adverse
             elif i-entry_i >= MAX_HOLD_BARS: ex=cl[i]+adverse
             if ex is not None:
-                rs.append((entry-ex)/abs(stop-entry)); pos=0; exits+=1
-        if len(rs) > 0:
-            equity *= 1 + RISK_PCT*rs[-1]; peak=max(peak,equity); maxdd=max(maxdd,(peak-equity)/peak)
+                trade_r=(entry-ex)/abs(stop-entry); rs.append(trade_r); pos=0; exits+=1
+        # Update equity exactly once, only when a trade closes.
+        if trade_r is not None:
+            equity *= 1 + RISK_PCT*trade_r
+            peak=max(peak,equity)
+            maxdd=max(maxdd,(peak-equity)/peak)
     if pos:
         ex=cl[-1]-adverse if pos==1 else cl[-1]+adverse
         rs.append((ex-entry)/abs(entry-stop) if pos==1 else (entry-ex)/abs(stop-entry)); pos=0; exits+=1
         equity *= 1 + RISK_PCT*rs[-1]; peak=max(peak,equity); maxdd=max(maxdd,(peak-equity)/peak)
     if entries != exits or pos != 0:
         raise SystemExit(f"EXECUTION_INTEGRITY_FAIL: entries={entries} exits={exits} pos={pos}")
+    expected_equity=10000.0
+    for rr in rs:
+        expected_equity *= 1 + RISK_PCT*rr
+    if not np.isclose(equity, expected_equity, rtol=1e-12, atol=1e-9):
+        raise SystemExit(f"EXECUTION_INTEGRITY_FAIL: equity_mismatch observed={equity} expected={expected_equity}")
     n=len(rs); wins=sum(x>0 for x in rs); gp=sum(x for x in rs if x>0); gl=abs(sum(x for x in rs if x<=0)); pf=gp/gl if gl else ("inf" if gp>0 else 0.0); total=float(sum(rs))
     return {"trades":n,"win_rate":round(100*wins/n,2) if n else 0.0,"total_R":round(total,2),"expectancy_R":round(total/n,4) if n else 0.0,"profit_factor":round(float(pf),3) if pf!="inf" and np.isfinite(pf) else pf,"max_dd_pct":round(100*maxdd,2),"final_equity":round(equity,2),"entries":entries,"exits":exits,"open_position_end":False,"ohlc_invariants_passed":True,"spread_pips":float(spread_pips),"slippage_pips":float(slippage_pips),"round_trip_cost_pips":round(2*(spread_pips+slippage_pips),4),"execution_model":"v28.1_next_bar_open"}
 
