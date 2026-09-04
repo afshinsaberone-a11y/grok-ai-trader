@@ -1,0 +1,187 @@
+name: Cost-Aware Targeted Discovery v15.2
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: "Research timeframe"
+        required: true
+        default: "M5"
+        type: choice
+        options: [M5]
+      start:
+        description: "Pre-OOS start"
+        required: true
+        default: "2022-01-01"
+        type: string
+      end:
+        description: "Pre-OOS end (exclusive; 2026 remains holdout)"
+        required: true
+        default: "2026-01-01"
+        type: string
+      spread_pips:
+        description: "Adverse spread cost per side"
+        required: true
+        default: "0.5"
+        type: string
+      slippage_pips:
+        description: "Adverse slippage cost per side"
+        required: true
+        default: "0.2"
+        type: string
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies and compile
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m py_compile research/optimization/cost_aware_discovery_v15_2.py
+      - name: Execution integrity unit test
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from research.optimization.cost_aware_discovery_v15_2 import backtest
+          df=pd.DataFrame({'timestamp':pd.date_range('2022-01-01',periods=120,freq='5min',tz='UTC'),'Open':1.10,'High':1.101,'Low':1.099,'Close':1.10,'Volume':100}).set_index('timestamp')
+          for fam,p in [
+            ('session_range_breakout',{'atr_stop':1.2,'rr':1.5,'session_start_hour':7,'breakout_buffer_pips':0.0}),
+            ('momentum_breakout',{'atr_stop':2.2,'rr':2.5,'mom':5,'threshold':0.003,'don':10}),
+            ('regime_zscore_reversion',{'atr_stop':1.2,'rr':2.0,'zscore_lookback':60,'entry_z':2.0,'max_vol_ratio':1.0,'trend':100}),
+          ]:
+            p.update({'atr':14,'bb':20,'fast':13,'slow':89,'rsi':14})
+            m=backtest(df,fam,p)
+            assert m['execution_model']=='v28.1_next_bar_open'
+            assert m['round_trip_cost_pips']==1.4
+            assert m['entries']==m['exits']
+            assert m['open_position_end'] is False
+            assert m['ohlc_invariants_passed'] is True
+          print('DISCOVERY_V15_2_TEST=PASS')
+          PY
+
+  discover:
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        family:
+          - session_range_breakout
+          - momentum_breakout
+          - regime_zscore_reversion
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate requested timeframe
+        env:
+          TF: ${{ inputs.timeframe }}
+        run: test "$TF" = "M5"
+      - name: Restore real HistData cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-eurusd-m1-pre-oos-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: |
+            histdata-eurusd-m1-pre-oos-
+            histdata-eurusd-m1-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download REAL M1 data only
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Build deterministic REAL M5 dataset
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import pandas as pd
+          src=Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          if not src.exists(): raise SystemExit(f'REAL_DATA_REQUIRED: missing {src}')
+          df=pd.read_csv(src); df['timestamp']=pd.to_datetime(df['timestamp'],utc=True)
+          for c in ['open','high','low','close','volume']: df[c]=pd.to_numeric(df[c],errors='raise')
+          if not df['timestamp'].is_monotonic_increasing or df['timestamp'].duplicated().any(): raise SystemExit('INVALID_M1_TIMESTAMP_ORDER_OR_DUPLICATES')
+          if not (df['timestamp'].dt.second.eq(0)&df['timestamp'].dt.microsecond.eq(0)).all(): raise SystemExit('INVALID_M1_TIMESTAMP_ALIGNMENT')
+          start=pd.Timestamp(os.environ['START'],tz='UTC'); end=pd.Timestamp(os.environ['END'],tz='UTC')
+          df=df[(df.timestamp>=start)&(df.timestamp<end)].copy()
+          if df.empty: raise SystemExit('REAL_DATA_REQUIRED: empty requested interval')
+          g=df.set_index('timestamp')[['open','high','low','close','volume']].resample('5min')
+          m5=g.agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}); counts=g['close'].count()
+          complete=counts.eq(5); m5=m5.loc[complete].dropna(subset=['open','high','low','close']).reset_index()
+          if m5.empty: raise SystemExit('REAL_DATA_REQUIRED: no fully observed M5 buckets')
+          if m5.timestamp.duplicated().any() or not m5.timestamp.dt.minute.mod(5).eq(0).all(): raise SystemExit('INVALID_M5_ALIGNMENT')
+          print('REAL_M5_ROWS=',len(m5)); print('REAL_M5_INCOMPLETE_BUCKETS_DROPPED=',int((~complete).sum())); print('REAL_M5_GAPS_GT_5MIN=',int((m5.timestamp.diff().dropna()>pd.Timedelta('5min')).sum())); print('REAL_M5_NO_SYNTHETIC_FILL=true')
+          out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv'); out.parent.mkdir(parents=True,exist_ok=True); m5.to_csv(out,index=False)
+          PY
+      - name: Run targeted v15.2 discovery
+        env:
+          FAMILY: ${{ matrix.family }}
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          python -m research.optimization.cost_aware_discovery_v15_2 --data data/real/normalized/EURUSD_M5_20220101_20251231.csv --family "$FAMILY" --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE" --output "artifacts/${FAMILY}.json"
+          python - <<'PY'
+          import json,os
+          d=json.load(open(f"artifacts/{os.environ['FAMILY']}.json",encoding='utf-8'))
+          r=d['result']; assert d['real_data_required'] and not d['synthetic_fallback']; assert d['oos_policy']['status']=='HELD_OUT' and not d['oos_policy']['loaded']; assert r['execution_model']=='v28.1_next_bar_open'; print(json.dumps({'family':r['family'],'candidate_total':r['candidate_total'],'qualified_count':r['qualified_count']}))
+          PY
+      - name: Upload family artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: targeted-v15-2-${{ matrix.family }}
+          path: artifacts/${{ matrix.family }}.json
+          if-no-files-found: warn
+
+  aggregate:
+    if: ${{ always() }}
+    needs: discover
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download family artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: targeted-v15-2-*
+          path: artifacts/families
+          merge-multiple: false
+      - name: Aggregate fail-closed
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files=sorted(Path('artifacts/families').glob('targeted-v15-2-*/**/*.json')); results=[]
+          for p in files:
+            d=json.loads(p.read_text(encoding='utf-8')); r=d['result']
+            if r.get('execution_model')!='v28.1_next_bar_open': raise SystemExit(f'EXECUTION_MODEL_MISMATCH:{p}')
+            results.append(r)
+          qualified=[x for r in results for x in r.get('candidate_pool',[])]
+          qualified.sort(key=lambda x:(-float(x['cost_aware_robustness_score']),x['family'],x['candidate']))
+          report={'schema_version':'forexai.cost_aware_targeted_discovery.v15.2','research_timeframe':'M5','execution_model':'v28.1_next_bar_open','execution_cost_model':{'spread_pips_per_side':float('${{ inputs.spread_pips }}'),'slippage_pips_per_side':float('${{ inputs.slippage_pips }}'),'round_trip_pips':2*(float('${{ inputs.spread_pips }}')+float('${{ inputs.slippage_pips }}'))},'results':results,'qualified_count':len(qualified),'candidate_pool':qualified[:20],'champion':None,'promotion_status':'NOT_PROMOTED','oos_policy':{'loaded':False,'start':'2026-01-01','status':'HELD_OUT'},'real_data_required':True,'synthetic_fallback':False}
+          Path('artifacts').mkdir(exist_ok=True); Path('artifacts/cost_aware_targeted_summary_v15_2.json').write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8'); print(json.dumps({'families':len(results),'qualified_count':len(qualified),'champion':None,'promotion_status':'NOT_PROMOTED'},indent=2))
+          PY
+      - name: Upload aggregate artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: targeted-summary-v15-2
+          path: artifacts/cost_aware_targeted_summary_v15_2.json
+          if-no-files-found: error
