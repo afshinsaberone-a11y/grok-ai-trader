@@ -63,6 +63,15 @@ jobs:
             assert m['ohlc_invariants_passed'] is True
           print('DISCOVERY_V15_2_TEST=PASS')
           PY
+      - name: Regression guard against repeated equity compounding
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('research/optimization/cost_aware_discovery_v15_2.py').read_text(encoding='utf-8')
+          assert 'if len(rs) > 0:' not in src, 'REGRESSION: stale repeated-equity-compounding pattern detected'
+          assert 'equity_mismatch' in src, 'REGRESSION: equity consistency guard missing'
+          print('DISCOVERY_V15_2_EQUITY_REGRESSION_GUARD=PASS')
+          PY
 
   discover:
     needs: tests
