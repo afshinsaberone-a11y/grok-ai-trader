@@ -96,8 +96,9 @@ jobs:
           python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
           DATASET="$(find data/real/normalized -maxdepth 1 -type f -name 'EURUSD_M5_*.csv' -print | sort | tail -n 1)"
           test -n "$DATASET"
+          echo "DATASET=$DATASET"
           echo "DATASET=$DATASET" >> "$GITHUB_ENV"
-          python - <<'PY'
+          DATASET="$DATASET" python - <<'PY'
           import os,pandas as pd
           p=os.environ['DATASET']; d=pd.read_csv(p); ts=pd.to_datetime(d['timestamp'],utc=True)
           assert len(d)>0 and not ts.duplicated().any() and ts.is_monotonic_increasing
