@@ -86,7 +86,7 @@ jobs:
           python -m research.optimization.cost_aware_structural_momentum_v16 --data data/real/normalized/EURUSD_M5_20220101_20251231.csv --output artifacts/structural_momentum_v16.json --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE"
           python - <<'PY'
           import json
-          d=json.load(open('artifacts/structural_momentum_v16.json')); assert d['real_data_required'] and not d['synthetic_fallback']; assert d['oos_policy']['status']=='HELD_OUT'; assert d['result']['execution_model']=='v28.1_next_bar_open'; print(json.dumps({'candidate_total':d['result']['candidate_total'],'qualified_count':d['result']['qualified_count'],'top_candidate':d['result']['top_20_diagnostics'][0]['candidate']}))
+          d=json.load(open('artifacts/structural_momentum_v16.json')); assert d['real_data_required'] and not d['synthetic_fallback']; assert d['oos_policy']['status']=='HELD_OUT'; assert d['result']['execution_model']=='v28.1_next_bar_open'; assert d['research_timeframe']=='M5'; print(json.dumps({'candidate_total':d['result']['candidate_total'],'qualified_count':d['result']['qualified_count'],'top_candidate':d['result']['top_20_diagnostics'][0]['candidate']}))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
