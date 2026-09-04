@@ -1,5 +1,6 @@
 name: Cost-Aware Frequency-Adaptive Momentum Discovery v18.1.1
 on:
+  push: []
   workflow_dispatch:
     inputs:
       timeframe:
