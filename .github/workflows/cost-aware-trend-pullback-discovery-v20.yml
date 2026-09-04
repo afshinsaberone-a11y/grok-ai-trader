@@ -32,7 +32,7 @@ jobs:
           python -m py_compile research/optimization/cost_aware_trend_pullback_v20.py
           python - <<'PY'
           from research.optimization.cost_aware_trend_pullback_v20 import catalog
-          c=catalog(); assert len(c)==648; assert len({tuple(sorted(x.items())) for x in c})==648
+          c=catalog(); assert len(c)==972; assert len({tuple(sorted(x.items())) for x in c})==972
           print('v20 catalog OK:',len(c))
           PY
   discover:
@@ -90,7 +90,7 @@ jobs:
           assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
           assert r['execution_model']=='v28.1_next_bar_open'
           assert r['champion'] is None
-          assert r['candidate_total']==648
+          assert r['candidate_total']==972
           for x in r['top_20_diagnostics']:
             for y in x['pre_oos']:
               m=y['metrics']; assert m['entries']==m['exits'] and m['open_position'] is False
