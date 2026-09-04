@@ -64,15 +64,21 @@ jobs:
           pip install -r requirements.txt
       - name: Download REAL M1 only
         env: {START: ${{ inputs.start }}, END: ${{ inputs.end }}}
-        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+          test -d data/real/normalized
+          find data/real/normalized -maxdepth 1 -type f -name 'EURUSD_M1_*.csv' -print
+          test "$(find data/real/normalized -maxdepth 1 -type f -name 'EURUSD_M1_*.csv' | wc -l)" -ge 1
       - name: Build REAL M5 deterministically
         env: {START: ${{ inputs.start }}, END: ${{ inputs.end }}}
         run: |
           python - <<'PY'
           import os,pandas as pd
           from pathlib import Path
-          src=Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
-          if not src.exists(): raise SystemExit('REAL_DATA_REQUIRED')
+          candidates=sorted(Path('data/real/normalized').glob('EURUSD_M1_*.csv'))
+          if not candidates: raise SystemExit('REAL_DATA_REQUIRED: no normalized M1 dataset')
+          if len(candidates) != 1: raise SystemExit(f'AMBIGUOUS_REAL_M1_DATASETS: {candidates}')
+          src=candidates[0]
           d=pd.read_csv(src); d.timestamp=pd.to_datetime(d.timestamp,utc=True)
           for c in ['open','high','low','close','volume']: d[c]=pd.to_numeric(d[c],errors='raise')
           if d.timestamp.duplicated().any() or not d.timestamp.is_monotonic_increasing: raise SystemExit('INVALID_M1')
@@ -81,8 +87,13 @@ jobs:
           g=d.set_index('timestamp')[['open','high','low','close','volume']].resample('5min')
           m=g.agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}); complete=g['close'].count().eq(5); m=m.loc[complete].dropna().reset_index()
           if m.empty: raise SystemExit('REAL_DATA_REQUIRED_EMPTY_M5')
+          inv=(m['high']>=m[['open','close']].max(axis=1))&(m['low']<=m[['open','close']].min(axis=1))&(m['high']>=m['low'])
+          if not bool(inv.all()): raise SystemExit('INVALID_M5_OHLC_INVARIANT')
+          if m.timestamp.duplicated().any(): raise SystemExit('INVALID_M5_DUPLICATES')
+          if not ((m.timestamp.dt.second==0)&(m.timestamp.dt.microsecond==0)&(m.timestamp.dt.minute.mod(5)==0)).all(): raise SystemExit('INVALID_M5_ALIGNMENT')
+          gaps=int((m.timestamp.diff().dropna()>pd.Timedelta('5min')).sum())
           m.to_csv('data/real/normalized/EURUSD_M5_20220101_20251231.csv',index=False)
-          print('REAL_M5_ROWS=',len(m)); print('INCOMPLETE_BUCKETS_DROPPED=',int((~complete).sum())); print('REAL_M5_NO_SYNTHETIC_FILL=true')
+          print('REAL_M5_ROWS=',len(m)); print('INCOMPLETE_BUCKETS_DROPPED=',int((~complete).sum())); print('REAL_M5_GAPS_GT_5MIN=',gaps); print('REAL_M5_NO_SYNTHETIC_FILL=true')
           PY
       - name: Run v18.1
         env: {SPREAD: ${{ inputs.spread_pips }}, SLIPPAGE: ${{ inputs.slippage_pips }}}
@@ -95,6 +106,7 @@ jobs:
           assert d['oos_policy']['status']=='HELD_OUT' and not d['oos_policy']['loaded']
           assert d['research_timeframe']=='M5'
           assert d['result']['execution_model']=='v28.1_next_bar_open'
+          assert d.get('execution_model',{}).get('round_trip_cost_pips')==1.4
           print(json.dumps({'candidate_total':d['result']['candidate_total'],'qualified_count':d['result']['qualified_count'],'top_candidate':d['result']['top_20_diagnostics'][0]['candidate']}))
           PY
       - name: Upload artifact
