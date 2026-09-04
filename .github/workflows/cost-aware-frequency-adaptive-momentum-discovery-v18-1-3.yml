@@ -1,0 +1,132 @@
+name: Cost-Aware Frequency-Adaptive Momentum Discovery v18.1.3
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: "Research timeframe"
+        required: true
+        default: M5
+        type: choice
+        options: [M5]
+      start:
+        description: "Discovery start"
+        required: true
+        default: '2022-01-01'
+        type: string
+      end:
+        description: "Discovery end (exclusive; 2026 is never loaded)"
+        required: true
+        default: '2026-01-01'
+        type: string
+      spread_pips:
+        description: "Adverse spread per side"
+        required: true
+        default: '0.5'
+        type: string
+      slippage_pips:
+        description: "Adverse slippage per side"
+        required: true
+        default: '0.2'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    if: ${{ github.event_name }} == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and integrity regression
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m py_compile research/optimization/cost_aware_frequency_adaptive_momentum_v18_1_2.py
+          python - <<'PY'
+          import pandas as pd
+          from research.optimization.cost_aware_frequency_adaptive_momentum_v18_1_2 import bt,catalog
+          d=pd.DataFrame({'timestamp':pd.date_range('2022-01-03',periods=300,freq='5min',tz='UTC'),'Open':1.1,'High':1.101,'Low':1.099,'Close':1.1002,'Volume':100}).set_index('timestamp')
+          m=bt(d,catalog()[0])
+          assert m['execution_model']=='v28.1_next_bar_open'
+          assert m['round_trip_cost_pips']==1.4
+          assert m['entries']==m['exits']
+          assert not m['open_position_end']
+          assert abs(m['final_equity']-10000.0)<1e-9
+          print('V18_1_3_GATE=PASS')
+          PY
+
+  discover:
+    if: ${{ github.event_name }} == 'workflow_dispatch'
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate manual M5 dispatch
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TF: ${{ inputs.timeframe }}
+        run: |
+          test "$EVENT_NAME" = workflow_dispatch
+          test "$TF" = M5
+      - name: Restore REAL HistData cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-eurusd-m1-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: |
+            histdata-eurusd-m1-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Canonical REAL M5 ingestion
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+          DATASET="$(find data/real/normalized -maxdepth 1 -type f -name 'EURUSD_M5_*.csv' -print | sort | tail -n 1)"
+          test -n "$DATASET"
+          echo "DATASET=$DATASET" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import os,pandas as pd
+          p=os.environ['DATASET']; d=pd.read_csv(p); ts=pd.to_datetime(d['timestamp'],utc=True)
+          assert len(d)>0 and not ts.duplicated().any() and ts.is_monotonic_increasing
+          assert (ts.dt.minute % 5 == 0).all()
+          for c in ['open','high','low','close','volume']: pd.to_numeric(d[c],errors='raise')
+          assert ts.max() < pd.Timestamp('2026-01-01',tz='UTC')
+          print('REAL_M5_DATASET=',p)
+          print('REAL_M5_ROWS=',len(d))
+          print('REAL_M5_NO_SYNTHETIC_FILL=true')
+          PY
+      - name: Execute bounded v18.1.3 research
+        env:
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          python -m research.optimization.cost_aware_frequency_adaptive_momentum_v18_1_2 --data "$DATASET" --output artifacts/frequency_adaptive_momentum_v18_1_3.json --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE"
+          python - <<'PY'
+          import json
+          d=json.load(open('artifacts/frequency_adaptive_momentum_v18_1_3.json',encoding='utf-8'))
+          assert d['real_data_required'] and not d['synthetic_fallback']
+          assert d['oos_policy']['status']=='HELD_OUT' and d['oos_policy']['loaded'] is False
+          assert d['research_timeframe']=='M5'
+          assert d['result']['execution_model']=='v28.1_next_bar_open'
+          print(json.dumps({'candidate_total':d['result']['candidate_total'],'qualified_count':d['result']['qualified_count'],'top_candidate':d['result']['top_20_diagnostics'][0]['candidate']}))
+          PY
+      - name: Upload result artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frequency-adaptive-momentum-v18-1-3
+          path: artifacts/frequency_adaptive_momentum_v18_1_3.json
+          if-no-files-found: error
