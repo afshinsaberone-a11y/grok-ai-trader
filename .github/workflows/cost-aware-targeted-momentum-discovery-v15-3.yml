@@ -1,0 +1,138 @@
+name: Cost-Aware Targeted Momentum Discovery v15.3
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: "Research timeframe"
+        required: true
+        default: "M5"
+        type: choice
+        options: [M5]
+      start:
+        description: "Pre-OOS start"
+        required: true
+        default: "2022-01-01"
+        type: string
+      end:
+        description: "Pre-OOS end (exclusive; 2026 remains holdout)"
+        required: true
+        default: "2026-01-01"
+        type: string
+      spread_pips:
+        description: "Adverse spread cost per side"
+        required: true
+        default: "0.5"
+        type: string
+      slippage_pips:
+        description: "Adverse slippage cost per side"
+        required: true
+        default: "0.2"
+        type: string
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install and compile
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m py_compile research/optimization/cost_aware_targeted_momentum_v15_3.py
+      - name: Deterministic integrity test
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from research.optimization.cost_aware_targeted_momentum_v15_3 import backtest, catalog
+          df=pd.DataFrame({'timestamp':pd.date_range('2022-01-01',periods=200,freq='5min',tz='UTC'),'Open':1.10,'High':1.101,'Low':1.099,'Close':1.1002,'Volume':100}).set_index('timestamp')
+          m=backtest(df,catalog()[0])
+          assert m['execution_model']=='v28.1_next_bar_open'
+          assert m['round_trip_cost_pips']==1.4
+          assert m['entries']==m['exits']
+          assert m['open_position_end'] is False
+          assert m['ohlc_invariants_passed'] is True
+          assert abs(m['final_equity']-10000.0) < 1e-9
+          print('DISCOVERY_V15_3_TEST=PASS')
+          PY
+
+  discover:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate requested timeframe
+        env:
+          TF: ${{ inputs.timeframe }}
+        run: test "$TF" = "M5"
+      - name: Restore real HistData cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/histdata
+          key: histdata-eurusd-m1-pre-oos-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: |
+            histdata-eurusd-m1-pre-oos-
+            histdata-eurusd-m1-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download REAL M1 data only
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
+      - name: Build deterministic REAL M5 dataset
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os,pandas as pd
+          src=Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          if not src.exists(): raise SystemExit(f'REAL_DATA_REQUIRED: missing {src}')
+          df=pd.read_csv(src); df['timestamp']=pd.to_datetime(df['timestamp'],utc=True)
+          for c in ['open','high','low','close','volume']: df[c]=pd.to_numeric(df[c],errors='raise')
+          if not df['timestamp'].is_monotonic_increasing or df['timestamp'].duplicated().any(): raise SystemExit('INVALID_M1_TIMESTAMP_ORDER_OR_DUPLICATES')
+          start=pd.Timestamp(os.environ['START'],tz='UTC'); end=pd.Timestamp(os.environ['END'],tz='UTC')
+          df=df[(df.timestamp>=start)&(df.timestamp<end)].copy()
+          if df.empty: raise SystemExit('REAL_DATA_REQUIRED: empty requested interval')
+          g=df.set_index('timestamp')[['open','high','low','close','volume']].resample('5min')
+          m5=g.agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}); counts=g['close'].count()
+          complete=counts.eq(5); m5=m5.loc[complete].dropna(subset=['open','high','low','close']).reset_index()
+          if m5.empty: raise SystemExit('REAL_DATA_REQUIRED: no fully observed M5 buckets')
+          if m5.timestamp.duplicated().any() or not m5.timestamp.dt.minute.mod(5).eq(0).all(): raise SystemExit('INVALID_M5_ALIGNMENT')
+          print('REAL_M5_ROWS=',len(m5)); print('REAL_M5_INCOMPLETE_BUCKETS_DROPPED=',int((~complete).sum()))
+          print('REAL_M5_GAPS_GT_5MIN=',int((m5.timestamp.diff().dropna()>pd.Timedelta('5min')).sum())); print('REAL_M5_NO_SYNTHETIC_FILL=true')
+          out=Path('data/real/normalized/EURUSD_M5_20220101_20251231.csv'); out.parent.mkdir(parents=True,exist_ok=True); m5.to_csv(out,index=False)
+          PY
+      - name: Run targeted v15.3
+        env:
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
+        run: |
+          python -m research.optimization.cost_aware_targeted_momentum_v15_3 --data data/real/normalized/EURUSD_M5_20220101_20251231.csv --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE" --output artifacts/momentum_breakout.json
+          python - <<'PY'
+          import json
+          d=json.load(open('artifacts/momentum_breakout.json',encoding='utf-8')); r=d['result']
+          assert d['real_data_required'] is True and d['synthetic_fallback'] is False
+          assert d['oos_policy']['status']=='HELD_OUT' and d['oos_policy']['loaded'] is False
+          assert r['execution_model']=='v28.1_next_bar_open'
+          print(json.dumps({'candidate_total':r['candidate_total'],'qualified_count':r['qualified_count'],'top_candidate':r['top_20_diagnostics'][0]['candidate']}))
+          PY
+      - name: Upload discovery artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: targeted-momentum-v15-3
+          path: artifacts/momentum_breakout.json
+          if-no-files-found: error
