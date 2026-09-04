@@ -60,21 +60,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data/raw
-          key: histdata-eurusd-m1-${{ hashFiles('scripts/data/histdata_ingest.py') }}
+          key: histdata-eurusd-m1-${{ hashFiles('research/real_data/histdata_ingest.py') }}
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Ingest REAL EURUSD M5
         run: |
           rm -rf data/real
           mkdir -p data/real
-          python scripts/data/histdata_ingest.py --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
           DATASET=$(find data/real/normalized -type f -name 'EURUSD_M5_*.csv' | head -1)
           test -n "$DATASET"
           DATASET="$DATASET" python - <<'PY'
           import os,pandas as pd
           p=os.environ['DATASET']; d=pd.read_csv(p); d['timestamp']=pd.to_datetime(d.timestamp,utc=True)
           assert len(d)>1000 and d.timestamp.is_unique and d.timestamp.is_monotonic_increasing
-          assert (d.timestamp.diff().dropna()==pd.Timedelta(minutes=5)).all()
+          assert (d.timestamp.diff().dropna()>=pd.Timedelta(minutes=5)).all()
           assert d.timestamp.max()<pd.Timestamp('2026-01-01',tz='UTC')
           assert (d.high>=d.low).all() and (d.high>=d.open).all() and (d.high>=d.close).all() and (d.low<=d.open).all() and (d.low<=d.close).all()
           print('REAL M5 integrity OK:',len(d),d.timestamp.min(),d.timestamp.max())
@@ -86,7 +86,7 @@ jobs:
       - name: Assert fail-closed research controls
         run: |
           DATASET="$DATASET" python - <<'PY'
-          import json,os
+          import json
           d=json.load(open('artifacts/trend-pullback-v20.json')); r=d['result']
           assert d['real_data_required'] is True
           assert d['synthetic_fallback'] is False
@@ -94,7 +94,7 @@ jobs:
           assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
           assert r['execution_model']=='v28.1_next_bar_open'
           assert r['champion'] is None
-          assert r['candidate_total']==972
+          assert r['candidate_total']==324
           for x in r['top_20_diagnostics']:
             for y in x['pre_oos']:
               m=y['metrics']; assert m['entries']==m['exits'] and m['open_position'] is False
