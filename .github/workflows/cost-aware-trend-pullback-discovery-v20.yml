@@ -1,0 +1,104 @@
+name: Cost-Aware Trend Pullback Discovery v20
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: Discovery start
+        required: true
+        default: '2022-01-01'
+      end:
+        description: Holdout boundary
+        required: true
+        default: '2026-01-01'
+      spread:
+        description: Spread pips per side
+        required: true
+        default: '0.5'
+      slippage:
+        description: Slippage pips per side
+        required: true
+        default: '0.2'
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Compile and regression gate
+        run: |
+          python -m py_compile research/optimization/cost_aware_trend_pullback_v20.py
+          python - <<'PY'
+          from research.optimization.cost_aware_trend_pullback_v20 import catalog
+          c=catalog(); assert len(c)==648; assert len({tuple(sorted(x.items())) for x in c})==648
+          print('v20 catalog OK:',len(c))
+          PY
+  discover:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      START: ${{ inputs.start }}
+      END: ${{ inputs.end }}
+      SPREAD: ${{ inputs.spread }}
+      SLIPPAGE: ${{ inputs.slippage }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Validate dispatch
+        run: |
+          test "$START" = '2022-01-01'
+          test "$END" = '2026-01-01'
+      - name: Cache REAL HistData raw files
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: histdata-eurusd-m1-${{ hashFiles('scripts/data/histdata_ingest.py') }}
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Ingest REAL EURUSD M5
+        run: |
+          rm -rf data/real
+          mkdir -p data/real
+          python scripts/data/histdata_ingest.py --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+          DATASET=$(find data/real/normalized -type f -name 'EURUSD_M5_*.csv' | head -1)
+          test -n "$DATASET"
+          DATASET="$DATASET" python - <<'PY'
+          import os,pandas as pd
+          p=os.environ['DATASET']; d=pd.read_csv(p); d['timestamp']=pd.to_datetime(d.timestamp,utc=True)
+          assert len(d)>1000 and d.timestamp.is_unique and d.timestamp.is_monotonic_increasing
+          assert (d.timestamp.diff().dropna()==pd.Timedelta(minutes=5)).all()
+          assert d.timestamp.max()<pd.Timestamp('2026-01-01',tz='UTC')
+          assert (d.high>=d.low).all() and (d.high>=d.open).all() and (d.high>=d.close).all() and (d.low<=d.open).all() and (d.low<=d.close).all()
+          print('REAL M5 integrity OK:',len(d),d.timestamp.min(),d.timestamp.max())
+          PY
+          echo "DATASET=$DATASET" >> "$GITHUB_ENV"
+      - name: Run v20 trend pullback discovery
+        run: |
+          python -m research.optimization.cost_aware_trend_pullback_v20 --data "$DATASET" --output artifacts/trend-pullback-v20.json --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE"
+      - name: Assert fail-closed research controls
+        run: |
+          DATASET="$DATASET" python - <<'PY'
+          import json,os
+          d=json.load(open('artifacts/trend-pullback-v20.json')); r=d['result']
+          assert d['real_data_required'] is True
+          assert d['synthetic_fallback'] is False
+          assert d['research_timeframe']=='M5'
+          assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
+          assert r['execution_model']=='v28.1_next_bar_open'
+          assert r['champion'] is None
+          assert r['candidate_total']==648
+          for x in r['top_20_diagnostics']:
+            for y in x['pre_oos']:
+              m=y['metrics']; assert m['entries']==m['exits'] and m['open_position'] is False
+          print('v20 fail-closed controls OK; qualified=',r['qualified_count'])
+          PY
+      - name: Upload v20 result
+        uses: actions/upload-artifact@v4
+        with:
+          name: trend-pullback-v20
+          path: artifacts/trend-pullback-v20.json
+          if-no-files-found: error
