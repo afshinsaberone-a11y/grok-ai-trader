@@ -1,0 +1,116 @@
+name: Cost-Aware London Breakout Discovery v21
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: 'Research start (UTC)'
+        required: true
+        default: '2022-01-01'
+      end:
+        description: 'Research end (UTC; 2026 is held out)'
+        required: true
+        default: '2026-01-01'
+      spread_pips:
+        description: 'Spread cost per side (pips)'
+        required: true
+        default: '0.5'
+      slippage_pips:
+        description: 'Slippage cost per side (pips)'
+        required: true
+        default: '0.2'
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile and regression gate
+        run: |
+          python -m py_compile research/optimization/cost_aware_london_breakout_v21.py
+          python - <<'PY'
+          from research.optimization.cost_aware_london_breakout_v21 import catalog
+          c=catalog()
+          assert len(c)==324, len(c)
+          assert len({tuple(sorted(x.items())) for x in c})==324
+          assert all(x['range_start']==7 for x in c)
+          assert all(x['range_end'] in (9,10) and x['breakout_end'] in (13,14,15) for x in c)
+          print('v21 catalog OK:',len(c))
+          PY
+
+  discover:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      START: ${{ inputs.start }}
+      END: ${{ inputs.end }}
+      SPREAD: ${{ inputs.spread_pips }}
+      SLIPPAGE: ${{ inputs.slippage_pips }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Validate dispatch
+        run: |
+          test "$START" = '2022-01-01'
+          test "$END" = '2026-01-01'
+          python - <<'PY'
+          from research.optimization.cost_aware_london_breakout_v21 import catalog
+          assert len(catalog())==324
+          print('Dispatch and catalog validated')
+          PY
+      - name: Cache REAL HistData raw files
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw
+          key: histdata-eurusd-2022-2025-m1-v1
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Ingest REAL EURUSD M5
+        run: |
+          mkdir -p data/real
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+          DATASET=$(find data/real/normalized -type f -name 'EURUSD_M5_*.csv' | head -1)
+          test -n "$DATASET"
+          DATASET="$DATASET" python - <<'PY'
+          import os,pandas as pd
+          p=os.environ['DATASET']; d=pd.read_csv(p); d['timestamp']=pd.to_datetime(d.timestamp,utc=True)
+          assert len(d)>1000 and d.timestamp.is_unique and d.timestamp.is_monotonic_increasing
+          gaps=d.timestamp.diff().dropna(); assert (gaps>=pd.Timedelta(minutes=5)).all()
+          assert d.timestamp.max()<pd.Timestamp('2026-01-01',tz='UTC')
+          assert (d.high>=d.low).all() and (d.high>=d.open).all() and (d.high>=d.close).all() and (d.low<=d.open).all() and (d.low<=d.close).all()
+          print('REAL M5 integrity OK:',len(d),d.timestamp.min(),d.timestamp.max())
+          PY
+          echo "DATASET=$DATASET" >> "$GITHUB_ENV"
+      - name: Run v21 London Breakout discovery
+        run: |
+          DATASET="$DATASET" python -m research.optimization.cost_aware_london_breakout_v21 \
+            --data "$DATASET" --output artifacts/london_breakout_v21.json \
+            --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE"
+      - name: Assert fail-closed research controls
+        run: |
+          DATASET="$DATASET" python - <<'PY'
+          import json,os,pandas as pd
+          r=json.load(open('artifacts/london_breakout_v21.json'))
+          assert r['real_data_required'] is True
+          assert r['synthetic_fallback'] is False
+          assert r['research_timeframe']=='M5'
+          assert r['oos_policy']['loaded'] is False and r['oos_policy']['status']=='HELD_OUT'
+          assert r['result']['execution_model']=='v28.1_next_bar_open'
+          assert r['result']['champion'] is None
+          assert r['result']['candidate_total']==324
+          for x in r['result']['top_20_diagnostics']:
+              for y in x['pre_oos']:
+                  m=y['metrics']; assert m['entries']==m['exits'] and m['open_position'] is False
+          print('FAIL-CLOSED CONTROLS OK:',r['result']['qualified_count'],'qualified')
+          PY
+      - name: Upload v21 result
+        uses: actions/upload-artifact@v4
+        with:
+          name: london-breakout-v21
+          path: artifacts/london_breakout_v21.json
