@@ -1,0 +1,80 @@
+name: ForexAI v24 Cost-Aware Structure Transition Discovery
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: Research timeframe
+        required: true
+        default: M5
+        type: choice
+        options: [M5, M1, M15]
+permissions:
+  contents: read
+env:
+  REQUESTED_TIMEFRAME: ${{ inputs.timeframe }}
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate timeframe
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_TIMEFRAME" in M1|M5|M15) ;; *) exit 1;; esac
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Runtime check
+        run: python - <<'PY'
+          import numpy,pandas; print(numpy.__version__,pandas.__version__)
+          PY
+      - name: Download REAL EURUSD data
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe "$REQUESTED_TIMEFRAME" --output data/real --validate --manifest
+      - name: Locate exact REAL dataset
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name "EURUSD_${REQUESTED_TIMEFRAME}_20220101_20251231.csv" | sort | head -n1)"
+          test -n "$DATA"; test -f "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Validate dataset
+        run: |
+          python - <<'PY'
+          import os,pandas as pd
+          p=os.environ['DATA']; tf=os.environ['REQUESTED_TIMEFRAME']; exp={'M1':1,'M5':5,'M15':15}[tf]
+          d=pd.read_csv(p); ts=pd.to_datetime(d['timestamp'],utc=True)
+          assert not ts.duplicated().any(); assert ts.min()<pd.Timestamp('2025-01-01',tz='UTC'); assert ts.max()>=pd.Timestamp('2025-12-31',tz='UTC')
+          med=ts.sort_values().diff().dropna().dt.total_seconds().div(60).median(); assert abs(float(med)-exp)<.01,(med,exp)
+          print('REAL_DATA_OK',tf,len(d),med)
+          PY
+      - name: Assert v24 catalog is exactly 648
+        run: |
+          python - <<'PY'
+          from research.optimization.cost_aware_structure_transition_v24 import catalog
+          c=catalog(); assert len(c)==648,len(c); assert len({str(sorted(x.items())) for x in c})==648; print('CATALOG_OK',len(c))
+          PY
+      - name: Run v24
+        run: python -m research.optimization.cost_aware_structure_transition_v24 --data "$DATA" --timeframe "$REQUESTED_TIMEFRAME" --output artifacts/structure-transition-v24.json
+      - name: Fail-closed controls
+        run: |
+          python - <<'PY'
+          import json,os
+          d=json.load(open('artifacts/structure-transition-v24.json')); tf=os.environ['REQUESTED_TIMEFRAME']
+          assert d['real_data_only'] is True and d['synthetic_fallback'] is False
+          assert d['timeframe']==tf and d['oos_evaluated'] is False and d['optimization_enabled'] is False
+          assert d['candidate_total']==648
+          e=d['execution_model']; assert e['entry']=='next_bar_open' and e['round_trip_cost_pips']==1.4 and e['same_bar_resolution']=='SL first (conservative)' and e['expiry_bars']==30 and e['overlap']=='one position at a time' and e['adverse_exit_cost_applied'] is True
+          assert d['champion'] is None
+          print('V24_FAIL_CLOSED_OK','qualified=',d['pre_oos_qualified_count'])
+          PY
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: structure-transition-v24-${{ env.REQUESTED_TIMEFRAME }}
+          path: artifacts/structure-transition-v24.json
+          if-no-files-found: error
