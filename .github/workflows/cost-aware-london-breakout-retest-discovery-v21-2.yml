@@ -20,9 +20,13 @@ jobs:
         run: |
           python -m py_compile research/optimization/cost_aware_london_breakout_retest_v21_2.py
           python - <<'PY'
-          from research.optimization.cost_aware_london_breakout_retest_v21_2 import catalog
+          from research.optimization.cost_aware_london_breakout_retest_v21_2 import catalog, bt
+          import inspect
           c=catalog(); assert len(c)==324; assert len({tuple(sorted(x.items())) for x in c})==324
-          print('v21.2 catalog OK:',len(c))
+          src=inspect.getsource(bt)
+          assert 'entry_j=k+1' in src
+          assert 'entry=float(g.iloc[entry_j].Open)' in src
+          print('v21.2 catalog + next-bar retest entry gate OK:',len(c))
           PY
   discover:
     needs: gate
