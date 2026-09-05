@@ -1,0 +1,95 @@
+name: Cost-Aware Volatility Compression Expansion Discovery v23
+on:
+  workflow_dispatch:
+    inputs:
+      start: {required: true, default: '2022-01-01'}
+      end: {required: true, default: '2026-01-01'}
+      spread_pips: {required: true, default: '0.5'}
+      slippage_pips: {required: true, default: '0.2'}
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: python -m pip install -r requirements.txt
+      - name: Compile and regression gate
+        run: |
+          python -m py_compile research/optimization/cost_aware_volatility_compression_expansion_v23.py
+          python - <<'PY'
+          from research.optimization.cost_aware_volatility_compression_expansion_v23 import catalog,bt
+          import pandas as pd
+          c=catalog()
+          assert len(c)==288 and len({tuple(sorted(x.items())) for x in c})==288
+          d=pd.DataFrame({'timestamp':pd.date_range('2022-01-03',periods=400,freq='5min',tz='UTC'),'Open':1.1,'High':1.101,'Low':1.099,'Close':1.1002,'Volume':100})
+          d['timestamp']=pd.to_datetime(d['timestamp'],utc=True); d['day']=d['timestamp'].dt.date
+          tr=pd.concat([d['High']-d['Low'],(d['High']-d['Close'].shift()).abs(),(d['Low']-d['Open'].shift()).abs()],axis=1).max(axis=1)
+          d['atr']=tr.rolling(14).mean(); d['atr_base']=d['atr'].rolling(50).mean(); d['ema200']=d['Close'].ewm(span=200,adjust=False).mean()
+          m=bt(d,c[0]); assert m['execution_model']=='v28.1_next_bar_open' and m['entries']==m['exits'] and not m['open_position']
+          print('v23 gate PASS:',len(c))
+          PY
+  discover:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      START: ${{ inputs.start }}
+      END: ${{ inputs.end }}
+      SPREAD: ${{ inputs.spread_pips }}
+      SLIPPAGE: ${{ inputs.slippage_pips }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: python -m pip install -r requirements.txt
+      - name: Validate dispatch
+        run: |
+          test "$START" = '2022-01-01'
+          test "$END" = '2026-01-01'
+      - name: Cache REAL HistData raw files
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw
+          key: histdata-eurusd-$START-$END
+          restore-keys: histdata-eurusd-
+      - name: Ingest REAL EURUSD M5
+        run: |
+          mkdir -p data/real
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+          DATASET="$(find data/real/normalized -type f -name 'EURUSD_M5_*.csv' | head -1)"
+          test -n "$DATASET"
+          DATASET="$DATASET" python - <<'PY'
+          import os,pandas as pd
+          p=os.environ['DATASET']; d=pd.read_csv(p); d['timestamp']=pd.to_datetime(d.timestamp,utc=True)
+          assert len(d)>1000 and d.timestamp.is_unique and d.timestamp.is_monotonic_increasing
+          assert (d.timestamp.diff().dropna()>=pd.Timedelta(minutes=5)).all()
+          assert d.timestamp.max()<pd.Timestamp('2026-01-01',tz='UTC')
+          assert (d.high>=d.low).all() and (d.high>=d.open).all() and (d.high>=d.close).all() and (d.low<=d.open).all() and (d.low<=d.close).all()
+          print('REAL M5 integrity OK:',len(d),d.timestamp.min(),d.timestamp.max())
+          PY
+          echo "DATASET=$DATASET" >> "$GITHUB_ENV"
+      - name: Run v23
+        run: python -m research.optimization.cost_aware_volatility_compression_expansion_v23 --data "$DATASET" --output artifacts/volatility_compression_expansion_v23.json --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE"
+      - name: Assert fail-closed controls
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('artifacts/volatility_compression_expansion_v23.json'));r=d['result']
+          assert d['real_data_required'] and not d['synthetic_fallback']
+          assert d['research_timeframe']=='M5'
+          assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
+          assert r['execution_model']=='v28.1_next_bar_open' and r['candidate_total']==288 and r['champion'] is None
+          for x in r['top_20_diagnostics']:
+            for y in x['pre_oos']:
+              m=y['metrics']; assert m['entries']==m['exits'] and m['open_position'] is False
+          print('FAIL-CLOSED OK:',r['qualified_count'],'qualified')
+          PY
+      - name: Upload v23 result
+        uses: actions/upload-artifact@v4
+        with:
+          name: volatility-compression-expansion-v23
+          path: artifacts/volatility_compression_expansion_v23.json
+          if-no-files-found: error
