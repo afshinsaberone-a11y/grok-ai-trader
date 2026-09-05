@@ -25,6 +25,7 @@ from research.optimization.execution_contract_v1 import ExecutionConfig, apply_e
 PIP_SIZE=.0001
 RISK_PCT=.005
 MAX_HOLD_BARS=30
+SAME_BAR_RESOLUTION='SL first (conservative)'
 FAMILY="momentum_breakout"
 
 def _pf(m): return 3.0 if m.get("profit_factor")=="inf" else float(m.get("profit_factor",0.0))
@@ -54,7 +55,7 @@ def backtest(df:pd.DataFrame,p:dict[str,Any],*,spread_pips=.5,slippage_pips=.2):
             entry_i=i; entries+=1; continue
         q=s[i-1]; tr=None
         if pos==1:
-            if lo[i]<=stop: tr=cfg.adverse_price_per_side*0 + (apply_exit_cost(stop,pos,cfg)-entry)/abs(entry-stop)
+            if lo[i]<=stop: tr=(apply_exit_cost(stop,pos,cfg)-entry)/abs(entry-stop)
             elif hi[i]>=tp: tr=(apply_exit_cost(tp,pos,cfg)-entry)/abs(entry-stop)
             elif q==-1: tr=(apply_exit_cost(cl[i],pos,cfg)-entry)/abs(entry-stop)
             elif i-entry_i>=MAX_HOLD_BARS: tr=(apply_exit_cost(cl[i],pos,cfg)-entry)/abs(entry-stop)
