@@ -10,19 +10,42 @@ TARGETS=[
 "research/optimization/robustness_validation_v29_1.py",
 ]
 def main():
- rows=[]
- for rel in TARGETS:
-  p=ROOT/rel
-  if not p.exists(): rows.append({"file":rel,"status":"MISSING"}); continue
-  s=p.read_text(encoding="utf-8")
-  rows.append({"file":rel,"status":"OK","unified_contract": "from research.optimization.execution_contract_v1 import" in s,"next_bar_open":("next_bar_open" in s or "next-bar-open" in s),"cost_1_4":("1.4" in s),"sl_first":("SL first" in s or "same_bar_sl_first" in s),"oos_guard":("2026-01-01" in s or "OOS_START" in s or "held_out" in s.lower())})
- required=["unified_contract","next_bar_open","cost_1_4","sl_first","oos_guard"]
+    rows=[]
+    for rel in TARGETS:
+        p=ROOT/rel
+        if not p.exists():
+            rows.append({"file":rel,"status":"MISSING"})
+            continue
+        s=p.read_text(encoding="utf-8")
+        rows.append({
+            "file":rel,
+            "status":"OK",
+            "unified_contract":"from research.optimization.execution_contract_v1 import" in s,
+            "next_bar_open":("next_bar_open" in s or "next-bar-open" in s),
+            "cost_1_4":("1.4" in s),
+            "sl_first":("SL first" in s or "same_bar_sl_first" in s or "SL_first" in s),
+            "oos_guard":("2026-01-01" in s or "OOS_START" in s or "held_out" in s.lower()),
+        })
+    required=["unified_contract","next_bar_open","cost_1_4","sl_first","oos_guard"]
     failures=[]
     for row in rows:
-        if row.get("status")!="OK": failures.append(f"{row["file"]}:missing")
+        if row.get("status")!="OK":
+            failures.append(f"{row['file']}:missing")
         for key in required:
-            if row.get(key) is not True: failures.append(f"{row["file"]}:{key}")
-    report={"schema":"forexai.execution_research_audit.v1","gate":"cost_aware_gate_v14","oos":"2026-01-01 held out","targets":rows,"failures":failures,"decision":"PASS_STANDARDIZATION" if not failures else "BLOCK_NEW_DISCOVERY"}
-    if failures: raise SystemExit("EXECUTION_RESEARCH_AUDIT_FAIL:"+",".join(failures))
- Path("artifacts").mkdir(exist_ok=True);Path("artifacts/execution-research-audit-v1.json").write_text(json.dumps(report,indent=2),encoding="utf-8");print(json.dumps(report,indent=2))
-if __name__=="__main__": main()
+            if row.get(key) is not True:
+                failures.append(f"{row['file']}:{key}")
+    report={
+        "schema":"forexai.execution_research_audit.v1",
+        "gate":"cost_aware_gate_v14",
+        "oos":"2026-01-01 held out",
+        "targets":rows,
+        "failures":failures,
+        "decision":"PASS_STANDARDIZATION" if not failures else "BLOCK_NEW_DISCOVERY",
+    }
+    Path("artifacts").mkdir(exist_ok=True)
+    Path("artifacts/execution-research-audit-v1.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+    print(json.dumps(report,indent=2))
+    if failures:
+        raise SystemExit("EXECUTION_RESEARCH_AUDIT_FAIL:"+",".join(failures))
+if __name__=="__main__":
+    main()
