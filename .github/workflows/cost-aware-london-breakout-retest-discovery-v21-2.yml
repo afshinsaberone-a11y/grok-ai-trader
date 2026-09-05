@@ -1,0 +1,87 @@
+name: Cost-Aware London Breakout Retest Discovery v21.2
+on:
+  workflow_dispatch:
+    inputs:
+      start: {required: true, default: '2022-01-01'}
+      end: {required: true, default: '2026-01-01'}
+      spread_pips: {required: true, default: '0.5'}
+      slippage_pips: {required: true, default: '0.2'}
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: python -m pip install -r requirements.txt
+      - name: Compile and regression gate
+        run: |
+          python -m py_compile research/optimization/cost_aware_london_breakout_retest_v21_2.py
+          python - <<'PY'
+          from research.optimization.cost_aware_london_breakout_retest_v21_2 import catalog
+          c=catalog(); assert len(c)==1944; assert len({tuple(sorted(x.items())) for x in c})==1944
+          print('v21.2 catalog OK:',len(c))
+          PY
+  discover:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      START: ${{ inputs.start }}
+      END: ${{ inputs.end }}
+      SPREAD: ${{ inputs.spread_pips }}
+      SLIPPAGE: ${{ inputs.slippage_pips }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Validate dispatch
+        run: |
+          test "$START" = '2022-01-01'
+          test "$END" = '2026-01-01'
+      - run: python -m pip install -r requirements.txt
+      - name: Cache REAL HistData raw files
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw
+          key: histdata-eurusd-${{ inputs.start }}-${{ inputs.end }}
+          restore-keys: histdata-eurusd-
+      - name: Ingest REAL EURUSD M5
+        run: |
+          mkdir -p data/real
+          python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+          DATASET="$(find data/real/normalized -type f -name 'EURUSD_M5_*.csv' | head -1)"
+          test -n "$DATASET"
+          DATASET="$DATASET" python - <<'PY'
+          import os,pandas as pd
+          p=os.environ['DATASET'];d=pd.read_csv(p);d['timestamp']=pd.to_datetime(d.timestamp,utc=True)
+          assert len(d)>1000 and d.timestamp.is_unique and d.timestamp.is_monotonic_increasing
+          assert (d.timestamp.diff().dropna()>=pd.Timedelta(minutes=5)).all()
+          assert d.timestamp.max()<pd.Timestamp('2026-01-01',tz='UTC')
+          assert (d.high>=d.low).all() and (d.high>=d.open).all() and (d.high>=d.close).all() and (d.low<=d.open).all() and (d.low<=d.close).all()
+          print('REAL M5 integrity OK:',len(d),d.timestamp.min(),d.timestamp.max())
+          PY
+          echo "DATASET=$DATASET" >> "$GITHUB_ENV"
+      - name: Run v21.2
+        run: python -m research.optimization.cost_aware_london_breakout_retest_v21_2 --data "$DATASET" --output artifacts/london_breakout_retest_v21_2.json --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE"
+      - name: Assert fail-closed controls
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('artifacts/london_breakout_retest_v21_2.json'));r=d['result']
+          assert d['real_data_required'] and not d['synthetic_fallback']
+          assert d['research_timeframe']=='M5'
+          assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
+          assert r['execution_model']=='v28.1_next_bar_open' and r['candidate_total']==1944 and r['champion'] is None
+          for x in r['top_20_diagnostics']:
+            for y in x['pre_oos']:
+              assert y['metrics']['entries']==y['metrics']['exits'] and not y['metrics']['open_position']
+          print('FAIL-CLOSED OK:',r['qualified_count'],'qualified')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: london-breakout-retest-v21-2
+          path: artifacts/london_breakout_retest_v21_2.json
+          if-no-files-found: error
