@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from research.optimization.multi_family_discovery import FAMILIES, _native, catalog, indicators, signal_family
+from research.optimization.execution_contract_v1 import ExecutionConfig, apply_entry_cost, apply_exit_cost
 from research.optimization.cost_aware_gate_v14 import (
     PRE_OOS_YEARS, MIN_PROFITABLE_YEARS, MIN_PF_EACH_YEAR,
     MIN_EXPECTANCY_R, MIN_TRADES_EACH_YEAR, PRE_OOS_MAX_DD_PCT,
@@ -61,7 +62,8 @@ def backtest_execution_equivalent(
     entry = stop = tp = 0.0
     entry_bar = -1
     rs: list[float] = []
-    cost = round_trip_cost_price(spread_pips, slippage_pips)
+    cfg = ExecutionConfig(spread_pips=spread_pips, slippage_pips=slippage_pips)
+    cost = cfg.adverse_price_per_side * 2.0
 
     # Signal at i is tradable only from i+1 open onward.
     for j in range(1, len(d)):
@@ -74,7 +76,7 @@ def backtest_execution_equivalent(
             if prev_signal == 0:
                 continue
             pos = int(prev_signal)
-            entry = opens[j]
+            entry = apply_entry_cost(opens[j], pos, cfg)
             sd = float(params["atr_stop"]) * a
             stop = entry - pos * sd
             tp = entry + pos * float(params["rr"]) * sd
@@ -87,7 +89,7 @@ def backtest_execution_equivalent(
         if (pos == 1 and prev_signal == -1) or (pos == -1 and prev_signal == 1):
             ex = opens[j]
             r = ((ex - entry) / abs(entry - stop) if pos == 1 else (entry - ex) / abs(stop - entry))
-            rs.append(r - cost / abs(entry - stop))
+            rs.append(r - 2.0 * cfg.adverse_price_per_side / abs(entry - stop))
             equity *= 1.0 + RISK_PCT * rs[-1]
             pos = 0
             peak = max(peak, equity)
@@ -97,12 +99,12 @@ def backtest_execution_equivalent(
         # Stops/targets are evaluated intrabar. If both are touched, stop wins.
         if pos == 1 and (low[j] <= stop or high[j] >= tp):
             ex = stop if low[j] <= stop else tp
-            rs.append((ex - entry) / abs(entry - stop) - cost / abs(entry - stop))
+            rs.append((ex - entry) / abs(entry - stop) - 2.0 * cfg.adverse_price_per_side / abs(entry - stop))
             equity *= 1.0 + RISK_PCT * rs[-1]
             pos = 0
         elif pos == -1 and (high[j] >= stop or low[j] <= tp):
             ex = stop if high[j] >= stop else tp
-            rs.append((entry - ex) / abs(stop - entry) - cost / abs(stop - entry))
+            rs.append((entry - ex) / abs(stop - entry) - 2.0 * cfg.adverse_price_per_side / abs(stop - entry))
             equity *= 1.0 + RISK_PCT * rs[-1]
             pos = 0
         elif held >= MAX_HOLD_BARS:
