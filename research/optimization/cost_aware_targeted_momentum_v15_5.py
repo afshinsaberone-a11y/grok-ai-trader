@@ -21,6 +21,7 @@ from research.optimization.cost_aware_discovery_v15 import (
     MIN_PROFITABLE_YEARS,PRE_OOS_MAX_DD_PCT,VALIDATION_MIN_PF,
     VALIDATION_MAX_DD_PCT,VALIDATION_MIN_TRADES,_cost_price,_native,indicators
 )
+from research.optimization.execution_contract_v1 import ExecutionConfig, apply_entry_cost, apply_exit_cost
 PIP_SIZE=.0001
 RISK_PCT=.005
 MAX_HOLD_BARS=30
