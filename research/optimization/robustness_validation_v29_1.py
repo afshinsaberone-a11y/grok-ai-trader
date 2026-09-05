@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from research.real_data.research_pipeline import load_real_dataset
+from research.optimization.execution_contract_v1 import ExecutionConfig, validate_ohlc, apply_entry_cost, apply_exit_cost
 from strategies.grok_ai_trader import GrokHybridStrategy
 
 PIP = 0.0001
@@ -42,7 +43,9 @@ def _frame(raw: pd.DataFrame) -> pd.DataFrame:
         "low": "Low", "close": "Close", "volume": "Volume",
     }).copy()
     d["Timestamp"] = pd.to_datetime(d["Timestamp"], utc=True)
-    return d.set_index("Timestamp").sort_index()
+    d = d.set_index("Timestamp").sort_index()
+    validate_ohlc(d)
+    return d
 
 
 def _signals(df: pd.DataFrame) -> pd.DataFrame:
@@ -55,6 +58,7 @@ def _execute(
     params: dict[str, float],
     trade_start: pd.Timestamp | None = None,
 ) -> tuple[dict[str, Any], list[float]]:
+    cfg = ExecutionConfig()
     d = _signals(df)
     o = d.Open.to_numpy(float); h = d.High.to_numpy(float)
     l = d.Low.to_numpy(float); c = d.Close.to_numpy(float)
@@ -69,7 +73,7 @@ def _execute(
             if not np.isfinite(atr[i]) or atr[i] <= 0 or sig[i] == 0:
                 continue
             position = int(sig[i]); entry_i = i + 1
-            entry_px = o[entry_i] + position * COST_PIPS_PER_SIDE * PIP
+            entry_px = apply_entry_cost(o[entry_i], position, cfg)
             risk = params["atr_mult"] * atr[i]
             stop = entry_px - position * risk
             target = entry_px + position * params["rr"] * risk
@@ -83,7 +87,7 @@ def _execute(
         if not np.isfinite(risk_unit) or risk_unit <= 0:
             continue
         if hit_sl and hit_tp:
-            exit_px = stop - position * COST_PIPS_PER_SIDE * PIP
+            exit_px = apply_exit_cost(stop, position, cfg)
             r = position * (exit_px - entry_px) / risk_unit
             reason = "same_bar_sl_first"
         elif hit_sl:
@@ -91,15 +95,15 @@ def _execute(
             r = position * (exit_px - entry_px) / risk_unit
             reason = "sl"
         elif hit_tp:
-            exit_px = target - position * COST_PIPS_PER_SIDE * PIP
+            exit_px = apply_exit_cost(target, position, cfg)
             r = position * (exit_px - entry_px) / risk_unit
             reason = "tp"
         elif sig[i] == -position and i + 1 < len(d):
-            exit_px = o[i + 1] - position * COST_PIPS_PER_SIDE * PIP
+            exit_px = apply_exit_cost(o[i + 1], position, cfg)
             r = position * (exit_px - entry_px) / risk_unit
             reason = "opposite_next_open"
         elif age >= EXPIRY_BARS:
-            exit_px = o[min(i + 1, len(d) - 1)] - position * COST_PIPS_PER_SIDE * PIP
+            exit_px = apply_exit_cost(o[min(i + 1, len(d) - 1)], position, cfg)
             r = position * (exit_px - entry_px) / (params["atr_mult"] * atr[entry_i - 1])
             reason = "expiry_next_open"
         if r is None or reason is None:
