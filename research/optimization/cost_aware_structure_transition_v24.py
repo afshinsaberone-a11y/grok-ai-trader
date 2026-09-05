@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from research.real_data.research_pipeline import load_real_dataset
+from research.optimization.execution_contract_v1 import ExecutionConfig, validate_ohlc, apply_entry_cost, apply_exit_cost
 
 PIP=0.0001; COST=0.7*PIP; START=pd.Timestamp('2022-01-01',tz='UTC'); VAL=pd.Timestamp('2025-01-01',tz='UTC'); OOS=pd.Timestamp('2026-01-01',tz='UTC'); EXPIRY=30
 PARAMS=[
@@ -32,6 +33,7 @@ def catalog():
     return out
 
 def prep(raw):
+    validate_ohlc(raw.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close'}))
     d=raw.rename(columns={'timestamp':'Timestamp','open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'}).copy()
     d['Timestamp']=pd.to_datetime(d['Timestamp'],utc=True); d=d.set_index('Timestamp').sort_index()
     prev=d['Close'].shift(1); tr=pd.concat([d.High-d.Low,(d.High-prev).abs(),(d.Low-prev).abs()],axis=1).max(axis=1)
@@ -65,14 +67,14 @@ def execute(d,p,start=None,end=None):
        if start is not None and idx[i]<start: continue
        if end is not None and idx[i]>=end: break
        if sig[i]==0 or not np.isfinite(atr[i]) or atr[i]<=0: continue
-       pos=int(sig[i]); entry_i=i+1; entry=o[entry_i]+pos*COST; risk=p['atr_stop']*atr[i]; stop=entry-pos*risk; target=entry+pos*p['rr']*risk; continue
+       pos=int(sig[i]); entry_i=i+1; entry=apply_entry_cost(o[entry_i],pos,cfg); risk=p['atr_stop']*atr[i]; stop=entry-pos*risk; target=entry+pos*p['rr']*risk; continue
       age=i-entry_i+1; hit_sl=(l[i]<=stop) if pos==1 else (h[i]>=stop); hit_tp=(h[i]>=target) if pos==1 else (l[i]<=target); r=None
       unit=p['atr_stop']*atr[entry_i-1]
       if not np.isfinite(unit) or unit<=0: continue
-      if hit_sl: r=pos*((stop-pos*COST)-entry)/unit
-      elif hit_tp: r=pos*((target-pos*COST)-entry)/unit
-      elif sig[i]==-pos and i+1<len(d): r=pos*((o[i+1]-pos*COST)-entry)/unit
-      elif age>=EXPIRY: r=pos*((o[min(i+1,len(d)-1)]-pos*COST)-entry)/unit
+      if hit_sl: r=pos*(apply_exit_cost(stop,pos,cfg)-entry)/unit
+      elif hit_tp: r=pos*(apply_exit_cost(target,pos,cfg)-entry)/unit
+      elif sig[i]==-pos and i+1<len(d): r=pos*(apply_exit_cost(o[i+1],pos,cfg)-entry)/unit
+      elif age>=EXPIRY: r=pos*(apply_exit_cost(o[min(i+1,len(d)-1)],pos,cfg)-entry)/unit
       if r is None: continue
       rs.append(float(r)); wins+=r>0; gp+=max(0,r); gl+=max(0,-r); eq*=1+float(r)*0.005; peak=max(peak,eq); dd=max(dd,(peak-eq)/peak); holds.append(age); pos=0
     n=len(rs); pf=gp/gl if gl else (3.0 if n else 0.0); total=float(sum(rs))
@@ -82,7 +84,7 @@ def gate(y):
     vals=list(y.values()); return all(v['trades']>=100 and v['profit_factor']>=1.05 and v['expectancy_R']>0 and v['total_R']>0 for v in vals) and sum(v['total_R']>0 for v in vals)>=3 and max(v['max_dd_pct'] for v in vals)<=35
 
 def run(data,timeframe,output):
-    raw=load_real_dataset(data,symbol='EURUSD',timeframe=timeframe); df=prep(raw)
+    raw=load_real_dataset(data,symbol='EURUSD',timeframe=timeframe); df=prep(raw); cfg=ExecutionConfig()
     if df.empty or df.index.min()>=OOS: raise RuntimeError('V24_REAL_DATA_REQUIRED')
     pre=df[(df.index>=START)&(df.index<VAL)]; history=df[(df.index>=START)&(df.index<OOS)]
     results=[]
