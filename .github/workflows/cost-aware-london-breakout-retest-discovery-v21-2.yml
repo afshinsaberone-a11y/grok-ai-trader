@@ -21,7 +21,7 @@ jobs:
           python -m py_compile research/optimization/cost_aware_london_breakout_retest_v21_2.py
           python - <<'PY'
           from research.optimization.cost_aware_london_breakout_retest_v21_2 import catalog
-          c=catalog(); assert len(c)==1944; assert len({tuple(sorted(x.items())) for x in c})==1944
+          c=catalog(); assert len(c)==324; assert len({tuple(sorted(x.items())) for x in c})==324
           print('v21.2 catalog OK:',len(c))
           PY
   discover:
@@ -74,7 +74,7 @@ jobs:
           assert d['real_data_required'] and not d['synthetic_fallback']
           assert d['research_timeframe']=='M5'
           assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
-          assert r['execution_model']=='v28.1_next_bar_open' and r['candidate_total']==1944 and r['champion'] is None
+          assert r['execution_model']=='v28.1_next_bar_open' and r['candidate_total']==324 and r['champion'] is None
           for x in r['top_20_diagnostics']:
             for y in x['pre_oos']:
               assert y['metrics']['entries']==y['metrics']['exits'] and not y['metrics']['open_position']
