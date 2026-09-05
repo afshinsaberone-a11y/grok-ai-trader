@@ -24,8 +24,8 @@ jobs:
           from research.optimization.cost_aware_liquidity_sweep_v22 import catalog, bt
           import pandas as pd
           c=catalog()
-          assert len(c)==576
-          assert len({tuple(sorted(x.items())) for x in c})==576
+          assert len(c)==432
+          assert len({tuple(sorted(x.items())) for x in c})==432
           d=pd.DataFrame({'timestamp':pd.date_range('2022-01-03',periods=400,freq='5min',tz='UTC'),'Open':1.1,'High':1.101,'Low':1.099,'Close':1.1002,'Volume':100})
           m=bt(d,c[0])
           assert m['execution_model']=='v28.1_next_bar_open'
@@ -86,7 +86,7 @@ jobs:
           assert d['research_timeframe']=='M5'
           assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
           assert r['execution_model']=='v28.1_next_bar_open'
-          assert r['candidate_total']==576 and r['champion'] is None
+          assert r['candidate_total']==432 and r['champion'] is None
           for x in r['top_20_diagnostics']:
             for y in x['pre_oos']:
               m=y['metrics'];assert m['entries']==m['exits'] and m['open_position'] is False
