@@ -10,14 +10,13 @@ PIP_SIZE=.0001;RISK_PCT=.005;MAX_HOLD_BARS=30;TOP_N=20
 
 def catalog():
  out=[]
- for rs in (7,8):
-  for re in (9,10):
-   for be in (13,14,15):
-    for buf in (0,.1,.2):
-     for stop in (1,1.5,2):
-      for rr in (1,1.5,2):
-       for ret in (.25,.5,1):
-        out.append(dict(range_start=rs,range_end=re,breakout_start=re,breakout_end=be,buffer_atr=buf,atr_stop=stop,rr=rr,retest_atr=ret))
+ for range_end in (9,10):
+  for breakout_end in (13,15):
+   for buf in (0,.1,.2):
+    for stop in (1,1.5,2):
+     for rr in (1,1.5,2):
+      for ret in (.25,.75):
+       out.append(dict(range_start=7,range_end=range_end,breakout_start=range_end,breakout_end=breakout_end,buffer_atr=buf,atr_stop=stop,rr=rr,retest_atr=ret))
  return out
 
 def prep(df):
