@@ -87,7 +87,7 @@ def score(pre):
  return round(float(1.5*min(pf(x) for x in ms)+.75*np.mean([pf(x) for x in ms])+2*np.tanh(sum(x['total_R'] for x in ms)/100)+np.tanh(np.mean([x['expectancy_R'] for x in ms])*10)-1.5*max(x['max_dd_pct'] for x in ms)/100),6)
 def main():
  ap=argparse.ArgumentParser();ap.add_argument('--data',required=True);ap.add_argument('--output',required=True);ap.add_argument('--spread-pips',type=float,default=.5);ap.add_argument('--slippage-pips',type=float,default=.2);a=ap.parse_args()
- d=prep(pd.read_csv(a.data));years={y:d[(d.index>=f'{y}-01-01')&(d.index<f'{y+1}-01-01')] for y in (2022,2023,2024,2025)};res=[]
+ d=prep(pd.read_csv(a.data));assert 'day' in d.columns and 'hour' in d.columns;years={y:d[(d.index>=f'{y}-01-01')&(d.index<f'{y+1}-01-01')] for y in (2022,2023,2024,2025)};res=[]
  for i,p in enumerate(catalog(),1):
   pre=[{'year':y,'metrics':bt(years[y],p,a.spread_pips,a.slippage_pips)} for y in PRE_OOS_YEARS];gr=gate(pre);res.append({'candidate':i,'params':p,'score':score(pre),'pre_oos':pre,'pre_oos_pass':not gr,'rejection_reasons':gr})
  res.sort(key=lambda x:-x['score']);fin=[x for x in res if x['pre_oos_pass']][:50];val=[]
