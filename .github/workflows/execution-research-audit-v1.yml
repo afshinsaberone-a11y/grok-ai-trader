@@ -20,6 +20,16 @@ jobs:
       - name: Assert contract
         run: |
           python -c "from research.optimization.execution_contract_v1 import ExecutionConfig; c=ExecutionConfig(); assert c.round_trip_cost_pips==1.4 and c.adverse_pips_per_side==0.7 and c.expiry_bars==30 and c.same_bar_resolution=='SL first (conservative)'; print('EXECUTION_CONTRACT_V1_OK')"
+      - name: Enforce standardization of active engines
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          targets=['research/optimization/cost_aware_discovery_v30.py','research/optimization/cost_aware_targeted_momentum_v15_5.py','research/optimization/cost_aware_structure_transition_v24.py','research/optimization/robustness_validation_v29_1.py']
+          for rel in targets:
+            text=Path(rel).read_text(encoding='utf-8')
+            assert 'from research.optimization.execution_contract_v1 import' in text, rel
+          print('ACTIVE_ENGINES_USE_UNIFIED_CONTRACT=PASS')
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: execution-research-audit-v1
