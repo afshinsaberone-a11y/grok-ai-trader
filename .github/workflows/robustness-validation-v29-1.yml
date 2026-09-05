@@ -124,6 +124,7 @@ jobs:
           assert d['execution_model']['round_trip_cost_pips']==1.4
           assert d['execution_model']['same_bar_resolution']=='SL first (conservative)'
           assert d['execution_model']['overlap']=='one position at a time'
+          assert d['validation']['metrics']['adverse_exit_cost_applied'] is True
           assert d['promotion_gate']['ready_for_oos'] == d['promotion_gate']['robustness_pass']
           if d['promotion_gate']['ready_for_oos']:
               assert d['validation']['strict_gate_pass'] is True
