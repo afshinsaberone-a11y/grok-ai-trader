@@ -40,32 +40,33 @@ def backtest(df:pd.DataFrame,p:dict[str,Any],*,spread_pips=.5,slippage_pips=.2):
     sig[(d.mom<-p["threshold"])&(d.Close<d.ll)&active]=-1
     s=sig.to_numpy(copy=False)
     op=d.Open.to_numpy(float); hi=d.High.to_numpy(float); lo=d.Low.to_numpy(float); cl=d.Close.to_numpy(float); atr=d.atr.to_numpy(float)
-    adverse=_cost_price(spread_pips,slippage_pips)
+    cfg=ExecutionConfig(spread_pips=spread_pips,slippage_pips=slippage_pips)
+    adverse=cfg.adverse_price_per_side
     equity=peak=10000.0; maxdd=0.0; pos=0; entry=stop=tp=0.0; entry_i=-1; rs=[]; entries=exits=0
     for i in range(1,len(d)):
         a=atr[i-1]
         if pos==0:
             q=s[i-1]
             if q==0 or not np.isfinite(a) or a<=0: continue
-            pos=int(q); raw=op[i]; entry=raw+(adverse if pos==1 else -adverse)
+            pos=int(q); entry=apply_entry_cost(op[i],pos,cfg)
             sd=float(p["atr_stop"])*a; stop=entry-pos*sd; tp=entry+pos*p["rr"]*sd
             entry_i=i; entries+=1; continue
         q=s[i-1]; tr=None
         if pos==1:
-            if lo[i]<=stop: tr=(stop-entry)/abs(entry-stop)
-            elif hi[i]>=tp: tr=(tp-entry)/abs(entry-stop)
-            elif q==-1: tr=(cl[i]-adverse-entry)/abs(entry-stop)
-            elif i-entry_i>=MAX_HOLD_BARS: tr=(cl[i]-adverse-entry)/abs(entry-stop)
+            if lo[i]<=stop: tr=cfg.adverse_price_per_side*0 + (apply_exit_cost(stop,pos,cfg)-entry)/abs(entry-stop)
+            elif hi[i]>=tp: tr=(apply_exit_cost(tp,pos,cfg)-entry)/abs(entry-stop)
+            elif q==-1: tr=(apply_exit_cost(cl[i],pos,cfg)-entry)/abs(entry-stop)
+            elif i-entry_i>=MAX_HOLD_BARS: tr=(apply_exit_cost(cl[i],pos,cfg)-entry)/abs(entry-stop)
         else:
-            if hi[i]>=stop: tr=(entry-stop)/abs(stop-entry)
-            elif lo[i]<=tp: tr=(entry-tp)/abs(stop-entry)
-            elif q==1: tr=(entry-(cl[i]+adverse))/abs(stop-entry)
-            elif i-entry_i>=MAX_HOLD_BARS: tr=(entry-(cl[i]+adverse))/abs(stop-entry)
+            if hi[i]>=stop: tr=(entry-apply_exit_cost(stop,pos,cfg))/abs(stop-entry)
+            elif lo[i]<=tp: tr=(entry-apply_exit_cost(tp,pos,cfg))/abs(stop-entry)
+            elif q==1: tr=(entry-apply_exit_cost(cl[i],pos,cfg))/abs(stop-entry)
+            elif i-entry_i>=MAX_HOLD_BARS: tr=(entry-apply_exit_cost(cl[i],pos,cfg))/abs(stop-entry)
         if tr is not None:
             rs.append(float(tr)); pos=0; exits+=1
             equity*=1+RISK_PCT*tr; peak=max(peak,equity); maxdd=max(maxdd,(peak-equity)/peak)
     if pos:
-        tr=(cl[-1]-adverse-entry)/abs(entry-stop) if pos==1 else (entry-(cl[-1]+adverse))/abs(stop-entry)
+        tr=(apply_exit_cost(cl[-1],pos,cfg)-entry)/abs(entry-stop) if pos==1 else (entry-apply_exit_cost(cl[-1],pos,cfg))/abs(stop-entry)
         rs.append(float(tr)); pos=0; exits+=1
         equity*=1+RISK_PCT*tr; peak=max(peak,equity); maxdd=max(maxdd,(peak-equity)/peak)
     if entries!=exits: raise SystemExit(f"EXECUTION_INTEGRITY_FAIL: entries={entries} exits={exits}")
