@@ -1,0 +1,27 @@
+name: ForexAI Execution Research Audit v1
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile and run audit
+        run: |
+          python -m py_compile research/optimization/execution_contract_v1.py
+          python -m py_compile research/optimization/execution_research_audit_v1.py
+          python -m research.optimization.execution_research_audit_v1
+      - name: Assert contract
+        run: |
+          python -c "from research.optimization.execution_contract_v1 import ExecutionConfig; c=ExecutionConfig(); assert c.round_trip_cost_pips==1.4 and c.adverse_pips_per_side==0.7 and c.expiry_bars==30 and c.same_bar_resolution=='SL first (conservative)'; print('EXECUTION_CONTRACT_V1_OK')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: execution-research-audit-v1
+          path: artifacts/execution-research-audit-v1.json
+          if-no-files-found: error
