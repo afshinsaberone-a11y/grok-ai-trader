@@ -34,38 +34,40 @@ def bt(d,p,spread=.5,slippage=.2):
  for day,g in d.groupby('day',sort=True):
   rng=g[(g.hour>=p['range_start'])&(g.hour<p['range_end'])];bo=g[(g.hour>=p['breakout_start'])&(g.hour<p['breakout_end'])]
   if rng.empty or bo.empty:continue
-  rh=float(rng.High.max());rl=float(rng.Low.min());trigger=None;s=None;atr0=None
+  rh=float(rng.High.max());rl=float(rng.Low.min());trigger=None;s=0;atr0=None
   for ts,row in bo.iterrows():
    i=g.index.get_loc(ts);a=float(row.atr)
    if not np.isfinite(a) or a<=0:continue
    if row.Close>rh+p['buffer_atr']*a:trigger=ts;s=1;atr0=a;break
    if row.Close<rl-p['buffer_atr']*a:trigger=ts;s=-1;atr0=a;break
   if trigger is None:continue
-  j=g.index.get_loc(trigger)+1
-  # Retest must occur after breakout, within breakout window; first touch of broken range is the trigger.
-  entry_j=None
-  for k in range(j,len(g)):
-   if k-j>MAX_HOLD_BARS:break
-   row=g.iloc[k];a=float(g.iloc[k-1].atr) if k>0 else atr0
-   level=rh if s==1 else rl
-   tol=p['retest_atr']*a if np.isfinite(a) and a>0 else p['retest_atr']*atr0
-   touched=(row.Low<=level+tol if s==1 else row.High>=level-tol)
-   confirmed=(row.Close>level if s==1 else row.Close<level)
-   if touched and confirmed:entry_j=k;break
+  trig_i=g.index.get_loc(trigger)
+  # Retest confirmation is evaluated only on a fully closed retest bar k;
+  # entry occurs at the NEXT bar open k+1, eliminating look-ahead.
+  entry_j=None;entry_atr=None
+  for k in range(trig_i+1,len(g)-1):
+   if k-(trig_i+1)>=MAX_HOLD_BARS:break
+   row=g.iloc[k];a=float(row.atr)
+   if not np.isfinite(a) or a<=0:a=atr0
+   level=rh if s==1 else rl;tol=p['retest_atr']*a
+   touched=(row.Low<=level+tol) if s==1 else (row.High>=level-tol)
+   confirmed=(row.Close>level) if s==1 else (row.Close<level)
+   if touched and confirmed:
+    entry_j=k+1;entry_atr=a;break
   if entry_j is None:continue
-  entry=float(g.iloc[entry_j].Open)+(cost if s==1 else -cost);a=float(g.iloc[entry_j-1].atr)
-  if not np.isfinite(a) or a<=0:a=atr0
-  dist=p['atr_stop']*a;stop=entry-s*dist;tp=entry+s*p['rr']*dist;exit_j=None;ep=None
-  for k in range(entry_j,min(entry_j+MAX_HOLD_BARS,len(g)-1)+1):
+  entry=float(g.iloc[entry_j].Open)+(cost if s==1 else -cost)
+  a=entry_atr if entry_atr is not None else atr0
+  dist=p['atr_stop']*a;stop=entry-s*dist;tp=entry+s*p['rr']*dist;ep=None;max_j=min(entry_j+MAX_HOLD_BARS,len(g)-1)
+  for k in range(entry_j,max_j+1):
    hi=float(g.iloc[k].High);lo=float(g.iloc[k].Low)
    if s==1:
-    if lo<=stop:exit_j=k;ep=stop;break
-    if hi>=tp:exit_j=k;ep=tp;break
+    if lo<=stop:ep=stop;break
+    if hi>=tp:ep=tp;break
    else:
-    if hi>=stop:exit_j=k;ep=stop;break
-    if lo<=tp:exit_j=k;ep=tp;break
+    if hi>=stop:ep=stop;break
+    if lo<=tp:ep=tp;break
   if ep is None:
-   exit_j=min(entry_j+MAX_HOLD_BARS,len(g)-1);ep=float(g.iloc[exit_j].Close)-(cost if s==1 else -cost)
+   ep=float(g.iloc[max_j].Close)-(cost if s==1 else -cost)
   rs.append((ep-entry)/abs(entry-stop) if s==1 else (entry-ep)/abs(stop-entry))
  return metrics(rs)
 
