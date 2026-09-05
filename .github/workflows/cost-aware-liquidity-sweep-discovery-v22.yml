@@ -27,7 +27,9 @@ jobs:
           assert len(c)==432
           assert len({tuple(sorted(x.items())) for x in c})==432
           d=pd.DataFrame({'timestamp':pd.date_range('2022-01-03',periods=400,freq='5min',tz='UTC'),'Open':1.1,'High':1.101,'Low':1.099,'Close':1.1002,'Volume':100})
-          d['timestamp']=pd.to_datetime(d['timestamp'],utc=True); d['day']=d['timestamp'].dt.date; d['hour']=d['timestamp'].dt.hour+d['timestamp'].dt.minute/60; m=bt(d,c[0])
+          d['timestamp']=pd.to_datetime(d['timestamp'],utc=True); d['day']=d['timestamp'].dt.date; d['hour']=d['timestamp'].dt.hour+d['timestamp'].dt.minute/60
+          tr=pd.concat([d['High']-d['Low'],(d['High']-d['Close'].shift()).abs(),(d['Low']-d['Close'].shift()).abs()],axis=1).max(axis=1); d['atr']=tr.rolling(14).mean()
+          m=bt(d,c[0])
           assert m['execution_model']=='v28.1_next_bar_open'
           assert m['entries']==m['exits']
           assert not m['open_position']
