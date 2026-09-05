@@ -89,7 +89,7 @@ def backtest_execution_equivalent(
         if (pos == 1 and prev_signal == -1) or (pos == -1 and prev_signal == 1):
             ex = opens[j]
             r = ((ex - entry) / abs(entry - stop) if pos == 1 else (entry - ex) / abs(stop - entry))
-            rs.append(r - 2.0 * cfg.adverse_price_per_side / abs(entry - stop))
+            rs.append(r - cfg.adverse_price_per_side / abs(entry - stop))
             equity *= 1.0 + RISK_PCT * rs[-1]
             pos = 0
             peak = max(peak, equity)
@@ -99,12 +99,12 @@ def backtest_execution_equivalent(
         # Stops/targets are evaluated intrabar. If both are touched, stop wins.
         if pos == 1 and (low[j] <= stop or high[j] >= tp):
             ex = stop if low[j] <= stop else tp
-            rs.append((ex - entry) / abs(entry - stop) - 2.0 * cfg.adverse_price_per_side / abs(entry - stop))
+            rs.append((ex - entry) / abs(entry - stop) - cfg.adverse_price_per_side / abs(entry - stop))
             equity *= 1.0 + RISK_PCT * rs[-1]
             pos = 0
         elif pos == -1 and (high[j] >= stop or low[j] <= tp):
             ex = stop if high[j] >= stop else tp
-            rs.append((entry - ex) / abs(stop - entry) - 2.0 * cfg.adverse_price_per_side / abs(stop - entry))
+            rs.append((entry - ex) / abs(stop - entry) - cfg.adverse_price_per_side / abs(stop - entry))
             equity *= 1.0 + RISK_PCT * rs[-1]
             pos = 0
         elif held >= MAX_HOLD_BARS:
