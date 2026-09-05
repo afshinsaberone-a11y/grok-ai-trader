@@ -15,7 +15,7 @@ def catalog():
    for buf in (0,.1,.2):
     for stop in (1,1.5,2):
      for rr in (1,1.5,2):
-      for ret in (.25,.75):
+      for ret in (.25,.5,.75):
        out.append(dict(range_start=7,range_end=range_end,breakout_start=range_end,breakout_end=breakout_end,buffer_atr=buf,atr_stop=stop,rr=rr,retest_atr=ret))
  return out
 
