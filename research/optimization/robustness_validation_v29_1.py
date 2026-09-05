@@ -79,15 +79,24 @@ def _execute(
         hit_sl = (l[i] <= stop) if position == 1 else (h[i] >= stop)
         hit_tp = (h[i] >= target) if position == 1 else (l[i] <= target)
         reason = None; r = None
+        risk_unit = params["atr_mult"] * atr[entry_i - 1]
+        if not np.isfinite(risk_unit) or risk_unit <= 0:
+            continue
         if hit_sl and hit_tp:
-            r = -1.0; reason = "same_bar_sl_first"
+            exit_px = stop - position * COST_PIPS_PER_SIDE * PIP
+            r = position * (exit_px - entry_px) / risk_unit
+            reason = "same_bar_sl_first"
         elif hit_sl:
-            r = -1.0; reason = "sl"
+            exit_px = stop - position * COST_PIPS_PER_SIDE * PIP
+            r = position * (exit_px - entry_px) / risk_unit
+            reason = "sl"
         elif hit_tp:
-            r = float(params["rr"]); reason = "tp"
+            exit_px = target - position * COST_PIPS_PER_SIDE * PIP
+            r = position * (exit_px - entry_px) / risk_unit
+            reason = "tp"
         elif sig[i] == -position and i + 1 < len(d):
             exit_px = o[i + 1] - position * COST_PIPS_PER_SIDE * PIP
-            r = position * (exit_px - entry_px) / (params["atr_mult"] * atr[entry_i - 1])
+            r = position * (exit_px - entry_px) / risk_unit
             reason = "opposite_next_open"
         elif age >= EXPIRY_BARS:
             exit_px = o[min(i + 1, len(d) - 1)] - position * COST_PIPS_PER_SIDE * PIP
@@ -110,7 +119,7 @@ def _execute(
         "final_equity": round(equity, 2), "max_dd_pct": round(100 * max_dd, 3),
         "avg_hold_bars": round(float(np.mean(holds)), 3) if holds else 0.0,
         "round_trip_cost_pips": ROUND_TRIP_PIPS, "entries_equal_exits": position == 0,
-        "next_bar_open_entry": True, "actual_entry_price_for_stops": True,
+        "next_bar_open_entry": True, "actual_entry_price_for_stops": True, "adverse_exit_cost_applied": True,
         "same_bar_sl_first": True, "one_position_at_a_time": True,
     }
     return metrics, rs
@@ -163,10 +172,11 @@ def run(path: str | Path, timeframe: str, output: str | Path) -> dict[str, Any]:
     yearly_history = df.loc[(df.index >= START) & (df.index < OOS_START)]
     oos_rows = int((df.index >= OOS_START).sum())
     if pre.empty or val.empty: raise RuntimeError("V29_1_INCOMPLETE_SPLIT")
-    center_val, center_rs = _execute(val, CENTER)
+    validation_history = df.loc[(df.index >= START) & (df.index < OOS_START)]
+    center_val, center_rs = _execute(validation_history, CENTER, trade_start=VALIDATION_START)
     variants = []
     for p in NEIGHBORHOOD:
-        m, _ = _execute(val, p)
+        m, _ = _execute(validation_history, p, trade_start=VALIDATION_START)
         variants.append({"params": p, "config_hash": _hash(p), "metrics": m})
     pfs = [v["metrics"]["profit_factor"] for v in variants]
     positive = sum(v["metrics"]["total_R"] > 0 for v in variants)
