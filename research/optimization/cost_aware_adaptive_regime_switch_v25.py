@@ -95,7 +95,9 @@ def main():
     for i,p in enumerate(catalog(),1):
         pre=[{'year':y,'metrics':bt(years[y],p,a.spread_pips,a.slippage_pips)} for y in PRE_OOS_YEARS];bad=gate(pre)
         res.append({'candidate':i,'params':p,'score':0 if bad else sum(x['metrics']['expectancy_R'] for x in pre),'pre_oos':pre,'pre_oos_pass':not bad,'rejection_reasons':bad})
-    res.sort(key=lambda x:(x['pre_oos_pass'],-x['score']),reverse=True);final=[x for x in res if x['pre_oos_pass']][:50];val=[]
+    res.sort(key=lambda x:(x['pre_oos_pass'],-x['score']),reverse=True)
+    final=[x for x in res if x['pre_oos_pass']][:50]
+    val=[]
     for x in final:
         vm=bt(years[2025],x['params'],a.spread_pips,a.slippage_pips);vr=[]
         if pf(vm)<VALIDATION_MIN_PF:vr.append(f'validation_pf<{VALIDATION_MIN_PF}')
@@ -104,6 +106,15 @@ def main():
         if vm['expectancy_R']<=0 or vm['total_R']<=0:vr.append('validation_nonpositive_return')
         val.append({**x,'validation_2025':vm,'validation_pass':not vr,'validation_rejection_reasons':vr})
     q=[x for x in val if x['validation_pass']]
-    rep={'schema_version':'forexai.adaptive_regime_switch.v25','result':{'candidate_total':len(res),'qualified_count':len(q),'champion':None,'top_20_diagnostics':res[:TOP_N],'validated_candidates':val},'execution_model':{'entry':'next_bar_open','cost_pips_per_side':a.spread_pips+a.slippage_pips,'round_trip_cost_pips':2*(a.spread_pips+a.slippage_pips),'same_bar_resolution':'SL first (conservative)','expiry_bars':MAX_HOLD,'overlap':'one position at a time','adverse_exit_cost_applied':True},'oos_policy':{'loaded':False,'status':'HELD_OUT','start':'2026-01-01'},'real_data_required':True,'synthetic_fallback':False,'research_timeframe':'M5'}
+    rep={'schema_version':'forexai.adaptive_regime_switch.v25','result':{
+        'candidate_total':len(res),
+        'pre_oos_qualified_count':len(final),
+        'validation_qualified_count':len(q),
+        # Legacy alias retained for consumers that still expect qualified_count.
+        'qualified_count':len(q),
+        'champion':None,
+        'top_20_diagnostics':res[:TOP_N],
+        'validated_candidates':val,
+    },'execution_model':{'entry':'next_bar_open','cost_pips_per_side':a.spread_pips+a.slippage_pips,'round_trip_cost_pips':2*(a.spread_pips+a.slippage_pips),'same_bar_resolution':'SL first (conservative)','expiry_bars':MAX_HOLD,'overlap':'one position at a time','adverse_exit_cost_applied':True},'oos_policy':{'loaded':False,'status':'HELD_OUT','start':'2026-01-01'},'real_data_required':True,'synthetic_fallback':False,'research_timeframe':'M5'}
     Path(a.output).parent.mkdir(parents=True,exist_ok=True);Path(a.output).write_text(json.dumps(rep,indent=2,default=str),encoding='utf-8');print(json.dumps({'candidate_total':len(res),'pre_oos_qualified':len(final),'validation_qualified':len(q)}))
 if __name__=='__main__':main()
