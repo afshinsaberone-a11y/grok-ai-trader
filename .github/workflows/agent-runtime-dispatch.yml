@@ -1,0 +1,67 @@
+name: ForexAI Agent Runtime Dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Runtime mode"
+        required: true
+        default: "offline"
+        type: choice
+        options:
+          - offline
+          - live
+      task:
+        description: "Task for the live orchestrator"
+        required: false
+        default: "Inspect the latest committed ForexAI research evidence and determine the safest next action."
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install agent runtime dependencies
+        run: pip install pytest openai-agents
+
+      - name: Compile agent runtime modules
+        run: >-
+          python -m py_compile
+          agents/deterministic_mission.py
+          agents/evidence_collector.py
+          agents/forexai_tools.py
+          agents/research_controller.py
+          agents/research_mission.py
+          agents/robustness_mission.py
+          agents/validation_mission.py
+          agents/forexai_orchestrator.py
+
+      - name: Run deterministic offline agent audit
+        if: inputs.mode == 'offline'
+        run: python agents/deterministic_mission.py
+
+      - name: Run orchestrator with OpenAI Agents SDK
+        if: inputs.mode == 'live'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FOREXAI_AGENT_TASK: ${{ inputs.task }}
+        run: |
+          test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY secret is required for live mode"; exit 1; }
+          python agents/forexai_orchestrator.py | tee reports/agents/live-orchestrator.txt
+
+      - name: Upload agent runtime evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-agent-runtime-${{ github.run_id }}
+          path: reports/agents/
+          if-no-files-found: warn
