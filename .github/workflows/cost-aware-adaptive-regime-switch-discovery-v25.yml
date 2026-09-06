@@ -13,7 +13,7 @@ on:
 permissions:
   contents: read
 env:
-  REQUESTED_TIMEFRAME: M5
+  REQUESTED_TIMEFRAME: ${{ inputs.timeframe || 'M5' }}
 jobs:
   discovery:
     runs-on: ubuntu-latest
@@ -58,14 +58,15 @@ jobs:
           print('CATALOG_OK',len(c))
           PY
       - name: Run v25
-        run: python -m research.optimization.cost_aware_adaptive_regime_switch_v25 --data "$DATA" --output artifacts/adaptive-regime-switch-v25.json
+        run: python -m research.optimization.cost_aware_adaptive_regime_switch_v25 --data "$DATA" --timeframe "$REQUESTED_TIMEFRAME" --output artifacts/adaptive-regime-switch-v25.json
       - name: Fail-closed controls
         run: |
           python - <<'PY'
-          import json
+          import json,os
           d=json.load(open('artifacts/adaptive-regime-switch-v25.json')); r=d['result']; e=d['execution_model']
+          requested=os.environ['REQUESTED_TIMEFRAME']
           assert d['real_data_required'] is True and d['synthetic_fallback'] is False
-          assert d['research_timeframe']=='M5'
+          assert d['research_timeframe']==requested
           assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
           assert r['candidate_total']==432 and r['champion'] is None
           assert isinstance(r['pre_oos_qualified_count'], int) and r['pre_oos_qualified_count'] >= 0
@@ -73,7 +74,7 @@ jobs:
           assert r['validation_qualified_count'] <= r['pre_oos_qualified_count']
           assert r['validation_qualified_count'] == len([x for x in r['validated_candidates'] if x.get('validation_pass') is True])
           assert e['entry']=='next_bar_open' and e['round_trip_cost_pips']==1.4 and e['same_bar_resolution']=='SL first (conservative)' and e['expiry_bars']==30 and e['overlap']=='one position at a time' and e['adverse_exit_cost_applied'] is True
-          print('V25_FAIL_CLOSED_OK',r['pre_oos_qualified_count'],r['validation_qualified_count'])
+          print('V25_FAIL_CLOSED_OK',requested,r['pre_oos_qualified_count'],r['validation_qualified_count'])
           PY
       - name: Run Agent Research Mission
         run: |
