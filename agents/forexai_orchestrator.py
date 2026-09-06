@@ -8,10 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
+from pathlib import Path
 
-from agents import Agent, Runner
+from agents import Agent, Runner, function_tool
 
-from forexai_tools import evidence_tools
+AGENTS_DIR = Path(__file__).resolve().parent
+if str(AGENTS_DIR) not in sys.path:
+    sys.path.insert(0, str(AGENTS_DIR))
+
+from forexai_tools import evidence_tools  # noqa: E402
+from research_controller import decide  # noqa: E402
 
 REPO = "afshinsaberone-a11y/grok-ai-trader"
 
@@ -41,11 +48,20 @@ ROLES = {
 }
 
 
+@function_tool
+def research_stage_gate(stage: str) -> str:
+    """Run the deterministic stage controller; GO never means trading performance passed."""
+    allowed = {"discovery", "optimization", "validation", "robustness", "oos"}
+    if stage not in allowed:
+        raise ValueError(f"unknown research stage: {stage}")
+    return decide(stage).to_json()
+
+
 def make_specialist(key: str) -> Agent:
     return Agent(
         name=f"ForexAI {key.title()} Agent",
         instructions=COMMON + "\nYour role: " + ROLES[key],
-        tools=evidence_tools(),
+        tools=evidence_tools() + [research_stage_gate],
     )
 
 
@@ -58,7 +74,7 @@ def build_orchestrator() -> Agent:
         )
         for key, agent in specialists.items()
     ]
-    # The manager also has direct read-only evidence access so it can verify a specialist claim.
+    # Deterministic controller is deliberately exposed directly to the manager.
     return Agent(
         name="ForexAI Orchestrator",
         instructions=COMMON + """
@@ -66,11 +82,14 @@ You are the manager. Delegate independent checks to the most relevant specialist
 then cross-check important claims with repository evidence yourself.
 For a discovery/validation decision, prefer Data + Execution + Discovery/Optimization + Validation + CI,
 then Champion only after the prior gates are evidenced.
+Use research_stage_gate before recommending a transition between stages.
+A controller GO is necessary but not sufficient for statistical promotion; inspect the
+underlying evidence and required performance/robustness artifacts before moving on.
 Do not ask the Champion agent to rescue missing evidence.
 Produce exactly one next action with explicit GO / HOLD / REJECT status.
 EA generation is never authorized by this orchestrator unless a frozen candidate has
 passed validation, frozen robustness, and strictly held-out 2026 OOS with recorded evidence.
-""", tools=tools + evidence_tools(),
+""", tools=tools + evidence_tools() + [research_stage_gate],
     )
 
 
