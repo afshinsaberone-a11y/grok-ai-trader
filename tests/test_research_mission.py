@@ -8,7 +8,7 @@ from agents.research_mission import inspect_discovery
 
 def _artifact(tmp_path: Path, **overrides):
     data = {
-        "schema_version": "forexai.cost_aware_multi_family.v25",
+        "schema_version": "forexai.adaptive_regime_switch.v25",
         "real_data_required": True,
         "synthetic_fallback": False,
         "research_timeframe": "M5",
@@ -21,7 +21,26 @@ def _artifact(tmp_path: Path, **overrides):
             "overlap": "one position at a time",
             "adverse_exit_cost_applied": True,
         },
-        "result": {"candidate_total": 432, "qualified_count": 1, "champion": None, "top_50": [{"candidate_id": "c1", "params": {"x": 1}}]},
+        "result": {
+            "candidate_total": 432,
+            "qualified_count": 1,
+            "champion": None,
+            "top_20_diagnostics": [
+                {
+                    "candidate": 7,
+                    "params": {"x": 1},
+                    "pre_oos_pass": True,
+                    "pre_oos_years": [2022, 2023, 2024],
+                }
+            ],
+            "validated_candidates": [
+                {
+                    "candidate": 7,
+                    "params": {"x": 1},
+                    "validation_2025": {"profit_factor": 1.20},
+                }
+            ],
+        },
     }
     data.update(overrides)
     p = tmp_path / "discovery.json"
@@ -29,20 +48,32 @@ def _artifact(tmp_path: Path, **overrides):
     return p
 
 
-def test_ready_only_from_discovery_evidence(tmp_path):
+def test_ready_from_real_v25_diagnostics(tmp_path):
     decision = inspect_discovery(_artifact(tmp_path))
+    # v25's diagnostic candidate is eligible, even though its ID also appears in validation records.
+    assert decision.status == "HOLD"
+    assert any("overlaps validation records" in r for r in decision.reasons)
+
+
+def test_pre_oos_candidates_are_handoff_source(tmp_path):
+    data = _artifact(tmp_path)
+    payload = json.loads(data.read_text(encoding="utf-8"))
+    payload["result"]["validated_candidates"] = []
+    data.write_text(json.dumps(payload), encoding="utf-8")
+    decision = inspect_discovery(data)
     assert decision.status == "READY"
-    assert decision.selected_candidates[0]["candidate_id"] == "c1"
+    assert decision.selected_candidates[0]["candidate"] == 7
+    assert decision.selected_candidates[0]["pre_oos_pass"] is True
 
 
 def test_zero_qualified_is_hold(tmp_path):
-    decision = inspect_discovery(_artifact(tmp_path, result={"candidate_total": 432, "qualified_count": 0, "champion": None, "top_50": []}))
+    decision = inspect_discovery(_artifact(tmp_path, result={"candidate_total": 432, "qualified_count": 0, "champion": None, "top_20_diagnostics": []}))
     assert decision.status == "HOLD"
     assert any("no discovery-qualified" in r for r in decision.reasons)
 
 
 def test_never_accept_discovery_champion(tmp_path):
-    decision = inspect_discovery(_artifact(tmp_path, result={"candidate_total": 432, "qualified_count": 1, "champion": {"candidate_id": "bad"}, "top_50": []}))
+    decision = inspect_discovery(_artifact(tmp_path, result={"candidate_total": 432, "qualified_count": 1, "champion": {"candidate": 7}, "top_20_diagnostics": []}))
     assert decision.status == "HOLD"
     assert any("Champion" in r for r in decision.reasons)
 
