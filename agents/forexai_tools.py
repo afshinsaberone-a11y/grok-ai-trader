@@ -1,8 +1,8 @@
 """Evidence-first local tools for the ForexAI agent team.
 
 The tools are deliberately read-only with respect to the repository. Agents may
-inspect committed files, git metadata, local test results, and discovery handoffs,
-but they cannot silently mutate the research state.
+inspect committed files, git metadata, local test results, and discovery/validation
+handoffs, but they cannot silently mutate the research state.
 """
 from __future__ import annotations
 
@@ -111,5 +111,13 @@ def inspect_discovery_artifact(path: str, max_candidates: int = 20) -> str:
     return decision.to_json()
 
 
+@function_tool
+def inspect_validation_artifact(path: str, max_candidates: int = 20) -> str:
+    """Run the deterministic evidence-only validation handoff inspection."""
+    from validation_mission import inspect_validation
+    decision = inspect_validation(_safe_path(path), max_candidates=max_candidates)
+    return decision.to_json()
+
+
 def evidence_tools() -> list:
-    return [list_evidence_files, read_evidence_file, search_evidence, repository_state, run_pytest, inspect_discovery_artifact]
+    return [list_evidence_files, read_evidence_file, search_evidence, repository_state, run_pytest, inspect_discovery_artifact, inspect_validation_artifact]
