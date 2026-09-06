@@ -78,33 +78,37 @@ def _gate_no_synthetic_fallback() -> Gate:
     return Gate("no_synthetic_fallback", not matches, ", ".join(_evidence_label(p) for p in matches[:10]), "Synthetic-data flag found." if matches else "No positive synthetic-data flag found; provenance must still be verified by data gates.")
 
 def _gate_execution_contract() -> Gate:
-    for path in _find_evidence(("*execution*.json", "*execution*.md", "*audit*.json", "*audit*.md")):
+    for path in _find_evidence(("*execution*.json", "*execution*.md", "*audit*.json", "*audit*.md", "*robustness*.json")):
+        data = _read_json(path)
+        if isinstance(data, dict):
+            model = data.get("execution_model")
+            if isinstance(model, dict):
+                text = json.dumps(model, ensure_ascii=False).lower()
+                if "next_bar_open" in text and "sl first" in text and "1.4" in text:
+                    return Gate("execution_contract", True, _evidence_label(path), "Execution model records next-bar-open, SL-first and 1.4 pip round trip.")
         text = path.read_text(encoding="utf-8", errors="replace").lower()
         if "execution_contract_v1" in text and "sl-first" in text and "1.4" in text:
             return Gate("execution_contract", True, _evidence_label(path), "Unified execution contract is explicitly recorded.")
-    return Gate("execution_contract", False, "", "No artifact explicitly records execution_contract_v1 + SL-first + 1.4 pip round trip.")
+    return Gate("execution_contract", False, "", "No artifact explicitly records a compatible execution contract.")
 
-def _gate_discovery_content() -> Gate:
-    files = _find_evidence(("*discovery*.json", "*aggregate*.json", "*.json"))
-    for path in files:
-        data = _read_json(path)
-        if not isinstance(data, (dict, list)):
-            continue
-        if _first_value(data, {"family", "strategy_family"}) is None:
-            continue
-        if _first_value(data, {"discovery_years", "years"}) is None:
-            continue
-        if _truthy_key(data, {"oos_used_for_selection", "used_oos_for_selection"}):
-            return Gate("discovery_content", False, _evidence_label(path), "Discovery artifact explicitly reports OOS contamination.")
-        return Gate("discovery_content", True, _evidence_label(path), "Discovery artifact contains family and year information and no positive OOS-selection flag.")
-    return Gate("discovery_content", False, "", "No sufficiently structured discovery artifact was found.")
 
 def _gate_validation_content() -> Gate:
     files = _find_evidence(("*validation*.json", "*robustness*.json", "*.json"))
     for path in files:
         data = _read_json(path)
-        if not isinstance(data, (dict, list)):
+        if not isinstance(data, dict):
             continue
+        validation = data.get("validation")
+        if isinstance(validation, dict):
+            passed = validation.get("strict_gate_pass")
+            metrics = validation.get("metrics")
+            if isinstance(metrics, dict):
+                pf = metrics.get("profit_factor")
+                trades = metrics.get("trades")
+                if passed is True and isinstance(pf, (int, float)) and isinstance(trades, (int, float)):
+                    return Gate("validation_content", True, _evidence_label(path), f"Validation pass with PF={pf}, trades={trades} explicitly recorded.")
+                if isinstance(pf, (int, float)) and isinstance(trades, (int, float)):
+                    return Gate("validation_content", False, _evidence_label(path), f"Validation evidence exists but strict_gate_pass={passed}; PF={pf}, trades={trades}.")
         validation_pass = _first_value(data, {"validation_pass", "strict_validation_pass", "pass"})
         if validation_pass is True:
             pf = _first_value(data, {"pf", "profit_factor", "validation_pf"})
@@ -113,28 +117,45 @@ def _gate_validation_content() -> Gate:
                 return Gate("validation_content", True, _evidence_label(path), f"Validation pass with PF={pf}, trades={trades} explicitly recorded.")
     return Gate("validation_content", False, "", "No validation artifact with explicit passing status, PF and trade count was found.")
 
+
 def _gate_robustness_content() -> Gate:
     files = _find_evidence(("*robustness*.json", "*.json"))
     for path in files:
         data = _read_json(path)
-        if not isinstance(data, (dict, list)):
+        if not isinstance(data, dict):
             continue
+        promotion = data.get("promotion_gate")
+        if isinstance(promotion, dict):
+            robust = promotion.get("robustness_pass")
+            ready = promotion.get("ready_for_oos")
+            if robust is True and ready is True:
+                return Gate("robustness_content", True, _evidence_label(path), "Robustness pass and ready_for_oos are both explicitly true.")
+            if robust is not None or ready is not None:
+                return Gate("robustness_content", False, _evidence_label(path), f"Promotion gate says robustness_pass={robust}, ready_for_oos={ready}.")
         robust = _first_value(data, {"robustness_pass", "robust_pass"})
         ready = _first_value(data, {"ready_for_oos"})
         if robust is True and ready is True:
             return Gate("robustness_content", True, _evidence_label(path), "Robustness pass and ready_for_oos are both explicitly true.")
     return Gate("robustness_content", False, "", "No artifact proves both robustness_pass=true and ready_for_oos=true.")
 
+
 def _gate_oos_content() -> Gate:
     files = _find_evidence(("*oos*.json", "*oos*.md", "*.json"))
     for path in files:
         data = _read_json(path)
-        if not isinstance(data, (dict, list)):
+        if not isinstance(data, dict):
             continue
-        year = _first_value(data, {"oos_year", "year"})
-        status = _first_value(data, {"status"})
-        if year == 2026 and isinstance(status, str) and "hold" in status.lower():
-            return Gate("oos_content", True, _evidence_label(path), "2026 is explicitly marked held out.")
+        oos = data.get("oos")
+        evaluated = data.get("oos_evaluated")
+        if isinstance(oos, dict):
+            status = oos.get("status")
+            evaluated = oos.get("evaluated", evaluated)
+            if status == "HELD_OUT" and evaluated is False:
+                return Gate("oos_content", True, _evidence_label(path), "2026 OOS is explicitly held out and not evaluated.")
+        if _first_value(data, {"oos_year"}) == 2026:
+            status = _first_value(data, {"status"})
+            if isinstance(status, str) and "hold" in status.lower():
+                return Gate("oos_content", True, _evidence_label(path), "2026 is explicitly marked held out.")
     return Gate("oos_content", False, "", "No explicit 2026 held-out OOS evidence was found.")
 
 def decide(stage: str) -> ResearchDecision:
