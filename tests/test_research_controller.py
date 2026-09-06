@@ -31,7 +31,7 @@ def test_decision_serializes_structured_gates() -> None:
     }
 
 
-def test_discovery_content_rejects_oos_contamination(tmp_path, monkeypatch) -> None:
+def test_discovery_gate_rejects_oos_contamination(tmp_path, monkeypatch) -> None:
     report = tmp_path / "reports" / "discovery.json"
     report.parent.mkdir(parents=True)
     report.write_text(
@@ -47,6 +47,22 @@ def test_discovery_content_rejects_oos_contamination(tmp_path, monkeypatch) -> N
     assert gate.passed is False
 
 
+def test_discovery_gate_accepts_clean_pre_oos_artifact(tmp_path, monkeypatch) -> None:
+    report = tmp_path / "reports" / "discovery.json"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        json.dumps({
+            "strategy_family": "test_family",
+            "discovery_years": [2022, 2023, 2024],
+            "oos_used_for_selection": False,
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(controller, "ARTIFACT_ROOTS", (tmp_path / "artifacts", tmp_path / "reports"))
+    gate = controller._gate_discovery_content()
+    assert gate.passed is True
+
+
 def test_robustness_requires_ready_for_oos(tmp_path, monkeypatch) -> None:
     report = tmp_path / "reports" / "robustness.json"
     report.parent.mkdir(parents=True)
@@ -54,3 +70,12 @@ def test_robustness_requires_ready_for_oos(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(controller, "ARTIFACT_ROOTS", (tmp_path / "artifacts", tmp_path / "reports"))
     gate = controller._gate_robustness_content()
     assert gate.passed is False
+
+
+def test_nested_robustness_gate_requires_both_flags(tmp_path, monkeypatch) -> None:
+    report = tmp_path / "reports" / "robustness.json"
+    report.parent.mkdir(parents=True)
+    report.write_text(json.dumps({"promotion_gate": {"robustness_pass": True, "ready_for_oos": True}}), encoding="utf-8")
+    monkeypatch.setattr(controller, "ARTIFACT_ROOTS", (tmp_path / "artifacts", tmp_path / "reports"))
+    gate = controller._gate_robustness_content()
+    assert gate.passed is True
