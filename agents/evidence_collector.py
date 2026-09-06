@@ -16,7 +16,6 @@ SOURCES = (
     (34019276235, "robustness-validation-v29-1-M5", "reports/evidence/v29.1/M5"),
     (34020209424, "robustness-validation-v29-1-M1", "reports/evidence/v29.1/M1"),
     (34022425980, "robustness-validation-v29-1-M15", "reports/evidence/v29.1/M15"),
-    (34028863101, "mission-001-offline-evidence", "reports/evidence/mission-001"),
 )
 
 
