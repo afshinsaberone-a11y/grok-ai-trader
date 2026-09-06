@@ -1,4 +1,4 @@
-"""ForexAI v25: adaptive regime-switch discovery on REAL EURUSD M5.
+"""ForexAI v25: adaptive regime-switch discovery on REAL EURUSD.
 Closed-bar signal -> next-bar-open execution. Trend continuation in strong ADX
 regimes and range reversion in weak regimes. 2022-2024 discovery, 2025 validation,
 2026 held out. Strict cost-aware gate. No synthetic fallback.
@@ -13,7 +13,7 @@ from research.optimization.cost_aware_gate_v14 import (
  VALIDATION_MAX_DD_PCT,VALIDATION_MIN_TRADES)
 from research.optimization.execution_contract_v1 import ExecutionConfig,validate_ohlc,apply_entry_cost,apply_exit_cost
 
-PIP=.0001;RISK=.005;MAX_HOLD=30;TOP_N=20
+PIP=.0001;RISK=.005;MAX_HOLD=30;TOP_N=20;TIMEFRAMES=("M1","M5","M15")
 
 def catalog():
     out=[]
@@ -90,7 +90,7 @@ def gate(pre):
     return bad
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--data',required=True);ap.add_argument('--output',required=True);ap.add_argument('--spread-pips',type=float,default=.5);ap.add_argument('--slippage-pips',type=float,default=.2);a=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument('--data',required=True);ap.add_argument('--output',required=True);ap.add_argument('--spread-pips',type=float,default=.5);ap.add_argument('--slippage-pips',type=float,default=.2);ap.add_argument('--timeframe',required=True,choices=TIMEFRAMES);a=ap.parse_args()
     d=prep(pd.read_csv(a.data));years={y:d[(d.index>=f'{y}-01-01')&(d.index<f'{y+1}-01-01')] for y in (2022,2023,2024,2025)};res=[]
     for i,p in enumerate(catalog(),1):
         pre=[{'year':y,'metrics':bt(years[y],p,a.spread_pips,a.slippage_pips)} for y in PRE_OOS_YEARS];bad=gate(pre)
@@ -106,7 +106,7 @@ def main():
         if vm['expectancy_R']<=0 or vm['total_R']<=0:vr.append('validation_nonpositive_return')
         val.append({**x,'validation_2025':vm,'validation_pass':not vr,'validation_rejection_reasons':vr})
     q=[x for x in val if x['validation_pass']]
-    rep={'schema_version':'forexai.adaptive_regime_switch.v25','result':{
+    rep={'schema_version':'forexai.adaptive_regime_switch.v25','research_timeframe':a.timeframe,'result':{
         'candidate_total':len(res),
         'pre_oos_qualified_count':len(final),
         'validation_qualified_count':len(q),
@@ -115,6 +115,6 @@ def main():
         'champion':None,
         'top_20_diagnostics':res[:TOP_N],
         'validated_candidates':val,
-    },'execution_model':{'entry':'next_bar_open','cost_pips_per_side':a.spread_pips+a.slippage_pips,'round_trip_cost_pips':2*(a.spread_pips+a.slippage_pips),'same_bar_resolution':'SL first (conservative)','expiry_bars':MAX_HOLD,'overlap':'one position at a time','adverse_exit_cost_applied':True},'oos_policy':{'loaded':False,'status':'HELD_OUT','start':'2026-01-01'},'real_data_required':True,'synthetic_fallback':False,'research_timeframe':'M5'}
-    Path(a.output).parent.mkdir(parents=True,exist_ok=True);Path(a.output).write_text(json.dumps(rep,indent=2,default=str),encoding='utf-8');print(json.dumps({'candidate_total':len(res),'pre_oos_qualified':len(final),'validation_qualified':len(q)}))
+    },'execution_model':{'entry':'next_bar_open','cost_pips_per_side':a.spread_pips+a.slippage_pips,'round_trip_cost_pips':2*(a.spread_pips+a.slippage_pips),'same_bar_resolution':'SL first (conservative)','expiry_bars':MAX_HOLD,'overlap':'one position at a time','adverse_exit_cost_applied':True},'oos_policy':{'loaded':False,'status':'HELD_OUT','start':'2026-01-01'},'real_data_required':True,'synthetic_fallback':False}
+    Path(a.output).parent.mkdir(parents=True,exist_ok=True);Path(a.output).write_text(json.dumps(rep,indent=2,default=str),encoding='utf-8');print(json.dumps({'candidate_total':len(res),'pre_oos_qualified':len(final),'validation_qualified':len(q),'research_timeframe':a.timeframe}))
 if __name__=='__main__':main()
