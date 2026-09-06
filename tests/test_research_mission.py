@@ -23,6 +23,8 @@ def _artifact(tmp_path: Path, **overrides):
         },
         "result": {
             "candidate_total": 432,
+            "pre_oos_qualified_count": 1,
+            "validation_qualified_count": 1,
             "qualified_count": 1,
             "champion": None,
             "top_20_diagnostics": [
@@ -51,6 +53,8 @@ def _artifact(tmp_path: Path, **overrides):
 def test_ready_from_real_v25_diagnostics(tmp_path):
     decision = inspect_discovery(_artifact(tmp_path))
     assert decision.status == "READY"
+    assert decision.pre_oos_qualified_count == 1
+    assert decision.validation_qualified_count == 1
     assert decision.selected_candidates[0]["candidate"] == 7
     assert decision.selected_candidates[0]["pre_oos_pass"] is True
 
@@ -66,14 +70,22 @@ def test_validation_records_do_not_drive_selection(tmp_path):
     assert decision.selected_candidates[0]["candidate"] == 7
 
 
-def test_zero_qualified_is_hold(tmp_path):
-    decision = inspect_discovery(_artifact(tmp_path, result={"candidate_total": 432, "qualified_count": 0, "champion": None, "top_20_diagnostics": []}))
+def test_zero_pre_oos_qualified_is_hold_even_when_validation_count_is_positive(tmp_path):
+    payload = {"candidate_total": 432, "pre_oos_qualified_count": 0, "validation_qualified_count": 1, "champion": None, "top_20_diagnostics": []}
+    decision = inspect_discovery(_artifact(tmp_path, result=payload))
     assert decision.status == "HOLD"
     assert any("no discovery-qualified" in r for r in decision.reasons)
 
 
+def test_legacy_qualified_count_is_not_used_as_discovery_count(tmp_path):
+    payload = {"candidate_total": 432, "qualified_count": 1, "champion": None, "top_20_diagnostics": []}
+    decision = inspect_discovery(_artifact(tmp_path, result=payload))
+    assert decision.status == "HOLD"
+    assert any("pre_oos_qualified_count" in r for r in decision.reasons)
+
+
 def test_never_accept_discovery_champion(tmp_path):
-    decision = inspect_discovery(_artifact(tmp_path, result={"candidate_total": 432, "qualified_count": 1, "champion": {"candidate": 7}, "top_20_diagnostics": []}))
+    decision = inspect_discovery(_artifact(tmp_path, result={"candidate_total": 432, "pre_oos_qualified_count": 1, "validation_qualified_count": 1, "champion": {"candidate": 7}, "top_20_diagnostics": [{"candidate": 7, "pre_oos_pass": True}]}))
     assert decision.status == "HOLD"
     assert any("Champion" in r for r in decision.reasons)
 
