@@ -1,0 +1,65 @@
+version: 1
+name: ForexAI Agent Team
+orchestrator: forexai-orchestrator
+principles:
+  - real_market_data_only
+  - fail_closed
+  - no_synthetic_data
+  - no_fabricated_metrics
+  - unified_execution_contract_v1
+  - 2026_oos_holdout
+  - statistics_approve_before_ea
+agents:
+  - id: forexai-data
+    role: Data Agent
+    mission: Validate real EURUSD/XAUUSD datasets, cadence, timezone, gaps, duplicates, OHLC invariants, and provenance.
+    outputs: [data_quality_report]
+  - id: forexai-execution
+    role: Execution Integrity Agent
+    mission: Enforce next-bar-open, adverse entry/exit costs, SL-first, expiry, one-position, and execution invariants.
+    outputs: [execution_audit]
+  - id: forexai-research
+    role: Research Agent
+    mission: Propose deterministic rule-based strategy families without look-ahead or discretionary logic.
+    outputs: [strategy_spec]
+  - id: forexai-discovery
+    role: Strategy Discovery Agent
+    mission: Run real-data candidate sweeps and rank candidates without selecting on validation/OOS.
+    outputs: [discovery_report]
+  - id: forexai-optimization
+    role: Optimization Agent
+    mission: Optimize only within declared pre-OOS search space and preserve frozen validation parameters.
+    outputs: [optimization_report]
+  - id: forexai-validation
+    role: Validation Agent
+    mission: Apply yearly, PF, expectancy, drawdown, trade-count, robustness, and Monte Carlo gates.
+    outputs: [validation_report]
+  - id: forexai-review
+    role: Code Review Agent
+    mission: Detect look-ahead, leakage, stale paths, schema mismatches, and execution-contract violations.
+    outputs: [code_review]
+  - id: forexai-ci
+    role: GitHub CI Agent
+    mission: Inspect Actions runs, diagnose failures, and verify artifacts/workflow gates.
+    outputs: [ci_report]
+  - id: forexai-champion
+    role: Champion Auditor
+    mission: Independently verify that no candidate becomes Champion unless every gate passes.
+    outputs: [champion_audit]
+  - id: forexai-orchestrator
+    role: Orchestrator Agent
+    mission: Coordinate the workers, reconcile reports, choose the next research action, and block unsafe promotion.
+    outputs: [orchestration_decision]
+
+gates:
+  min_profitable_years: 3
+  min_pf_each_year: 1.05
+  min_expectancy_r: 0
+  min_trades_each_year: 100
+  max_drawdown_pct: 35
+  validation_pf_min: 1.10
+  validation_drawdown_max_pct: 35
+  validation_trades_min: 100
+  require_real_data: true
+  allow_synthetic_fallback: false
+  oos_year: 2026
