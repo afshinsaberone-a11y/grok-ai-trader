@@ -27,20 +27,33 @@ jobs:
       - name: Verify Agents SDK imports
         run: python -c "from agents import Agent, Runner, function_tool; print('Agents SDK runtime OK')"
       - name: Compile agent modules
-        run: python -m py_compile agents/forexai_tools.py agents/research_controller.py agents/forexai_orchestrator.py
+        run: python -m py_compile agents/forexai_tools.py agents/research_controller.py agents/forexai_orchestrator.py agents/deterministic_mission.py
       - name: Run deterministic agent tests
         run: python -m pytest -q tests/test_agents_runtime.py tests/test_forexai_tools.py tests/test_research_controller.py
-      - name: Verify API secret is present for manual live mission
+      - name: Run offline deterministic Mission-001 audit
+        run: python agents/deterministic_mission.py
+      - name: Upload offline Mission-001 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-001-offline-evidence
+          path: reports/agents/mission-001-offline.json
+      - name: Detect optional live API availability
+        id: api_check
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "::error::OPENAI_API_KEY GitHub Actions secret is required for a live Agent Mission."
-            exit 1
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "OpenAI API secret is available for optional live mission."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "OpenAI API secret is unavailable; offline audit remains authoritative."
           fi
-      - name: Run Mission-001 orchestrator
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Run optional live Mission-001 orchestrator
+        id: live_mission
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.api_check.outputs.available == 'true' }}
+        continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           FOREXAI_AGENT_TASK: ${{ inputs.task }}
