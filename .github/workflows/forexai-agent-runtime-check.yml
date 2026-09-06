@@ -1,0 +1,26 @@
+name: ForexAI Agent Runtime Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  agent-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify Agents SDK imports
+        run: python -c "from agents import Agent, Runner, function_tool; print('Agents SDK runtime OK')"
+      - name: Compile agent modules
+        run: python -m py_compile agents/forexai_tools.py agents/research_controller.py agents/forexai_orchestrator.py
+      - name: Run deterministic agent tests
+        run: python -m pytest -q tests/test_agents_runtime.py tests/test_forexai_tools.py tests/test_research_controller.py
