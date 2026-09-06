@@ -1,10 +1,14 @@
-"""ForexAI v29.1 frozen robustness validation.
+"""ForexAI v29.1 robustness validation.
 
-Evaluates the v29 selected candidate and a pre-declared neighborhood using the
+Evaluates a mission-frozen candidate and a pre-declared neighborhood using the
 same real-data execution assumptions: next-bar-open entry/exit, adverse
 0.7-pip cost per side, conservative SL-first resolution, 30-bar expiry, and
 one position at a time. No parameter is selected from validation/OOS data.
 2026 is strictly held out and never evaluated.
+
+The legacy default center remains {atr_mult: 1.0, rr: 2.0}, but callers may
+supply an explicit validated candidate. The supplied parameters become the
+frozen center; robustness never selects a replacement.
 """
 from __future__ import annotations
 
@@ -29,12 +33,30 @@ YEARLY_WARMUP_BARS = 500
 START = pd.Timestamp("2022-01-01", tz="UTC")
 VALIDATION_START = pd.Timestamp("2025-01-01", tz="UTC")
 OOS_START = pd.Timestamp("2026-01-01", tz="UTC")
-CENTER = {"atr_mult": 1.0, "rr": 2.0}
-NEIGHBORHOOD = tuple(
-    {"atr_mult": a, "rr": r}
-    for a in (0.9, 1.0, 1.1)
-    for r in (1.8, 2.0, 2.2)
-)
+DEFAULT_CENTER = {"atr_mult": 1.0, "rr": 2.0}
+
+
+def _neighborhood(center: dict[str, float]) -> tuple[dict[str, float], ...]:
+    """Build the pre-declared robustness neighborhood around a frozen center."""
+    atr = float(center["atr_mult"])
+    rr = float(center["rr"])
+    return tuple(
+        {"atr_mult": round(atr + da, 6), "rr": round(rr + dr, 6)}
+        for da in (-0.1, 0.0, 0.1)
+        for dr in (-0.2, 0.0, 0.2)
+    )
+
+
+def _validate_params(params: dict[str, Any]) -> dict[str, float]:
+    if set(params) != {"atr_mult", "rr"}:
+        raise ValueError("candidate params must contain exactly atr_mult and rr")
+    try:
+        normalized = {"atr_mult": float(params["atr_mult"]), "rr": float(params["rr"])}
+    except (TypeError, ValueError) as exc:
+        raise ValueError("candidate params must be numeric") from exc
+    if not all(np.isfinite(v) and v > 0 for v in normalized.values()):
+        raise ValueError("candidate params must be finite and positive")
+    return normalized
 
 
 def _frame(raw: pd.DataFrame) -> pd.DataFrame:
@@ -49,7 +71,6 @@ def _frame(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def _signals(df: pd.DataFrame) -> pd.DataFrame:
-    # Signal generation is deterministic and does not use future bars.
     return GrokHybridStrategy().generate_signals(df.copy())
 
 
@@ -61,54 +82,43 @@ def _execute(
     cfg = ExecutionConfig()
     d = _signals(df)
     o = d.Open.to_numpy(float); h = d.High.to_numpy(float)
-    l = d.Low.to_numpy(float); c = d.Close.to_numpy(float)
-    atr = d.ATR.to_numpy(float); sig = d.signal.to_numpy(int)
-    entries = 0; wins = 0; losses = 0; total_r = 0.0; gp = 0.0; gl = 0.0
+    l = d.Low.to_numpy(float); sig = d.signal.to_numpy(int)
+    wins = losses = 0; total_r = gp = gl = 0.0
     equity = 10000.0; peak = equity; max_dd = 0.0; holds: list[int] = []
     rs: list[float] = []; position = 0; entry_i = -1; entry_px = stop = target = 0.0
     for i in range(len(d) - 1):
         if position == 0:
             if trade_start is not None and d.index[i] < trade_start:
                 continue
-            if not np.isfinite(atr[i]) or atr[i] <= 0 or sig[i] == 0:
+            if not np.isfinite(d.ATR.iloc[i]) or d.ATR.iloc[i] <= 0 or sig[i] == 0:
                 continue
             position = int(sig[i]); entry_i = i + 1
             entry_px = apply_entry_cost(o[entry_i], position, cfg)
-            risk = params["atr_mult"] * atr[i]
+            risk = params["atr_mult"] * float(d.ATR.iloc[i])
             stop = entry_px - position * risk
             target = entry_px + position * params["rr"] * risk
-            entries += 1
             continue
         age = i - entry_i + 1
         hit_sl = (l[i] <= stop) if position == 1 else (h[i] >= stop)
         hit_tp = (h[i] >= target) if position == 1 else (l[i] <= target)
         reason = None; r = None
-        risk_unit = params["atr_mult"] * atr[entry_i - 1]
+        risk_unit = params["atr_mult"] * float(d.ATR.iloc[entry_i - 1])
         if not np.isfinite(risk_unit) or risk_unit <= 0:
             continue
         if hit_sl and hit_tp:
-            exit_px = apply_exit_cost(stop, position, cfg)
-            r = position * (exit_px - entry_px) / risk_unit
-            reason = "same_bar_sl_first"
+            exit_px = apply_exit_cost(stop, position, cfg); reason = "same_bar_sl_first"
         elif hit_sl:
-            exit_px = stop - position * COST_PIPS_PER_SIDE * PIP
-            r = position * (exit_px - entry_px) / risk_unit
-            reason = "sl"
+            exit_px = stop - position * COST_PIPS_PER_SIDE * PIP; reason = "sl"
         elif hit_tp:
-            exit_px = apply_exit_cost(target, position, cfg)
-            r = position * (exit_px - entry_px) / risk_unit
-            reason = "tp"
+            exit_px = apply_exit_cost(target, position, cfg); reason = "tp"
         elif sig[i] == -position and i + 1 < len(d):
-            exit_px = apply_exit_cost(o[i + 1], position, cfg)
-            r = position * (exit_px - entry_px) / risk_unit
-            reason = "opposite_next_open"
+            exit_px = apply_exit_cost(o[i + 1], position, cfg); reason = "opposite_next_open"
         elif age >= EXPIRY_BARS:
-            exit_px = apply_exit_cost(o[min(i + 1, len(d) - 1)], position, cfg)
-            r = position * (exit_px - entry_px) / (params["atr_mult"] * atr[entry_i - 1])
-            reason = "expiry_next_open"
-        if r is None or reason is None:
+            exit_px = apply_exit_cost(o[min(i + 1, len(d) - 1)], position, cfg); reason = "expiry_next_open"
+        if reason is None:
             continue
-        r = float(r); rs.append(r); total_r += r
+        r = float(position * (exit_px - entry_px) / risk_unit)
+        rs.append(r); total_r += r
         if r > 0: wins += 1; gp += r
         else: losses += 1; gl += abs(r)
         equity *= 1.0 + r * 0.005
@@ -116,7 +126,7 @@ def _execute(
         holds.append(age); position = 0
     n = wins + losses
     pf = gp / gl if gl else (3.0 if n else 0.0)
-    metrics = {
+    return {
         "trades": n, "win_rate_pct": round(100 * wins / n, 3) if n else 0.0,
         "expectancy_R": round(total_r / n, 5) if n else 0.0,
         "total_R": round(total_r, 3), "profit_factor": round(pf, 4),
@@ -125,8 +135,7 @@ def _execute(
         "round_trip_cost_pips": ROUND_TRIP_PIPS, "entries_equal_exits": position == 0,
         "next_bar_open_entry": True, "actual_entry_price_for_stops": True, "adverse_exit_cost_applied": True,
         "same_bar_sl_first": True, "one_position_at_a_time": True,
-    }
-    return metrics, rs
+    }, rs
 
 
 def _mc(rs: list[float], iterations: int = 1000, seed: int = 2901) -> dict[str, Any]:
@@ -142,14 +151,6 @@ def _mc(rs: list[float], iterations: int = 1000, seed: int = 2901) -> dict[str, 
 
 
 def _yearly(df: pd.DataFrame, params: dict[str, float]) -> dict[str, Any]:
-    """Compute yearly diagnostics with indicator warm-up, without using OOS data.
-
-    The prior implementation sliced each calendar year before calculating
-    indicators. That discarded the rolling-history warm-up at every year
-    boundary and could produce artificial zero-trade years. We now prepend a
-    deterministic 500-bar warm-up from the same validation dataset and only
-    permit new entries on/after the target year's start.
-    """
     out = {}
     for year in (2022, 2023, 2024, 2025):
         year_start = pd.Timestamp(f"{year}-01-01", tz="UTC")
@@ -167,7 +168,8 @@ def _hash(params: dict[str, float]) -> str:
     return hashlib.sha256(json.dumps(params, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def run(path: str | Path, timeframe: str, output: str | Path) -> dict[str, Any]:
+def run(path: str | Path, timeframe: str, output: str | Path, candidate_params: dict[str, Any] | None = None) -> dict[str, Any]:
+    center = _validate_params(candidate_params if candidate_params is not None else DEFAULT_CENTER)
     raw = load_real_dataset(path, symbol="EURUSD", timeframe=timeframe)
     df = _frame(raw)
     if df.empty or df.index.min() >= OOS_START: raise RuntimeError("V29_1_REAL_DATA_REQUIRED")
@@ -177,9 +179,9 @@ def run(path: str | Path, timeframe: str, output: str | Path) -> dict[str, Any]:
     oos_rows = int((df.index >= OOS_START).sum())
     if pre.empty or val.empty: raise RuntimeError("V29_1_INCOMPLETE_SPLIT")
     validation_history = df.loc[(df.index >= START) & (df.index < OOS_START)]
-    center_val, center_rs = _execute(validation_history, CENTER, trade_start=VALIDATION_START)
+    center_val, center_rs = _execute(validation_history, center, trade_start=VALIDATION_START)
     variants = []
-    for p in NEIGHBORHOOD:
+    for p in _neighborhood(center):
         m, _ = _execute(validation_history, p, trade_start=VALIDATION_START)
         variants.append({"params": p, "config_hash": _hash(p), "metrics": m})
     pfs = [v["metrics"]["profit_factor"] for v in variants]
@@ -187,12 +189,14 @@ def run(path: str | Path, timeframe: str, output: str | Path) -> dict[str, Any]:
     strict_pass = center_val["profit_factor"] >= 1.10 and center_val["expectancy_R"] > 0 and center_val["total_R"] > 0 and center_val["trades"] >= 100 and center_val["max_dd_pct"] <= 35
     robustness_pass = strict_pass and float(np.median(pfs)) >= 1.0 and positive >= 5 and _mc(center_rs)["max_dd_pct_p95"] <= 40
     report = {
-        "schema": "forexai.robustness_validation.v29.1", "status": "PASS", "real_data_only": True,
-        "timeframe": timeframe, "dataset_rows": len(df), "pre_oos_rows": len(pre), "validation_rows": len(val),
+        "schema": "forexai.robustness_validation.v29.1",
+        "status": "PASS" if robustness_pass else "HOLD",
+        "real_data_only": True, "timeframe": timeframe, "dataset_rows": len(df),
+        "pre_oos_rows": len(pre), "validation_rows": len(val),
         "oos_rows_available_but_not_evaluated": oos_rows, "oos_evaluated": False, "optimization_enabled": False,
-        "frozen_candidate": {"params": CENTER, "config_hash": _hash(CENTER), "source": "v29_selected_candidate"},
+        "frozen_candidate": {"params": center, "config_hash": _hash(center), "source": "validation_mission_frozen_candidate" if candidate_params is not None else "legacy_v29_selected_candidate"},
         "execution_model": {"entry": "next_bar_open", "cost_pips_per_side": COST_PIPS_PER_SIDE, "round_trip_cost_pips": ROUND_TRIP_PIPS, "same_bar_resolution": "SL first (conservative)", "expiry_bars": EXPIRY_BARS, "overlap": "one position at a time"},
-        "validation": {"metrics": center_val, "strict_gate_pass": strict_pass, "yearly": _yearly(yearly_history, CENTER)},
+        "validation": {"metrics": center_val, "strict_gate_pass": strict_pass, "yearly": _yearly(yearly_history, center)},
         "neighborhood": {"variant_count": len(variants), "median_profit_factor": round(float(np.median(pfs)),4), "positive_total_R_variants": positive, "variants": variants},
         "monte_carlo_trade_order": _mc(center_rs),
         "promotion_gate": {"strict_validation_pass": strict_pass, "robustness_pass": robustness_pass, "ready_for_oos": robustness_pass},
@@ -203,6 +207,16 @@ def run(path: str | Path, timeframe: str, output: str | Path) -> dict[str, Any]:
 
 
 def main() -> int:
-    ap=argparse.ArgumentParser(); ap.add_argument("--data",required=True); ap.add_argument("--timeframe",required=True,choices=["M1","M5","M15"]); ap.add_argument("--output",default="artifacts/robustness-validation-v29-1.json"); a=ap.parse_args(); run(a.data,a.timeframe,a.output); return 0
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--data",required=True)
+    ap.add_argument("--timeframe",required=True,choices=["M1","M5","M15"])
+    ap.add_argument("--output",default="artifacts/robustness-validation-v29-1.json")
+    ap.add_argument("--params-json", help="JSON object for the already validation-approved frozen candidate")
+    a=ap.parse_args()
+    params = json.loads(a.params_json) if a.params_json else None
+    if params is not None and not isinstance(params, dict):
+        raise SystemExit("--params-json must decode to an object")
+    run(a.data,a.timeframe,a.output,params)
+    return 0
 
 if __name__ == "__main__": raise SystemExit(main())
