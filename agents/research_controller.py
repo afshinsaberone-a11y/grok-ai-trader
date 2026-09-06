@@ -33,6 +33,12 @@ def _find_evidence(patterns: tuple[str, ...]) -> list[Path]:
                 hits.extend(p for p in root.rglob(pattern) if p.is_file())
     return sorted(set(hits))
 
+def _evidence_label(path: Path) -> str:
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
 def _read_json(path: Path) -> Any | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -69,13 +75,13 @@ def _gate_no_synthetic_fallback() -> Gate:
         data = _read_json(path)
         if data is not None and _truthy_key(data, {"synthetic", "synthetic_fallback", "used_synthetic_data"}):
             matches.append(path)
-    return Gate("no_synthetic_fallback", not matches, ", ".join(str(p.relative_to(REPO_ROOT)) for p in matches[:10]), "Synthetic-data flag found." if matches else "No positive synthetic-data flag found; provenance must still be verified by data gates.")
+    return Gate("no_synthetic_fallback", not matches, ", ".join(_evidence_label(p) for p in matches[:10]), "Synthetic-data flag found." if matches else "No positive synthetic-data flag found; provenance must still be verified by data gates.")
 
 def _gate_execution_contract() -> Gate:
     for path in _find_evidence(("*execution*.json", "*execution*.md", "*audit*.json", "*audit*.md")):
         text = path.read_text(encoding="utf-8", errors="replace").lower()
         if "execution_contract_v1" in text and "sl-first" in text and "1.4" in text:
-            return Gate("execution_contract", True, str(path.relative_to(REPO_ROOT)), "Unified execution contract is explicitly recorded.")
+            return Gate("execution_contract", True, _evidence_label(path), "Unified execution contract is explicitly recorded.")
     return Gate("execution_contract", False, "", "No artifact explicitly records execution_contract_v1 + SL-first + 1.4 pip round trip.")
 
 def _gate_discovery_content() -> Gate:
@@ -89,8 +95,8 @@ def _gate_discovery_content() -> Gate:
         if _first_value(data, {"discovery_years", "years"}) is None:
             continue
         if _truthy_key(data, {"oos_used_for_selection", "used_oos_for_selection"}):
-            return Gate("discovery_content", False, str(path.relative_to(REPO_ROOT)), "Discovery artifact explicitly reports OOS contamination.")
-        return Gate("discovery_content", True, str(path.relative_to(REPO_ROOT)), "Discovery artifact contains family and year information and no positive OOS-selection flag.")
+            return Gate("discovery_content", False, _evidence_label(path), "Discovery artifact explicitly reports OOS contamination.")
+        return Gate("discovery_content", True, _evidence_label(path), "Discovery artifact contains family and year information and no positive OOS-selection flag.")
     return Gate("discovery_content", False, "", "No sufficiently structured discovery artifact was found.")
 
 def _gate_validation_content() -> Gate:
@@ -104,7 +110,7 @@ def _gate_validation_content() -> Gate:
             pf = _first_value(data, {"pf", "profit_factor", "validation_pf"})
             trades = _first_value(data, {"trades", "trade_count", "validation_trades"})
             if isinstance(pf, (int, float)) and isinstance(trades, (int, float)):
-                return Gate("validation_content", True, str(path.relative_to(REPO_ROOT)), f"Validation pass with PF={pf}, trades={trades} explicitly recorded.")
+                return Gate("validation_content", True, _evidence_label(path), f"Validation pass with PF={pf}, trades={trades} explicitly recorded.")
     return Gate("validation_content", False, "", "No validation artifact with explicit passing status, PF and trade count was found.")
 
 def _gate_robustness_content() -> Gate:
@@ -116,7 +122,7 @@ def _gate_robustness_content() -> Gate:
         robust = _first_value(data, {"robustness_pass", "robust_pass"})
         ready = _first_value(data, {"ready_for_oos"})
         if robust is True and ready is True:
-            return Gate("robustness_content", True, str(path.relative_to(REPO_ROOT)), "Robustness pass and ready_for_oos are both explicitly true.")
+            return Gate("robustness_content", True, _evidence_label(path), "Robustness pass and ready_for_oos are both explicitly true.")
     return Gate("robustness_content", False, "", "No artifact proves both robustness_pass=true and ready_for_oos=true.")
 
 def _gate_oos_content() -> Gate:
@@ -128,7 +134,7 @@ def _gate_oos_content() -> Gate:
         year = _first_value(data, {"oos_year", "year"})
         status = _first_value(data, {"status"})
         if year == 2026 and isinstance(status, str) and "hold" in status.lower():
-            return Gate("oos_content", True, str(path.relative_to(REPO_ROOT)), "2026 is explicitly marked held out.")
+            return Gate("oos_content", True, _evidence_label(path), "2026 is explicitly marked held out.")
     return Gate("oos_content", False, "", "No explicit 2026 held-out OOS evidence was found.")
 
 def decide(stage: str) -> ResearchDecision:
