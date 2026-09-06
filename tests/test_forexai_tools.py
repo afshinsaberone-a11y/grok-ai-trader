@@ -34,6 +34,7 @@ def test_search_and_state_tools_are_present() -> None:
     assert tools.search_evidence is not None
     assert tools.repository_state is not None
     assert tools.run_pytest is not None
+    assert tools.inspect_discovery_artifact is not None
 
 
 def test_repo_root_is_repo_like() -> None:
