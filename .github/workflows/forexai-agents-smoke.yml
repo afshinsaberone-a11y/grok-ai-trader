@@ -1,0 +1,25 @@
+name: ForexAI Agent Team Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task for the orchestrator
+        required: true
+        default: Inspect the current ForexAI state and report the safest next action.
+
+jobs:
+  agent-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Agents SDK
+        run: pip install openai-agents
+      - name: Run orchestrator
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FOREXAI_AGENT_TASK: ${{ inputs.task }}
+        run: python agents/forexai_orchestrator.py
