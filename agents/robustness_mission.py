@@ -87,17 +87,27 @@ def _freeze_legacy_candidates(eligible: list[dict[str, Any]], max_candidates: in
     return frozen
 
 
-def inspect_handoff(path: str | Path, max_candidates: int = 20) -> RobustnessDecision:
+def inspect_handoff(
+    path: str | Path,
+    max_candidates: int = 20,
+    source_validation_path: str | Path | None = None,
+) -> RobustnessDecision:
     """Consume only a canonical Validation -> Robustness handoff."""
     p = Path(path)
     try:
         d = _load(p)
-        candidates = validate_handoff(d, max_candidates=max_candidates)
+        candidates = validate_handoff(
+            d,
+            max_candidates=max_candidates,
+            source_validation_path=source_validation_path,
+        )
     except ValueError as exc:
-        return RobustnessDecision("HOLD", str(p), d.get("schema_version") if isinstance(d, dict) else None,
-                                  d.get("research_timeframe") if isinstance(d, dict) else None,
-                                  d.get("validation_qualified_count") if isinstance(d, dict) else None,
-                                  [], [str(exc)])
+        return RobustnessDecision(
+            "HOLD", str(p), d.get("schema_version") if isinstance(d, dict) else None,
+            d.get("research_timeframe") if isinstance(d, dict) else None,
+            d.get("validation_qualified_count") if isinstance(d, dict) else None,
+            [], [str(exc)],
+        )
     declared = d.get("validation_qualified_count")
     reasons: list[str] = []
     if not isinstance(declared, int) or declared != len(candidates):
@@ -174,9 +184,10 @@ def main() -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--artifact", help="legacy validation artifact")
     source.add_argument("--handoff", help="canonical forexai.candidate_handoff.v1 artifact")
+    parser.add_argument("--validation-artifact", help="validation artifact used to verify handoff provenance")
     parser.add_argument("--output")
     args = parser.parse_args()
-    decision = inspect_handoff(args.handoff) if args.handoff else inspect_validation(args.artifact)
+    decision = inspect_handoff(args.handoff, source_validation_path=args.validation_artifact) if args.handoff else inspect_validation(args.artifact)
     payload = decision.to_json()
     if args.output:
         Path(args.output).write_text(payload + "\n", encoding="utf-8")
