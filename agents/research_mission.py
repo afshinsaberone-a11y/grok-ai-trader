@@ -31,7 +31,8 @@ class MissionDecision:
     schema_version: str | None
     timeframe: str | None
     candidate_total: int | None
-    qualified_count: int | None
+    pre_oos_qualified_count: int | None
+    validation_qualified_count: int | None
     selected_candidates: list[dict[str, Any]]
     reasons: list[str]
 
@@ -89,13 +90,19 @@ def inspect_discovery(path: str | Path, max_candidates: int = 20) -> MissionDeci
     try:
         d = _load(p)
     except ValueError as exc:
-        return MissionDecision("HOLD", str(p), None, None, None, None, [], [str(exc)])
+        return MissionDecision("HOLD", str(p), None, None, None, None, None, [], [str(exc)])
 
     schema = d.get("schema_version")
     timeframe = d.get("research_timeframe")
     result = d.get("result") if isinstance(d.get("result"), dict) else d
     candidate_total = result.get("candidate_total")
-    qualified_count = result.get("qualified_count")
+    pre_oos_qualified_count = result.get("pre_oos_qualified_count")
+    validation_qualified_count = result.get("validation_qualified_count")
+
+    # Legacy artifacts may only expose qualified_count. Treat it as validation count
+    # for backward compatibility, but never use it as the Discovery readiness count.
+    if validation_qualified_count is None:
+        validation_qualified_count = result.get("qualified_count")
 
     if d.get("real_data_required") is not True:
         reasons.append("real_data_required is not true")
@@ -114,23 +121,41 @@ def inspect_discovery(path: str | Path, max_candidates: int = 20) -> MissionDeci
 
     if not isinstance(candidate_total, int) or candidate_total < 1:
         reasons.append("candidate_total is missing or invalid")
-    if not isinstance(qualified_count, int) or qualified_count < 0:
-        reasons.append("qualified_count is missing or invalid")
+    if not isinstance(pre_oos_qualified_count, int) or pre_oos_qualified_count < 0:
+        reasons.append("pre_oos_qualified_count is missing or invalid")
+    if validation_qualified_count is not None and (
+        not isinstance(validation_qualified_count, int) or validation_qualified_count < 0
+    ):
+        reasons.append("validation_qualified_count is invalid")
 
     champion = result.get("champion", d.get("champion"))
     if champion is not None:
         reasons.append("discovery artifact contains a Champion; discovery must not promote")
 
     selected = _extract_discovery_candidates(result, max_candidates)
-    if qualified_count == 0:
+    if pre_oos_qualified_count == 0:
         reasons.append("no discovery-qualified candidates are available for downstream validation")
-    if qualified_count and not selected:
-        reasons.append("qualified candidates exist but no explicit pre-OOS ranked candidates were found")
+    if pre_oos_qualified_count and not selected:
+        reasons.append("discovery-qualified candidates exist but no explicit pre-OOS ranked candidates were found")
+    if pre_oos_qualified_count and selected and len(selected) > pre_oos_qualified_count:
+        # This should never happen for a correctly formed v25 artifact, and protects
+        # downstream consumers from an inconsistent handoff contract.
+        reasons.append("pre-OOS ranked candidate list exceeds pre_oos_qualified_count")
 
-    # The existence of the same candidate in validation records is expected and is not leakage by itself.
-    # Only the discovery diagnostics are used as the handoff source here.
+    # Validation records are evidence for the later validation gate only; they never
+    # change Discovery ordering or candidate identity here.
     status = "READY" if not reasons else "HOLD"
-    return MissionDecision(status, str(p), schema, timeframe, candidate_total, qualified_count, selected, reasons)
+    return MissionDecision(
+        status,
+        str(p),
+        schema,
+        timeframe,
+        candidate_total,
+        pre_oos_qualified_count,
+        validation_qualified_count,
+        selected,
+        reasons,
+    )
 
 
 def main() -> int:
