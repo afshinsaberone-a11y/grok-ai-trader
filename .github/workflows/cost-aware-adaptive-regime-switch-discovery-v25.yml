@@ -79,19 +79,19 @@ jobs:
       - name: Run Agent Research Mission
         run: |
           set +e
-          python -m agents.research_mission --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/research-mission-v25.json
+          python agents/research_mission.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/research-mission-v25.json
           rc=$?
           test "$rc" -eq 0 || test "$rc" -eq 2
       - name: Run Agent Validation Mission
         run: |
           set +e
-          python -m agents.validation_mission --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/validation-mission-v25.json
+          python agents/validation_mission.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/validation-mission-v25.json
           rc=$?
           test "$rc" -eq 0 || test "$rc" -eq 2
       - name: Run Agent Robustness Mission
         run: |
           set +e
-          python -m agents.robustness_mission --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/robustness-mission-v25.json
+          python agents/robustness_mission.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/robustness-mission-v25.json
           rc=$?
           test "$rc" -eq 0 || test "$rc" -eq 2
       - name: Upload agent mission evidence
@@ -109,4 +109,5 @@ jobs:
           path: artifacts/adaptive-regime-switch-v25.json
           if-no-files-found: error
 
-# Execution trigger commit: run v25 on the repaired agent/controller stack.
+# Fix: avoid collision between the local agents/ directory and the installed
+# openai-agents package named "agents" when invoking mission modules.
