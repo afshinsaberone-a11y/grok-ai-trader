@@ -1,7 +1,7 @@
 """Evidence-only Robustness Mission for ForexAI.
 
 Consumes validation evidence and freezes eligible candidates for the existing
-v29.1 robustness validator. It never evaluates market data, optimizes parameters,
+robustness validator. It never evaluates market data, optimizes parameters,
 loads OOS, or promotes an EA.
 """
 from __future__ import annotations
@@ -21,11 +21,6 @@ REQUIRED_EXECUTION = {
     "overlap": "one position at a time",
     "adverse_exit_cost_applied": True,
 }
-
-# The current v29.1 validator evaluates exactly this frozen center candidate.
-# Until the validator accepts arbitrary mission-frozen parameters, any other
-# candidate must be held rather than silently evaluated with different params.
-V29_1_FROZEN_CENTER = {"atr_mult": 1.0, "rr": 2.0}
 
 
 @dataclass(frozen=True)
@@ -96,18 +91,21 @@ def inspect_validation(path: str | Path, max_candidates: int = 20) -> Robustness
         reasons.append("validation_qualified_count does not match validation_pass evidence")
 
     frozen: list[dict[str, Any]] = []
+    seen_hashes: set[str] = set()
     for item in eligible:
         params = item.get("params")
         if not isinstance(params, dict) or not params:
             reasons.append("validation-approved candidate has no explicit params")
             continue
-        if params != V29_1_FROZEN_CENTER:
-            reasons.append("validation-approved candidate params do not match the current v29.1 frozen center")
+        config_hash = item.get("config_hash") or _hash_params(params)
+        if config_hash in seen_hashes:
+            reasons.append("duplicate validation-approved candidate config_hash")
             continue
+        seen_hashes.add(config_hash)
         frozen.append({
             "candidate": item.get("candidate_id", item.get("candidate", item.get("id"))),
             "params": params.copy(),
-            "config_hash": item.get("config_hash") or _hash_params(params),
+            "config_hash": config_hash,
             "selection_frozen": True,
             "oos_optimization_allowed": False,
         })
