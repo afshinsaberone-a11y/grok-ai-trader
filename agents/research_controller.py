@@ -91,6 +91,20 @@ def _gate_execution_contract() -> Gate:
             return Gate("execution_contract", True, _evidence_label(path), "Unified execution contract is explicitly recorded.")
     return Gate("execution_contract", False, "", "No artifact explicitly records a compatible execution contract.")
 
+def _gate_discovery_content() -> Gate:
+    files = _find_evidence(("*discovery*.json", "*aggregate*.json", "*.json"))
+    for path in files:
+        data = _read_json(path)
+        if not isinstance(data, (dict, list)):
+            continue
+        if _first_value(data, {"family", "strategy_family"}) is None:
+            continue
+        if _first_value(data, {"discovery_years", "years"}) is None:
+            continue
+        if _truthy_key(data, {"oos_used_for_selection", "used_oos_for_selection"}):
+            return Gate("discovery_content", False, _evidence_label(path), "Discovery artifact explicitly reports OOS contamination.")
+        return Gate("discovery_content", True, _evidence_label(path), "Discovery artifact contains family and year information and no positive OOS-selection flag.")
+    return Gate("discovery_content", False, "", "No sufficiently structured discovery artifact was found.")
 
 def _gate_validation_content() -> Gate:
     files = _find_evidence(("*validation*.json", "*robustness*.json", "*.json"))
@@ -117,7 +131,6 @@ def _gate_validation_content() -> Gate:
                 return Gate("validation_content", True, _evidence_label(path), f"Validation pass with PF={pf}, trades={trades} explicitly recorded.")
     return Gate("validation_content", False, "", "No validation artifact with explicit passing status, PF and trade count was found.")
 
-
 def _gate_robustness_content() -> Gate:
     files = _find_evidence(("*robustness*.json", "*.json"))
     for path in files:
@@ -137,7 +150,6 @@ def _gate_robustness_content() -> Gate:
         if robust is True and ready is True:
             return Gate("robustness_content", True, _evidence_label(path), "Robustness pass and ready_for_oos are both explicitly true.")
     return Gate("robustness_content", False, "", "No artifact proves both robustness_pass=true and ready_for_oos=true.")
-
 
 def _gate_oos_content() -> Gate:
     files = _find_evidence(("*oos*.json", "*oos*.md", "*.json"))
