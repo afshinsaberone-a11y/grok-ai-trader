@@ -76,6 +76,16 @@ jobs:
           assert e['entry']=='next_bar_open' and e['round_trip_cost_pips']==1.4 and e['same_bar_resolution']=='SL first (conservative)' and e['expiry_bars']==30 and e['overlap']=='one position at a time' and e['adverse_exit_cost_applied'] is True
           print('V25_FAIL_CLOSED_OK',requested,r['pre_oos_qualified_count'],r['validation_qualified_count'])
           PY
+      - name: Run v25 gate diagnostics
+        run: python agents/v25_gate_diagnostics.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/v25-gate-diagnostics.json
+
+      - name: Upload v25 gate diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: v25-gate-diagnostics-${{ env.REQUESTED_TIMEFRAME }}
+          path: artifacts/v25-gate-diagnostics.json
+          if-no-files-found: error
+
       - name: Run Agent Research Mission
         run: |
           set +e
