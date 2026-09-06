@@ -46,14 +46,19 @@ def list_evidence_files(subdir: str = "") -> str:
     return json.dumps({"root": str(base.relative_to(REPO_ROOT)), "files": files}, ensure_ascii=False)
 
 
-@function_tool
-def read_evidence_file(path: str) -> str:
-    """Read a bounded text evidence file."""
+def _read_evidence_file(path: str) -> str:
+    """Read a bounded text evidence file without the Agents SDK wrapper."""
     target = _safe_path(path)
     if not target.exists() or not target.is_file():
         return json.dumps({"path": path, "exists": False})
     raw = target.read_text(encoding="utf-8", errors="replace")
     return json.dumps({"path": path, "exists": True, "truncated": len(raw) > MAX_READ, "content": raw[:MAX_READ]}, ensure_ascii=False)
+
+
+@function_tool
+def read_evidence_file(path: str) -> str:
+    """Read a bounded text evidence file."""
+    return _read_evidence_file(path)
 
 
 @function_tool
