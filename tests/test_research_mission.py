@@ -50,20 +50,20 @@ def _artifact(tmp_path: Path, **overrides):
 
 def test_ready_from_real_v25_diagnostics(tmp_path):
     decision = inspect_discovery(_artifact(tmp_path))
-    # v25's diagnostic candidate is eligible, even though its ID also appears in validation records.
-    assert decision.status == "HOLD"
-    assert any("overlaps validation records" in r for r in decision.reasons)
+    assert decision.status == "READY"
+    assert decision.selected_candidates[0]["candidate"] == 7
+    assert decision.selected_candidates[0]["pre_oos_pass"] is True
 
 
-def test_pre_oos_candidates_are_handoff_source(tmp_path):
+def test_validation_records_do_not_drive_selection(tmp_path):
     data = _artifact(tmp_path)
     payload = json.loads(data.read_text(encoding="utf-8"))
-    payload["result"]["validated_candidates"] = []
+    payload["result"]["validated_candidates"][0]["candidate"] = 99
+    payload["result"]["validated_candidates"][0]["validation_2025"]["profit_factor"] = 99.0
     data.write_text(json.dumps(payload), encoding="utf-8")
     decision = inspect_discovery(data)
     assert decision.status == "READY"
     assert decision.selected_candidates[0]["candidate"] == 7
-    assert decision.selected_candidates[0]["pre_oos_pass"] is True
 
 
 def test_zero_qualified_is_hold(tmp_path):
