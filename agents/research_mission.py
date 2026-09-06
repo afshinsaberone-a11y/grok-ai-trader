@@ -21,6 +21,9 @@ REQUIRED_EXECUTION = {
     "adverse_exit_cost_applied": True,
 }
 
+PRE_OOS_YEARS = {2022, 2023, 2024}
+
+
 @dataclass(frozen=True)
 class MissionDecision:
     status: str  # READY / HOLD / REJECT
@@ -44,6 +47,40 @@ def _load(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("artifact root must be a JSON object")
     return value
+
+
+def _candidate_id(item: dict[str, Any]) -> Any:
+    return item.get("candidate_id", item.get("candidate", item.get("id")))
+
+
+def _candidate_is_pre_oos(item: dict[str, Any]) -> bool:
+    """Accept only candidates whose discovery evidence is explicitly pre-OOS."""
+    years = item.get("discovery_years", item.get("pre_oos_years"))
+    if isinstance(years, (list, tuple, set)) and years:
+        try:
+            return set(int(y) for y in years).issubset(PRE_OOS_YEARS)
+        except (TypeError, ValueError):
+            return False
+    if item.get("selection_source") in {"pre_oos", "discovery", "pre_oos_score"}:
+        return True
+    return bool(item.get("pre_oos_pass") is True)
+
+
+def _extract_discovery_candidates(result: dict[str, Any], max_candidates: int) -> list[dict[str, Any]]:
+    """Extract only pre-OOS ranked candidates; never rank using validation/OOS fields."""
+    top = result.get("top_20_diagnostics")
+    if not isinstance(top, list):
+        top = result.get("top_50")
+    selected: list[dict[str, Any]] = []
+    if not isinstance(top, list):
+        return selected
+    for item in top:
+        if not isinstance(item, dict) or not _candidate_is_pre_oos(item):
+            continue
+        selected.append(item.copy())
+        if len(selected) >= max_candidates:
+            break
+    return selected
 
 
 def inspect_discovery(path: str | Path, max_candidates: int = 20) -> MissionDecision:
@@ -84,15 +121,21 @@ def inspect_discovery(path: str | Path, max_candidates: int = 20) -> MissionDeci
     if champion is not None:
         reasons.append("discovery artifact contains a Champion; discovery must not promote")
 
-    selected: list[dict[str, Any]] = []
-    top = result.get("top_50")
-    if isinstance(top, list):
-        for item in top[:max_candidates]:
-            if isinstance(item, dict):
-                selected.append(item.copy())
-
+    selected = _extract_discovery_candidates(result, max_candidates)
     if qualified_count == 0:
         reasons.append("no discovery-qualified candidates are available for downstream validation")
+    if qualified_count and not selected:
+        reasons.append("qualified candidates exist but no explicit pre-OOS ranked candidates were found")
+
+    # Explicitly refuse to use validation fields as the selection source.
+    if isinstance(result.get("validated_candidates"), list) and selected:
+        selected_ids = {_candidate_id(x) for x in selected}
+        validation_ids = {
+            _candidate_id(x) for x in result["validated_candidates"] if isinstance(x, dict)
+        }
+        if selected_ids & validation_ids:
+            reasons.append("candidate handoff overlaps validation records; validation must not drive selection")
+            selected = []
 
     status = "READY" if not reasons else "HOLD"
     return MissionDecision(status, str(p), schema, timeframe, candidate_total, qualified_count, selected, reasons)
@@ -109,6 +152,7 @@ def main() -> int:
         Path(args.output).write_text(payload + "\n", encoding="utf-8")
     print(payload)
     return 0 if decision.status == "READY" else 2
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
