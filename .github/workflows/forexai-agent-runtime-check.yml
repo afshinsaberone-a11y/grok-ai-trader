@@ -30,6 +30,10 @@ jobs:
         run: python -m py_compile agents/forexai_tools.py agents/research_controller.py agents/forexai_orchestrator.py agents/deterministic_mission.py
       - name: Run deterministic agent tests
         run: python -m pytest -q tests/test_agents_runtime.py tests/test_forexai_tools.py tests/test_research_controller.py
+      - name: Collect prior Actions evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python agents/evidence_collector.py --repo "${{ github.repository }}"
       - name: Run offline deterministic Mission-001 audit
         run: python agents/deterministic_mission.py
       - name: Upload offline Mission-001 evidence
