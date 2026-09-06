@@ -12,6 +12,10 @@ on:
         default: "MISSION-001: Audit the current ForexAI state. Inspect real-data provenance, execution_contract_v1, v29.1 M1/M5/M15 evidence, validation/robustness/OOS gates, code integrity, and Champion status. Return exactly one safest next action: GO, HOLD, or REJECT."
         type: string
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   agent-runtime:
     runs-on: ubuntu-latest
