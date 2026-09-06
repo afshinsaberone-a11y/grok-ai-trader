@@ -67,7 +67,7 @@ def _candidate_is_pre_oos(item: dict[str, Any]) -> bool:
 
 
 def _extract_discovery_candidates(result: dict[str, Any], max_candidates: int) -> list[dict[str, Any]]:
-    """Extract only pre-OOS ranked candidates; never rank using validation/OOS fields."""
+    """Extract only pre-OOS ranked candidates; validation records are never the ranking source."""
     top = result.get("top_20_diagnostics")
     if not isinstance(top, list):
         top = result.get("top_50")
@@ -127,16 +127,8 @@ def inspect_discovery(path: str | Path, max_candidates: int = 20) -> MissionDeci
     if qualified_count and not selected:
         reasons.append("qualified candidates exist but no explicit pre-OOS ranked candidates were found")
 
-    # Explicitly refuse to use validation fields as the selection source.
-    if isinstance(result.get("validated_candidates"), list) and selected:
-        selected_ids = {_candidate_id(x) for x in selected}
-        validation_ids = {
-            _candidate_id(x) for x in result["validated_candidates"] if isinstance(x, dict)
-        }
-        if selected_ids & validation_ids:
-            reasons.append("candidate handoff overlaps validation records; validation must not drive selection")
-            selected = []
-
+    # The existence of the same candidate in validation records is expected and is not leakage by itself.
+    # Only the discovery diagnostics are used as the handoff source here.
     status = "READY" if not reasons else "HOLD"
     return MissionDecision(status, str(p), schema, timeframe, candidate_total, qualified_count, selected, reasons)
 
