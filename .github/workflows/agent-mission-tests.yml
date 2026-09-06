@@ -9,6 +9,7 @@ on:
       - 'tests/test_validation_mission.py'
       - 'tests/test_robustness_mission.py'
       - 'tests/test_forexai_tools.py'
+      - 'tests/test_forexai_orchestrator.py'
       - '.github/workflows/agent-mission-tests.yml'
   pull_request:
     paths:
@@ -17,6 +18,7 @@ on:
       - 'tests/test_validation_mission.py'
       - 'tests/test_robustness_mission.py'
       - 'tests/test_forexai_tools.py'
+      - 'tests/test_forexai_orchestrator.py'
       - '.github/workflows/agent-mission-tests.yml'
   workflow_dispatch:
 
@@ -35,5 +37,5 @@ jobs:
         run: pip install pytest openai-agents
       - name: Compile mission modules
         run: python -m py_compile agents/research_mission.py agents/validation_mission.py agents/robustness_mission.py agents/forexai_tools.py agents/research_controller.py agents/forexai_orchestrator.py
-      - name: Run mission tests
-        run: python -m pytest -q tests/test_research_mission.py tests/test_validation_mission.py tests/test_robustness_mission.py tests/test_forexai_tools.py
+      - name: Run mission and orchestrator tests
+        run: python -m pytest -q tests/test_research_mission.py tests/test_validation_mission.py tests/test_robustness_mission.py tests/test_forexai_tools.py tests/test_forexai_orchestrator.py
