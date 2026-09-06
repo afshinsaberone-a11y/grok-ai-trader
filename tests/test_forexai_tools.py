@@ -26,7 +26,7 @@ def test_safe_path_allows_evidence_area() -> None:
 
 
 def test_missing_evidence_is_explicit() -> None:
-    payload = json.loads(tools.read_evidence_file("agents/does-not-exist.txt"))
+    payload = json.loads(tools._read_evidence_file("agents/does-not-exist.txt"))
     assert payload == {"path": "agents/does-not-exist.txt", "exists": False}
 
 
