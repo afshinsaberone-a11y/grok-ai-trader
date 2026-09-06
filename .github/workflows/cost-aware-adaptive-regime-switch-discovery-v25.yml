@@ -52,7 +52,7 @@ jobs:
         run: |
           python - <<'PY'
           from research.optimization.cost_aware_adaptive_regime_switch_v25 import catalog
-          c=catalog(); assert len(c)==576 and len({str(sorted(x.items())) for x in c})==576
+          c=catalog(); assert len(c)==432 and len({str(sorted(x.items())) for x in c})==432
           print('CATALOG_OK',len(c))
           PY
       - name: Run v25
@@ -65,7 +65,7 @@ jobs:
           assert d['real_data_required'] is True and d['synthetic_fallback'] is False
           assert d['research_timeframe']=='M5'
           assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
-          assert r['candidate_total']==576 and r['champion'] is None
+          assert r['candidate_total']==432 and r['champion'] is None
           assert e['entry']=='next_bar_open' and e['round_trip_cost_pips']==1.4 and e['same_bar_resolution']=='SL first (conservative)' and e['expiry_bars']==30 and e['overlap']=='one position at a time' and e['adverse_exit_cost_applied'] is True
           print('V25_FAIL_CLOSED_OK',r['qualified_count'])
           PY
