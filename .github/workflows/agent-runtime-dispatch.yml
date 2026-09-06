@@ -37,6 +37,7 @@ jobs:
       - name: Compile agent runtime modules
         run: >-
           python -m py_compile
+          agents/candidate_contract.py
           agents/deterministic_mission.py
           agents/evidence_collector.py
           agents/forexai_tools.py
