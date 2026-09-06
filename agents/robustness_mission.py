@@ -22,10 +22,15 @@ REQUIRED_EXECUTION = {
     "adverse_exit_cost_applied": True,
 }
 
+# The current v29.1 validator evaluates exactly this frozen center candidate.
+# Until the validator accepts arbitrary mission-frozen parameters, any other
+# candidate must be held rather than silently evaluated with different params.
+V29_1_FROZEN_CENTER = {"atr_mult": 1.0, "rr": 2.0}
+
 
 @dataclass(frozen=True)
 class RobustnessDecision:
-    status: str  # READY / HOLD / REJECT
+    status: str
     artifact: str
     schema_version: str | None
     timeframe: str | None
@@ -95,6 +100,9 @@ def inspect_validation(path: str | Path, max_candidates: int = 20) -> Robustness
         params = item.get("params")
         if not isinstance(params, dict) or not params:
             reasons.append("validation-approved candidate has no explicit params")
+            continue
+        if params != V29_1_FROZEN_CENTER:
+            reasons.append("validation-approved candidate params do not match the current v29.1 frozen center")
             continue
         frozen.append({
             "candidate": item.get("candidate_id", item.get("candidate", item.get("id"))),
