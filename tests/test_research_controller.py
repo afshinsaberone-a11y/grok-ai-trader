@@ -27,5 +27,30 @@ def test_decision_serializes_structured_gates() -> None:
         "evidence_present",
         "no_synthetic_fallback",
         "execution_contract",
-        "oos_holdout",
+        "discovery_content",
     }
+
+
+def test_discovery_content_rejects_oos_contamination(tmp_path, monkeypatch) -> None:
+    report = tmp_path / "reports" / "discovery.json"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        json.dumps({
+            "family": "test_family",
+            "discovery_years": [2022, 2023, 2024],
+            "oos_used_for_selection": True,
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(controller, "ARTIFACT_ROOTS", (tmp_path / "artifacts", tmp_path / "reports"))
+    gate = controller._gate_discovery_content()
+    assert gate.passed is False
+
+
+def test_robustness_requires_ready_for_oos(tmp_path, monkeypatch) -> None:
+    report = tmp_path / "reports" / "robustness.json"
+    report.parent.mkdir(parents=True)
+    report.write_text(json.dumps({"robustness_pass": True, "ready_for_oos": False}), encoding="utf-8")
+    monkeypatch.setattr(controller, "ARTIFACT_ROOTS", (tmp_path / "artifacts", tmp_path / "reports"))
+    gate = controller._gate_robustness_content()
+    assert gate.passed is False
