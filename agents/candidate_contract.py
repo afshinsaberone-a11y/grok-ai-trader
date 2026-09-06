@@ -24,8 +24,8 @@ def config_hash(params: dict[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _artifact_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def artifact_sha256(path: str | Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def build_handoff(artifact_path: str | Path, validation_decision: Any, max_candidates: int = 20) -> dict[str, Any]:
@@ -67,7 +67,7 @@ def build_handoff(artifact_path: str | Path, validation_decision: Any, max_candi
     return {
         "schema_version": SCHEMA_VERSION,
         "source_validation_artifact": str(p),
-        "source_validation_sha256": _artifact_sha256(p),
+        "source_validation_sha256": artifact_sha256(p),
         "research_timeframe": getattr(validation_decision, "timeframe", None),
         "validation_qualified_count": getattr(validation_decision, "validation_qualified_count", None),
         "oos_policy": {"loaded": False, "status": "HELD_OUT"},
@@ -82,7 +82,11 @@ def build_handoff(artifact_path: str | Path, validation_decision: Any, max_candi
     }
 
 
-def validate_handoff(value: dict[str, Any], max_candidates: int = 20) -> list[dict[str, Any]]:
+def validate_handoff(
+    value: dict[str, Any],
+    max_candidates: int = 20,
+    source_validation_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
     """Validate and return frozen candidates; reject tampered or non-approved data."""
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("invalid candidate handoff schema_version")
@@ -94,6 +98,13 @@ def validate_handoff(value: dict[str, Any], max_candidates: int = 20) -> list[di
             or policy.get("parameters_are_frozen") is not True \
             or policy.get("oos_optimization_disabled") is not True:
         raise ValueError("candidate handoff policy is not fail-closed")
+
+    recorded_sha = value.get("source_validation_sha256")
+    if not isinstance(recorded_sha, str) or len(recorded_sha) != 64:
+        raise ValueError("source validation artifact SHA256 is missing")
+    if source_validation_path is not None and artifact_sha256(source_validation_path) != recorded_sha:
+        raise ValueError("source validation artifact SHA256 mismatch")
+
     candidates = value.get("candidates")
     if not isinstance(candidates, list) or not candidates:
         raise ValueError("candidate handoff contains no candidates")
