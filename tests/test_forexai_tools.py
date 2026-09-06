@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
-import agents.forexai_tools as tools
+AGENTS_DIR = Path(__file__).resolve().parents[1] / "agents"
+sys.path.insert(0, str(AGENTS_DIR))
+
+import forexai_tools as tools  # noqa: E402
 
 
 def test_safe_path_rejects_escape() -> None:
