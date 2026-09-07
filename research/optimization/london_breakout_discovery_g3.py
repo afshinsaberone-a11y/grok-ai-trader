@@ -80,7 +80,7 @@ def backtest(d,p,cfg):
                 if not np.isfinite(atr) or atr<=0: continue
                 hi=float(ref.High.max())+float(p["buffer_atr"])*atr; lo=float(ref.Low.min())-float(p["buffer_atr"])*atr
                 c=float(g.Close.iloc[i]); side=1 if c>hi else -1 if c<lo else 0
-                if p["side_mode"]=="breakout_only" and side<0: side=0
+                if p["side_mode"] in ("breakout_only","long_only") and side<0: side=0\n                if p["side_mode"]=="short_only" and side>0: side=0
                 if side:
                     entry_i=i+1; entry=apply_entry_cost(float(g.Open.iloc[entry_i]),side,cfg)
                     unit=float(p["atr_mult"])*atr; stop=entry-side*unit; target=entry+side*float(p["rr"])*unit; pos=side
@@ -116,12 +116,12 @@ def reject(pre):
 
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--data",required=True); ap.add_argument("--output",required=True); ap.add_argument("--timeframe",required=True,choices=("M1","M5","M15")); ap.add_argument("--spread-pips",type=float,default=SPREAD); ap.add_argument("--slippage-pips",type=float,default=SLIPPAGE); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--data",required=True); ap.add_argument("--output",required=True); ap.add_argument("--timeframe",required=True,choices=("M1","M5","M15")); ap.add_argument("--spread-pips",type=float,default=SPREAD); ap.add_argument("--slippage-pips",type=float,default=SLIPPAGE); ap.add_argument("--side-mode-override",choices=("both","long_only","short_only"),default=None); a=ap.parse_args()
     d=prepare(pd.read_csv(a.data)); cfg=ExecutionConfig(spread_pips=a.spread_pips,slippage_pips=a.slippage_pips)
     years={y:d[(d.index>=f"{y}-01-01")&(d.index<f"{y+1}-01-01")] for y in (2022,2023,2024,2025)}
     rows=[]; gates=Counter()
     for cid,p in enumerate(catalog(),1):
-        pre=[{"year":y,"metrics":backtest(years[y],p,cfg)} for y in (2022,2023,2024)]; bad=reject(pre)
+        p=dict(p);\n        if a.side_mode_override == "long_only": p["side_mode"]="long_only"\n        elif a.side_mode_override == "short_only": p["side_mode"]="short_only"\n        pre=[{"year":y,"metrics":backtest(years[y],p,cfg)} for y in (2022,2023,2024)]; bad=reject(pre)
         for x in bad:gates[x]+=1
         rows.append({"candidate_id":cid,"params":p,"pre_oos":pre,"pre_oos_pass":not bad,"rejection_reasons":bad})
     ranked=sorted(rows,key=lambda x:(x["pre_oos_pass"],sum(m["metrics"]["expectancy_R"] for m in x["pre_oos"])),reverse=True); pre=[x for x in ranked if x["pre_oos_pass"]]
