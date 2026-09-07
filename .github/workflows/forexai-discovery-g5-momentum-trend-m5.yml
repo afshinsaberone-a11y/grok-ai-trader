@@ -30,6 +30,18 @@ jobs:
           DATA="$(find data/real/normalized -type f -name 'EURUSD_M5_20220101_20251231.csv' | sort | head -n1)"
           test -n "$DATA"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Feature self-check
+        run: |
+          python - <<'PY'
+          from research.optimization.multi_family_discovery_g2 import prepare
+          import pandas as pd
+          d=prepare(pd.read_csv("$DATA"))
+          required={"EMA8","EMA12","EMA20","EMA30","EMA34","EMA50","EMA80","ROC3","ROC6","ROLL20","STD20","ROLL40","STD40","RSI","ATR"}
+          missing=sorted(required-set(d.columns))
+          assert not missing, missing
+          print("G5_FEATURES_OK", sorted(required))
+          PY
+
       - name: Run G5
         run: python -m research.optimization.momentum_trend_discovery_g5 --data "$DATA" --timeframe M5 --output artifacts/momentum-trend-g5-M5.json
       - name: Fail-closed G5 controls
