@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from agents.candidate_contract import build_handoff
+
 REQUIRED_EXECUTION = {
     "entry": "next_bar_open",
     "round_trip_cost_pips": 1.4,
@@ -172,15 +174,32 @@ def inspect_validation(path: str | Path, max_candidates: int = 20) -> Validation
     )
 
 
+def write_handoff(path: str | Path, output: str | Path, max_candidates: int = 20) -> dict[str, Any]:
+    """Validate evidence and emit the canonical Validation -> Robustness contract."""
+    decision = inspect_validation(path, max_candidates=max_candidates)
+    if decision.status != "READY":
+        raise ValueError("validation evidence is not READY: " + "; ".join(decision.reasons))
+    handoff = build_handoff(path, decision, max_candidates=max_candidates)
+    Path(output).write_text(
+        json.dumps(handoff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return handoff
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect ForexAI validation evidence without optimizing it.")
     parser.add_argument("--artifact", required=True)
     parser.add_argument("--output")
+    parser.add_argument("--handoff-output", help="Write canonical forexai.candidate_handoff.v1 JSON")
     args = parser.parse_args()
     decision = inspect_validation(args.artifact)
     payload = decision.to_json()
     if args.output:
         Path(args.output).write_text(payload + "\n", encoding="utf-8")
+    if args.handoff_output:
+        write_handoff(args.artifact, args.handoff_output)
+        print(f"handoff_written={args.handoff_output}")
     print(payload)
     return 0 if decision.status == "READY" else 2
 

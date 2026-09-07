@@ -29,10 +29,9 @@ jobs:
       - name: Runtime check
         run: python -c "import numpy,pandas; print(numpy.__version__, pandas.__version__)"
       - name: Contract and agent compile check
-        run: python -m py_compile research/optimization/execution_contract_v1.py research/optimization/cost_aware_adaptive_regime_switch_v25.py agents/research_mission.py agents/validation_mission.py agents/robustness_mission.py agents/research_controller.py agents/forexai_orchestrator.py
+        run: python -m py_compile research/optimization/execution_contract_v1.py research/optimization/cost_aware_adaptive_regime_switch_v25.py agents/candidate_contract.py agents/v25_gate_diagnostics.py agents/research_mission.py agents/validation_mission.py agents/robustness_mission.py agents/research_controller.py agents/forexai_orchestrator.py
       - name: Download REAL EURUSD data
-        run: |
-          python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe "$REQUESTED_TIMEFRAME" --output data/real --validate --manifest
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe "$REQUESTED_TIMEFRAME" --output data/real --validate --manifest
       - name: Locate exact REAL dataset
         run: |
           set -euo pipefail
@@ -78,14 +77,12 @@ jobs:
           PY
       - name: Run v25 gate diagnostics
         run: python agents/v25_gate_diagnostics.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/v25-gate-diagnostics.json
-
       - name: Upload v25 gate diagnostics
         uses: actions/upload-artifact@v4
         with:
           name: v25-gate-diagnostics-${{ env.REQUESTED_TIMEFRAME }}
           path: artifacts/v25-gate-diagnostics.json
           if-no-files-found: error
-
       - name: Run Agent Research Mission
         run: |
           set +e
@@ -98,12 +95,55 @@ jobs:
           python agents/validation_mission.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/validation-mission-v25.json
           rc=$?
           test "$rc" -eq 0 || test "$rc" -eq 2
-      - name: Run Agent Robustness Mission
+      - name: Build canonical Candidate Handoff v1
         run: |
-          set +e
-          python agents/robustness_mission.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/robustness-mission-v25.json
-          rc=$?
-          test "$rc" -eq 0 || test "$rc" -eq 2
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from agents.validation_mission import write_handoff
+          decision=json.loads(Path('artifacts/validation-mission-v25.json').read_text(encoding='utf-8'))
+          if decision.get('status') != 'READY':
+              print('CANDIDATE_HANDOFF_STATUS=HOLD')
+              print('reasons=',decision.get('reasons',[]))
+              raise SystemExit(0)
+          write_handoff('artifacts/adaptive-regime-switch-v25.json','artifacts/candidate-handoff-v1.json')
+          print('CANDIDATE_HANDOFF_STATUS=READY')
+          PY
+      - name: Verify Candidate Handoff v1
+        if: hashFiles('artifacts/candidate-handoff-v1.json') != ''
+        run: |
+          python - <<'PY'
+          import json
+          from agents.candidate_contract import validate_handoff
+          d=json.load(open('artifacts/candidate-handoff-v1.json',encoding='utf-8'))
+          candidates=validate_handoff(d, source_validation_path='artifacts/adaptive-regime-switch-v25.json')
+          assert candidates
+          assert all(x['selection_frozen'] is True and x['oos_optimization_allowed'] is False for x in candidates)
+          print('CANDIDATE_HANDOFF_V1_OK',len(candidates))
+          PY
+      - name: Run Agent Robustness Mission from canonical handoff only
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -s artifacts/candidate-handoff-v1.json ]]; then
+            echo 'ROBUSTNESS_HANDOFF_STATUS=HOLD'
+            echo 'No canonical candidate handoff was produced; direct validation-artifact fallback is forbidden.'
+            exit 0
+          fi
+          python agents/robustness_mission.py --handoff artifacts/candidate-handoff-v1.json --output artifacts/robustness-mission-v25.json
+      - name: Assert robustness consumed canonical handoff
+        if: hashFiles('artifacts/robustness-mission-v25.json') != ''
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('artifacts/robustness-mission-v25.json',encoding='utf-8'))
+          assert d['artifact'].endswith('candidate-handoff-v1.json')
+          assert d['schema_version']=='forexai.candidate_handoff.v1'
+          assert d['frozen_candidates']
+          assert all(x['selection_frozen'] is True and x['oos_optimization_allowed'] is False for x in d['frozen_candidates'])
+          print('ROBUSTNESS_CANONICAL_HANDOFF_OK',len(d['frozen_candidates']))
+          PY
       - name: Upload agent mission evidence
         uses: actions/upload-artifact@v4
         with:
@@ -111,6 +151,7 @@ jobs:
           path: |
             artifacts/research-mission-v25.json
             artifacts/validation-mission-v25.json
+            artifacts/candidate-handoff-v1.json
             artifacts/robustness-mission-v25.json
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
