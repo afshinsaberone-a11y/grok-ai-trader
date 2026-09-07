@@ -122,8 +122,6 @@ def main():
     years={y:d[(d.index>=f"{y}-01-01")&(d.index<f"{y+1}-01-01")] for y in (2022,2023,2024,2025)}
     rows=[]; gates=Counter()
     for cid,p in enumerate(catalog(),1):
-        p=dict(p);
-    for cid,p in enumerate(catalog(),1):
         p=dict(p)
         if a.side_mode_override == "long_only":
             p["side_mode"]="long_only"
