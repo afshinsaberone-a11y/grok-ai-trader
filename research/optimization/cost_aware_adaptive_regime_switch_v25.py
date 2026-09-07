@@ -110,10 +110,10 @@ def main():
         'candidate_total':len(res),
         'pre_oos_qualified_count':len(final),
         'validation_qualified_count':len(q),
-        # Legacy alias retained for consumers that still expect qualified_count.
         'qualified_count':len(q),
         'champion':None,
         'top_20_diagnostics':res[:TOP_N],
+        'all_candidate_diagnostics':res,
         'validated_candidates':val,
     },'execution_model':{'entry':'next_bar_open','cost_pips_per_side':a.spread_pips+a.slippage_pips,'round_trip_cost_pips':2*(a.spread_pips+a.slippage_pips),'same_bar_resolution':'SL first (conservative)','expiry_bars':MAX_HOLD,'overlap':'one position at a time','adverse_exit_cost_applied':True},'oos_policy':{'loaded':False,'status':'HELD_OUT','start':'2026-01-01'},'real_data_required':True,'synthetic_fallback':False}
     Path(a.output).parent.mkdir(parents=True,exist_ok=True);Path(a.output).write_text(json.dumps(rep,indent=2,default=str),encoding='utf-8');print(json.dumps({'candidate_total':len(res),'pre_oos_qualified':len(final),'validation_qualified':len(q),'research_timeframe':a.timeframe}))
