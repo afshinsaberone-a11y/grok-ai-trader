@@ -121,12 +121,19 @@ def main():
     d=prepare(pd.read_csv(a.data)); cfg=ExecutionConfig(spread_pips=a.spread_pips,slippage_pips=a.slippage_pips)
     years={y:d[(d.index>=f"{y}-01-01")&(d.index<f"{y+1}-01-01")] for y in (2022,2023,2024,2025)}
     rows=[]; gates=Counter()
-    for cid,p in enumerate(catalog(),1):
-        p=dict(p)
+    candidates=[]; seen=set()
+    for p0 in catalog():
+        p=dict(p0)
         if a.side_mode_override == "long_only":
             p["side_mode"]="long_only"
         elif a.side_mode_override == "short_only":
             p["side_mode"]="short_only"
+        key=tuple(sorted(p.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(p)
+    for cid,p in enumerate(candidates,1):
         pre=[{"year":y,"metrics":backtest(years[y],p,cfg)} for y in (2022,2023,2024)]
         bad=reject(pre)
         for x in bad:gates[x]+=1
