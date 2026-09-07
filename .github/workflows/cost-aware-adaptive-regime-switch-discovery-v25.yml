@@ -29,7 +29,7 @@ jobs:
       - name: Runtime check
         run: python -c "import numpy,pandas; print(numpy.__version__, pandas.__version__)"
       - name: Contract and agent compile check
-        run: python -m py_compile research/optimization/execution_contract_v1.py research/optimization/cost_aware_adaptive_regime_switch_v25.py agents/research_mission.py agents/validation_mission.py agents/robustness_mission.py agents/research_controller.py agents/forexai_orchestrator.py
+        run: python -m py_compile research/optimization/execution_contract_v1.py research/optimization/cost_aware_adaptive_regime_switch_v25.py agents/candidate_contract.py agents/research_mission.py agents/validation_mission.py agents/robustness_mission.py agents/research_controller.py agents/forexai_orchestrator.py
       - name: Download REAL EURUSD data
         run: |
           python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe "$REQUESTED_TIMEFRAME" --output data/real --validate --manifest
@@ -88,6 +88,41 @@ jobs:
           python agents/validation_mission.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/validation-mission-v25.json
           rc=$?
           test "$rc" -eq 0 || test "$rc" -eq 2
+      - name: Build canonical Candidate Handoff v1
+        id: candidate-handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from agents.validation_mission import write_handoff
+          decision = json.loads(Path('artifacts/validation-mission-v25.json').read_text(encoding='utf-8'))
+          if decision.get('status') != 'READY':
+              print('CANDIDATE_HANDOFF_STATUS=HOLD')
+              print('reasons=', decision.get('reasons', []))
+              raise SystemExit(0)
+          write_handoff(
+              'artifacts/adaptive-regime-switch-v25.json',
+              'artifacts/candidate-handoff-v1.json',
+          )
+          print('CANDIDATE_HANDOFF_STATUS=READY')
+          PY
+      - name: Verify Candidate Handoff v1
+        if: hashFiles('artifacts/candidate-handoff-v1.json') != ''
+        run: |
+          python - <<'PY'
+          import json
+          from agents.candidate_contract import validate_handoff
+          from pathlib import Path
+          p=Path('artifacts/candidate-handoff-v1.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          candidates=validate_handoff(d, source_validation_path='artifacts/adaptive-regime-switch-v25.json')
+          assert candidates
+          assert all(x['selection_frozen'] is True and x['oos_optimization_allowed'] is False for x in candidates)
+          print('CANDIDATE_HANDOFF_V1_OK',len(candidates))
+          print('candidate_ids=',[x['candidate_id'] for x in candidates])
+          PY
       - name: Run Agent Robustness Mission
         run: |
           set +e
@@ -101,6 +136,7 @@ jobs:
           path: |
             artifacts/research-mission-v25.json
             artifacts/validation-mission-v25.json
+            artifacts/candidate-handoff-v1.json
             artifacts/robustness-mission-v25.json
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
