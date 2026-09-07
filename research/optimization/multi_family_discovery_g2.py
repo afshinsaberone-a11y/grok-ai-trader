@@ -364,6 +364,45 @@ def main() -> int:
             vr.append("validation_nonpositive_return")
         validated.append({**x, "validation_2025": vm, "validation_pass": not vr, "validation_rejection_reasons": vr})
 
+    family_summary = {}
+    for family in sorted(set(x["family"] for x in catalog_rows)):
+        fam = [x for x in catalog_rows if x["family"] == family]
+        by_candidate = []
+        for x in fam:
+            ex = [float(y["metrics"]["expectancy_R"]) for y in x["pre_oos"]]
+            pf = [float(y["metrics"]["profit_factor"]) for y in x["pre_oos"]]
+            dd = [float(y["metrics"]["max_dd_pct"]) for y in x["pre_oos"]]
+            tr = [int(y["metrics"]["trades"]) for y in x["pre_oos"]]
+            by_candidate.append({
+                "candidate_id": x["candidate_id"],
+                "sum_expectancy_R": sum(ex),
+                "min_year_expectancy_R": min(ex),
+                "mean_pf": sum(pf) / len(pf),
+                "min_year_pf": min(pf),
+                "max_year_dd_pct": max(dd),
+                "mean_trades": sum(tr) / len(tr),
+                "pre_oos_pass": x["pre_oos_pass"],
+            })
+        by_candidate.sort(key=lambda z: z["sum_expectancy_R"], reverse=True)
+        family_summary[family] = {
+            "candidate_count": len(fam),
+            "pre_oos_qualified_count": sum(1 for x in fam if x["pre_oos_pass"]),
+            "best_by_sum_expectancy": by_candidate[0],
+            "best_by_mean_pf": max(by_candidate, key=lambda z: z["mean_pf"]),
+            "best_by_max_dd": min(by_candidate, key=lambda z: z["max_year_dd_pct"]),
+            "zero_trade_candidates": sum(1 for x in by_candidate if x["mean_trades"] == 0),
+            "positive_mean_expectancy_candidates": sum(1 for x in by_candidate if x["sum_expectancy_R"] > 0),
+        }
+
+    family_gate_counts = {}
+    for family in sorted(set(x["family"] for x in catalog_rows)):
+        fam = [x for x in catalog_rows if x["family"] == family]
+        cnt = Counter()
+        for x in fam:
+            for reason in x["rejection_reasons"]:
+                cnt[reason] += 1
+        family_gate_counts[family] = dict(cnt.most_common())
+
     payload = {
         "schema_version": "forexai.multi_family_discovery.g2",
         "research_timeframe": args.timeframe,
@@ -390,6 +429,8 @@ def main() -> int:
             "validated_candidates": validated,
             "top_50_diagnostics": ranked[:50],
             "gate_rejection_counts_all_candidates": dict(gate_counter),
+            "family_summary_all_candidates": family_summary,
+            "family_gate_counts_all_candidates": family_gate_counts,
             "champion": None,
         },
     }
