@@ -125,6 +125,7 @@ def main():
         p=dict(p);
         if a.side_mode_override == "long_only": p["side_mode"]="long_only"
         elif a.side_mode_override == "short_only": p["side_mode"]="short_only"\n        pre=[{"year":y,"metrics":backtest(years[y],p,cfg)} for y in (2022,2023,2024)]; bad=reject(pre)
+        pre=[{"year":y,"metrics":backtest(years[y],p,cfg)} for y in (2022,2023,2024)]; bad=reject(pre)
         for x in bad:gates[x]+=1
         rows.append({"candidate_id":cid,"params":p,"pre_oos":pre,"pre_oos_pass":not bad,"rejection_reasons":bad})
     ranked=sorted(rows,key=lambda x:(x["pre_oos_pass"],sum(m["metrics"]["expectancy_R"] for m in x["pre_oos"])),reverse=True); pre=[x for x in ranked if x["pre_oos_pass"]]
