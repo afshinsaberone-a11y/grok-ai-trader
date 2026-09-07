@@ -54,6 +54,15 @@ jobs:
           assert abs(float(med) - 5.0) < 0.01, med
           print("REAL_DATA_OK", len(d), med)
           PY
+      - name: Assert exact G2 catalog
+        run: |
+          python - <<'PY'
+          from research.optimization.multi_family_discovery_g2 import catalog
+          c=catalog()
+          assert len(c)==318, len(c)
+          assert len({str(sorted(x.items())) for x in c})==318
+          print("G2_CATALOG_OK",len(c))
+          PY
       - name: Run G2 discovery
         run: |
           python -m research.optimization.multi_family_discovery_g2             --data "$DATA"             --timeframe M5             --output artifacts/multi-family-discovery-g2-M5.json
@@ -74,7 +83,7 @@ jobs:
           assert e["expiry_bars"] == 30
           assert e["overlap"] == "one position at a time"
           assert e["adverse_exit_cost_applied"] is True
-          assert r["candidate_total"] > 0
+          assert r["candidate_total"] == 318
           assert r["champion"] is None
           assert isinstance(r["gate_rejection_counts_all_candidates"], dict)
           print("G2_FAIL_CLOSED_OK", r["candidate_total"], r["pre_oos_qualified_count"], r["validation_qualified_count"])
