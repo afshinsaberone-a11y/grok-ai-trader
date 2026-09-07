@@ -10,9 +10,14 @@ import argparse
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import sys
 
 import numpy as np
 import pandas as pd
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from research.optimization.execution_contract_v1 import ExecutionConfig, apply_entry_cost, validate_ohlc
 
