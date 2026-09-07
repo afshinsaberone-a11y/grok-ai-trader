@@ -94,18 +94,14 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json
           from pathlib import Path
           from agents.validation_mission import write_handoff
-          decision = json.loads(Path('artifacts/validation-mission-v25.json').read_text(encoding='utf-8'))
+          decision = __import__('json').loads(Path('artifacts/validation-mission-v25.json').read_text(encoding='utf-8'))
           if decision.get('status') != 'READY':
               print('CANDIDATE_HANDOFF_STATUS=HOLD')
               print('reasons=', decision.get('reasons', []))
               raise SystemExit(0)
-          write_handoff(
-              'artifacts/adaptive-regime-switch-v25.json',
-              'artifacts/candidate-handoff-v1.json',
-          )
+          write_handoff('artifacts/adaptive-regime-switch-v25.json','artifacts/candidate-handoff-v1.json')
           print('CANDIDATE_HANDOFF_STATUS=READY')
           PY
       - name: Verify Candidate Handoff v1
@@ -123,12 +119,28 @@ jobs:
           print('CANDIDATE_HANDOFF_V1_OK',len(candidates))
           print('candidate_ids=',[x['candidate_id'] for x in candidates])
           PY
-      - name: Run Agent Robustness Mission
+      - name: Run Agent Robustness Mission from canonical handoff only
+        shell: bash
         run: |
-          set +e
-          python agents/robustness_mission.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/robustness-mission-v25.json
-          rc=$?
-          test "$rc" -eq 0 || test "$rc" -eq 2
+          set -euo pipefail
+          if [[ ! -s artifacts/candidate-handoff-v1.json ]]; then
+            echo 'ROBUSTNESS_HANDOFF_STATUS=HOLD'
+            echo 'No canonical candidate handoff was produced; direct validation-artifact fallback is forbidden.'
+            exit 0
+          fi
+          python agents/robustness_mission.py --handoff artifacts/candidate-handoff-v1.json --output artifacts/robustness-mission-v25.json
+      - name: Assert robustness consumed canonical handoff
+        if: hashFiles('artifacts/robustness-mission-v25.json') != ''
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('artifacts/robustness-mission-v25.json',encoding='utf-8'))
+          assert d['artifact'].endswith('candidate-handoff-v1.json')
+          assert d['schema_version']=='forexai.candidate_handoff.v1'
+          assert d['frozen_candidates']
+          assert all(x['selection_frozen'] is True and x['oos_optimization_allowed'] is False for x in d['frozen_candidates'])
+          print('ROBUSTNESS_CANONICAL_HANDOFF_OK',len(d['frozen_candidates']))
+          PY
       - name: Upload agent mission evidence
         uses: actions/upload-artifact@v4
         with:
