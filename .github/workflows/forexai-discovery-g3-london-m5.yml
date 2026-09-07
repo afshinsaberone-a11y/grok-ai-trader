@@ -50,6 +50,17 @@ jobs:
       - name: Run G3 London Breakout
         run: |
           python -m research.optimization.london_breakout_discovery_g3             --data "$DATA" --timeframe M5             --output artifacts/london-breakout-g3-M5.json
+      - name: Run G3 gate-distance diagnostics
+        run: |
+          python agents/g3_gate_distance.py             --artifact artifacts/london-breakout-g3-M5.json             --output artifacts/g3-gate-distance.json
+
+      - name: Upload G3 gate-distance diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: g3-gate-distance-M5
+          path: artifacts/g3-gate-distance.json
+          if-no-files-found: error
+
       - name: Fail-closed G3 controls
         run: |
           python - <<'PY'
