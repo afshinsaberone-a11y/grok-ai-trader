@@ -1,0 +1,89 @@
+name: ForexAI Discovery Generation 2 - M5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/optimization/multi_family_discovery_g2.py"
+      - ".github/workflows/forexai-discovery-g2-m5.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REQUESTED_TIMEFRAME: M5
+
+jobs:
+  discovery-g2-m5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile G2
+        run: python -m py_compile research/optimization/multi_family_discovery_g2.py research/optimization/execution_contract_v1.py
+      - name: Download REAL EURUSD M5 data
+        run: |
+          python -m research.real_data.histdata_ingest             --symbol EURUSD             --start 2022-01-01             --end 2026-01-01             --timeframe M5             --output data/real             --validate             --manifest
+      - name: Locate exact REAL dataset
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M5_20220101_20251231.csv' | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Validate REAL dataset
+        run: |
+          DATASET="$DATA" python - <<'PY'
+          import os, pandas as pd
+          p = os.environ["DATASET"]
+          d = pd.read_csv(p)
+          ts = pd.to_datetime(d.timestamp, utc=True)
+          assert len(d) > 1000
+          assert ts.is_unique and ts.is_monotonic_increasing
+          assert ts.min() < pd.Timestamp("2025-01-01", tz="UTC")
+          assert ts.max() >= pd.Timestamp("2025-12-31", tz="UTC")
+          med = ts.diff().dropna().dt.total_seconds().div(60).median()
+          assert abs(float(med) - 5.0) < 0.01, med
+          print("REAL_DATA_OK", len(d), med)
+          PY
+      - name: Run G2 discovery
+        run: |
+          python -m research.optimization.multi_family_discovery_g2             --data "$DATA"             --timeframe M5             --output artifacts/multi-family-discovery-g2-M5.json
+      - name: Fail-closed G2 controls
+        run: |
+          python - <<'PY'
+          import json
+          d = json.load(open("artifacts/multi-family-discovery-g2-M5.json", encoding="utf-8"))
+          r = d["result"]
+          e = d["execution_model"]
+          assert d["real_data_required"] is True
+          assert d["synthetic_fallback"] is False
+          assert d["oos_policy"]["loaded"] is False
+          assert d["oos_policy"]["status"] == "HELD_OUT"
+          assert e["entry"] == "next_bar_open"
+          assert e["round_trip_cost_pips"] == 1.4
+          assert e["same_bar_resolution"] == "SL first (conservative)"
+          assert e["expiry_bars"] == 30
+          assert e["overlap"] == "one position at a time"
+          assert e["adverse_exit_cost_applied"] is True
+          assert r["candidate_total"] > 0
+          assert r["champion"] is None
+          assert isinstance(r["gate_rejection_counts_all_candidates"], dict)
+          print("G2_FAIL_CLOSED_OK", r["candidate_total"], r["pre_oos_qualified_count"], r["validation_qualified_count"])
+          print("FAMILY_COUNTS", d["catalog"]["family_counts"])
+          print("GATE_COUNTS", r["gate_rejection_counts_all_candidates"])
+          PY
+      - name: Upload G2 discovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-family-discovery-g2-M5
+          path: artifacts/multi-family-discovery-g2-M5.json
+          if-no-files-found: error
