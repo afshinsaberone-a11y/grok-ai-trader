@@ -61,7 +61,7 @@ jobs:
           assert e["round_trip_cost_pips"] == 1.4
           assert e["same_bar_resolution"] == "SL first (conservative)"
           assert e["expiry_bars"] == 30
-          assert r["candidate_total"] == 216
+          assert r["candidate_total"] == 108
           assert r["champion"] is None
           print("DIRECTIONAL_DIAG_OK", mode)
           print(json.dumps({
