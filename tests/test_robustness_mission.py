@@ -29,7 +29,7 @@ def _artifact(tmp_path: Path, **overrides):
     return p
 
 
-def test_ready_with_v29_1_frozen_validation_candidate(tmp_path):
+def test_ready_with_frozen_validation_candidate(tmp_path):
     decision = inspect_validation(_artifact(tmp_path))
     assert decision.status == "READY"
     assert decision.frozen_candidates[0]["candidate"] == 7
@@ -37,13 +37,27 @@ def test_ready_with_v29_1_frozen_validation_candidate(tmp_path):
     assert decision.frozen_candidates[0]["oos_optimization_allowed"] is False
 
 
-def test_params_mismatch_blocks_handoff(tmp_path):
+def test_arbitrary_validated_params_are_handed_off(tmp_path):
+    params = {"atr_mult": 1.1, "rr": 2.2}
     decision = inspect_validation(_artifact(tmp_path, result={
         "validation_qualified_count": 1,
-        "validated_candidates": [{"candidate": 7, "params": {"atr_mult": 1.1, "rr": 2.0}, "validation_pass": True}],
+        "validated_candidates": [{"candidate": 8, "params": params, "validation_pass": True}],
+    }))
+    assert decision.status == "READY"
+    assert decision.frozen_candidates[0]["params"] == params
+
+
+def test_duplicate_config_hash_blocks_duplicate_candidate(tmp_path):
+    params = {"atr_mult": 1.1, "rr": 2.2}
+    decision = inspect_validation(_artifact(tmp_path, result={
+        "validation_qualified_count": 2,
+        "validated_candidates": [
+            {"candidate": 8, "params": params, "validation_pass": True},
+            {"candidate": 9, "params": params, "validation_pass": True},
+        ],
     }))
     assert decision.status == "HOLD"
-    assert any("v29.1 frozen center" in r for r in decision.reasons)
+    assert any("duplicate validation-approved candidate config_hash" in r for r in decision.reasons)
 
 
 def test_count_mismatch_blocks_handoff(tmp_path):

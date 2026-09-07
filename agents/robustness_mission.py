@@ -1,7 +1,7 @@
 """Evidence-only Robustness Mission for ForexAI.
 
 Consumes validation evidence and freezes eligible candidates for the existing
-v29.1 robustness validator. It never evaluates market data, optimizes parameters,
+robustness validator. It never evaluates market data, optimizes parameters,
 loads OOS, or promotes an EA.
 """
 from __future__ import annotations
@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from agents.candidate_contract import validate_handoff
+
 REQUIRED_EXECUTION = {
     "entry": "next_bar_open",
     "round_trip_cost_pips": 1.4,
@@ -21,11 +23,6 @@ REQUIRED_EXECUTION = {
     "overlap": "one position at a time",
     "adverse_exit_cost_applied": True,
 }
-
-# The current v29.1 validator evaluates exactly this frozen center candidate.
-# Until the validator accepts arbitrary mission-frozen parameters, any other
-# candidate must be held rather than silently evaluated with different params.
-V29_1_FROZEN_CENTER = {"atr_mult": 1.0, "rr": 2.0}
 
 
 @dataclass(frozen=True)
@@ -55,6 +52,85 @@ def _load(path: Path) -> dict[str, Any]:
 def _hash_params(params: dict[str, Any]) -> str:
     payload = json.dumps(params, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _freeze_legacy_candidates(eligible: list[dict[str, Any]], max_candidates: int, reasons: list[str]) -> list[dict[str, Any]]:
+    """Freeze candidates from legacy validation artifacts while enforcing hashes."""
+    frozen: list[dict[str, Any]] = []
+    seen_hashes: set[str] = set()
+    for item in eligible:
+        candidate_id = item.get("candidate_id", item.get("candidate", item.get("id")))
+        if candidate_id is None:
+            reasons.append("validation-approved candidate has no stable identity")
+            continue
+        params = item.get("params")
+        if not isinstance(params, dict) or not params:
+            reasons.append("validation-approved candidate has no explicit params")
+            continue
+        config_hash = item.get("config_hash") or _hash_params(params)
+        if config_hash != _hash_params(params):
+            reasons.append("candidate config_hash does not match canonical params")
+            continue
+        if config_hash in seen_hashes:
+            reasons.append("duplicate validation-approved candidate config_hash")
+            continue
+        seen_hashes.add(config_hash)
+        frozen.append({
+            "candidate": candidate_id,
+            "params": params.copy(),
+            "config_hash": config_hash,
+            "selection_frozen": True,
+            "oos_optimization_allowed": False,
+        })
+        if len(frozen) >= max_candidates:
+            break
+    return frozen
+
+
+def inspect_handoff(
+    path: str | Path,
+    max_candidates: int = 20,
+    source_validation_path: str | Path | None = None,
+) -> RobustnessDecision:
+    """Consume only a canonical Validation -> Robustness handoff."""
+    p = Path(path)
+    try:
+        d = _load(p)
+        candidates = validate_handoff(
+            d,
+            max_candidates=max_candidates,
+            source_validation_path=source_validation_path,
+        )
+    except ValueError as exc:
+        return RobustnessDecision(
+            "HOLD", str(p), d.get("schema_version") if isinstance(d, dict) else None,
+            d.get("research_timeframe") if isinstance(d, dict) else None,
+            d.get("validation_qualified_count") if isinstance(d, dict) else None,
+            [], [str(exc)],
+        )
+    declared = d.get("validation_qualified_count")
+    reasons: list[str] = []
+    if not isinstance(declared, int) or declared != len(candidates):
+        reasons.append("validation_qualified_count does not match canonical handoff candidates")
+    if not candidates:
+        reasons.append("no validation-approved candidates are available for robustness review")
+    frozen = [{
+        "candidate": x["candidate_id"],
+        "params": x["params"],
+        "config_hash": x["config_hash"],
+        "selection_frozen": True,
+        "oos_optimization_allowed": False,
+        "pre_oos_verified": True,
+    } for x in candidates]
+    return RobustnessDecision(
+        "READY" if not reasons else "HOLD",
+        str(p),
+        d.get("schema_version"),
+        d.get("research_timeframe"),
+        declared,
+        frozen,
+        reasons,
+    )
 
 
 def inspect_validation(path: str | Path, max_candidates: int = 20) -> RobustnessDecision:
@@ -95,25 +171,7 @@ def inspect_validation(path: str | Path, max_candidates: int = 20) -> Robustness
     if val_count != len(eligible):
         reasons.append("validation_qualified_count does not match validation_pass evidence")
 
-    frozen: list[dict[str, Any]] = []
-    for item in eligible:
-        params = item.get("params")
-        if not isinstance(params, dict) or not params:
-            reasons.append("validation-approved candidate has no explicit params")
-            continue
-        if params != V29_1_FROZEN_CENTER:
-            reasons.append("validation-approved candidate params do not match the current v29.1 frozen center")
-            continue
-        frozen.append({
-            "candidate": item.get("candidate_id", item.get("candidate", item.get("id"))),
-            "params": params.copy(),
-            "config_hash": item.get("config_hash") or _hash_params(params),
-            "selection_frozen": True,
-            "oos_optimization_allowed": False,
-        })
-        if len(frozen) >= max_candidates:
-            break
-
+    frozen = _freeze_legacy_candidates(eligible, max_candidates, reasons)
     if val_count == 0 or not frozen:
         reasons.append("no validation-approved candidates are available for robustness review")
 
@@ -123,10 +181,13 @@ def inspect_validation(path: str | Path, max_candidates: int = 20) -> Robustness
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Freeze validation-approved candidates for robustness review.")
-    parser.add_argument("--artifact", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--artifact", help="legacy validation artifact")
+    source.add_argument("--handoff", help="canonical forexai.candidate_handoff.v1 artifact")
+    parser.add_argument("--validation-artifact", help="validation artifact used to verify handoff provenance")
     parser.add_argument("--output")
     args = parser.parse_args()
-    decision = inspect_validation(args.artifact)
+    decision = inspect_handoff(args.handoff, source_validation_path=args.validation_artifact) if args.handoff else inspect_validation(args.artifact)
     payload = decision.to_json()
     if args.output:
         Path(args.output).write_text(payload + "\n", encoding="utf-8")
