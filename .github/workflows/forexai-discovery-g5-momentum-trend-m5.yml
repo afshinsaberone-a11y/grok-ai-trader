@@ -1,0 +1,56 @@
+name: ForexAI Discovery G5 - Momentum Trend Pullback M5
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/optimization/momentum_trend_discovery_g5.py"
+      - ".github/workflows/forexai-discovery-g5-momentum-trend-m5.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  g5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Compile G5
+        run: python -m py_compile research/optimization/momentum_trend_discovery_g5.py research/optimization/multi_family_discovery_g2.py research/optimization/execution_contract_v1.py
+      - name: Download REAL EURUSD M5
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe M5 --output data/real --validate --manifest
+      - name: Locate dataset
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M5_20220101_20251231.csv' | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Run G5
+        run: python -m research.optimization.momentum_trend_discovery_g5 --data "$DATA" --timeframe M5 --output artifacts/momentum-trend-g5-M5.json
+      - name: Fail-closed G5 controls
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open("artifacts/momentum-trend-g5-M5.json",encoding="utf-8"))
+          r=d["result"]; e=d["execution_model"]
+          assert d["real_data_required"] is True
+          assert d["synthetic_fallback"] is False
+          assert d["oos_policy"]["loaded"] is False and d["oos_policy"]["status"]=="HELD_OUT"
+          assert e["entry"]=="next_bar_open" and e["round_trip_cost_pips"]==1.4
+          assert e["same_bar_resolution"]=="SL first (conservative)" and e["expiry_bars"]==30
+          assert r["candidate_total"]>0 and r["champion"] is None
+          assert set(d["catalog"]["family_counts"])=={"momentum","trend_pullback"}
+          print("G5_FAIL_CLOSED_OK",r["candidate_total"],r["pre_oos_qualified_count"],r["validation_qualified_count"])
+          print("G5_FAMILY_COUNTS",d["catalog"]["family_counts"])
+          print("G5_GATE_COUNTS",r["gate_rejection_counts_all_candidates"])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: momentum-trend-g5-M5
+          path: artifacts/momentum-trend-g5-M5.json
+          if-no-files-found: error
