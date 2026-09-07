@@ -1,0 +1,74 @@
+name: ForexAI Discovery Generation 3 - London Breakout M5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/optimization/london_breakout_discovery_g3.py"
+      - ".github/workflows/forexai-discovery-g3-london-m5.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  london-breakout-g3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile G3
+        run: python -m py_compile research/optimization/london_breakout_discovery_g3.py research/optimization/execution_contract_v1.py
+      - name: Download REAL EURUSD M5 data
+        run: |
+          python -m research.real_data.histdata_ingest             --symbol EURUSD --start 2022-01-01 --end 2026-01-01             --timeframe M5 --output data/real --validate --manifest
+      - name: Locate exact REAL dataset
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M5_20220101_20251231.csv' | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Validate REAL dataset
+        run: |
+          DATASET="$DATA" python - <<'PY'
+          import os, pandas as pd
+          p=os.environ["DATASET"]; d=pd.read_csv(p); ts=pd.to_datetime(d.timestamp,utc=True)
+          assert len(d)>1000 and ts.is_unique and ts.is_monotonic_increasing
+          assert ts.min()<pd.Timestamp("2025-01-01",tz="UTC")
+          assert ts.max()>=pd.Timestamp("2025-12-31",tz="UTC")
+          assert abs(float(ts.diff().dropna().dt.total_seconds().div(60).median())-5.0)<0.01
+          print("REAL_DATA_OK",len(d))
+          PY
+      - name: Run G3 London Breakout
+        run: |
+          python -m research.optimization.london_breakout_discovery_g3             --data "$DATA" --timeframe M5             --output artifacts/london-breakout-g3-M5.json
+      - name: Fail-closed G3 controls
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open("artifacts/london-breakout-g3-M5.json",encoding="utf-8"))
+          r=d["result"]; e=d["execution_model"]
+          assert d["real_data_required"] is True and d["synthetic_fallback"] is False
+          assert d["oos_policy"]["loaded"] is False and d["oos_policy"]["status"]=="HELD_OUT"
+          assert d["session_timezone"]=="Europe/London"
+          assert e["entry"]=="next_bar_open" and e["round_trip_cost_pips"]==1.4
+          assert e["same_bar_resolution"]=="SL first (conservative)" and e["expiry_bars"]==30
+          assert e["overlap"]=="one position at a time" and e["adverse_exit_cost_applied"] is True
+          assert r["candidate_total"]>0 and r["champion"] is None
+          print("G3_FAIL_CLOSED_OK",r["candidate_total"],r["pre_oos_qualified_count"],r["validation_qualified_count"])
+          print("G3_GATE_COUNTS",r["gate_rejection_counts_all_candidates"])
+          PY
+      - name: Upload G3 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: london-breakout-g3-M5
+          path: artifacts/london-breakout-g3-M5.json
+          if-no-files-found: error
