@@ -62,6 +62,11 @@ jobs:
           assert e["same_bar_resolution"] == "SL first (conservative)"
           assert e["expiry_bars"] == 30
           assert r["candidate_total"] == 108
+          assert len(r["top_50_diagnostics"]) <= 50
+          ids = [int(x["candidate_id"]) for x in r["top_50_diagnostics"]]
+          assert len(ids) == len(set(ids))
+          params = [json.dumps(x["params"], sort_keys=True) for x in r["top_50_diagnostics"]]
+          assert len(params) == len(set(params))
           assert r["champion"] is None
           print("DIRECTIONAL_DIAG_OK", mode)
           print(json.dumps({
