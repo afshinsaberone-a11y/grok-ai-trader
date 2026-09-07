@@ -129,6 +129,7 @@ def prepare(raw: pd.DataFrame) -> pd.DataFrame:
     d["EMA12"] = d.Close.ewm(span=12, adjust=False).mean()
     d["EMA20"] = d.Close.ewm(span=20, adjust=False).mean()
     d["EMA30"] = d.Close.ewm(span=30, adjust=False).mean()
+    d["EMA34"] = d.Close.ewm(span=34, adjust=False).mean()
     d["EMA50"] = d.Close.ewm(span=50, adjust=False).mean()
     d["EMA80"] = d.Close.ewm(span=80, adjust=False).mean()
     delta = d.Close.diff()
