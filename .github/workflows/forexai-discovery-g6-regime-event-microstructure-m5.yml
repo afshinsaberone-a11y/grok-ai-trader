@@ -1,0 +1,52 @@
+name: ForexAI G6 Regime Event Microstructure M5
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile G6
+        run: python -m py_compile research/optimization/regime_event_microstructure_discovery_g6.py
+
+      - name: Validate G6 catalog
+        run: |
+          python research/optimization/regime_event_microstructure_discovery_g6.py --print-catalog > /tmp/g6-catalog.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/g6-catalog.json'))
+          assert d['schema']=='forexai.g6.regime_event_microstructure.v1'
+          assert d['candidate_total']==768
+          assert d['holdout_year']==2026
+          assert len({json.dumps(x,sort_keys=True) for x in d['candidates']})==768
+          print('G6 catalog guard OK:', d['candidate_total'])
+          PY
+
+      - name: Guard against synthetic fallback
+        run: |
+          if grep -RniE 'synthetic|fallback|generate.*data|random\.seed|np\.random' research/optimization/regime_event_microstructure_discovery_g6.py; then
+            echo 'G6 source contains forbidden synthetic/fallback data generation'
+            exit 1
+          fi
+
+      - name: Upload G6 catalog contract
+        uses: actions/upload-artifact@v4
+        with:
+          name: g6-regime-event-microstructure-catalog
+          path: /tmp/g6-catalog.json
+          if-no-files-found: error
