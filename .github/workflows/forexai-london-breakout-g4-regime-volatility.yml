@@ -45,7 +45,9 @@ jobs:
           assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT' and d['oos_policy']['start']=='2026-01-01'
           assert e['entry']=='next_bar_open' and e['round_trip_cost_pips']==1.4 and e['same_bar_resolution']=='SL first (conservative)' and e['expiry_bars']==30
           assert f['decision_uses_only_information_available_at_entry_bar'] is True
-          assert r['candidate_total']==648
+          # 3 range lengths x 2 entry hours x 3 buffers x 2 ATR SL multipliers
+          # x 3 RR values x 2 sides x 3 ATR-ratio thresholds x 2 ADX thresholds.
+          assert r['candidate_total']==1296
           assert len(r['top_50_diagnostics'])<=50
           ids=[int(x['candidate_id']) for x in r['top_50_diagnostics']]
           assert len(ids)==len(set(ids))
