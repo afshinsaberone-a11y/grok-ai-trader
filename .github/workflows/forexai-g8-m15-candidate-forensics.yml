@@ -1,0 +1,63 @@
+name: ForexAI G8 - M15 Candidate Forensics
+
+on:
+  workflow_dispatch:
+    inputs:
+      g7_artifact_id:
+        description: "G7 M15 artifact ID"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  g8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download G7 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ inputs.g7_artifact_id }}
+        run: |
+          set -euo pipefail
+          gh api -H "Accept: application/vnd.github+json"             "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > g7.zip
+          mkdir g7_artifact
+          python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile("g7.zip") as z:
+              z.extractall("g7_artifact")
+          PY
+      - name: Compile G8
+        run: python -m py_compile research/optimization/m15_candidate_forensics_g8.py
+      - name: Run G8
+        run: |
+          DATA="$(find g7_artifact -type f -name 'g7-M15.json' | head -n1)"
+          test -n "$DATA"
+          python research/optimization/m15_candidate_forensics_g8.py             --artifact "$DATA"             --output artifacts/m15-candidate-forensics-g8.json
+      - name: Fail-closed G8 controls
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open("artifacts/m15-candidate-forensics-g8.json",encoding="utf-8"))
+          assert d["champion"] is None
+          assert d["policy"]["oos_2026_used"] is False
+          assert d["policy"]["synthetic_data"] is False
+          assert d["policy"]["gates_unchanged"] is True
+          assert len(d["top_10"]) == 10
+          print("G8_FORENSICS_OK")
+          print("robust_0.0:", len(d["cost_robust_candidates"]["at_0.0"]))
+          print("robust_0.7:", len(d["cost_robust_candidates"]["at_0.7"]))
+          for x in d["top_10"]:
+              print(x["family"], x["params"], "E0=", x["cost_profiles"]["0.0"]["sum_expectancy"],
+                    "E07=", x["cost_profiles"]["0.7"]["sum_expectancy"],
+                    "E14=", x["cost_profiles"]["1.4"]["sum_expectancy"])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m15-candidate-forensics-g8
+          path: artifacts/m15-candidate-forensics-g8.json
+          if-no-files-found: error
