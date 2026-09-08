@@ -1,7 +1,6 @@
 name: ForexAI London Breakout G4 Regime Volatility M5
 on:
   push:
-    branches: [main]
     paths:
       - "research/optimization/london_breakout_discovery_g4.py"
       - ".github/workflows/forexai-london-breakout-g4-regime-volatility.yml"
