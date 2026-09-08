@@ -1,0 +1,41 @@
+name: ForexAI G9 Regime Stability Forensics M15
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/regime_stability_forensics_g9.py
+      - .github/workflows/forexai-g9-regime-stability-m15.yml
+jobs:
+  g9:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Compile
+        run: python -m py_compile research/optimization/regime_stability_forensics_g9.py research/optimization/regime_aware_event_discovery_g6.py
+      - name: Download REAL EURUSD M15
+        run: |
+          mkdir -p data
+          curl -L --fail --retry 3 -o data/EURUSD_M15_20220101_20251231.csv https://github.com/afshinsaberone-a11y/grok-ai-trader/releases/download/market-data/EURUSD_M15_20220101_20251231.csv
+      - name: Run G9
+        run: python research/optimization/regime_stability_forensics_g9.py --data data/EURUSD_M15_20220101_20251231.csv --output artifacts/regime-stability-g9-M15.json
+      - name: Fail closed
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('artifacts/regime-stability-g9-M15.json'))
+          assert p['real_data_required'] is True
+          assert p['synthetic_data'] is False
+          assert p['oos_2026']['loaded'] is False and p['oos_2026']['status']=='HELD_OUT'
+          assert p['parameter_selection']['used_2025'] is False
+          assert p['champion'] is None
+          assert p['execution_model']['entry']=='next_bar_open'
+          assert p['execution_model']['round_trip_cost_pips']==1.4
+          print('G9_FAIL_CLOSED_OK')
+          PY
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: regime-stability-g9-M15
+          path: artifacts/regime-stability-g9-M15.json
