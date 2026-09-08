@@ -1,0 +1,59 @@
+name: ForexAI London Breakout G4 Regime Volatility M5
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/optimization/london_breakout_discovery_g4.py"
+      - ".github/workflows/forexai-london-breakout-g4-regime-volatility.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  g4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Compile G4
+        run: python -m py_compile research/optimization/london_breakout_discovery_g4.py research/optimization/execution_contract_v1.py
+      - name: Download REAL EURUSD M5 data
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe M5 --output data/real --validate --manifest
+      - name: Locate exact dataset
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M5_20220101_20251231.csv' | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Run G4
+        run: python -m research.optimization.london_breakout_discovery_g4 --data "$DATA" --timeframe M5 --output artifacts/london-breakout-g4-M5.json
+      - name: Fail-closed controls
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('artifacts/london-breakout-g4-M5.json',encoding='utf-8'))
+          r=d['result']; e=d['execution_model']; f=d['filter_model']
+          assert d['schema_version']=='forexai.london_breakout_discovery.g4'
+          assert d['real_data_required'] is True and d['synthetic_fallback'] is False
+          assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT' and d['oos_policy']['start']=='2026-01-01'
+          assert e['entry']=='next_bar_open' and e['round_trip_cost_pips']==1.4 and e['same_bar_resolution']=='SL first (conservative)' and e['expiry_bars']==30
+          assert f['decision_uses_only_information_available_at_entry_bar'] is True
+          assert r['candidate_total']==648
+          assert len(r['top_50_diagnostics'])<=50
+          ids=[int(x['candidate_id']) for x in r['top_50_diagnostics']]
+          assert len(ids)==len(set(ids))
+          params=[json.dumps(x['params'],sort_keys=True) for x in r['top_50_diagnostics']]
+          assert len(params)==len(set(params))
+          assert r['champion'] is None
+          print('G4_FAIL_CLOSED_OK',r['candidate_total'],r['pre_oos_qualified_count'],r['validation_qualified_count'])
+          print(json.dumps(r['gate_rejection_counts_all_candidates'],indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: london-breakout-g4-M5
+          path: artifacts/london-breakout-g4-M5.json
+          if-no-files-found: error
