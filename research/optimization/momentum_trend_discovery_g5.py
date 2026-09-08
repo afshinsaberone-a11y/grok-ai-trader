@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse,json
 from collections import Counter
+import numpy as np
 from pathlib import Path
 from research.optimization.multi_family_discovery_g2 import (
     catalog,prepare,backtest,rejection_reasons,ExecutionConfig,
