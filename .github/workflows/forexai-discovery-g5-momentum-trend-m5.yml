@@ -56,8 +56,12 @@ jobs:
           assert d["oos_policy"]["loaded"] is False and d["oos_policy"]["status"]=="HELD_OUT"
           assert e["entry"]=="next_bar_open" and e["round_trip_cost_pips"]==1.4
           assert e["same_bar_resolution"]=="SL first (conservative)" and e["expiry_bars"]==30
-          assert r["candidate_total"]>0 and r["champion"] is None
-          assert set(d["catalog"]["family_counts"])=={"momentum","trend_pullback"}
+          assert r["candidate_total"]==120 and r["champion"] is None
+          assert d["catalog"]["family_counts"]=={"momentum":48,"trend_pullback":72}
+          ids=[int(x["candidate_id"]) for x in r["top_50_diagnostics"]]
+          assert len(ids)==len(set(ids))
+          params=[json.dumps(x["params"],sort_keys=True) for x in r["top_50_diagnostics"]]
+          assert len(params)==len(set(params))
           print("G5_FAIL_CLOSED_OK",r["candidate_total"],r["pre_oos_qualified_count"],r["validation_qualified_count"])
           print("G5_FAMILY_COUNTS",d["catalog"]["family_counts"])
           print("G5_GATE_COUNTS",r["gate_rejection_counts_all_candidates"])
