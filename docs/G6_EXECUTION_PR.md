@@ -1,0 +1,1 @@
+G6 execution branch is ready for review. The implementation connects the deterministic regime-aware event catalog to the real EURUSD M5 backtest engine. CI is authoritative for results; no trading results are claimed by this file.
