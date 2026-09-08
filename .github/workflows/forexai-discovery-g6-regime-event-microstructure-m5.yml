@@ -3,6 +3,7 @@ name: ForexAI G6 Regime Event Microstructure M5
 on:
   push:
     branches:
+      - main
       - research/g6-regime-event-microstructure
     paths:
       - "research/optimization/regime_event_microstructure_discovery_g6.py"
