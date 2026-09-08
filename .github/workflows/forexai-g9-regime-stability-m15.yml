@@ -12,14 +12,36 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
       - name: Compile
         run: python -m py_compile research/optimization/regime_stability_forensics_g9.py research/optimization/regime_aware_event_discovery_g6.py
       - name: Download REAL EURUSD M15
         run: |
-          mkdir -p data
-          curl -L --fail --retry 3 -o data/EURUSD_M15_20220101_20251231.csv https://github.com/afshinsaberone-a11y/grok-ai-trader/releases/download/market-data/EURUSD_M15_20220101_20251231.csv
+          set -euo pipefail
+          python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe M15 --output data/real --validate --manifest
+      - name: Locate dataset
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M15_20220101_20251231.csv' | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "REAL_DATA_FILE=$DATA"
+      - name: Validate REAL dataset and 2026 holdout
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import pandas as pd
+          p=os.environ['DATA']
+          d=pd.read_csv(p, usecols=['timestamp'])
+          ts=pd.to_datetime(d['timestamp'], utc=True)
+          assert len(d) > 0
+          assert ts.max() < pd.Timestamp('2026-01-01T00:00:00Z')
+          print(f'REAL_DATA_OK rows={len(d)} max_timestamp={ts.max().isoformat()}')
+          PY
       - name: Run G9
-        run: python research/optimization/regime_stability_forensics_g9.py --data data/EURUSD_M15_20220101_20251231.csv --output artifacts/regime-stability-g9-M15.json
+        run: python -m research.optimization.regime_stability_forensics_g9 --data "$DATA" --output artifacts/regime-stability-g9-M15.json
       - name: Fail closed
         run: |
           python - <<'PY'
