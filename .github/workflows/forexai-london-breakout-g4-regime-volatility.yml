@@ -4,6 +4,10 @@ on:
     paths:
       - "research/optimization/london_breakout_discovery_g4.py"
       - ".github/workflows/forexai-london-breakout-g4-regime-volatility.yml"
+  pull_request:
+    paths:
+      - "research/optimization/london_breakout_discovery_g4.py"
+      - ".github/workflows/forexai-london-breakout-g4-regime-volatility.yml"
   workflow_dispatch:
 permissions:
   contents: read
