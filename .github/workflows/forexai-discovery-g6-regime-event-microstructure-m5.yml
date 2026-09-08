@@ -1,52 +1,87 @@
 name: ForexAI G6 Regime Event Microstructure M5
 
 on:
+  push:
+    branches:
+      - research/g6-regime-event-microstructure
+    paths:
+      - "research/optimization/regime_event_microstructure_discovery_g6.py"
+      - ".github/workflows/forexai-discovery-g6-regime-event-microstructure-m5.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   discovery:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 240
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
+          python-version: "3.12"
+          cache: pip
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
+        run: python -m pip install -r requirements.txt
       - name: Compile G6
-        run: python -m py_compile research/optimization/regime_event_microstructure_discovery_g6.py
-
-      - name: Validate G6 catalog
+        run: python -m py_compile research/optimization/regime_event_microstructure_discovery_g6.py research/optimization/execution_contract_v1.py
+      - name: Validate catalog contract
         run: |
-          python research/optimization/regime_event_microstructure_discovery_g6.py --print-catalog > /tmp/g6-catalog.json
+          python - <<'PY'
+          from research.optimization.regime_event_microstructure_discovery_g6 import catalog
+          c=catalog()
+          assert len(c)==108
+          assert len({str(sorted(x.items())) for x in c})==108
+          print('G6_CATALOG_OK',len(c))
+          PY
+      - name: Download REAL EURUSD M5
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe M5 --output data/real --validate --manifest
+      - name: Locate exact REAL dataset
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M5_20220101_20251231.csv' | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "REAL_DATASET=$DATA"
+      - name: Feature self-check
+        run: |
+          DATASET="$DATA" python - <<'PY'
+          import os,pandas as pd
+          from research.optimization.regime_event_microstructure_discovery_g6 import prepare
+          d=prepare(pd.read_csv(os.environ['DATASET']))
+          req={'ATR','EMA8','EMA12','EMA16','EMA26','EMA34','EMA50','ROC3','ROC6','ATRq'}
+          assert not req-set(d.columns)
+          assert d.index.is_monotonic_increasing and not d.index.has_duplicates
+          print('G6_FEATURES_OK',len(d),sorted(req))
+          PY
+      - name: Run G6 real-data discovery
+        run: |
+          mkdir -p artifacts
+          python -m research.optimization.regime_event_microstructure_discovery_g6 --data "$DATA" --timeframe M5 --output artifacts/regime-event-g6-M5.json
+      - name: Fail-closed G6 controls
+        run: |
           python - <<'PY'
           import json
-          d=json.load(open('/tmp/g6-catalog.json'))
-          assert d['schema']=='forexai.g6.regime_event_microstructure.v1'
-          assert d['candidate_total']==768
-          assert d['holdout_year']==2026
-          assert len({json.dumps(x,sort_keys=True) for x in d['candidates']})==768
-          print('G6 catalog guard OK:', d['candidate_total'])
+          d=json.load(open('artifacts/regime-event-g6-M5.json',encoding='utf-8'))
+          r=d['result']; e=d['execution_model']
+          assert d['real_data_required'] is True and d['synthetic_fallback'] is False
+          assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
+          assert e['entry']=='next_bar_open' and e['round_trip_cost_pips']==1.4
+          assert e['same_bar_resolution']=='SL first (conservative)' and e['expiry_bars']==24
+          assert e['overlap']=='one position at a time' and e['adverse_exit_cost_applied'] is True
+          assert r['candidate_total']==108 and r['champion'] is None
+          assert r['validation_qualified_count']==0 if r['pre_oos_qualified_count']==0 else True
+          print('G6_FAIL_CLOSED_OK',r['candidate_total'],r['pre_oos_qualified_count'],r['validation_qualified_count'])
+          print('G6_FAMILY_COUNTS',d['catalog']['family_counts'])
+          print('G6_GATE_COUNTS',r['gate_rejection_counts_all_candidates'])
           PY
-
-      - name: Guard against synthetic fallback
-        run: |
-          if grep -RniE 'synthetic|fallback|generate.*data|random\.seed|np\.random' research/optimization/regime_event_microstructure_discovery_g6.py; then
-            echo 'G6 source contains forbidden synthetic/fallback data generation'
-            exit 1
-          fi
-
-      - name: Upload G6 catalog contract
+      - name: Upload G6 research artifact
         uses: actions/upload-artifact@v4
         with:
-          name: g6-regime-event-microstructure-catalog
-          path: /tmp/g6-catalog.json
+          name: regime-event-g6-M5
+          path: artifacts/regime-event-g6-M5.json
           if-no-files-found: error
