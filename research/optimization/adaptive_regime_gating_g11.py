@@ -91,7 +91,11 @@ def gate(m):
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--data",required=True); ap.add_argument("--output",required=True); args=ap.parse_args()
-    d=pd.read_csv(args.data,parse_dates=["Timestamp"]); d=d.sort_values("Timestamp").reset_index(drop=True)
+    d=pd.read_csv(args.data); d.columns=[str(c).strip() for c in d.columns]
+    if "timestamp" not in d.columns and "Timestamp" in d.columns: d=d.rename(columns={"Timestamp":"timestamp"})
+    if "timestamp" not in d.columns: raise ValueError("REAL_DATA_REQUIRED: missing timestamp column")
+    d["timestamp"]=pd.to_datetime(d["timestamp"],utc=True); d=d.sort_values("timestamp").reset_index(drop=True)
+    d=d.rename(columns={"timestamp":"Timestamp","open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"})
     d=d[d.Timestamp.dt.year.isin(YEARS)].copy(); d=prepare(d); d=features(d)
     out={"schema":"forexai.g11.adaptive_regime_gating.v1","execution_model":{"next_bar_open":True,"round_trip_cost_pips":1.4,"same_bar_resolution":"SL first (conservative)","max_hold_bars":24},"data":{"symbol":"EURUSD","timeframe":"M15","years":YEARS,"synthetic_data":False,"oos_2026_used":False},"parameter_selection":{"used_2025":False},"gates":GATES,"champion":None,"candidates":[]}
     for c in CANDIDATES:
