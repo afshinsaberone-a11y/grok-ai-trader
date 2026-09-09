@@ -33,11 +33,12 @@ jobs:
           test -n "$DATA"
           DATASET="$DATA" python - <<'PY'
           import os, pandas as pd
-          p=os.environ['DATASET']; d=pd.read_csv(p,parse_dates=['Timestamp'])
+          p=os.environ['DATASET']
+          d=pd.read_csv(p, parse_dates=['timestamp'])
           assert len(d)==93017, len(d)
-          assert d.Timestamp.dt.year.max() < 2026
-          assert d.Timestamp.is_monotonic_increasing
-          print('REAL_DATA_OK', len(d), d.Timestamp.max().isoformat())
+          assert d.timestamp.dt.year.max() < 2026
+          assert d.timestamp.is_monotonic_increasing
+          print('REAL_DATA_OK', len(d), d.timestamp.max().isoformat())
           PY
           echo "DATA=$DATA" >> "$GITHUB_ENV"
       - name: Run G11
