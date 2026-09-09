@@ -45,7 +45,10 @@ jobs:
           assert d['real_data_required'] is True and d['synthetic_fallback'] is False
           assert d['oos_policy']['loaded'] is False and d['oos_policy']['status']=='HELD_OUT'
           assert d['execution_model']['entry']=='next_bar_open' and d['execution_model']['same_bar_resolution']=='SL first (conservative)'
-          assert d['candidate_total']==108 and d['champion'] is None\n          assert len(d['candidates'])==108\n          assert len({json.dumps(x['params'],sort_keys=True) for x in d['candidates']})==108
+          assert d['candidate_total']==108 and d['champion'] is None
+          assert len(d['candidates'])==108
+          assert len({json.dumps(x['params'],sort_keys=True) for x in d['candidates']})==108
+
           assert d['costs_round_trip_pips']==[0.0,0.7,1.4,2.0]
           print('G7_FAIL_CLOSED_OK',d['research_timeframe'],d['candidate_total'])
           print('G7_COST_SUMMARY',d['summary'])
