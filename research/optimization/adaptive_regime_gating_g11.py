@@ -96,14 +96,14 @@ def main():
     if "timestamp" not in d.columns: raise ValueError("REAL_DATA_REQUIRED: missing timestamp column")
     d["timestamp"]=pd.to_datetime(d["timestamp"],utc=True); d=d.sort_values("timestamp").reset_index(drop=True)
     d=d.rename(columns={"timestamp":"Timestamp","open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"})
-    d=d[d.Timestamp.dt.year.isin(YEARS)].copy(); d=prepare(d); d=features(d)
+    d=d[(d["Timestamp"].dt.year.isin(YEARS))].copy(); d=prepare(d); d=features(d)
     out={"schema":"forexai.g11.adaptive_regime_gating.v1","execution_model":{"next_bar_open":True,"round_trip_cost_pips":1.4,"same_bar_resolution":"SL first (conservative)","max_hold_bars":24},"data":{"symbol":"EURUSD","timeframe":"M15","years":YEARS,"synthetic_data":False,"oos_2026_used":False},"parameter_selection":{"used_2025":False},"gates":GATES,"champion":None,"candidates":[]}
     for c in CANDIDATES:
         cr={"candidate":c,"variants":{}}
         for mode in ["baseline","adaptive"]:
             rows=[]
             for y in YEARS:
-                yy=d[d.Timestamp.dt.year==y].reset_index(drop=True)
+                yy=d[d.index.year==y].reset_index(drop=True)
                 t=run_candidate(yy,c,mode)
                 if mode=="adaptive" and not t.empty:
                     aq=t.adx_q.fillna(0.5); tp=t.trend_persist.fillna(0.5); sl=t.slope.fillna(0)
