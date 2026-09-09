@@ -44,7 +44,7 @@ def bucket(x, low, high):
 
 def run_candidate(d, c, mode):
     p={"family":"regime_momentum","fast":c["fast_ema"],"slow":c["slow_ema"],"atr_pct":c["atr_pct"],"atr_mult":c["atr_mult"],"rr":c["rr"]}
-    s = pd.Series([signal(d,p,i) for i in range(len(d))], index=d.index)
+    s = pd.Series([signal(d,i,p) for i in range(len(d))], index=d.index)
     trades=[]; pos=None
     for i in range(1, len(d)-1):
         if pos is not None:
