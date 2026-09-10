@@ -83,3 +83,5 @@ jobs:
         with:
           name: g12-canonical-M15
           path: artifacts/g12-canonical-M15.json
+
+# Trigger marker: execute canonical G12 validation on changes to this workflow.
