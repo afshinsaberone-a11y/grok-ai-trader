@@ -134,14 +134,14 @@ class SP2LEngine:
         current_index = len(self._candles) - 1
         return current_index - self.state.spike_index > self.config.max_setup_bars
 
-    def _build_signal(self, candle: Candle) -> SP2LSignal:
+    def _build_signal(self, candle: Candle) -> Optional[SP2LSignal]:
         assert self.state.direction is not None
         assert self.state.spike_origin is not None
         entry = candle.close
         stop = self.state.spike_origin
         risk = abs(entry - stop)
         if risk <= 0:
-            raise ValueError("SP2L signal has zero entry-to-stop risk")
+            return None
         if self.state.direction == Direction.BULLISH:
             target = entry + risk * self.config.reward_to_risk
         else:
@@ -159,18 +159,3 @@ class SP2LEngine:
             spike_origin=stop,
             reason="spike -> pgap -> pullback/2nd-leg confirmation",
         )
-
-    def _atr(self) -> float:
-        candles = list(self._candles)
-        if len(candles) < self.config.atr_period + 1:
-            return 0.0
-        trs = []
-        for i in range(len(candles) - self.config.atr_period, len(candles)):
-            current = candles[i]
-            previous = candles[i - 1]
-            trs.append(max(
-                current.high - current.low,
-                abs(current.high - previous.close),
-                abs(current.low - previous.close),
-            ))
-        return sum(trs) / len(trs)
