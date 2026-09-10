@@ -85,3 +85,11 @@ def test_two_sided_cost_is_applied() -> None:
     assert result.trades[0].r_multiple == 0.0
     assert result.trades[0].entry == 100.5
     assert result.trades[0].exit == 100.5
+
+
+def test_zero_risk_signal_is_skipped_fail_closed() -> None:
+    bars = [candle(0, 100, 101, 99, 100), candle(1, 100, 101, 99, 100)]
+    zero_risk = SP2LSignal(bars[0].timestamp, Direction.BULLISH, 100, 100, 100, 100, 100, "invalid")
+    result = SP2LBaselineBacktester().run(bars, [zero_risk])
+    assert result.trades == []
+    assert result.net_r == 0.0
