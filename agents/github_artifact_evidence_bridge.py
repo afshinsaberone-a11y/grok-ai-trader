@@ -44,34 +44,22 @@ def normalize_artifact(
     if not isinstance(payload, dict):
         raise ValueError("artifact payload must be a JSON object")
 
-    # Bind the evidence to the producing revision when the artifact exposes it.
     producer_sha = payload.get("commit_sha") or payload.get("head_sha")
     if producer_sha is not None and producer_sha != commit_sha:
         raise ValueError("artifact payload commit SHA does not match workflow commit SHA")
 
-    # Prevent agents from treating an evaluated OOS payload as held out merely
-    # because metadata is inconsistent.
     oos = payload.get("oos")
     if isinstance(oos, dict) and oos.get("status") == "HELD_OUT" and oos.get("evaluated") is True:
         raise ValueError("OOS payload is internally contradictory: HELD_OUT + evaluated=true")
 
     payload_hash = _sha256_text(_canonical(payload))
-    envelope = {
+    return {
         "schema": SCHEMA,
-        "artifact": {
-            "id": artifact_id,
-            "name": artifact_name,
-            "digest": artifact_digest,
-        },
-        "workflow": {
-            "run_id": run_id,
-            "job_id": job_id,
-            "commit_sha": commit_sha,
-        },
+        "artifact": {"id": artifact_id, "name": artifact_name, "digest": artifact_digest},
+        "workflow": {"run_id": run_id, "job_id": job_id, "commit_sha": commit_sha},
         "payload_sha256": payload_hash,
         "payload": payload,
     }
-    return envelope
 
 
 def write_evidence(envelope: dict[str, Any], *, output_dir: Path | None = None) -> Path:
@@ -85,7 +73,6 @@ def write_evidence(envelope: dict[str, Any], *, output_dir: Path | None = None) 
     run_id = workflow.get("run_id")
     if not isinstance(artifact_id, int) or not isinstance(run_id, int):
         raise ValueError("invalid artifact/run provenance")
-
     root = output_dir or EVIDENCE_ROOT
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"github-artifact-{run_id}-{artifact_id}.json"
