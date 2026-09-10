@@ -91,7 +91,10 @@ def main():
     d=prep(pd.read_csv(a.data)); years={y:d[d.index.year==y] for y in YEARS}; results=[]
     for cid,p in enumerate(CATALOG,1):
         pre={y:backtest(years[y],p) for y in PRE_OOS_YEARS}; reasons=gate(pre)
-        pfs=[m['profit_factor'] for m in pre.values()]; exps=[m['expectancy_R'] for m in pre]; trs=[m['total_R'] for m in pre]; dds=[m['max_dd_pct'] for m in pre]
+        pfs=[m['profit_factor'] for m in pre.values()]
+        exps=[m['expectancy_R'] for m in pre.values()]
+        trs=[m['total_R'] for m in pre.values()]
+        dds=[m['max_dd_pct'] for m in pre.values()]
         score=round(1.5*min(pfs)+float(np.mean(exps))+float(np.tanh(sum(trs)/100.0))-max(dds)/100.0,6)
         results.append({'candidate_id':cid,'params':p,'pre_oos':pre,'score':score,'pre_oos_pass':not reasons,'rejection_reasons':reasons,'validation_2025':backtest(years[2025],p)})
     results.sort(key=lambda x:-x['score']); qualified=[x for x in results if x['pre_oos_pass']]
