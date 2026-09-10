@@ -76,6 +76,26 @@ class SP2LEngine:
                 signals.append(signal)
         return signals
 
+    def _atr(self) -> float:
+        """Return a deterministic simple ATR over the latest closed candles."""
+        candles = list(self._candles)
+        period = self.config.atr_period
+        if len(candles) < period + 1:
+            return 0.0
+        window = candles[-period:]
+        previous = candles[-period - 1].close
+        true_ranges = []
+        for candle in window:
+            true_ranges.append(
+                max(
+                    candle.high - candle.low,
+                    abs(candle.high - previous),
+                    abs(candle.low - previous),
+                )
+            )
+            previous = candle.close
+        return sum(true_ranges) / period
+
     def _detect_spike(self) -> Optional[Direction]:
         if len(self._candles) < self.config.atr_period + 1:
             return None
@@ -101,8 +121,6 @@ class SP2LEngine:
         if not self.config.require_pgap:
             return True
         a, _, c = list(self._candles)[-3:]
-        # Three-candle imbalance representation:
-        # bullish: current low > first high; bearish: current high < first low.
         if self.state.direction == Direction.BULLISH:
             return c.low > a.high
         if self.state.direction == Direction.BEARISH:
@@ -114,8 +132,6 @@ class SP2LEngine:
             return False
         previous, current = list(self._candles)[-2:]
         if self.state.direction == Direction.BULLISH:
-            # Source-level concept: correction takes previous candle low and
-            # continuation closes back in the spike direction.
             return current.low <= previous.low and current.close > current.open
         return current.high >= previous.high and current.close < current.open
 
@@ -123,10 +139,13 @@ class SP2LEngine:
         if len(self._candles) < 2 or self.state.direction is None:
             return False
         candle = self._candles[-1]
+        atr = self._atr()
+        if atr <= 0:
+            return False
         return (
             (self.state.direction == Direction.BULLISH and candle.bearish)
             or (self.state.direction == Direction.BEARISH and candle.bullish)
-        ) and candle.range >= self._atr()
+        ) and candle.range >= atr
 
     def _setup_expired(self) -> bool:
         if self.state.spike_index is None:
