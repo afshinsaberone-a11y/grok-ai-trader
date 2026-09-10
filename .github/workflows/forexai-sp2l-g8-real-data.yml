@@ -1,6 +1,11 @@
 name: ForexAI G8 SP2L Real Data Baseline
 
 on:
+  push:
+    paths:
+      - "strategies/sp2l/**"
+      - "tests/test_sp2l_*.py"
+      - ".github/workflows/forexai-sp2l-g8-real-data.yml"
   pull_request:
     paths:
       - "strategies/sp2l/**"
