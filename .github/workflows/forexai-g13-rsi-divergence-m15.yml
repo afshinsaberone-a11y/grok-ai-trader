@@ -71,3 +71,5 @@ jobs:
           name: rsi-divergence-g13-M15
           path: artifacts/rsi-divergence-g13-M15.json
           if-no-files-found: error
+
+# Trigger G13 after score aggregation fix.
