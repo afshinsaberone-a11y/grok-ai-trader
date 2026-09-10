@@ -29,6 +29,15 @@ def test_signal_model_risk() -> None:
         assert signal.take_profit != signal.entry
 
 
+def test_zero_risk_signal_is_rejected_fail_closed() -> None:
+    engine = SP2LEngine(SP2LConfig())
+    engine.state.direction = Direction.BULLISH
+    engine.state.spike_origin = 1.2345
+    candle = make_candle(0, 1.2340, 1.2350, 1.2335, 1.2345)
+
+    assert engine._build_signal(candle) is None
+
+
 def test_reset_is_deterministic() -> None:
     engine = SP2LEngine(SP2LConfig())
     engine.reset()
