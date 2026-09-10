@@ -1,4 +1,9 @@
-"""Deterministic evidence/content gate controller for ForexAI agents."""
+"""Deterministic evidence/content gate controller for ForexAI agents.
+
+The controller is fail-closed. Local artifacts/reports are authoritative when
+present, while GitHub Actions evidence can be staged into the same evidence
+root by the runtime/CI bridge. Missing external evidence remains UNKNOWN.
+"""
 from __future__ import annotations
 
 import json
@@ -7,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ARTIFACT_ROOTS = (REPO_ROOT / "artifacts", REPO_ROOT / "reports")
+ARTIFACT_ROOTS = (REPO_ROOT / "artifacts", REPO_ROOT / "reports", REPO_ROOT / ".agent_evidence")
 
 @dataclass(frozen=True)
 class Gate:
