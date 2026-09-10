@@ -1,0 +1,140 @@
+name: ForexAI G8 SP2L Real Data Baseline
+
+on:
+  pull_request:
+    paths:
+      - "strategies/sp2l/**"
+      - "tests/test_sp2l_*.py"
+      - ".github/workflows/forexai-sp2l-g8-real-data.yml"
+  workflow_dispatch:
+    inputs:
+      start:
+        description: Real data start
+        required: true
+        default: "2022-01-01"
+      end:
+        description: Real data end exclusive; 2026 remains held out
+        required: true
+        default: "2026-01-01"
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile SP2L
+        run: python -m py_compile strategies/sp2l/*.py
+
+      - name: Run SP2L tests
+        run: python -m pytest -q tests/test_sp2l_engine.py tests/test_sp2l_backtest.py
+
+      - name: Download REAL EURUSD M5
+        env:
+          START: ${{ inputs.start || '2022-01-01' }}
+          END: ${{ inputs.end || '2026-01-01' }}
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
+
+      - name: Locate exact real dataset
+        env:
+          START: ${{ inputs.start || '2022-01-01' }}
+          END: ${{ inputs.end || '2026-01-01' }}
+        run: |
+          set -euo pipefail
+          DATA="data/real/normalized/EURUSD_M5_$(date -u -d "$START" +%Y%m%d)_$(date -u -d "$END - 1 day" +%Y%m%d).csv"
+          test -s "$DATA" || { echo "REAL_DATA_REQUIRED: $DATA"; exit 2; }
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+
+      - name: Run deterministic G8 baseline
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          from strategies.sp2l import SP2LConfig, SP2LEngine
+          from strategies.sp2l.backtest import SP2LBaselineBacktester
+          from strategies.sp2l.data import load_ohlcv_csv
+
+          data_path = Path("${{ env.DATA }}")
+          candles = load_ohlcv_csv(data_path)
+          cutoff = pd.Timestamp("2026-01-01", tz="UTC").to_pydatetime()
+          candles = [c for c in candles if c.timestamp < cutoff]
+          assert candles, "REAL_DATA_REQUIRED: no pre-2026 candles"
+
+          costs = [0.0, 0.00007]  # 0 and 0.7 pip per side for EURUSD
+          years = {}
+          for year in (2022, 2023, 2024):
+              y0 = pd.Timestamp(f"{year}-01-01", tz="UTC").to_pydatetime()
+              y1 = pd.Timestamp(f"{year + 1}-01-01", tz="UTC").to_pydatetime()
+              year_candles = [c for c in candles if y0 <= c.timestamp < y1]
+              assert year_candles, f"missing REAL EURUSD M5 data for {year}"
+              years[str(year)] = {"bars": len(year_candles), "costs": {}}
+              for cost in costs:
+                  engine = SP2LEngine(SP2LConfig(cost_per_side=cost))
+                  signals = engine.run(year_candles)
+                  result = SP2LBaselineBacktester(SP2LConfig(cost_per_side=cost)).run(year_candles, signals)
+                  years[str(year)]["costs"][str(cost)] = {
+                      "signals": len(signals),
+                      "trades": len(result.trades),
+                      "net_r": result.net_r,
+                      "win_rate": result.win_rate,
+                      "profit_factor": result.profit_factor,
+                      "max_drawdown_r": result.max_drawdown_r,
+                  }
+
+          artifact = {
+              "schema": "forexai.sp2l_g8_real_baseline.v1",
+              "strategy": "SP2L",
+              "research_timeframe": "M5",
+              "symbol": "EURUSD",
+              "real_data_required": True,
+              "synthetic_fallback": False,
+              "holdout_2026": {"loaded": False, "status": "HELD_OUT", "start": "2026-01-01"},
+              "execution_model": {
+                  "signal": "closed_candle",
+                  "resolution": "SL first (conservative)",
+                  "expiry_bars": 30,
+              },
+              "cost_per_side_price": costs,
+              "years": years,
+              "promotion": {"champion": None, "status": "BASELINE_ONLY"},
+              "data_path": str(data_path),
+          }
+          out = Path("artifacts/sp2l-g8-real-baseline.json")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(artifact, indent=2, default=str), encoding="utf-8")
+          print(json.dumps(artifact, indent=2, default=str))
+          PY
+
+      - name: Fail closed
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open("artifacts/sp2l-g8-real-baseline.json",encoding="utf-8"))
+          assert d["schema"] == "forexai.sp2l_g8_real_baseline.v1"
+          assert d["real_data_required"] is True
+          assert d["synthetic_fallback"] is False
+          assert d["holdout_2026"]["loaded"] is False
+          assert d["holdout_2026"]["status"] == "HELD_OUT"
+          assert d["promotion"]["champion"] is None
+          assert set(d["years"]) == {"2022","2023","2024"}
+          print("G8_FAIL_CLOSED_OK")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sp2l-g8-real-baseline
+          path: artifacts/sp2l-g8-real-baseline.json
+          if-no-files-found: error
