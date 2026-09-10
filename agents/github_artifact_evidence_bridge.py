@@ -25,16 +25,7 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def normalize_artifact(
-    *,
-    artifact_id: int,
-    artifact_name: str,
-    artifact_digest: str,
-    run_id: int,
-    job_id: int | None,
-    commit_sha: str,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
+def normalize_artifact(*, artifact_id: int, artifact_name: str, artifact_digest: str, run_id: int, job_id: int | None, commit_sha: str, payload: dict[str, Any]) -> dict[str, Any]:
     if artifact_id <= 0 or run_id <= 0:
         raise ValueError("artifact_id and run_id must be positive")
     if job_id is not None and job_id <= 0:
@@ -43,23 +34,14 @@ def normalize_artifact(
         raise ValueError("artifact name, digest and commit SHA are required")
     if not isinstance(payload, dict):
         raise ValueError("artifact payload must be a JSON object")
-
     producer_sha = payload.get("commit_sha") or payload.get("head_sha")
     if producer_sha is not None and producer_sha != commit_sha:
         raise ValueError("artifact payload commit SHA does not match workflow commit SHA")
-
     oos = payload.get("oos")
     if isinstance(oos, dict) and oos.get("status") == "HELD_OUT" and oos.get("evaluated") is True:
         raise ValueError("OOS payload is internally contradictory: HELD_OUT + evaluated=true")
-
     payload_hash = _sha256_text(_canonical(payload))
-    return {
-        "schema": SCHEMA,
-        "artifact": {"id": artifact_id, "name": artifact_name, "digest": artifact_digest},
-        "workflow": {"run_id": run_id, "job_id": job_id, "commit_sha": commit_sha},
-        "payload_sha256": payload_hash,
-        "payload": payload,
-    }
+    return {"schema": SCHEMA, "artifact": {"id": artifact_id, "name": artifact_name, "digest": artifact_digest}, "workflow": {"run_id": run_id, "job_id": job_id, "commit_sha": commit_sha}, "payload_sha256": payload_hash, "payload": payload}
 
 
 def write_evidence(envelope: dict[str, Any], *, output_dir: Path | None = None) -> Path:
