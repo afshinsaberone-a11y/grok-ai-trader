@@ -1,0 +1,81 @@
+name: ForexAI G12 Canonical M15 Validation v2
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/adaptive_gate_canonical_v2.py
+      - .github/workflows/forexai-g12-canonical-v2-m15.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  canonical-v2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Download G12 calibration evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p upstream
+          gh run download 34396859512 --repo "${{ github.repository }}" --name adaptive-gate-calibration-g12-M15 --dir upstream
+          test -s upstream/adaptive-gate-calibration-g12-M15.json
+      - name: Compile
+        run: python -m py_compile research/optimization/adaptive_gate_canonical_v2.py research/optimization/adaptive_gate_calibration_g12.py research/optimization/regime_aware_event_discovery_g6.py research/optimization/execution_contract_v1.py
+      - name: Download REAL EURUSD M15
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe M15 --output data/real --validate --manifest
+      - name: Locate and validate dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M15_20220101_20251231.csv' | sort | head -n1)"
+          test -n "$DATA"
+          DATASET="$DATA" python - <<'PY'
+          import os,pandas as pd
+          d=pd.read_csv(os.environ['DATASET'],parse_dates=['timestamp'])
+          assert len(d)==93017, len(d)
+          assert d.timestamp.dt.year.max()<2026
+          assert d.timestamp.is_monotonic_increasing
+          print('REAL_DATA_OK',len(d),d.timestamp.max().isoformat())
+          PY
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Run corrected canonical replay
+        run: python -m research.optimization.adaptive_gate_canonical_v2 --data "$DATA" --g12-artifact upstream/adaptive-gate-calibration-g12-M15.json --output artifacts/g12-canonical-v2-M15.json
+      - name: Fail closed
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('artifacts/g12-canonical-v2-M15.json',encoding='utf-8'))
+          assert p['policy']['real_data_required'] is True
+          assert p['policy']['synthetic_data'] is False
+          assert p['policy']['oos_2026_used'] is False
+          assert p['policy']['parameter_selection_used_2025'] is False
+          assert p['policy']['gates_unchanged'] is True
+          assert p['policy']['champion'] is None
+          assert p['execution_model']['entry']=='next_bar_open'
+          assert p['execution_model']['cost_pips_per_side']==0.7
+          assert p['execution_model']['round_trip_cost_pips']==1.4
+          assert p['execution_model']['same_bar_resolution']=='SL first (conservative)'
+          assert p['execution_model']['expiry_bars']==30
+          assert all(v['entries']==v['exits'] and v['entries_equal_exits'] for v in p['execution_invariants'].values())
+          assert p['selected_variant']=={'name':'adx30_50_slope','adx_q':0.30,'trend_persist':0.50,'require_slope':True}
+          print('G12_CANONICAL_V2_FAIL_CLOSED_OK')
+          print('CANONICAL_STATUS',p['canonical_status'])
+          print('PRE_OOS_QUALIFIED',p['validation']['pre_oos_qualified'])
+          print('VALIDATION_PASS',p['validation']['validation_pass'])
+          for y,m in p['yearly'].items(): print(y,m)
+          PY
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g12-canonical-v2-M15
+          path: artifacts/g12-canonical-v2-M15.json
