@@ -27,6 +27,12 @@ class SP2LConfig:
     enable_add_on: bool = True
     add_on_fraction_to_stop: float = 0.50
 
+    # Baseline execution assumptions. These are deliberately configurable so
+    # research can run at zero cost and at realistic cost levels without
+    # changing the signal logic.
+    trade_expiry_bars: int = 30
+    cost_per_side: float = 0.0
+
     # Safety guards for the research engine.
     allow_zero_range: bool = False
 
@@ -43,3 +49,7 @@ class SP2LConfig:
             raise ValueError("reward_to_risk must be positive")
         if not 0 < self.add_on_fraction_to_stop < 1:
             raise ValueError("add_on_fraction_to_stop must be in (0, 1)")
+        if self.trade_expiry_bars < 1:
+            raise ValueError("trade_expiry_bars must be >= 1")
+        if self.cost_per_side < 0:
+            raise ValueError("cost_per_side must be >= 0")
