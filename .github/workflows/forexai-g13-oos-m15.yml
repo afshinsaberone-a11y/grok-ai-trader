@@ -1,0 +1,113 @@
+name: ForexAI G13 OOS M15
+
+# Independent final OOS gate for the frozen G13 M15 candidates.
+# 2026 is evaluated only; no selection or optimization is allowed.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/g13_oos_m15.py
+      - research/optimization/g13_robustness_m15.py
+      - research/optimization/rsi_divergence_discovery_g13.py
+      - research/optimization/execution_contract_v1.py
+      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
+      - .github/workflows/forexai-g13-oos-m15.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  g13-oos:
+    name: G13 2026 OOS M15
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile
+        run: |
+          python -m py_compile \
+            research/optimization/g13_oos_m15.py \
+            research/optimization/g13_robustness_m15.py \
+            research/optimization/rsi_divergence_discovery_g13.py \
+            research/optimization/execution_contract_v1.py
+      - name: Download REAL EURUSD M15 including 2026 OOS
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD --start 2022-01-01 --end 2027-01-01 \
+            --timeframe M15 --output data/real --validate --manifest
+      - name: Locate dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M15_20220101_20261231.csv' | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Verify frozen handoff and strict OOS boundary
+        run: |
+          DATASET="$DATA" python - <<'PY'
+          import json, os
+          import pandas as pd
+          h=json.load(open('artifacts/g13/frozen/g13-candidate-handoff-m15.json',encoding='utf-8'))
+          assert h['schema_version']=='forexai.g13.candidate_handoff.frozen.v1'
+          assert h['research_symbol']=='EURUSD'
+          assert h['research_timeframe']=='M15'
+          assert h['validation_qualified_count']==16
+          assert len(h['candidates'])==16
+          assert h['oos_policy']=={'loaded':False,'status':'HELD_OUT'}
+          policy=h['handoff_policy']
+          assert policy['parameters_are_frozen'] is True
+          assert policy['oos_optimization_disabled'] is True
+          assert policy['robustness_may_not_select'] is True
+          assert policy['validation_must_approve'] is True
+          for c in h['candidates']:
+              assert c['config_hash']
+          d=pd.read_csv(os.environ['DATASET'])
+          ts=pd.to_datetime(d['timestamp'],utc=True)
+          oos=d[(ts>=pd.Timestamp('2026-01-01',tz='UTC')) & (ts<pd.Timestamp('2027-01-01',tz='UTC'))]
+          assert not oos.empty
+          assert ts.max() < pd.Timestamp('2027-01-01',tz='UTC')
+          print('FROZEN_OOS_INPUT_OK', len(h['candidates']), len(oos), ts.min().isoformat(), ts.max().isoformat())
+          PY
+      - name: Run independent G13 2026 OOS
+        run: |
+          python -m research.optimization.g13_oos_m15 \
+            --data "$DATA" \
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
+            --output artifacts/g13-oos-m15-2026.json
+      - name: Fail closed OOS gate
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('artifacts/g13-oos-m15-2026.json',encoding='utf-8'))
+          assert r['real_data_only'] is True
+          assert r['timeframe']=='M15'
+          assert r['evaluation_year']==2026
+          assert r['candidate_count']==16
+          assert r['selection_performed'] is False
+          assert r['optimization_enabled'] is False
+          assert r['parameters_frozen'] is True
+          assert r['oos']['status']=='EVALUATED'
+          assert r['oos']['optimization_allowed'] is False
+          assert r['oos']['selection_allowed'] is False
+          assert r['promotion_gate']['ea_generation_allowed'] is False
+          print('G13_OOS_FAIL_CLOSED_OK')
+          print('OOS_PASS', r.get('oos_pass_count'))
+          print('OOS_IDS', [x['candidate_id'] for x in r['candidates'] if x.get('oos_pass')])
+          PY
+      - name: Upload OOS evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-oos-m15-2026
+          path: |
+            artifacts/g13/frozen/g13-candidate-handoff-m15.json
+            artifacts/g13-oos-m15-2026.json
+          if-no-files-found: error
