@@ -89,8 +89,8 @@ jobs:
           import json
           r=json.load(open('artifacts/g13-oos-m15-2026.json',encoding='utf-8'))
           assert r['real_data_only'] is True
-          assert r['timeframe']=='M15'
-          assert r['evaluation_year']==2026
+          assert r['research_scope']['timeframe']=='M15'
+          assert r['research_scope']['evaluation_year']==2026
           assert r['candidate_count']==16
           assert r['selection_performed'] is False
           assert r['optimization_enabled'] is False
