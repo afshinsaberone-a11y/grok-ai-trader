@@ -70,6 +70,27 @@ jobs:
             --discovery-artifact artifacts/rsi-divergence-g13-M15.json \
             --output artifacts/g13-validation-m15.json \
             --handoff artifacts/g13-candidate-handoff-m15.json
+      - name: Canonical parity smoke test
+        run: |
+          DATASET="$DATA" python - <<'PY'
+          import json, os
+          import pandas as pd
+          from research.optimization.rsi_divergence_discovery_g13 import backtest, prep
+          from research.optimization.g13_robustness_m15 import metrics
+          h=json.load(open('artifacts/g13-candidate-handoff-m15.json',encoding='utf-8'))
+          assert h['candidates'], 'no validation-qualified G13 candidates'
+          p=h['candidates'][0]['params']
+          d=prep(pd.read_csv(os.environ['DATASET']))
+          y=d[d.index.year==2025]
+          a=backtest(y,p)
+          b=metrics(y,p)
+          assert a['trades']==b['trades'], (a,b)
+          assert abs(a['expectancy_R']-b['expectancy_R'])<1e-12, (a,b)
+          assert abs(a['profit_factor']-b['profit_factor'])<1e-12, (a,b)
+          assert abs(a['max_dd_pct']-b['max_dd_pct'])<1e-12, (a,b)
+          assert a['entries']==b['entries'] and a['exits']==b['exits']
+          print('G13_CANONICAL_PARITY_OK',h['candidates'][0]['candidate_id'])
+          PY
       - name: Run G13 robustness
         run: |
           python -m research.optimization.g13_robustness_m15 \
