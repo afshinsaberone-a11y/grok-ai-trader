@@ -1,0 +1,173 @@
+name: ForexAI G13 OOS M15 Current
+
+# Independent G13 OOS evaluation using real Dukascopy JETTA data.
+# 2026 is evaluated only; no selection or optimization is allowed.
+# The data window ends at the current UTC date, so the current partial UTC day is excluded.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  g13-oos:
+    name: G13 2026 OOS M15 Current
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile
+        run: |
+          python -m py_compile \
+            research/optimization/g13_oos_m15.py \
+            research/optimization/g13_robustness_m15.py \
+            research/optimization/rsi_divergence_discovery_g13.py \
+            research/optimization/execution_contract_v1.py \
+            research/real_data/dukascopy_ingest.py
+
+      - name: Determine latest complete UTC data cutoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          END_DATE="$(date -u +%Y-%m-%d)"
+          LAST_COMPLETE="$(date -u -d 'yesterday' +%Y-%m-%d)"
+          END_TAG="$(date -u -d 'yesterday' +%Y%m%d)"
+          echo "END_DATE=$END_DATE" >> "$GITHUB_ENV"
+          echo "LAST_COMPLETE=$LAST_COMPLETE" >> "$GITHUB_ENV"
+          echo "END_TAG=$END_TAG" >> "$GITHUB_ENV"
+          echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
+
+      - name: JETTA API smoke test on known real weekday
+        run: |
+          DATASET_URL='https://jetta.dukascopy.com/v1/candles/minute/EUR-USD/BID/2025/02/14'
+          DATASET_URL="$DATASET_URL" python - <<'PY'
+          import json, os
+          from urllib.request import Request, urlopen
+          url=os.environ['DATASET_URL']
+          request=Request(url,headers={'User-Agent':'ForexAI/0.1 real-data-ingestion','Accept':'application/json'})
+          with urlopen(request,timeout=30) as response:
+              payload=response.read()
+          data=json.loads(payload.decode('utf-8'))
+          required={'timestamp','multiplier','times','shift','open','high','low','close','opens','highs','lows','closes','volumes'}
+          missing=required.difference(data)
+          assert not missing, f'JETTA schema missing: {sorted(missing)}'
+          assert len(data['times']) > 0
+          assert all(len(data[k]) == len(data['times']) for k in ('opens','highs','lows','closes','volumes'))
+          print('JETTA_SMOKE_OK',url,'candles=',len(data['times']))
+          PY
+
+      - name: Download REAL EURUSD M1 through latest complete UTC day
+        run: |
+          python -m research.real_data.dukascopy_ingest \
+            --symbol EURUSD --start 2025-01-01 --end "$END_DATE" \
+            --timeframe M1 --output data/real --validate --manifest --resume
+
+      - name: Locate dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name "EURUSD_M1_20250101_${END_TAG}.csv" | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "M1_DATASET=$DATA"
+
+      - name: Build M15 OOS dataset from real M1
+        shell: bash
+        run: |
+          DATASET="$DATA" END_TAG="$END_TAG" python - <<'PY'
+          import os
+          import pandas as pd
+          from pathlib import Path
+          from research.real_data.normalizer import resample_ohlcv
+          from research.real_data.validator import validate_ohlcv
+          src=Path(os.environ['DATASET'])
+          d=pd.read_csv(src,parse_dates=['timestamp'])
+          d['timestamp']=pd.to_datetime(d['timestamp'],utc=True)
+          m15=resample_ohlcv(d,'15min')
+          report=validate_ohlcv(m15,symbol='EURUSD',timeframe='M15')
+          if report.status != 'PASS':
+              raise SystemExit(f'REAL_DATA_REQUIRED: M15 validation failed: {report.to_dict()}')
+          out=Path(f"data/real/normalized/EURUSD_M15_20250101_{os.environ['END_TAG']}.csv")
+          m15.to_csv(out,index=False)
+          print(report.to_dict())
+          print('M15_DATASET',out,len(m15))
+          PY
+          echo "DATA=data/real/normalized/EURUSD_M15_20250101_${END_TAG}.csv" >> "$GITHUB_ENV"
+
+      - name: Verify frozen handoff and strict OOS boundary
+        run: |
+          DATASET="$DATA" LAST_COMPLETE="$LAST_COMPLETE" python - <<'PY'
+          import json,os
+          import pandas as pd
+          h=json.load(open('artifacts/g13/frozen/g13-candidate-handoff-m15.json',encoding='utf-8'))
+          assert h['schema_version']=='forexai.g13.candidate_handoff.frozen.v1'
+          assert h['research_symbol']=='EURUSD'
+          assert h['research_timeframe']=='M15'
+          assert h['validation_qualified_count']==16
+          assert len(h['candidates'])==16
+          assert h['oos_policy']=={'loaded':False,'status':'HELD_OUT'}
+          policy=h['handoff_policy']
+          assert policy['parameters_are_frozen'] is True
+          assert policy['oos_optimization_disabled'] is True
+          assert policy['robustness_may_not_select'] is True
+          assert policy['validation_must_approve'] is True
+          for c in h['candidates']:
+              assert c['config_hash']
+          d=pd.read_csv(os.environ['DATASET'])
+          ts=pd.to_datetime(d['timestamp'],utc=True)
+          cutoff=pd.Timestamp(os.environ['LAST_COMPLETE'],tz='UTC') + pd.Timedelta(days=1)
+          oos=d[(ts>=pd.Timestamp('2026-01-01',tz='UTC'))&(ts<cutoff)]
+          assert not oos.empty
+          assert ts.max()<cutoff
+          assert ts.min()<pd.Timestamp('2026-01-01',tz='UTC')
+          print('FROZEN_OOS_INPUT_OK',len(h['candidates']),len(oos),ts.min().isoformat(),ts.max().isoformat(),'cutoff=',cutoff.isoformat())
+          PY
+
+      - name: Run independent G13 2026 OOS
+        run: |
+          python -m research.optimization.g13_oos_m15 \
+            --data "$DATA" \
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
+            --output artifacts/g13-oos-m15-2026.json
+
+      - name: Fail closed OOS gate
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('artifacts/g13-oos-m15-2026.json',encoding='utf-8'))
+          assert r['real_data_only'] is True
+          assert r['research_scope']['timeframe']=='M15'
+          assert r['research_scope']['evaluation_year']==2026
+          assert r['candidate_count']==16
+          assert r['selection_performed'] is False
+          assert r['optimization_enabled'] is False
+          assert r['parameters_frozen'] is True
+          assert r['oos']['status']=='EVALUATED'
+          assert r['oos']['optimization_allowed'] is False
+          assert r['oos']['selection_allowed'] is False
+          assert r['promotion_gate']['ea_generation_allowed'] is False
+          print('G13_OOS_FAIL_CLOSED_OK')
+          print('OOS_PASS',r.get('oos_pass_count'))
+          print('OOS_IDS',[x['candidate_id'] for x in r['candidates'] if x.get('oos_pass')])
+          PY
+
+      - name: Upload OOS evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-oos-m15-2026-current
+          path: |
+            artifacts/g13/frozen/g13-candidate-handoff-m15.json
+            artifacts/g13-oos-m15-2026.json
+          if-no-files-found: error
