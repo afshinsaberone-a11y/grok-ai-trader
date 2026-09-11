@@ -1,5 +1,7 @@
 name: ForexAI G13 Robustness M15
 
+# Trigger marker: run robustness on the current main revision.
+
 on:
   workflow_dispatch:
   push:
