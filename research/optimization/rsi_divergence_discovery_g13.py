@@ -52,10 +52,9 @@ def signals(d,p):
             if b[1]<a[1]-p['min_delta'] and b[2]>a[2] and b[2]<=p['rsi_low']: out.iloc[i]=1
     return out
 
-def empty(): return {'trades':0,'win_rate':0.0,'total_R':0.0,'expectancy_R':0.0,'profit_factor':0.0,'max_dd_pct':0.0,'entries':0,'exits':0}
-
-def backtest(d,p):
-    if len(d)<100: return empty()
+def trade_returns(d,p):
+    """Return canonical per-trade R multiples using the v1 execution contract."""
+    if len(d)<100: return []
     sig=signals(d,p); cfg=ExecutionConfig(); rs=[]; pos=None
     for i in range(1,len(d)):
         if pos is not None:
@@ -71,10 +70,17 @@ def backtest(d,p):
             risk=p['atr_mult']*atr; sl=entry-side*risk; tp=entry+side*p['rr']*risk; pos={'entry_i':i,'side':side,'entry':entry,'sl':sl,'tp':tp}
     if pos is not None:
         ex=apply_exit_cost(float(d.Close.iloc[-1]),pos['side'],cfg); rs.append(float((ex-pos['entry'])/(pos['entry']-pos['sl'])*pos['side']))
-    r=np.asarray(rs,float); n=len(r); gp=r[r>0].sum() if n else 0.; gl=-r[r<0].sum() if n else 0.; pf=gp/gl if gl>0 else (3.0 if gp>0 else 0.0)
+    return rs
+
+def empty(): return {'trades':0,'win_rate':0.0,'total_R':0.0,'expectancy_R':0.0,'profit_factor':0.0,'max_dd_pct':0.0,'entries':0,'exits':0}
+
+def backtest(d,p):
+    r=np.asarray(trade_returns(d,p),float); n=len(r)
+    if n==0: return empty()
+    gp=r[r>0].sum(); gl=-r[r<0].sum(); pf=gp/gl if gl>0 else (3.0 if gp>0 else 0.0)
     eq=peak=10000.; dd=0.0
     for x in r: eq*=1+RISK_PCT*x; peak=max(peak,eq); dd=max(dd,(peak-eq)/peak)
-    return {'trades':n,'win_rate':float((r>0).mean()*100) if n else 0.0,'total_R':float(r.sum()),'expectancy_R':float(r.mean()) if n else 0.0,'profit_factor':float(pf),'max_dd_pct':float(dd*100),'entries':n,'exits':n}
+    return {'trades':n,'win_rate':float((r>0).mean()*100),'total_R':float(r.sum()),'expectancy_R':float(r.mean()),'profit_factor':float(pf),'max_dd_pct':float(dd*100),'entries':n,'exits':n}
 
 def gate(yearly):
     reasons=[]
