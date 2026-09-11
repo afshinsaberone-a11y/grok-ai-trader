@@ -99,9 +99,11 @@ jobs:
           b=metrics(y,p)
           raw=trade_returns(y,p)
           assert a['trades']==b['trades']==len(raw), (a,b,len(raw))
-          assert abs(a['expectancy_R']-b['expectancy_R'])<1e-12, (a,b)
-          assert abs(a['profit_factor']-b['profit_factor'])<1e-12, (a,b)
-          assert abs(a['max_dd_pct']-b['max_dd_pct'])<1e-12, (a,b)
+          # metrics() is a reporting-layer view rounded to 6 decimals; parity here
+          # therefore validates semantic equality at the declared report precision.
+          assert abs(a['expectancy_R']-b['expectancy_R'])<1e-6, (a,b)
+          assert abs(a['profit_factor']-b['profit_factor'])<1e-6, (a,b)
+          assert abs(a['max_dd_pct']-b['max_dd_pct'])<1e-6, (a,b)
           assert a['entries']==b['entries']==a['exits']==b['exits']
           print('G13_CANONICAL_PARITY_OK',h['candidates'][0]['candidate_id'])
           PY
