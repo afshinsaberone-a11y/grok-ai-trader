@@ -208,4 +208,5 @@ jobs:
         with:
           name: sp2l-g8-agent-evidence
           path: .agent_evidence/github-artifact-*.json
+          include-hidden-files: true
           if-no-files-found: error
