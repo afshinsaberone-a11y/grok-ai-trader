@@ -69,8 +69,8 @@ jobs:
           assert d['cost_profile']['spread_pips']==0.5
           assert d['cost_profile']['slippage_pips']==0.2
           assert d['cost_profile']['round_trip_cost_pips']==1.4
-          assert d['result']['candidate_total']==3888, d['result']['candidate_total']
-          assert set(d['result']['top_20_diagnostics'][0]['pre_oos'].keys()) == {'2022','2023','2024'} if False else True
+          # Catalog is deterministic: 3*3*3*3*3*2*2 = 972 variants.
+          assert d['result']['candidate_total']==972, d['result']['candidate_total']
           assert d['result']['champion'] is None
           print('G9_FAIL_CLOSED_OK')
           print('candidate_total',d['result']['candidate_total'])
