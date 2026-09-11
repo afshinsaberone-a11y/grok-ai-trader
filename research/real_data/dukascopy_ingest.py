@@ -1,20 +1,19 @@
-"""Dukascopy real EURUSD M1 ingestion.
+"""Real EURUSD M1 ingestion from Dukascopy's current JSON data API.
 
-Dukascopy stores M1 candles as LZMA-compressed BI5 files. The public path uses
-zero-based months (00=January) and one file per day. M1 records are decoded as
->IIIIIf: seconds-from-day-start, Open, Close, Low, High integer prices, and float volume.
-No synthetic fallback is permitted.
+The legacy datafeed.dukascopy.com BI5 endpoint has been unreliable in CI.
+The current Dukascopy data API used by dukascopy-node is JETTA v1, with
+one compact JSON candle response per day. No synthetic fallback is permitted.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import logging
-import lzma
 import random
-import struct
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -28,10 +27,8 @@ from .normalizer import canonicalize_ohlcv, resample_ohlcv
 from .validator import validate_ohlcv
 
 LOGGER = logging.getLogger(__name__)
-BASE_URL = "https://datafeed.dukascopy.com/datafeed"
-M1_RECORD = struct.Struct(">IIIIIf")
-PRICE_SCALE = 100_000.0
-TRANSIENT_HTTP_CODES = {429, 502, 503, 504}
+DATA_API_ROOT = "https://jetta.dukascopy.com/v1"
+TRANSIENT_HTTP_CODES = {408, 429, 500, 502, 503, 504}
 
 
 class DukascopyIngestError(RuntimeError):
@@ -48,7 +45,14 @@ class DownloadedDay:
 
 
 class DukascopyM1Ingestor:
-    def __init__(self, output_dir: str | Path, *, timeout: int = 30, retries: int = 8) -> None:
+    def __init__(
+        self,
+        output_dir: str | Path,
+        *,
+        timeout: int = 30,
+        retries: int = 8,
+        workers: int = 4,
+    ) -> None:
         self.output_dir = Path(output_dir)
         self.raw_dir = self.output_dir / "raw" / "EURUSD" / "m1"
         self.normalized_dir = self.output_dir / "normalized"
@@ -56,124 +60,235 @@ class DukascopyM1Ingestor:
         self.normalized_dir.mkdir(parents=True, exist_ok=True)
         self.timeout = timeout
         self.retries = retries
+        self.workers = workers
 
     @staticmethod
     def url_for(day: date) -> str:
-        return f"{BASE_URL}/EURUSD/{day.year:04d}/{day.month - 1:02d}/{day.day:02d}/BID_candles_min_1.bi5"
+        # Current JETTA API uses one-based month paths and compact candle JSON.
+        return (
+            f"{DATA_API_ROOT}/candles/minute/EUR-USD/BID/"
+            f"{day.year:04d}/{day.month:02d}/{day.day:02d}"
+        )
+
+    @staticmethod
+    def _is_weekend(day: date) -> bool:
+        return day.weekday() >= 5
 
     def _download(self, url: str, destination: Path, *, day: date, force: bool = False) -> bool:
         if destination.exists() and destination.stat().st_size > 0 and not force:
-            LOGGER.info("Using cached raw file: %s", destination)
+            LOGGER.info("Using cached JETTA JSON: %s", destination)
             return True
+
         last_error: Exception | None = None
         for attempt in range(1, self.retries + 1):
             tmp = destination.with_suffix(destination.suffix + ".part")
             try:
-                request = Request(url, headers={"User-Agent": "ForexAI/0.1 real-data-ingestion"})
-                with urlopen(request, timeout=self.timeout) as response, tmp.open("wb") as handle:
-                    while True:
-                        chunk = response.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        handle.write(chunk)
-                if tmp.stat().st_size == 0:
+                request = Request(
+                    url,
+                    headers={
+                        "User-Agent": "ForexAI/0.1 real-data-ingestion",
+                        "Accept": "application/json",
+                    },
+                )
+                with urlopen(request, timeout=self.timeout) as response:
+                    payload = response.read()
+                if not payload:
                     raise DukascopyIngestError(f"Empty Dukascopy response: {url}")
+                json.loads(payload.decode("utf-8"))
+                tmp.write_bytes(payload)
                 tmp.replace(destination)
                 return True
             except HTTPError as exc:
                 last_error = exc
                 if exc.code == 404:
-                    LOGGER.info("No source file for %s (404): %s", destination.name, url)
+                    if self._is_weekend(day):
+                        LOGGER.info("No JETTA source for weekend %s", day.isoformat())
+                        if tmp.exists():
+                            tmp.unlink()
+                        return False
                     if tmp.exists():
                         tmp.unlink()
-                    return False
+                    raise DukascopyIngestError(
+                        f"REAL_DATA_REQUIRED: weekday JETTA source returned 404 for {day.isoformat()}: {url}"
+                    ) from exc
                 if exc.code not in TRANSIENT_HTTP_CODES:
                     if tmp.exists():
                         tmp.unlink()
-                    raise DukascopyIngestError(f"Non-retryable Dukascopy HTTP {exc.code}: {url}") from exc
-            except (URLError, TimeoutError, OSError, DukascopyIngestError) as exc:
+                    raise DukascopyIngestError(
+                        f"Non-retryable Dukascopy HTTP {exc.code}: {url}"
+                    ) from exc
+            except (URLError, TimeoutError, OSError, json.JSONDecodeError, DukascopyIngestError) as exc:
                 last_error = exc
+
             if tmp.exists():
                 tmp.unlink()
             if attempt < self.retries:
                 delay = min(20.0, 1.5 * (2 ** (attempt - 1))) + random.uniform(0.0, 0.75)
                 LOGGER.warning(
-                    "Transient Dukascopy failure for %s (attempt %d/%d); retrying in %.2fs: %s",
+                    "Transient JETTA failure for %s (attempt %d/%d); retrying in %.2fs: %s",
                     day.isoformat(), attempt, self.retries, delay, last_error,
                 )
                 time.sleep(delay)
 
-        # Dukascopy occasionally returns 503 for weekend/non-trading daily paths.
-        # Do not turn a weekend source hiccup into a false dataset failure; weekdays
-        # remain fail-closed because silently omitting a trading day would bias OOS.
-        if day.weekday() >= 5:
-            LOGGER.warning("Dukascopy unavailable after retries for weekend %s; recording as non-trading day", day)
+        if self._is_weekend(day):
+            LOGGER.warning(
+                "JETTA unavailable after retries for weekend %s; recording as non-trading day",
+                day.isoformat(),
+            )
             return False
         raise DukascopyIngestError(
-            f"REAL_DATA_REQUIRED: failed to download weekday Dukascopy data after {self.retries} attempts: {url}: {last_error}"
+            f"REAL_DATA_REQUIRED: failed to download weekday JETTA data after "
+            f"{self.retries} attempts: {url}: {last_error}"
         )
-
-    @staticmethod
-    def decode_m1(path: str | Path, day: date) -> pd.DataFrame:
-        raw = lzma.decompress(Path(path).read_bytes())
-        if len(raw) % M1_RECORD.size != 0:
-            raise DukascopyIngestError(f"Invalid BI5 M1 payload size: {path}")
-        rows = []
-        day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
-        for offset in range(0, len(raw), M1_RECORD.size):
-            seconds, open_i, close_i, low_i, high_i, volume = M1_RECORD.unpack_from(raw, offset)
-            rows.append((
-                day_start + timedelta(seconds=seconds),
-                open_i / PRICE_SCALE,
-                high_i / PRICE_SCALE,
-                low_i / PRICE_SCALE,
-                close_i / PRICE_SCALE,
-                float(volume),
-                float("nan"),
-            ))
-        return pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume", "spread"])
 
     def download_range(self, start: date, end: date, *, force: bool = False) -> list[DownloadedDay]:
         if end <= start:
             raise ValueError("end must be after start")
+
         downloaded: list[DownloadedDay] = []
+        days = []
         current = start
         while current < end:
-            destination = self.raw_dir / f"{current:%Y-%m-%d}.bi5"
-            url = self.url_for(current)
-            if self._download(url, destination, day=current, force=force):
-                downloaded.append(DownloadedDay(current, destination, url, sha256_file(destination), destination.stat().st_size))
+            days.append(current)
             current += timedelta(days=1)
+
+        def fetch(day: date) -> DownloadedDay | None:
+            destination = self.raw_dir / f"{day:%Y-%m-%d}.json"
+            url = self.url_for(day)
+            if not self._download(url, destination, day=day, force=force):
+                return None
+            return DownloadedDay(day, destination, url, sha256_file(destination), destination.stat().st_size)
+
+        # Limited concurrency avoids hammering the provider while keeping a large
+        # two-year daily pull practical inside GitHub Actions.
+        with ThreadPoolExecutor(max_workers=self.workers) as executor:
+            futures = {executor.submit(fetch, day): day for day in days}
+            for future in as_completed(futures):
+                downloaded_day = future.result()
+                if downloaded_day is not None:
+                    downloaded.append(downloaded_day)
+
+        downloaded.sort(key=lambda item: item.day)
         if not downloaded:
-            raise DukascopyIngestError("REAL_DATA_REQUIRED: no real Dukascopy files were downloaded")
+            raise DukascopyIngestError("REAL_DATA_REQUIRED: no real JETTA files were downloaded")
         return downloaded
+
+    @staticmethod
+    def decode_m1(path: str | Path, day: date) -> pd.DataFrame:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        required = {"timestamp", "multiplier", "times", "shift", "open", "high", "low", "close", "opens", "highs", "lows", "closes", "volumes"}
+        missing = required.difference(data)
+        if missing:
+            raise DukascopyIngestError(f"Invalid JETTA candle payload for {day}: missing {sorted(missing)}")
+
+        times = data["times"]
+        opens = data["opens"]
+        highs = data["highs"]
+        lows = data["lows"]
+        closes = data["closes"]
+        volumes = data["volumes"]
+        n = len(times)
+        if not all(len(column) == n for column in (opens, highs, lows, closes, volumes)):
+            raise DukascopyIngestError(f"Invalid JETTA candle payload for {day}: column length mismatch")
+        if n == 0:
+            return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume", "spread"])
+
+        multiplier = float(data["multiplier"])
+        shift = int(data["shift"])
+        timestamp = int(data["timestamp"])
+        open_units = round(float(data["open"]) / multiplier)
+        high_units = round(float(data["high"]) / multiplier)
+        low_units = round(float(data["low"]) / multiplier)
+        close_units = round(float(data["close"]) / multiplier)
+        rows: list[tuple[datetime, float, float, float, float, float, float]] = []
+
+        for i in range(n):
+            delta = int(times[i])
+            timestamp += delta * shift
+            open_units += int(opens[i])
+            high_units += int(highs[i])
+            low_units += int(lows[i])
+            close_units += int(closes[i])
+            rows.append(
+                (
+                    datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc),
+                    open_units * multiplier,
+                    high_units * multiplier,
+                    low_units * multiplier,
+                    close_units * multiplier,
+                    float(volumes[i]),
+                    float("nan"),
+                )
+            )
+
+        return pd.DataFrame(
+            rows,
+            columns=["timestamp", "open", "high", "low", "close", "volume", "spread"],
+        )
 
     def build_m1(self, files: list[DownloadedDay]) -> pd.DataFrame:
         if not files:
             raise DukascopyIngestError("REAL_DATA_REQUIRED: no real M1 files available")
-        raw = pd.concat([self.decode_m1(item.path, item.day) for item in files], ignore_index=True)
+
+        frames = []
+        for item in files:
+            frame = self.decode_m1(item.path, item.day)
+            if frame.empty:
+                if self._is_weekend(item.day):
+                    continue
+                raise DukascopyIngestError(
+                    f"REAL_DATA_REQUIRED: empty real M1 response on weekday {item.day.isoformat()}"
+                )
+            frames.append(frame)
+
+        if not frames:
+            raise DukascopyIngestError("REAL_DATA_REQUIRED: no non-empty real M1 data available")
+
+        raw = pd.concat(frames, ignore_index=True)
         report = validate_ohlcv(raw, symbol="EURUSD", timeframe="M1")
         if report.status != "PASS":
-            raise DukascopyIngestError(f"REAL_DATA_REQUIRED: source validation failed: {report.to_dict()}")
+            raise DukascopyIngestError(
+                f"REAL_DATA_REQUIRED: source validation failed: {report.to_dict()}"
+            )
         return canonicalize_ohlcv(raw)
 
-    def write_dataset(self, m1: pd.DataFrame, *, dataset_id: str, files: list[DownloadedDay]) -> dict[str, object]:
+    def write_dataset(
+        self,
+        m1: pd.DataFrame,
+        *,
+        dataset_id: str,
+        files: list[DownloadedDay],
+    ) -> dict[str, object]:
         output = self.normalized_dir / f"EURUSD_M1_{dataset_id}.csv"
         m1.to_csv(output, index=False)
-        source_hash = hashlib.sha256("".join(f.sha256 for f in files).encode("ascii")).hexdigest()
+        source_hash = hashlib.sha256(
+            "".join(f.sha256 for f in files).encode("ascii")
+        ).hexdigest()
         report = validate_ohlcv(m1, symbol="EURUSD", timeframe="M1")
         if report.status != "PASS":
-            raise DukascopyIngestError(f"REAL_DATA_REQUIRED: normalized dataset failed validation: {report.to_dict()}")
+            raise DukascopyIngestError(
+                f"REAL_DATA_REQUIRED: normalized dataset failed validation: {report.to_dict()}"
+            )
         manifest = build_manifest(
-            m1, dataset_id=dataset_id, symbol="EURUSD", timeframe="M1",
-            source="Dukascopy BID candles (BI5)", source_hash=source_hash,
+            m1,
+            dataset_id=dataset_id,
+            symbol="EURUSD",
+            timeframe="M1",
+            source="Dukascopy JETTA v1 BID candles (JSON)",
+            source_hash=source_hash,
             quality_status=report.status,
             output_path=self.normalized_dir / f"EURUSD_M1_{dataset_id}.manifest.json",
         )
         return {"dataset": output, "manifest": manifest, "quality": report.to_dict()}
 
 
-def ingest_m1(start: date, end: date, output_dir: str | Path, *, force: bool = False) -> dict[str, object]:
+def ingest_m1(
+    start: date,
+    end: date,
+    output_dir: str | Path,
+    *,
+    force: bool = False,
+) -> dict[str, object]:
     ingestor = DukascopyM1Ingestor(output_dir)
     files = ingestor.download_range(start, end, force=force)
     dataset_id = f"{start:%Y%m%d}_{(end - timedelta(days=1)):%Y%m%d}"
@@ -198,17 +313,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resume", action="store_true", help="Reuse existing raw files; default behavior")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO), format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
     try:
-        result = ingest_m1(_parse_date(args.start), _parse_date(args.end), args.output, force=args.force)
+        result = ingest_m1(
+            _parse_date(args.start),
+            _parse_date(args.end),
+            args.output,
+            force=args.force,
+        )
         if args.timeframe != "M1":
             m1 = pd.read_csv(result["dataset"], parse_dates=["timestamp"])
             target = resample_ohlcv(m1, "5min" if args.timeframe == "M5" else "15min")
-            out = Path(args.output) / "normalized" / f"EURUSD_{args.timeframe}_{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}.csv"
+            out = (
+                Path(args.output)
+                / "normalized"
+                / f"EURUSD_{args.timeframe}_{_parse_date(args.start):%Y%m%d}_"
+                f"{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}.csv"
+            )
             target.to_csv(out, index=False)
             report = validate_ohlcv(target, symbol="EURUSD", timeframe=args.timeframe)
             if report.status != "PASS":
-                raise DukascopyIngestError(f"REAL_DATA_REQUIRED: resampled dataset failed validation: {report.to_dict()}")
+                raise DukascopyIngestError(
+                    f"REAL_DATA_REQUIRED: resampled dataset failed validation: {report.to_dict()}"
+                )
             print(report.to_dict())
         else:
             print(result["quality"])
