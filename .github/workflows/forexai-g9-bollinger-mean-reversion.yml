@@ -114,31 +114,42 @@ jobs:
               commit_sha=commit_sha,
               payload=payload,
           )
-          write_evidence(envelope)
-          print(json.dumps(envelope,indent=2,ensure_ascii=False))
+          evidence_path=write_evidence(envelope)
+          saved=json.loads(evidence_path.read_text(encoding='utf-8'))
+          assert saved.get('schema')=='forexai.github_artifact_evidence.v1'
+          assert saved.get('artifact',{}).get('name')==name
+          assert saved.get('workflow',{}).get('run_id')==run_id
+          assert saved.get('workflow',{}).get('commit_sha')==commit_sha
+          assert saved.get('payload',{}).get('schema_version')=='forexai.cost_aware_mean_reversion.v19'
+          echo_path=str(evidence_path)
+          Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8').write(f'EVIDENCE_PATH={echo_path}\n')
+          print('G9_AGENT_EVIDENCE_WRITTEN', echo_path)
+          print(json.dumps(saved,indent=2,ensure_ascii=False))
           PY
 
       - name: Fail closed on Agent Evidence
         run: |
+          set -euo pipefail
           python - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
-          p=sorted(Path('.agent_evidence').glob('github-artifact-*.json'))
-          assert len(p)==1, f'expected exactly one G9 evidence envelope, found {len(p)}'
-          d=json.loads(p[0].read_text(encoding='utf-8'))
-          assert d['schema']=='forexai.github_artifact_evidence.v1'
-          assert d['artifact']['name']=='g9-bollinger-mean-reversion-m5'
-          assert d['workflow']['run_id']>0
-          assert d['workflow']['commit_sha']=='${{ github.sha }}'
-          assert d['payload']['schema']=='forexai.cost_aware_mean_reversion.v19'
-          assert d['payload']['oos_policy']['status']=='HELD_OUT'
+          p=Path(os.environ['EVIDENCE_PATH'])
+          assert p.is_file(), f'missing evidence file: {p}'
+          d=json.loads(p.read_text(encoding='utf-8'))
+          assert d.get('schema')=='forexai.github_artifact_evidence.v1'
+          assert d.get('artifact',{}).get('name')=='g9-bollinger-mean-reversion-m5'
+          assert d.get('workflow',{}).get('run_id')>0
+          assert d.get('workflow',{}).get('commit_sha')=='${{ github.sha }}'
+          assert d.get('payload',{}).get('schema_version')=='forexai.cost_aware_mean_reversion.v19'
+          assert d.get('payload',{}).get('oos_policy',{}).get('status')=='HELD_OUT'
           print('G9_AGENT_EVIDENCE_FAIL_CLOSED_OK')
+          print('evidence_path',p)
           PY
 
       - name: Upload G9 Agent Evidence
         uses: actions/upload-artifact@v4
         with:
           name: g9-agent-evidence
-          path: .agent_evidence/github-artifact-*.json
+          path: ${{ env.EVIDENCE_PATH }}
           include-hidden-files: true
           if-no-files-found: error
