@@ -57,13 +57,14 @@ jobs:
       - name: Build M15 OOS dataset from real M1
         shell: bash
         run: |
-          python - <<'PY'
+          DATASET="$DATA" python - <<'PY'
+          import os
           import pandas as pd
           from pathlib import Path
           from research.real_data.normalizer import resample_ohlcv
           from research.real_data.validator import validate_ohlcv
 
-          src=Path("$DATA")
+          src=Path(os.environ["DATASET"])
           d=pd.read_csv(src, parse_dates=["timestamp"])
           d["timestamp"]=pd.to_datetime(d["timestamp"],utc=True)
           m15=resample_ohlcv(d, "15min")
