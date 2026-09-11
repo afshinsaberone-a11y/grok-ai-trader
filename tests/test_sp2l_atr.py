@@ -16,4 +16,6 @@ def test_engine_has_deterministic_atr_before_spike_detection() -> None:
 
     # True ranges for the last two candles are 0.0020 and 0.0035;
     # simple ATR(2) is therefore 0.00275.
+    # This regression also keeps the G8 real-data pipeline from silently
+    # reverting to an implementation without deterministic ATR support.
     assert abs(engine._atr() - 0.00275) < 1e-12
