@@ -2,6 +2,7 @@ name: ForexAI G13 OOS M15
 
 # Independent final OOS gate for the frozen G13 M15 candidates.
 # 2026 is evaluated only; no selection or optimization is allowed.
+# Dukascopy is the real-data source for this independent OOS run.
 
 on:
   workflow_dispatch:
@@ -11,6 +12,7 @@ on:
       - research/optimization/g13_robustness_m15.py
       - research/optimization/rsi_divergence_discovery_g13.py
       - research/optimization/execution_contract_v1.py
+      - research/real_data/dukascopy_ingest.py
       - artifacts/g13/frozen/g13-candidate-handoff-m15.json
       - .github/workflows/forexai-g13-oos-m15.yml
 
@@ -22,7 +24,7 @@ jobs:
   g13-oos:
     name: G13 2026 OOS M15
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,19 +40,42 @@ jobs:
             research/optimization/g13_oos_m15.py \
             research/optimization/g13_robustness_m15.py \
             research/optimization/rsi_divergence_discovery_g13.py \
-            research/optimization/execution_contract_v1.py
-      - name: Download REAL EURUSD M15 including 2026 OOS
+            research/optimization/execution_contract_v1.py \
+            research/real_data/dukascopy_ingest.py
+      - name: Download REAL EURUSD M1 from Dukascopy including 2026 OOS
         run: |
-          python -m research.real_data.histdata_ingest \
-            --symbol EURUSD --start 2022-01-01 --end 2027-01-01 \
-            --timeframe M15 --output data/real --validate --manifest
+          python -m research.real_data.dukascopy_ingest \
+            --symbol EURUSD --start 2025-01-01 --end 2027-01-01 \
+            --timeframe M1 --output data/real --validate --manifest --resume
       - name: Locate dataset
         shell: bash
         run: |
           set -euo pipefail
-          DATA="$(find data/real/normalized -type f -name 'EURUSD_M15_20220101_20261231.csv' | sort | head -n1)"
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M1_20250101_20261231.csv' | sort | head -n1)"
           test -n "$DATA"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Build M15 OOS dataset from real M1
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          from research.real_data.normalizer import resample_ohlcv
+          from research.real_data.validator import validate_ohlcv
+
+          src=Path("$DATA")
+          d=pd.read_csv(src, parse_dates=["timestamp"])
+          d["timestamp"]=pd.to_datetime(d["timestamp"],utc=True)
+          m15=resample_ohlcv(d, "15min")
+          report=validate_ohlcv(m15, symbol="EURUSD", timeframe="M15")
+          if report.status != "PASS":
+              raise SystemExit(f"REAL_DATA_REQUIRED: M15 validation failed: {report.to_dict()}")
+          out=Path("data/real/normalized/EURUSD_M15_20250101_20261231.csv")
+          m15.to_csv(out,index=False)
+          print(report.to_dict())
+          print("M15_DATASET", out, len(m15))
+          PY
+          echo "DATA=data/real/normalized/EURUSD_M15_20250101_20261231.csv" >> "$GITHUB_ENV"
       - name: Verify frozen handoff and strict OOS boundary
         run: |
           DATASET="$DATA" python - <<'PY'
@@ -75,6 +100,7 @@ jobs:
           oos=d[(ts>=pd.Timestamp('2026-01-01',tz='UTC')) & (ts<pd.Timestamp('2027-01-01',tz='UTC'))]
           assert not oos.empty
           assert ts.max() < pd.Timestamp('2027-01-01',tz='UTC')
+          assert ts.min() < pd.Timestamp('2026-01-01',tz='UTC')
           print('FROZEN_OOS_INPUT_OK', len(h['candidates']), len(oos), ts.min().isoformat(), ts.max().isoformat())
           PY
       - name: Run independent G13 2026 OOS
