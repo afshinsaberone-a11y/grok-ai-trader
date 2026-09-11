@@ -10,6 +10,7 @@ on:
       - research/optimization/g13_validation_m15.py
       - research/optimization/rsi_divergence_discovery_g13.py
       - research/optimization/execution_contract_v1.py
+      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
       - .github/workflows/forexai-g13-robustness-m15.yml
 
 permissions:
@@ -60,59 +61,68 @@ jobs:
           assert ts.max() < pd.Timestamp('2026-01-01',tz='UTC')
           print('REAL_DATA_OK',len(d),ts.min().isoformat(),ts.max().isoformat())
           PY
-      - name: Rebuild G13 validation handoff
+      - name: Verify frozen validation handoff
         run: |
-          python -m research.optimization.rsi_divergence_discovery_g13 \
-            --data "$DATA" \
-            --output artifacts/rsi-divergence-g13-M15.json
-          python -m research.optimization.g13_validation_m15 \
-            --data "$DATA" \
-            --discovery-artifact artifacts/rsi-divergence-g13-M15.json \
-            --output artifacts/g13-validation-m15.json \
-            --handoff artifacts/g13-candidate-handoff-m15.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('artifacts/g13/frozen/g13-candidate-handoff-m15.json')
+          h=json.loads(p.read_text(encoding='utf-8'))
+          assert h['schema_version']=='forexai.g13.candidate_handoff.frozen.v1'
+          assert h['research_symbol']=='EURUSD'
+          assert h['research_timeframe']=='M15'
+          assert h['validation_qualified_count']==16
+          assert len(h['candidates'])==16
+          assert h['oos_policy']=={'loaded':False,'status':'HELD_OUT'}
+          policy=h['handoff_policy']
+          assert policy['parameters_are_frozen'] is True
+          assert policy['oos_optimization_disabled'] is True
+          assert policy['robustness_may_not_select'] is True
+          assert policy['validation_must_approve'] is True
+          for c in h['candidates']:
+              assert c['config_hash']
+              assert c['params']['side']=='short'
+          print('FROZEN_HANDOFF_OK',h['source_validation_run_id'])
+          PY
       - name: Canonical parity smoke test
         run: |
           DATASET="$DATA" python - <<'PY'
           import json, os
           import pandas as pd
-          from research.optimization.rsi_divergence_discovery_g13 import backtest, prep
+          from research.optimization.rsi_divergence_discovery_g13 import backtest, prep, trade_returns
           from research.optimization.g13_robustness_m15 import metrics
-          h=json.load(open('artifacts/g13-candidate-handoff-m15.json',encoding='utf-8'))
-          assert h['candidates'], 'no validation-qualified G13 candidates'
+          h=json.load(open('artifacts/g13/frozen/g13-candidate-handoff-m15.json',encoding='utf-8'))
           p=h['candidates'][0]['params']
           d=prep(pd.read_csv(os.environ['DATASET']))
           y=d[d.index.year==2025]
           a=backtest(y,p)
           b=metrics(y,p)
-          assert a['trades']==b['trades'], (a,b)
+          raw=trade_returns(y,p)
+          assert a['trades']==b['trades']==len(raw), (a,b,len(raw))
           assert abs(a['expectancy_R']-b['expectancy_R'])<1e-12, (a,b)
           assert abs(a['profit_factor']-b['profit_factor'])<1e-12, (a,b)
           assert abs(a['max_dd_pct']-b['max_dd_pct'])<1e-12, (a,b)
-          assert a['entries']==b['entries'] and a['exits']==b['exits']
+          assert a['entries']==b['entries']==a['exits']==b['exits']
           print('G13_CANONICAL_PARITY_OK',h['candidates'][0]['candidate_id'])
           PY
       - name: Run G13 robustness
         run: |
           python -m research.optimization.g13_robustness_m15 \
             --data "$DATA" \
-            --handoff artifacts/g13-candidate-handoff-m15.json \
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
             --output artifacts/g13-robustness-m15.json
       - name: Fail closed
         run: |
           python - <<'PY'
           import json
-          v=json.load(open('artifacts/g13-validation-m15.json',encoding='utf-8'))
           r=json.load(open('artifacts/g13-robustness-m15.json',encoding='utf-8'))
-          assert v['real_data_only'] is True
-          assert v['selection_used_2025'] is False
-          assert v['oos_evaluated'] is False
           assert r['real_data_only'] is True
+          assert r['candidate_count']==16
           assert r['selection_performed'] is False
           assert r['optimization_enabled'] is False
           assert r['oos']=={'status':'HELD_OUT','evaluated':False,'optimization_allowed':False}
           assert r['promotion_gate']['ea_generation_allowed'] is False
           print('G13_ROBUSTNESS_FAIL_CLOSED_OK')
-          print('VALIDATION_QUALIFIED',v['validation_qualified_count'])
           print('ROBUSTNESS_PASS',r['robustness_pass_count'])
           print('ROBUSTNESS_IDS',[x['candidate_id'] for x in r['candidates'] if x['robustness_pass']])
           PY
@@ -121,8 +131,6 @@ jobs:
         with:
           name: g13-robustness-m15
           path: |
-            artifacts/rsi-divergence-g13-M15.json
-            artifacts/g13-validation-m15.json
-            artifacts/g13-candidate-handoff-m15.json
+            artifacts/g13/frozen/g13-candidate-handoff-m15.json
             artifacts/g13-robustness-m15.json
           if-no-files-found: error
