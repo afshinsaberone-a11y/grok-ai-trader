@@ -1,0 +1,35 @@
+{
+  "schema_version": "forexai.g13.candidate_handoff.frozen.v1",
+  "source_validation_run_id": 34559825574,
+  "source_validation_artifact_id": 10184001419,
+  "source_validation_sha256": "3aa0470c7f9f4a2b8c37f424727051ae8add51cc793e1ac26d05f1c6f605efbc",
+  "research_timeframe": "M15",
+  "research_symbol": "EURUSD",
+  "validation_qualified_count": 16,
+  "oos_policy": {"loaded": false, "status": "HELD_OUT"},
+  "handoff_policy": {
+    "ai_may_propose": true,
+    "oos_optimization_disabled": true,
+    "parameters_are_frozen": true,
+    "robustness_may_not_select": true,
+    "validation_must_approve": true
+  },
+  "candidates": [
+    {"candidate_id":2,"config_hash":"bb2d9b2c967dc99bffb010335b544716d97b915767aa5a221027f5146b69dfbd","params":{"atr_mult":1.0,"min_delta":0.0003,"pivot":3,"rr":1.5,"rsi_high":70,"rsi_low":30,"side":"short"}},
+    {"candidate_id":6,"config_hash":"99bf607cd4d4f2f76d25ea83b818a5843463abc95a2d56461d57d6f5542228a8","params":{"atr_mult":1.0,"min_delta":0.0005,"pivot":3,"rr":1.5,"rsi_high":70,"rsi_low":30,"side":"short"}},
+    {"candidate_id":10,"config_hash":"e515df40514b555cc903d4eb5ad15b77b34d4fb205102f2577a224654075b9b1","params":{"atr_mult":1.0,"min_delta":0.0003,"pivot":3,"rr":1.5,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":12,"config_hash":"2a1c1883a7239c00e9b0210a48723e3c7e68291fdaa2725524d07a833e4f4b52","params":{"atr_mult":1.5,"min_delta":0.0003,"pivot":3,"rr":2.0,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":14,"config_hash":"484b0ab42d9f1f683ba435edc53099b5ee7f3e2e643e127892a7059d2ac5f00d","params":{"atr_mult":1.0,"min_delta":0.0005,"pivot":3,"rr":1.5,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":22,"config_hash":"d3b8772cc3d7450121d23cf5358b6d4301532f41cc688115f5b32b0ca3eef48a","params":{"atr_mult":1.0,"min_delta":0.0005,"pivot":5,"rr":1.5,"rsi_high":70,"rsi_low":30,"side":"short"}},
+    {"candidate_id":26,"config_hash":"ad466d8c67c3ee35ad3dee5cf9cbdeca6817c36c3c673e515604ef00e333412a","params":{"atr_mult":1.0,"min_delta":0.0003,"pivot":5,"rr":1.5,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":28,"config_hash":"33db5c214e87e6516354e6614736ce299445925fc6964d5e91f715d12f68382a","params":{"atr_mult":1.5,"min_delta":0.0003,"pivot":5,"rr":2.0,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":30,"config_hash":"d8298e96f816ff0ddb36ae397d22f8c85b2190afc0709a353f60d0b7881de3ee","params":{"atr_mult":1.0,"min_delta":0.0005,"pivot":5,"rr":1.5,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":32,"config_hash":"9174b72c1e7e0a8882d64766de619889ef918a881972eedb4584d0286f6f16dd","params":{"atr_mult":1.5,"min_delta":0.0005,"pivot":5,"rr":2.0,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":34,"config_hash":"1f5347929ee6b400595b1ec675e408c4a328e7d5804315c4676cc9c627d9f5a8","params":{"atr_mult":1.0,"min_delta":0.0003,"pivot":8,"rr":1.5,"rsi_high":70,"rsi_low":30,"side":"short"}},
+    {"candidate_id":38,"config_hash":"f2818253f3d272b45b53da7a1317e71c1a26412c915fb70529a99c80fe9f46d3","params":{"atr_mult":1.0,"min_delta":0.0005,"pivot":8,"rr":1.5,"rsi_high":70,"rsi_low":30,"side":"short"}},
+    {"candidate_id":42,"config_hash":"ed36da53e559fc5bf56f892bad86080c3f48c5b7965e479538b176ba1b41376e","params":{"atr_mult":1.0,"min_delta":0.0003,"pivot":8,"rr":1.5,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":44,"config_hash":"14b47686023c72f30206a397514a1c42565ad708b815930757917cbf7e4cd02e","params":{"atr_mult":1.5,"min_delta":0.0003,"pivot":8,"rr":2.0,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":46,"config_hash":"c970fa452f7977ff900db0df7d9412f81df97f3058cd192aa932fc65ec53b6ae","params":{"atr_mult":1.0,"min_delta":0.0005,"pivot":8,"rr":1.5,"rsi_high":65,"rsi_low":35,"side":"short"}},
+    {"candidate_id":48,"config_hash":"7c91cd5b4f16d68fc4f6e6509c920d7048401a1d16cc09b5c2f62ff3e2323ed4","params":{"atr_mult":1.5,"min_delta":0.0005,"pivot":8,"rr":2.0,"rsi_high":65,"rsi_low":35,"side":"short"}}
+  ]
+}
