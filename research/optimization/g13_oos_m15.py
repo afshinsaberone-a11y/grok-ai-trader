@@ -1,7 +1,9 @@
 """ForexAI G13: independent 2026 OOS evaluation for frozen candidates.
 
-Only 2026 is evaluated. Candidate parameters come exclusively from the frozen
-validation handoff. No selection or optimization is permitted.
+Only trades whose evaluation occurs in 2026 are scored. 2025 may be loaded
+strictly as indicator warmup; no 2025 metric or selection information is used.
+Candidate parameters come exclusively from the frozen validation handoff.
+No selection or optimization is permitted.
 """
 from __future__ import annotations
 
@@ -14,15 +16,77 @@ import numpy as np
 import pandas as pd
 
 from research.optimization.execution_contract_v1 import ExecutionConfig, apply_entry_cost, apply_exit_cost, validate_ohlc
-from research.optimization.rsi_divergence_discovery_g13 import prep, trade_returns
+from research.optimization.rsi_divergence_discovery_g13 import signals
 
 OOS_START = pd.Timestamp("2026-01-01", tz="UTC")
 OOS_END = pd.Timestamp("2027-01-01", tz="UTC")
 RISK_PCT = 0.005
+MAX_HOLD = 30
+
+
+def prep_oos(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
+    d.columns = [str(c).strip() for c in d.columns]
+    if "Timestamp" in d.columns and "timestamp" not in d.columns:
+        d = d.rename(columns={"Timestamp": "timestamp"})
+    d["timestamp"] = pd.to_datetime(d["timestamp"], utc=True)
+    d = d.sort_values("timestamp").drop_duplicates("timestamp")
+    d = d[(d["timestamp"].dt.year.isin((2025, 2026)))].copy()
+    d = d.rename(columns={"timestamp": "Timestamp", "open": "Open", "high": "High", "low": "Low", "close": "Close"})
+    validate_ohlc(d)
+    tr = pd.concat([
+        d.High - d.Low,
+        (d.High - d.Close.shift()).abs(),
+        (d.Low - d.Close.shift()).abs(),
+    ], axis=1).max(axis=1)
+    d["ATR14"] = tr.rolling(14, min_periods=14).mean()
+    delta = d.Close.diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
+    d["RSI14"] = 100 - 100 / (1 + gain / loss.replace(0, np.nan))
+    return d.set_index("Timestamp").sort_index()
+
+
+def trade_returns_oos(d: pd.DataFrame, params: dict) -> list[float]:
+    """Canonical R-multiples, with entries/exits counted only inside 2026."""
+    if len(d) < 100:
+        return []
+    sig = signals(d, params)
+    cfg = ExecutionConfig()
+    rs: list[float] = []
+    pos = None
+    for i in range(1, len(d)):
+        ts = d.index[i]
+        if pos is not None:
+            h, l = float(d.High.iloc[i]), float(d.Low.iloc[i])
+            age = i - pos["entry_i"]
+            slhit = l <= pos["sl"] if pos["side"] == 1 else h >= pos["sl"]
+            tphit = h >= pos["tp"] if pos["side"] == 1 else l <= pos["tp"]
+            opposite = bool(sig.iloc[i] == -pos["side"])
+            if slhit or tphit or opposite or age >= MAX_HOLD:
+                raw = pos["sl"] if slhit else pos["tp"] if tphit else float(d.Close.iloc[i])
+                ex = apply_exit_cost(raw, pos["side"], cfg)
+                if pos["in_oos"]:
+                    rs.append(float((ex - pos["entry"]) / (pos["entry"] - pos["sl"]) * pos["side"]))
+                pos = None
+        if pos is None and ts >= OOS_START and ts < OOS_END and bool(sig.iloc[i - 1]):
+            side = int(sig.iloc[i - 1])
+            entry = apply_entry_cost(float(d.Open.iloc[i]), side, cfg)
+            atr = float(d.ATR14.iloc[i - 1])
+            if not np.isfinite(atr) or atr <= 0:
+                continue
+            risk = params["atr_mult"] * atr
+            sl = entry - side * risk
+            tp = entry + side * params["rr"] * risk
+            pos = {"entry_i": i, "side": side, "entry": entry, "sl": sl, "tp": tp, "in_oos": True}
+    if pos is not None and pos["in_oos"]:
+        ex = apply_exit_cost(float(d.Close.iloc[-1]), pos["side"], cfg)
+        rs.append(float((ex - pos["entry"]) / (pos["entry"] - pos["sl"]) * pos["side"]))
+    return rs
 
 
 def metrics(d: pd.DataFrame, params: dict) -> dict:
-    r = np.asarray(trade_returns(d, params), dtype=float)
+    r = np.asarray(trade_returns_oos(d, params), dtype=float)
     n = int(len(r))
     if n == 0:
         return {"trades": 0, "win_rate": 0.0, "total_R": 0.0, "expectancy_R": 0.0,
@@ -49,7 +113,7 @@ def metrics(d: pd.DataFrame, params: dict) -> dict:
 
 
 def stable_oos(m: dict) -> bool:
-    """Pre-declared OOS pass screen; this does not rank or select candidates."""
+    """Pre-declared OOS pass screen; it does not rank or select candidates."""
     return (
         m["trades"] >= 20
         and m["profit_factor"] >= 1.05
@@ -83,21 +147,10 @@ def main() -> None:
     assert policy["robustness_may_not_select"] is True
     assert policy["validation_must_approve"] is True
 
-    raw = pd.read_csv(args.data)
-    raw.columns = [str(c).strip() for c in raw.columns]
-    if "Timestamp" in raw.columns and "timestamp" not in raw.columns:
-        raw = raw.rename(columns={"Timestamp": "timestamp"})
-    raw["timestamp"] = pd.to_datetime(raw["timestamp"], utc=True)
-    raw = raw.sort_values("timestamp").reset_index(drop=True)
-    raw = raw[(raw["timestamp"] >= OOS_START) & (raw["timestamp"] < OOS_END)].copy()
-    if raw.empty:
+    d = prep_oos(pd.read_csv(args.data))
+    oos = d[(d.index >= OOS_START) & (d.index < OOS_END)]
+    if oos.empty:
         raise RuntimeError("G13_OOS_DATA_EMPTY")
-    raw = raw.rename(columns={"timestamp": "Timestamp", "open": "Open", "high": "High", "low": "Low", "close": "Close"})
-    validate_ohlc(raw)
-    d = prep(raw)
-    d = d[(d.index >= OOS_START) & (d.index < OOS_END)]
-    if d.empty:
-        raise RuntimeError("G13_OOS_PREP_EMPTY")
 
     results = []
     for c in h["candidates"]:
@@ -105,32 +158,30 @@ def main() -> None:
         if c["config_hash"] != canonical_hash(params):
             raise RuntimeError(f"G13_OOS_CONFIG_HASH_MISMATCH:{c['candidate_id']}")
         m = metrics(d, params)
-        passed = stable_oos(m)
         results.append({
             "candidate_id": c["candidate_id"],
             "config_hash": c["config_hash"],
             "params": params,
             "oos_2026": m,
-            "oos_pass": bool(passed),
+            "oos_pass": bool(stable_oos(m)),
         })
 
     payload = {
         "schema_version": "forexai.g13.oos_m15.2026.v1",
         "research_scope": {"symbol": "EURUSD", "timeframe": "M15", "evaluation_year": 2026},
-        "data_scope": {"oos_start": OOS_START.isoformat(), "oos_end": OOS_END.isoformat(), "rows": int(len(d))},
+        "data_scope": {"warmup_start": str(d.index.min()), "oos_start": OOS_START.isoformat(), "oos_end": OOS_END.isoformat(), "oos_rows": int(len(oos))},
         "candidate_count": len(results),
         "oos_pass_count": sum(x["oos_pass"] for x in results),
         "selection_performed": False,
         "optimization_enabled": False,
         "parameters_frozen": True,
         "real_data_only": True,
-        "oos": {"status": "EVALUATED", "evaluated": True, "optimization_allowed": False, "selection_allowed": False},
+        "oos": {"status": "EVALUATED", "evaluated": True, "optimization_allowed": False, "selection_allowed": False, "warmup_only_before_oos": True},
         "promotion_gate": {"ea_generation_allowed": False},
         "source_validation_run_id": h["source_validation_run_id"],
         "source_validation_artifact_id": h["source_validation_artifact_id"],
         "candidates": results,
-        "execution_model": {"entry": "next_bar_open", "cost_pips_per_side": 0.7, "round_trip_cost_pips": 1.4,
-                            "same_bar_resolution": "SL first (conservative)", "expiry_bars": 30, "overlap": "one position at a time"},
+        "execution_model": {"entry": "next_bar_open", "cost_pips_per_side": 0.7, "round_trip_cost_pips": 1.4, "same_bar_resolution": "SL first (conservative)", "expiry_bars": 30, "overlap": "one position at a time"},
         "policy": {"no_selection": True, "no_optimization": True, "parameters_are_frozen": True, "ea_generation_allowed": False},
     }
     out = Path(args.output)
