@@ -1,0 +1,140 @@
+name: ForexAI G9 Bollinger Mean Reversion Real Data
+
+on:
+  push:
+    paths:
+      - "research/optimization/cost_aware_mean_reversion_v19.py"
+      - "research/optimization/cost_aware_gate_v14.py"
+      - ".github/workflows/forexai-g9-bollinger-mean-reversion.yml"
+  pull_request:
+    paths:
+      - "research/optimization/cost_aware_mean_reversion_v19.py"
+      - "research/optimization/cost_aware_gate_v14.py"
+      - ".github/workflows/forexai-g9-bollinger-mean-reversion.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile G9
+        run: python -m py_compile research/optimization/cost_aware_mean_reversion_v19.py agents/github_artifact_evidence_bridge.py
+
+      - name: Download REAL EURUSD M5
+        run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start 2022-01-01 --end 2026-01-01 --output data/real --validate --manifest
+
+      - name: Locate exact real dataset
+        run: |
+          set -euo pipefail
+          DATA="data/real/normalized/EURUSD_M5_20220101_20251231.csv"
+          test -s "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+
+      - name: Run deterministic G9 discovery and validation
+        run: |
+          mkdir -p artifacts/g9
+          python -m research.optimization.cost_aware_mean_reversion_v19 \
+            --data "$DATA" \
+            --output artifacts/g9/g9-bollinger-mean-reversion-m5.json \
+            --spread-pips 0.5 \
+            --slippage-pips 0.2
+
+      - name: Fail closed
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('artifacts/g9/g9-bollinger-mean-reversion-m5.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          assert d['schema_version']=='forexai.cost_aware_mean_reversion.v19'
+          assert d['real_data_required'] is True
+          assert d['synthetic_fallback'] is False
+          assert d['research_timeframe']=='M5'
+          assert d['oos_policy']=={'loaded':False,'status':'HELD_OUT','start':'2026-01-01'}
+          assert d['cost_profile']['spread_pips']==0.5
+          assert d['cost_profile']['slippage_pips']==0.2
+          assert d['cost_profile']['round_trip_cost_pips']==1.4
+          assert d['result']['champion'] is None
+          print('G9_FAIL_CLOSED_OK')
+          print('candidate_total',d['result']['candidate_total'])
+          print('pre_oos_qualified',d['result']['qualified_count'])
+          PY
+
+      - name: Upload G9 result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: g9-bollinger-mean-reversion-m5
+          path: artifacts/g9/g9-bollinger-mean-reversion-m5.json
+          if-no-files-found: error
+
+      - name: Bridge G9 artifact into Agent Evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          from agents.github_artifact_evidence_bridge import normalize_artifact, write_evidence
+          repo=os.environ['GITHUB_REPOSITORY']
+          run_id=int(os.environ['GITHUB_RUN_ID'])
+          commit_sha=os.environ['GITHUB_SHA']
+          name='g9-bollinger-mean-reversion-m5'
+          raw=subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}/artifacts','--paginate'],text=True,env=os.environ)
+          page=json.loads(raw) if raw.strip() else {}
+          matches=[a for a in page.get('artifacts',[]) if a.get('name')==name and not a.get('expired')]
+          assert len(matches)==1, f'expected exactly one live {name} artifact, found {len(matches)}'
+          meta=matches[0]
+          payload=json.loads(Path('artifacts/g9/g9-bollinger-mean-reversion-m5.json').read_text(encoding='utf-8'))
+          envelope=normalize_artifact(
+              artifact_id=int(meta['id']),
+              artifact_name=str(meta['name']),
+              artifact_digest=str(meta['digest']),
+              run_id=run_id,
+              job_id=None,
+              commit_sha=commit_sha,
+              payload=payload,
+          )
+          write_evidence(envelope)
+          print(json.dumps(envelope,indent=2,ensure_ascii=False))
+          PY
+
+      - name: Fail closed on Agent Evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=sorted(Path('.agent_evidence').glob('github-artifact-*.json'))
+          assert len(p)==1, f'expected exactly one G9 evidence envelope, found {len(p)}'
+          d=json.loads(p[0].read_text(encoding='utf-8'))
+          assert d['schema']=='forexai.github_artifact_evidence.v1'
+          assert d['artifact']['name']=='g9-bollinger-mean-reversion-m5'
+          assert d['workflow']['run_id']>0
+          assert d['workflow']['commit_sha']=='${{ github.sha }}'
+          assert d['payload']['schema']=='forexai.cost_aware_mean_reversion.v19'
+          assert d['payload']['oos_policy']['status']=='HELD_OUT'
+          print('G9_AGENT_EVIDENCE_FAIL_CLOSED_OK')
+          PY
+
+      - name: Upload G9 Agent Evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g9-agent-evidence
+          path: .agent_evidence/github-artifact-*.json
+          include-hidden-files: true
+          if-no-files-found: error
