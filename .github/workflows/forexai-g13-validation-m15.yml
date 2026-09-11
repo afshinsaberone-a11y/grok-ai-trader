@@ -1,0 +1,99 @@
+name: ForexAI G13 Validation M15
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/g13_validation_m15.py
+      - research/optimization/rsi_divergence_discovery_g13.py
+      - .github/workflows/forexai-g13-validation-m15.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  g13-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile
+        run: |
+          python -m py_compile \
+            research/optimization/g13_validation_m15.py \
+            research/optimization/rsi_divergence_discovery_g13.py \
+            research/optimization/execution_contract_v1.py \
+            research/optimization/cost_aware_gate_v14.py
+      - name: Download REAL EURUSD M15
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD --start 2022-01-01 --end 2026-01-01 \
+            --timeframe M15 --output data/real --validate --manifest
+      - name: Locate dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name 'EURUSD_M15_20220101_20251231.csv' | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+      - name: Validate real dataset and OOS boundary
+        run: |
+          DATASET="$DATA" python - <<'PY'
+          import os,pandas as pd
+          p=os.environ['DATASET']; d=pd.read_csv(p)
+          assert len(d)==93017, len(d)
+          ts=pd.to_datetime(d['timestamp'],utc=True)
+          assert ts.is_monotonic_increasing
+          assert ts.max() < pd.Timestamp('2026-01-01',tz='UTC')
+          print('REAL_DATA_OK',len(d),ts.min().isoformat(),ts.max().isoformat())
+          PY
+      - name: Run independent G13 Validation
+        run: |
+          python -m research.optimization.rsi_divergence_discovery_g13 \
+            --data "$DATA" \
+            --output artifacts/rsi-divergence-g13-M15.json
+          python -m research.optimization.g13_validation_m15 \
+            --data "$DATA" \
+            --discovery-artifact artifacts/rsi-divergence-g13-M15.json \
+            --output artifacts/g13-validation-m15.json \
+            --handoff artifacts/g13-candidate-handoff-m15.json
+      - name: Fail closed
+        run: |
+          python - <<'PY'
+          import json
+          v=json.load(open('artifacts/g13-validation-m15.json',encoding='utf-8'))
+          h=json.load(open('artifacts/g13-candidate-handoff-m15.json',encoding='utf-8'))
+          assert v['real_data_only'] is True
+          assert v['selection_used_2025'] is False
+          assert v['oos_evaluated'] is False
+          assert v['promotion']['robustness_required'] is True
+          assert v['promotion']['oos_required'] is True
+          assert v['promotion']['ea_generation_allowed'] is False
+          assert h['oos_policy']=={'loaded':False,'status':'HELD_OUT'}
+          assert h['handoff_policy']['validation_must_approve'] is True
+          assert h['handoff_policy']['robustness_may_not_select'] is True
+          assert h['handoff_policy']['parameters_are_frozen'] is True
+          assert h['handoff_policy']['oos_optimization_disabled'] is True
+          print('G13_VALIDATION_FAIL_CLOSED_OK')
+          print('PRE_OOS_QUALIFIED',v['pre_oos_qualified_count'])
+          print('VALIDATION_QUALIFIED',v['validation_qualified_count'])
+          print('VALIDATION_IDS',[x['candidate_id'] for x in v['candidates'] if x['validation_pass']])
+          print('CHAMPION',v['champion'])
+          PY
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-validation-m15
+          path: |
+            artifacts/rsi-divergence-g13-M15.json
+            artifacts/g13-validation-m15.json
+            artifacts/g13-candidate-handoff-m15.json
+          if-no-files-found: error
