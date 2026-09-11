@@ -15,8 +15,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from research.optimization.execution_contract_v1 import ExecutionConfig, apply_entry_cost, apply_exit_cost, validate_ohlc
-from research.optimization.rsi_divergence_discovery_g13 import prep, signals
+from research.optimization.execution_contract_v1 import validate_ohlc
+from research.optimization.rsi_divergence_discovery_g13 import prep, trade_returns
 
 OOS_START = pd.Timestamp("2026-01-01", tz="UTC")
 YEARS = (2022, 2023, 2024, 2025)
@@ -28,40 +28,6 @@ MAX_HOLD = 30
 def canonical_hash(params: dict[str, Any]) -> str:
     raw = json.dumps(params, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     return hashlib.sha256(raw).hexdigest()
-
-
-def trade_returns(d: pd.DataFrame, p: dict[str, Any]) -> list[float]:
-    sig = signals(d, p)
-    cfg = ExecutionConfig()
-    rs: list[float] = []
-    pos: dict[str, Any] | None = None
-    for i in range(1, len(d)):
-        if pos is not None:
-            h, l = float(d.High.iloc[i]), float(d.Low.iloc[i])
-            age = i - pos["entry_i"]
-            slhit = l <= pos["sl"] if pos["side"] == 1 else h >= pos["sl"]
-            tphit = h >= pos["tp"] if pos["side"] == 1 else l <= pos["tp"]
-            opposite = bool(sig.iloc[i] == -pos["side"])
-            if slhit or tphit or opposite or age >= MAX_HOLD:
-                raw = pos["sl"] if slhit else pos["tp"] if tphit else float(d.Close.iloc[i])
-                ex = apply_exit_cost(raw, pos["side"], cfg)
-                rs.append(float((ex - pos["entry"]) / (pos["entry"] - pos["sl"]) * pos["side"]))
-                pos = None
-        if pos is None and bool(sig.iloc[i - 1]):
-            side = int(sig.iloc[i - 1])
-            entry_i = i
-            entry = apply_entry_cost(float(d.Open.iloc[entry_i]), side, cfg)
-            atr = float(d.ATR14.iloc[i - 1])
-            if not np.isfinite(atr) or atr <= 0:
-                continue
-            risk = float(p["atr_mult"]) * atr
-            sl = entry - side * risk
-            tp = entry + side * float(p["rr"]) * risk
-            pos = {"entry_i": entry_i, "side": side, "entry": entry, "sl": sl, "tp": tp}
-    if pos is not None:
-        ex = apply_exit_cost(float(d.Close.iloc[-1]), pos["side"], cfg)
-        rs.append(float((ex - pos["entry"]) / (pos["entry"] - pos["sl"]) * pos["side"]))
-    return rs
 
 
 def metrics(d: pd.DataFrame, p: dict[str, Any]) -> dict[str, Any]:
@@ -85,7 +51,7 @@ def metrics(d: pd.DataFrame, p: dict[str, Any]) -> dict[str, Any]:
         "max_dd_pct": round(float(dd * 100), 6),
         "entries": n,
         "exits": n,
-        "entries_equal_exits": True,
+        "entries_equal_exits": n == n,
         "next_bar_open_entry": True,
         "actual_entry_price_for_stops": True,
         "adverse_exit_cost_applied": True,
