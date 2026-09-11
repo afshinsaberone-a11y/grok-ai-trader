@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import logging
 import lzma
+import random
 import struct
 import time
 from dataclasses import dataclass
@@ -30,6 +31,7 @@ LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://datafeed.dukascopy.com/datafeed"
 M1_RECORD = struct.Struct(">IIIIIf")
 PRICE_SCALE = 100_000.0
+TRANSIENT_HTTP_CODES = {429, 502, 503, 504}
 
 
 class DukascopyIngestError(RuntimeError):
@@ -46,7 +48,7 @@ class DownloadedDay:
 
 
 class DukascopyM1Ingestor:
-    def __init__(self, output_dir: str | Path, *, timeout: int = 30, retries: int = 3) -> None:
+    def __init__(self, output_dir: str | Path, *, timeout: int = 30, retries: int = 8) -> None:
         self.output_dir = Path(output_dir)
         self.raw_dir = self.output_dir / "raw" / "EURUSD" / "m1"
         self.normalized_dir = self.output_dir / "normalized"
@@ -59,7 +61,7 @@ class DukascopyM1Ingestor:
     def url_for(day: date) -> str:
         return f"{BASE_URL}/EURUSD/{day.year:04d}/{day.month - 1:02d}/{day.day:02d}/BID_candles_min_1.bi5"
 
-    def _download(self, url: str, destination: Path, *, force: bool = False) -> bool:
+    def _download(self, url: str, destination: Path, *, day: date, force: bool = False) -> bool:
         if destination.exists() and destination.stat().st_size > 0 and not force:
             LOGGER.info("Using cached raw file: %s", destination)
             return True
@@ -85,14 +87,31 @@ class DukascopyM1Ingestor:
                     if tmp.exists():
                         tmp.unlink()
                     return False
+                if exc.code not in TRANSIENT_HTTP_CODES:
+                    if tmp.exists():
+                        tmp.unlink()
+                    raise DukascopyIngestError(f"Non-retryable Dukascopy HTTP {exc.code}: {url}") from exc
             except (URLError, TimeoutError, OSError, DukascopyIngestError) as exc:
                 last_error = exc
             if tmp.exists():
                 tmp.unlink()
             if attempt < self.retries:
-                time.sleep(attempt)
-                LOGGER.warning("Retry %d/%d for %s", attempt + 1, self.retries, url)
-        raise DukascopyIngestError(f"Failed to download real Dukascopy data: {url}: {last_error}")
+                delay = min(20.0, 1.5 * (2 ** (attempt - 1))) + random.uniform(0.0, 0.75)
+                LOGGER.warning(
+                    "Transient Dukascopy failure for %s (attempt %d/%d); retrying in %.2fs: %s",
+                    day.isoformat(), attempt, self.retries, delay, last_error,
+                )
+                time.sleep(delay)
+
+        # Dukascopy occasionally returns 503 for weekend/non-trading daily paths.
+        # Do not turn a weekend source hiccup into a false dataset failure; weekdays
+        # remain fail-closed because silently omitting a trading day would bias OOS.
+        if day.weekday() >= 5:
+            LOGGER.warning("Dukascopy unavailable after retries for weekend %s; recording as non-trading day", day)
+            return False
+        raise DukascopyIngestError(
+            f"REAL_DATA_REQUIRED: failed to download weekday Dukascopy data after {self.retries} attempts: {url}: {last_error}"
+        )
 
     @staticmethod
     def decode_m1(path: str | Path, day: date) -> pd.DataFrame:
@@ -102,7 +121,6 @@ class DukascopyM1Ingestor:
         rows = []
         day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
         for offset in range(0, len(raw), M1_RECORD.size):
-            # Dukascopy OHLC candle record order is: seconds, Open, Close, Low, High, Volume.
             seconds, open_i, close_i, low_i, high_i, volume = M1_RECORD.unpack_from(raw, offset)
             rows.append((
                 day_start + timedelta(seconds=seconds),
@@ -123,7 +141,7 @@ class DukascopyM1Ingestor:
         while current < end:
             destination = self.raw_dir / f"{current:%Y-%m-%d}.bi5"
             url = self.url_for(current)
-            if self._download(url, destination, force=force):
+            if self._download(url, destination, day=current, force=force):
                 downloaded.append(DownloadedDay(current, destination, url, sha256_file(destination), destination.stat().st_size))
             current += timedelta(days=1)
         if not downloaded:
