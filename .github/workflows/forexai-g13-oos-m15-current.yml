@@ -3,6 +3,7 @@ name: ForexAI G13 OOS M15 Current
 # Independent G13 OOS evaluation using real Dukascopy JETTA data.
 # 2026 is evaluated only; no selection or optimization is allowed.
 # The data window ends at the current UTC date, so the current partial UTC day is excluded.
+# Trigger marker: execute official 2026 OOS after G13 robustness pass.
 
 on:
   workflow_dispatch:
