@@ -32,7 +32,7 @@ def render(candidate: dict[str, Any]) -> str:
 //| Live trading is NOT authorized by this source.                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.22"
+#property version "1.23"
 #include <Trade/Trade.mqh>
 CTrade trade;
 
@@ -99,7 +99,7 @@ void ParityLogSignal(double entry,double sl,double tp,double atr)
    if(!ParityMode) return;
    if(parityHandle==INVALID_HANDLE)
    {{
-      parityHandle=FileOpen(ParityFile,FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE);
+      parityHandle=FileOpen(ParityFile,FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE);
       if(parityHandle==INVALID_HANDLE) return;
       if(FileSize(parityHandle)==0) FileWrite(parityHandle,"candidate_id","event","timestamp","side","entry","sl","tp","atr");
       FileSeek(parityHandle,0,SEEK_END);
