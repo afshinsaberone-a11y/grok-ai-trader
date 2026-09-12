@@ -11,7 +11,6 @@ import argparse
 import json
 from pathlib import Path
 
-
 SCHEMA = "forexai.g13.post_oos_audit_m15.v1"
 
 
@@ -59,8 +58,8 @@ def main() -> int:
     hmap = {x["candidate_id"]: x for x in h["candidates"]}
     rmap = {x["candidate_id"]: x for x in r["candidates"]}
     omap = {x["candidate_id"]: x for x in o["candidates"]}
-    assert set(hmap) == set(rmap) == set(omap) == set(range(1, 49)) - set(range(1, 49)) | set(hmap)
     assert len(hmap) == len(rmap) == len(omap) == 16
+    assert set(hmap) == set(rmap) == set(omap)
 
     rows = []
     eligible = []
