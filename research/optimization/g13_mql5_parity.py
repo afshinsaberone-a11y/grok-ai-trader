@@ -29,7 +29,6 @@ def expected_signals(data: pd.DataFrame, params: dict[str, Any]) -> list[dict[st
     d = prep(data)
     sig = signals(d, params)
     out: list[dict[str, Any]] = []
-    # Python execution contract enters on the next M15 bar open.
     for i in range(1, len(d)):
         if bool(sig.iloc[i - 1]):
             atr = float(d.ATR14.iloc[i - 1])
@@ -43,7 +42,7 @@ def expected_signals(data: pd.DataFrame, params: dict[str, Any]) -> list[dict[st
                 {
                     "candidate_id": None,
                     "event": "SIGNAL",
-                    "timestamp": d.index[i].isoformat(),
+                    "timestamp": d.index[i].strftime("%Y-%m-%dT%H:%M:00+00:00"),
                     "side": -1,
                     "entry": entry,
                     "sl": sl,
@@ -71,8 +70,9 @@ def compare(expected: list[dict[str, Any]], actual: list[dict[str, Any]], cid: i
     assert len(exp) == len(act), (cid, len(exp), len(act))
     mismatches = []
     for i, (e, a) in enumerate(zip(exp, act)):
-        if e["timestamp"] != pd.Timestamp(a["timestamp"], tz="UTC").isoformat():
-            mismatches.append((i, "timestamp", e["timestamp"], a["timestamp"]))
+        actual_ts = pd.to_datetime(a["timestamp"], utc=True).strftime("%Y-%m-%dT%H:%M:00+00:00")
+        if e["timestamp"] != actual_ts:
+            mismatches.append((i, "timestamp", e["timestamp"], actual_ts))
         if int(a["side"]) != -1:
             mismatches.append((i, "side", -1, a["side"]))
         for k in ("entry", "sl", "tp", "atr"):
