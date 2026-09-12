@@ -1,0 +1,76 @@
+name: ForexAI G13 Final Promotion M15
+
+# Final deterministic bridge from independently validated research evidence
+# to an EA-generation authorization manifest. No trading is enabled here.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/g13_promotion_gate_m15.py
+      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
+      - .github/workflows/forexai-g13-promotion-m15.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  promotion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Download frozen upstream evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/robustness evidence/oos
+          gh run download 34679210600 -n g13-robustness-m15 -D evidence/robustness
+          gh run download 34679937623 -n g13-oos-m15-2026-current -D evidence/oos
+      - name: Verify upstream artifacts exist
+        run: |
+          test -f evidence/robustness/g13-robustness-m15.json
+          test -f evidence/oos/g13-oos-m15-2026.json
+          test -f artifacts/g13/frozen/g13-candidate-handoff-m15.json
+      - name: Compile and unit smoke test
+        run: |
+          python -m py_compile research/optimization/g13_promotion_gate_m15.py
+          python -m pytest -q tests/test_g13_oos_m15.py
+      - name: Run final promotion gate
+        run: |
+          python -m research.optimization.g13_promotion_gate_m15 \
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
+            --robustness evidence/robustness/g13-robustness-m15.json \
+            --oos evidence/oos/g13-oos-m15-2026.json \
+            --output artifacts/g13/g13-promotion-manifest-m15.json
+      - name: Fail closed
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('artifacts/g13/g13-promotion-manifest-m15.json',encoding='utf-8'))
+          assert p['schema_version']=='forexai.g13.promotion_manifest.m15.v1'
+          assert p['status']=='PROMOTION_READY'
+          assert p['counts']=={'validation':16,'robustness':16,'oos_pass':15,'promoted':15,'rejected_at_oos':1}
+          assert p['promoted_candidate_ids']==[2,6,10,12,14,22,26,28,30,32,34,38,42,46,48]
+          assert p['rejected_candidate_ids']==[44]
+          assert p['decision_policy']['selection_performed'] is False
+          assert p['decision_policy']['optimization_performed'] is False
+          assert p['decision_policy']['ea_generation_allowed'] is True
+          assert p['decision_policy']['demo_trading_allowed'] is False
+          assert p['decision_policy']['live_trading_allowed'] is False
+          print('G13_FINAL_PROMOTION_GATE_OK')
+          print('PROMOTED',p['promoted_candidate_ids'])
+      - name: Upload promotion manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-promotion-manifest-m15
+          path: artifacts/g13/g13-promotion-manifest-m15.json
+          if-no-files-found: error
