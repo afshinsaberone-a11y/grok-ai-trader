@@ -32,7 +32,7 @@ def render(candidate: dict[str, Any]) -> str:
 //| Live trading is NOT authorized by this source.                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.20"
+#property version "1.21"
 #include <Trade/Trade.mqh>
 CTrade trade;
 
@@ -46,9 +46,12 @@ input double ATRMult = {float(p['atr_mult']):.3f};
 input double RR = {float(p['rr']):.3f};
 input double RSIHigh = {float(p['rsi_high']):.1f};
 input int    ExpiryBars = 30;
+input bool   ParityMode = false;
+input string ParityFile = "g13_mql5_parity.csv";
 
 int hRSI=INVALID_HANDLE, hATR=INVALID_HANDLE;
 datetime lastBar=0;
+int parityHandle=INVALID_HANDLE;
 
 bool IsNewBar()
 {{
@@ -56,6 +59,20 @@ bool IsNewBar()
    if(t==lastBar) return false;
    lastBar=t;
    return true;
+}}
+
+void ParityLogSignal(double entry,double sl,double tp,double atr)
+{{
+   if(!ParityMode) return;
+   if(parityHandle==INVALID_HANDLE)
+   {{
+      parityHandle=FileOpen(ParityFile,FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE);
+      if(parityHandle==INVALID_HANDLE) return;
+      if(FileSize(parityHandle)==0) FileWrite(parityHandle,"candidate_id","event","timestamp","side","entry","sl","tp","atr");
+      FileSeek(parityHandle,0,SEEK_END);
+   }}
+   FileWrite(parityHandle,MagicNumber-130000,"SIGNAL",TimeToString(iTime(_Symbol,PERIOD_M15,0),TIME_DATE|TIME_MINUTES),-1,DoubleToString(entry,_Digits),DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),DoubleToString(atr,_Digits));
+   FileFlush(parityHandle);
 }}
 
 int CountOwnPositions()
@@ -116,7 +133,6 @@ bool BearishDivergence()
    }}
 
    if(!haveNewer || !haveOlder) return false;
-   // Price makes a higher high by MinDelta while RSI makes a lower high.
    return newerHigh > olderHigh + MinDelta && newerRsi < olderRsi && newerRsi >= RSIHigh;
 }}
 
@@ -163,6 +179,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
 {{
+   if(parityHandle!=INVALID_HANDLE) FileClose(parityHandle);
    if(hRSI!=INVALID_HANDLE) IndicatorRelease(hRSI);
    if(hATR!=INVALID_HANDLE) IndicatorRelease(hATR);
 }}
@@ -188,6 +205,7 @@ void OnTick()
    double tp=entry-RR*risk;
    double lots=LotSize(risk);
    if(lots<=0.0) return;
+   ParityLogSignal(entry,sl,tp,atr[1]);
    trade.Sell(lots,_Symbol,0.0,sl,tp,"ForexAI-G13-{cid:02d}");
 }}
 //+------------------------------------------------------------------+
