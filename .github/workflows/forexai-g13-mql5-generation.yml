@@ -64,6 +64,10 @@ jobs:
               assert 'ExpiryBars = 30' in s
               assert 'RiskPercent = 0.50' in s
               assert 'Live trading is NOT authorized' in s
+              assert 'ParityMode = false' in s
+              assert 'RSIAtShift' in s and 'ATRAtShift' in s
+              assert 'FILE_COMMON' in s and 'g13_mql5_parity.csv' in s
+              assert 'ParityLogSignal' in s
           print('MQL5_STATIC_AUDIT_OK',len(files))
           PY
       - name: Upload generated EAs
