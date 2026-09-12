@@ -5,11 +5,17 @@ on:
     paths:
       - "research/optimization/cost_aware_mean_reversion_v19.py"
       - "research/optimization/cost_aware_gate_v14.py"
+      - "agents/agent_evidence_consumer.py"
+      - "agents/github_artifact_evidence_bridge.py"
+      - "tests/test_agent_evidence_consumer.py"
       - ".github/workflows/forexai-g9-bollinger-mean-reversion.yml"
   pull_request:
     paths:
       - "research/optimization/cost_aware_mean_reversion_v19.py"
       - "research/optimization/cost_aware_gate_v14.py"
+      - "agents/agent_evidence_consumer.py"
+      - "agents/github_artifact_evidence_bridge.py"
+      - "tests/test_agent_evidence_consumer.py"
       - ".github/workflows/forexai-g9-bollinger-mean-reversion.yml"
   workflow_dispatch:
 
@@ -32,8 +38,11 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Compile G9
-        run: python -m py_compile research/optimization/cost_aware_mean_reversion_v19.py agents/github_artifact_evidence_bridge.py
+      - name: Compile G9 and Evidence Consumer
+        run: python -m py_compile research/optimization/cost_aware_mean_reversion_v19.py agents/github_artifact_evidence_bridge.py agents/agent_evidence_consumer.py
+
+      - name: Test Evidence Consumer
+        run: python -m pytest -q tests/test_agent_evidence_consumer.py
 
       - name: Download REAL EURUSD M5
         run: python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start 2022-01-01 --end 2026-01-01 --output data/real --validate --manifest
@@ -146,10 +155,37 @@ jobs:
           print('evidence_path',p)
           PY
 
+      - name: Consume Agent Evidence deterministically
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/agent-evidence
+          set +e
+          python -m agents.agent_evidence_consumer \
+            --evidence "$EVIDENCE_PATH" \
+            --output artifacts/agent-evidence/g9-consumer-decision.json
+          rc=$?
+          set -e
+          test "$rc" -eq 2
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('artifacts/agent-evidence/g9-consumer-decision.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          assert d['decision']=='HOLD'
+          assert d['candidate_total']==972
+          assert d['qualified_count']==0
+          assert d['champion'] is None
+          assert all(d['validations'].values())
+          print('G9_AGENT_EVIDENCE_CONSUMED_OK')
+          print(json.dumps(d, indent=2, ensure_ascii=False))
+          PY
+
       - name: Upload G9 Agent Evidence
         uses: actions/upload-artifact@v4
         with:
           name: g9-agent-evidence
-          path: ${{ env.EVIDENCE_PATH }}
+          path: |
+            ${{ env.EVIDENCE_PATH }}
+            artifacts/agent-evidence/g9-consumer-decision.json
           include-hidden-files: true
           if-no-files-found: error
