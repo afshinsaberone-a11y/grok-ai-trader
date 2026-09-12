@@ -1,0 +1,113 @@
+name: ForexAI G13 MT5 Compile + Signal Parity
+
+on:
+  workflow_dispatch:
+    inputs:
+      mt5_root:
+        description: 'MT5 installation root on the self-hosted Windows runner'
+        required: false
+        default: 'C:\\Program Files\\MetaTrader 5'
+      parity_csv:
+        description: 'Path to the MT5-exported g13_mql5_parity.csv on the runner'
+        required: true
+      data_csv:
+        description: 'Path to the REAL EURUSD M15 CSV on the runner'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  compile-and-parity:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        shell: powershell
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify MT5 toolchain
+        shell: powershell
+        env:
+          MT5_ROOT: ${{ inputs.mt5_root }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:MT5_ROOT
+          $meta = Join-Path $root 'metaeditor64.exe'
+          $terminal = Join-Path $root 'terminal64.exe'
+          if (!(Test-Path $meta)) { throw "MetaEditor not found: $meta" }
+          if (!(Test-Path $terminal)) { throw "MT5 terminal not found: $terminal" }
+          Write-Host "METAEDITOR=$meta"
+          Write-Host "TERMINAL=$terminal"
+
+      - name: Generate fresh frozen EAs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Recurse -Force artifacts/g13/mql5 -ErrorAction SilentlyContinue
+          python -m research.optimization.g13_mql5_generator_v2 `
+            --manifest artifacts/g13/g13-promotion-manifest-m15.json `
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
+            --output-dir artifacts/g13/mql5
+
+      - name: Compile all 15 EAs with MetaEditor
+        shell: powershell
+        env:
+          MT5_ROOT: ${{ inputs.mt5_root }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
+          $files = @(Get-ChildItem 'artifacts/g13/mql5/*.mq5' | Sort-Object Name)
+          if ($files.Count -ne 15) { throw "Expected 15 mq5 files, found $($files.Count)" }
+          foreach ($f in $files) {
+            $ex5 = [System.IO.Path]::ChangeExtension($f.FullName, '.ex5')
+            Remove-Item $ex5 -Force -ErrorAction SilentlyContinue
+            Write-Host "Compiling $($f.Name)"
+            & $meta "/compile:$($f.FullName)" /log
+            if ($LASTEXITCODE -ne 0) { throw "MetaEditor returned $LASTEXITCODE for $($f.Name)" }
+            if (!(Test-Path $ex5)) { throw "No EX5 produced for $($f.Name)" }
+          }
+          Write-Host "MT5_COMPILE_OK=15"
+
+      - name: Verify parity input exists
+        shell: powershell
+        env:
+          PARITY_CSV: ${{ inputs.parity_csv }}
+          DATA_CSV: ${{ inputs.data_csv }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!(Test-Path $env:PARITY_CSV)) { throw "Missing MT5 parity CSV: $env:PARITY_CSV" }
+          if (!(Test-Path $env:DATA_CSV)) { throw "Missing REAL EURUSD M15 CSV: $env:DATA_CSV" }
+          Write-Host "PARITY_INPUT_OK"
+
+      - name: Run fail-closed Python vs MQL5 signal parity
+        shell: powershell
+        env:
+          PARITY_CSV: ${{ inputs.parity_csv }}
+          DATA_CSV: ${{ inputs.data_csv }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m research.optimization.g13_mql5_parity `
+            --data "$env:DATA_CSV" `
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
+            --manifest artifacts/g13/g13-promotion-manifest-m15.json `
+            --mt5 "$env:PARITY_CSV" `
+            --output artifacts/g13-mql5-signal-parity.json
+
+      - name: Upload compile + parity evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-mt5-compile-parity
+          path: |
+            artifacts/g13/mql5/*.mq5
+            artifacts/g13/mql5/*.ex5
+            artifacts/g13-mql5-signal-parity.json
+          if-no-files-found: error
