@@ -32,7 +32,7 @@ def render(candidate: dict[str, Any]) -> str:
 //| Live trading is NOT authorized by this source.                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.21"
+#property version "1.22"
 #include <Trade/Trade.mqh>
 CTrade trade;
 
@@ -49,7 +49,6 @@ input int    ExpiryBars = 30;
 input bool   ParityMode = false;
 input string ParityFile = "g13_mql5_parity.csv";
 
-int hRSI=INVALID_HANDLE, hATR=INVALID_HANDLE;
 datetime lastBar=0;
 int parityHandle=INVALID_HANDLE;
 
@@ -59,6 +58,40 @@ bool IsNewBar()
    if(t==lastBar) return false;
    lastBar=t;
    return true;
+}}
+
+// These functions intentionally use the same simple rolling arithmetic as
+// the canonical Python research implementation, rather than platform RSI/ATR
+// smoothing. This is required for deterministic signal parity.
+double RSIAtShift(int shift)
+{{
+   if(shift<1 || Bars(_Symbol,PERIOD_M15)<shift+RSIPeriod+1) return EMPTY_VALUE;
+   double gain=0.0, loss=0.0;
+   for(int k=shift; k<shift+RSIPeriod; ++k)
+   {{
+      double delta=iClose(_Symbol,PERIOD_M15,k)-iClose(_Symbol,PERIOD_M15,k+1);
+      if(delta>0.0) gain+=delta;
+      else if(delta<0.0) loss-=delta;
+   }}
+   gain/=RSIPeriod;
+   loss/=RSIPeriod;
+   if(loss<=0.0) return EMPTY_VALUE;
+   return 100.0-100.0/(1.0+gain/loss);
+}}
+
+double ATRAtShift(int shift)
+{{
+   if(shift<1 || Bars(_Symbol,PERIOD_M15)<shift+ATRPeriod+1) return EMPTY_VALUE;
+   double sum=0.0;
+   for(int k=shift; k<shift+ATRPeriod; ++k)
+   {{
+      double hi=iHigh(_Symbol,PERIOD_M15,k);
+      double lo=iLow(_Symbol,PERIOD_M15,k);
+      double prev=iClose(_Symbol,PERIOD_M15,k+1);
+      double tr=MathMax(hi-lo,MathMax(MathAbs(hi-prev),MathAbs(lo-prev)));
+      sum+=tr;
+   }}
+   return sum/ATRPeriod;
 }}
 
 void ParityLogSignal(double entry,double sl,double tp,double atr)
@@ -87,29 +120,25 @@ int CountOwnPositions()
    return n;
 }}
 
-// Evaluate only the most recent two confirmed swing highs. This avoids the
-// common live-EA error of reusing an old historical divergence indefinitely.
+// Evaluate only the most recent two confirmed swing highs. The first pivot
+// found from recent -> older is the newest confirmed pivot; the second is the
+// previous pivot. This mirrors the causal Python signal construction.
 bool BearishDivergence()
 {{
    int bars=Bars(_Symbol,PERIOD_M15);
    int need=MathMin(bars,5000);
-   if(need < 2*Pivot+20) return false;
-
-   double rsi[];
-   ArraySetAsSeries(rsi,true);
-   if(CopyBuffer(hRSI,0,0,need,rsi)<need) return false;
+   if(need < 2*Pivot+RSIPeriod+5) return false;
 
    bool haveNewer=false;
    double newerHigh=0.0, newerRsi=0.0;
    bool haveOlder=false;
    double olderHigh=0.0, olderRsi=0.0;
 
-   // Series shifts: 1 is the most recent closed bar. The first pivot found
-   // while walking from recent -> older is the latest confirmed pivot.
    for(int s=Pivot+1; s<=need-Pivot-1; ++s)
    {{
       double h=iHigh(_Symbol,PERIOD_M15,s);
-      if(h<=0.0 || rsi[s]==EMPTY_VALUE) continue;
+      double r=RSIAtShift(s);
+      if(h<=0.0 || r==EMPTY_VALUE) continue;
       bool isPivot=true;
       for(int j=1;j<=Pivot;++j)
       {{
@@ -121,13 +150,13 @@ bool BearishDivergence()
       if(!haveNewer)
       {{
          newerHigh=h;
-         newerRsi=rsi[s];
+         newerRsi=r;
          haveNewer=true;
          continue;
       }}
 
       olderHigh=h;
-      olderRsi=rsi[s];
+      olderRsi=r;
       haveOlder=true;
       break;
    }}
@@ -170,9 +199,6 @@ void ManageExpiry()
 
 int OnInit()
 {{
-   hRSI=iRSI(_Symbol,PERIOD_M15,RSIPeriod,PRICE_CLOSE);
-   hATR=iATR(_Symbol,PERIOD_M15,ATRPeriod);
-   if(hRSI==INVALID_HANDLE || hATR==INVALID_HANDLE) return INIT_FAILED;
    trade.SetExpertMagicNumber(MagicNumber);
    return INIT_SUCCEEDED;
 }}
@@ -180,8 +206,6 @@ int OnInit()
 void OnDeinit(const int reason)
 {{
    if(parityHandle!=INVALID_HANDLE) FileClose(parityHandle);
-   if(hRSI!=INVALID_HANDLE) IndicatorRelease(hRSI);
-   if(hATR!=INVALID_HANDLE) IndicatorRelease(hATR);
 }}
 
 void OnTick()
@@ -191,21 +215,16 @@ void OnTick()
    if(CountOwnPositions()>0) return;
    if(!BearishDivergence()) return;
 
-   double atr[];
-   ArraySetAsSeries(atr,true);
-   if(CopyBuffer(hATR,0,0,3,atr)<3) return;
-   double risk=ATRMult*atr[1];
-   if(risk<=0.0) return;
-
-   // Reference research uses next-bar open concept. The market order is sent
-   // on the first tick of the new M15 bar; execution-price slippage is broker-dependent.
+   double atr=ATRAtShift(1);
+   if(atr==EMPTY_VALUE || atr<=0.0) return;
+   double risk=ATRMult*atr;
    double entry=iOpen(_Symbol,PERIOD_M15,0);
    if(entry<=0.0) return;
    double sl=entry+risk;
    double tp=entry-RR*risk;
+   ParityLogSignal(entry,sl,tp,atr);
    double lots=LotSize(risk);
    if(lots<=0.0) return;
-   ParityLogSignal(entry,sl,tp,atr[1]);
    trade.Sell(lots,_Symbol,0.0,sl,tp,"ForexAI-G13-{cid:02d}");
 }}
 //+------------------------------------------------------------------+
