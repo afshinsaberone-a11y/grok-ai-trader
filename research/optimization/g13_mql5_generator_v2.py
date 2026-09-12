@@ -1,8 +1,8 @@
 """G13 deterministic MQL5 generator v2.
 
-The generator consumes only the committed final promotion manifest plus the
-frozen validation handoff. It never ranks or mutates candidates. Generated EAs
-are research/demo candidates only; live trading is not authorized here.
+Consumes only the committed final promotion manifest plus frozen validation
+handoff. It never ranks or mutates candidates. Generated EAs are research
+artifacts only; live trading is not authorized here.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def render(candidate: dict[str, Any]) -> str:
 //| Live trading is NOT authorized by this source.                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.10"
+#property version "1.20"
 #include <Trade/Trade.mqh>
 CTrade trade;
 
@@ -70,17 +70,26 @@ int CountOwnPositions()
    return n;
 }}
 
+// Evaluate only the most recent two confirmed swing highs. This avoids the
+// common live-EA error of reusing an old historical divergence indefinitely.
 bool BearishDivergence()
 {{
    int bars=Bars(_Symbol,PERIOD_M15);
    int need=MathMin(bars,5000);
    if(need < 2*Pivot+20) return false;
+
    double rsi[];
    ArraySetAsSeries(rsi,true);
    if(CopyBuffer(hRSI,0,0,need,rsi)<need) return false;
-   bool havePrev=false;
-   double prevHigh=0.0, prevRsi=0.0;
-   for(int s=need-Pivot-1; s>=Pivot+1; --s)
+
+   bool haveNewer=false;
+   double newerHigh=0.0, newerRsi=0.0;
+   bool haveOlder=false;
+   double olderHigh=0.0, olderRsi=0.0;
+
+   // Series shifts: 1 is the most recent closed bar. The first pivot found
+   // while walking from recent -> older is the latest confirmed pivot.
+   for(int s=Pivot+1; s<=need-Pivot-1; ++s)
    {{
       double h=iHigh(_Symbol,PERIOD_M15,s);
       if(h<=0.0 || rsi[s]==EMPTY_VALUE) continue;
@@ -91,15 +100,24 @@ bool BearishDivergence()
          {{ isPivot=false; break; }}
       }}
       if(!isPivot) continue;
-      if(!havePrev)
-      {{ prevHigh=h; prevRsi=rsi[s]; havePrev=true; continue; }}
-      double newerHigh=h, newerRsi=rsi[s];
-      if(newerHigh > prevHigh + MinDelta && newerRsi < prevRsi && newerRsi >= RSIHigh)
-         return true;
-      prevHigh=newerHigh;
-      prevRsi=newerRsi;
+
+      if(!haveNewer)
+      {{
+         newerHigh=h;
+         newerRsi=rsi[s];
+         haveNewer=true;
+         continue;
+      }}
+
+      olderHigh=h;
+      olderRsi=rsi[s];
+      haveOlder=true;
+      break;
    }}
-   return false;
+
+   if(!haveNewer || !haveOlder) return false;
+   // Price makes a higher high by MinDelta while RSI makes a lower high.
+   return newerHigh > olderHigh + MinDelta && newerRsi < olderRsi && newerRsi >= RSIHigh;
 }}
 
 double LotSize(double stopDistance)
@@ -155,11 +173,15 @@ void OnTick()
    ManageExpiry();
    if(CountOwnPositions()>0) return;
    if(!BearishDivergence()) return;
+
    double atr[];
    ArraySetAsSeries(atr,true);
    if(CopyBuffer(hATR,0,0,3,atr)<3) return;
    double risk=ATRMult*atr[1];
    if(risk<=0.0) return;
+
+   // Reference research uses next-bar open concept. The market order is sent
+   // on the first tick of the new M15 bar; execution-price slippage is broker-dependent.
    double entry=iOpen(_Symbol,PERIOD_M15,0);
    if(entry<=0.0) return;
    double sl=entry+risk;
@@ -173,42 +195,43 @@ void OnTick()
 
 
 def generate(manifest_path: Path, handoff_path: Path, out_dir: Path) -> list[Path]:
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == SCHEMA and manifest["status"] == "PROMOTION_READY"
-    assert manifest["decision_policy"]["ea_generation_allowed"] is True
-    assert manifest["decision_policy"]["demo_trading_allowed"] is False
-    assert manifest["decision_policy"]["live_trading_allowed"] is False
-    assert handoff["schema_version"] == HANDOFF_SCHEMA
-    assert handoff["handoff_policy"]["parameters_are_frozen"] is True
-    assert handoff["handoff_policy"]["oos_optimization_disabled"] is True
-    ids = sorted(int(x) for x in manifest["promoted_candidate_ids"])
-    assert len(ids) == 15 and len(set(ids)) == 15
-    cands = {int(c["candidate_id"]): c for c in handoff["candidates"]}
-    assert set(cands) >= set(ids)
-    hashes = manifest["candidate_config_hashes"]
-    out_dir.mkdir(parents=True, exist_ok=True)
-    paths: list[Path] = []
+    manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
+    handoff=json.loads(handoff_path.read_text(encoding='utf-8'))
+    assert manifest['schema_version']==SCHEMA and manifest['status']=='PROMOTION_READY'
+    policy=manifest['decision_policy']
+    assert policy['ea_generation_allowed'] is True
+    assert policy['demo_trading_allowed'] is False
+    assert policy['live_trading_allowed'] is False
+    assert handoff['schema_version']==HANDOFF_SCHEMA
+    hp=handoff['handoff_policy']
+    assert hp['parameters_are_frozen'] is True
+    assert hp['oos_optimization_disabled'] is True
+    ids=sorted(int(x) for x in manifest['promoted_candidate_ids'])
+    assert len(ids)==15 and len(set(ids))==15
+    cands={int(c['candidate_id']):c for c in handoff['candidates']}
+    hashes=manifest['candidate_config_hashes']
+    assert set(cands)>=set(ids)
+    out_dir.mkdir(parents=True,exist_ok=True)
+    paths=[]
     for cid in ids:
-        c = cands[cid]
-        assert c["config_hash"] == hashes[str(cid)]
-        assert c["config_hash"] == canonical_hash(c["params"])
-        path = out_dir / f"ForexAI_G13_Candidate_{cid:02d}.mq5"
-        path.write_text(render(c), encoding="utf-8")
+        c=cands[cid]
+        assert c['config_hash']==hashes[str(cid)]
+        assert c['config_hash']==canonical_hash(c['params'])
+        path=out_dir/f'ForexAI_G13_Candidate_{cid:02d}.mq5'
+        path.write_text(render(c),encoding='utf-8')
         paths.append(path)
-    assert len(paths) == 15
+    assert len(paths)==15
     return paths
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--manifest", required=True, type=Path)
-    ap.add_argument("--handoff", required=True, type=Path)
-    ap.add_argument("--output-dir", required=True, type=Path)
-    args = ap.parse_args()
-    paths = generate(args.manifest, args.handoff, args.output_dir)
-    print(json.dumps({"generated_count": len(paths), "live_trading_allowed": False, "demo_trading_allowed": False, "files": [p.name for p in paths]}, sort_keys=True))
+def main()->int:
+    ap=argparse.ArgumentParser()
+    ap.add_argument('--manifest',required=True,type=Path)
+    ap.add_argument('--handoff',required=True,type=Path)
+    ap.add_argument('--output-dir',required=True,type=Path)
+    a=ap.parse_args()
+    paths=generate(a.manifest,a.handoff,a.output_dir)
+    print(json.dumps({'generated_count':len(paths),'live_trading_allowed':False,'demo_trading_allowed':False,'files':[p.name for p in paths]},sort_keys=True))
     return 0
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__=='__main__': raise SystemExit(main())
