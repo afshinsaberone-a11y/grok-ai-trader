@@ -1,0 +1,48 @@
+{
+  "schema_version": "forexai.g13.promotion_manifest.m15.v1",
+  "status": "PROMOTION_READY",
+  "symbol": "EURUSD",
+  "timeframe": "M15",
+  "decision_policy": {
+    "selection_performed": false,
+    "oos_used_only_as_predeclared_pass_screen": true,
+    "optimization_performed": false,
+    "ea_generation_allowed": true,
+    "demo_trading_allowed": false,
+    "live_trading_allowed": false
+  },
+  "source_artifacts": {
+    "validation": {"run_id": 34559825574, "artifact_id": 10184001419},
+    "robustness": {"run_id": 34679210600, "job_id": 103514547206, "artifact_id": 10293181701, "artifact_digest": "sha256:23552357112065a7cb8a8105f65fc77254270c6421697f2e6a7738cbb40b40c7"},
+    "oos": {"run_id": 34679937623, "job_id": 103516577859, "artifact_id": 10293797420, "artifact_digest": "sha256:63b2f33de3f5d0d6bb41395645feba14e461d333080e6074e09f2da77ccbd569"}
+  },
+  "counts": {"validation": 16, "robustness": 16, "oos_pass": 15, "promoted": 15, "rejected_at_oos": 1},
+  "promoted_candidate_ids": [2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48],
+  "rejected_candidate_ids": [44],
+  "execution_contract": {
+    "entry": "next_bar_open",
+    "cost_pips_per_side": 0.7,
+    "round_trip_cost_pips": 1.4,
+    "same_bar_resolution": "SL first (conservative)",
+    "expiry_bars": 30,
+    "overlap": "one position at a time",
+    "risk_pct": 0.005
+  },
+  "candidate_config_hashes": {
+    "2": "bb2d9b2c967dc99bffb010335b544716d97b915767aa5a221027f5146b69dfbd",
+    "6": "99bf607cd4d4f2f76d25ea83b818a5843463abc95a2d56461d57d6f5542228a8",
+    "10": "e515df40514b555cc903d4eb5ad15b77b34d4fb205102f2577a224654075b9b1",
+    "12": "2a1c1883a7239c00e9b0210a48723e3c7e68291fdaa2725524d07a833e4f4b52",
+    "14": "484b0ab42d9f1f683ba435edc53099b5ee7f3e2e643e127892a7059d2ac5f00d",
+    "22": "d3b8772cc3d7450121d23cf5358b6d4301532f41cc688115f5b32b0ca3eef48a",
+    "26": "ad466d8c67c3ee35ad3dee5cf9cbdeca6817c36c3c673e515604ef00e333412a",
+    "28": "33db5c214e87e6516354e6614736ce299445925fc6964d5e91f715d12f68382a",
+    "30": "d8298e96f816ff0ddb36ae397d22f8c85b2190afc0709a353f60d0b7881de3ee",
+    "32": "9174b72c1e7e0a8882d64766de619889ef918a881972eedb4584d0286f6f16dd",
+    "34": "1f5347929ee6b400595b1ec675e408c4a328e7d5804315c4676cc9c627d9f5a8",
+    "38": "f2818253f3d272b45b53da7a1317e71c1a26412c915fb70529a99c80fe9f46d3",
+    "42": "ed36da53e559fc5bf56f892bad86080c3f48c5b7965e479538b176ba1b41376e",
+    "46": "c970fa452f7977ff900db0df7d9412f81df97f3058cd192aa932fc65ec53b6ae",
+    "48": "7c91cd5b4f16d68fc4f6e6509c920d7048401a1d16cc09b5c2f62ff3e2323ed4"
+  }
+}
