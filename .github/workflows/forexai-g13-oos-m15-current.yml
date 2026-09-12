@@ -6,6 +6,15 @@ name: ForexAI G13 OOS M15 Current
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/g13_oos_m15.py
+      - research/optimization/dukascopy_ingest.py
+      - research/real_data/dukascopy_ingest.py
+      - research/real_data/normalizer.py
+      - research/real_data/validator.py
+      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
+      - .github/workflows/forexai-g13-oos-m15-current.yml
 
 permissions:
   contents: read
