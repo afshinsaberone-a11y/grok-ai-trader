@@ -1,12 +1,13 @@
 name: ForexAI G13 MQL5 Generation
 
-# Research-only source generation. Requires final promotion manifest.
+# Research-only source generation. Requires final promotion manifest plus frozen handoff.
 on:
   workflow_dispatch:
   push:
     paths:
       - research/optimization/g13_mql5_generator_v2.py
       - artifacts/g13/g13-promotion-manifest-m15.json
+      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
       - .github/workflows/forexai-g13-mql5-generation.yml
 
 permissions:
@@ -30,11 +31,15 @@ jobs:
           python - <<'PY'
           import json
           p=json.load(open('artifacts/g13/g13-promotion-manifest-m15.json',encoding='utf-8'))
+          h=json.load(open('artifacts/g13/frozen/g13-candidate-handoff-m15.json',encoding='utf-8'))
           assert p['schema_version']=='forexai.g13.promotion_manifest.m15.v1'
           assert p['status']=='PROMOTION_READY'
           assert p['decision_policy']['ea_generation_allowed'] is True
           assert p['decision_policy']['demo_trading_allowed'] is False
           assert p['decision_policy']['live_trading_allowed'] is False
+          assert h['schema_version']=='forexai.g13.candidate_handoff.frozen.v1'
+          assert h['handoff_policy']['parameters_are_frozen'] is True
+          assert h['handoff_policy']['oos_optimization_disabled'] is True
           assert len(p['promoted_candidate_ids'])==15
           print('PROMOTION_MANIFEST_OK',p['promoted_candidate_ids'])
           PY
@@ -43,6 +48,7 @@ jobs:
           rm -rf artifacts/g13/mql5
           python -m research.optimization.g13_mql5_generator_v2 \
             --manifest artifacts/g13/g13-promotion-manifest-m15.json \
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
             --output-dir artifacts/g13/mql5
       - name: Static MQL5 audit
         run: |
@@ -57,7 +63,7 @@ jobs:
               assert 'trade.Sell' in s
               assert 'ExpiryBars = 30' in s
               assert 'RiskPercent = 0.50' in s
-              assert 'DEMO/RESEARCH ONLY' in s or 'RESEARCH status' in s or 'Live trading is NOT authorized' in s
+              assert 'Live trading is NOT authorized' in s
           print('MQL5_STATIC_AUDIT_OK',len(files))
           PY
       - name: Upload generated EAs
