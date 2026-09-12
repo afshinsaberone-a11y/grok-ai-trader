@@ -1,0 +1,68 @@
+name: ForexAI G13 MQL5 Generation
+
+# Research-only source generation. Requires final promotion manifest.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/g13_mql5_generator_v2.py
+      - artifacts/g13/g13-promotion-manifest-m15.json
+      - .github/workflows/forexai-g13-mql5-generation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile generator
+        run: python -m py_compile research/optimization/g13_mql5_generator_v2.py
+      - name: Verify promotion manifest
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('artifacts/g13/g13-promotion-manifest-m15.json',encoding='utf-8'))
+          assert p['schema_version']=='forexai.g13.promotion_manifest.m15.v1'
+          assert p['status']=='PROMOTION_READY'
+          assert p['decision_policy']['ea_generation_allowed'] is True
+          assert p['decision_policy']['demo_trading_allowed'] is False
+          assert p['decision_policy']['live_trading_allowed'] is False
+          assert len(p['promoted_candidate_ids'])==15
+          print('PROMOTION_MANIFEST_OK',p['promoted_candidate_ids'])
+          PY
+      - name: Generate 15 frozen G13 EAs
+        run: |
+          rm -rf artifacts/g13/mql5
+          python -m research.optimization.g13_mql5_generator_v2 \
+            --manifest artifacts/g13/g13-promotion-manifest-m15.json \
+            --output-dir artifacts/g13/mql5
+      - name: Static MQL5 audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          files=sorted(Path('artifacts/g13/mql5').glob('*.mq5'))
+          assert len(files)==15
+          for f in files:
+              s=f.read_text(encoding='utf-8')
+              assert '#property strict' in s
+              assert 'PERIOD_M15' in s
+              assert 'trade.Sell' in s
+              assert 'ExpiryBars = 30' in s
+              assert 'RiskPercent = 0.50' in s
+              assert 'DEMO/RESEARCH ONLY' in s or 'RESEARCH status' in s or 'Live trading is NOT authorized' in s
+          print('MQL5_STATIC_AUDIT_OK',len(files))
+          PY
+      - name: Upload generated EAs
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-mql5-generated-m15
+          path: artifacts/g13/mql5/*.mq5
+          if-no-files-found: error
