@@ -1,0 +1,122 @@
+name: ForexAI G13 Agent Evidence Replay
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Successful G13 workflow run ID to consume'
+        required: true
+        type: string
+        default: '34654623363'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile and test G13 Evidence Consumer
+        run: |
+          python -m py_compile agents/github_artifact_evidence_bridge.py agents/g13_agent_evidence_consumer.py
+          python -m pytest -q tests/test_g13_agent_evidence_consumer.py
+
+      - name: Download source G13 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming/g13
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name g13-oos-m15-2026-current \
+            --dir incoming/g13
+          test -s incoming/g13/g13-oos-m15-2026.json
+
+      - name: Build Agent Evidence from latest live source artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          from agents.github_artifact_evidence_bridge import normalize_artifact, write_evidence
+
+          repo=os.environ['GITHUB_REPOSITORY']
+          run_id=int(os.environ['RUN_ID'])
+          name='g13-oos-m15-2026-current'
+          raw=subprocess.check_output(
+              ['gh','api',f'repos/{repo}/actions/runs/{run_id}/artifacts'],
+              text=True, env=os.environ
+          )
+          page=json.loads(raw)
+          matches=[a for a in page.get('artifacts',[]) if a.get('name')==name and not a.get('expired')]
+          assert matches, f'no live {name} artifact found for run {run_id}'
+          meta=max(matches, key=lambda a: (a.get('created_at',''), int(a.get('id',0))))
+          print('SELECTED_G13_ARTIFACT', meta['id'], meta.get('created_at'))
+
+          payload=json.loads(Path('incoming/g13/g13-oos-m15-2026.json').read_text(encoding='utf-8'))
+          envelope=normalize_artifact(
+              artifact_id=int(meta['id']),
+              artifact_name=str(meta['name']),
+              artifact_digest=str(meta['digest']),
+              run_id=run_id,
+              job_id=None,
+              commit_sha=str(payload.get('provenance',{}).get('commit_sha','')),
+              payload=payload,
+          )
+          evidence_path=write_evidence(envelope, output_dir=Path('artifacts/g13-agent-evidence'))
+          print('G13_AGENT_EVIDENCE_WRITTEN', evidence_path)
+          Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8').write(f'EVIDENCE_PATH={evidence_path}\n')
+          PY
+
+      - name: Consume G13 Agent Evidence deterministically
+        env:
+          EVIDENCE_PATH: ${{ env.EVIDENCE_PATH }}
+        run: |
+          set -euo pipefail
+          set +e
+          python -m agents.g13_agent_evidence_consumer \
+            --evidence "$EVIDENCE_PATH" \
+            --output artifacts/g13-agent-evidence/consumer-decision.json
+          rc=$?
+          set -e
+          test "$rc" -eq 2
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('artifacts/g13-agent-evidence/consumer-decision.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          assert d['decision']=='HOLD'
+          assert d['ea_generation_allowed'] is False
+          assert all(d['validations'].values())
+          print('G13_AGENT_EVIDENCE_CONSUMED_OK')
+          print(json.dumps(d,indent=2,ensure_ascii=False))
+          PY
+
+      - name: Upload G13 Agent Evidence and decision
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-agent-evidence-replay-${{ inputs.source_run_id }}
+          path: |
+            ${{ env.EVIDENCE_PATH }}
+            artifacts/g13-agent-evidence/consumer-decision.json
+          include-hidden-files: true
+          if-no-files-found: error
