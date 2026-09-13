@@ -1,5 +1,7 @@
 name: ForexAI G9 Bollinger Mean Reversion Real Data
 
+# G9 deterministic rerun trigger: catalog is 972 variants.
+
 on:
   push:
     paths:
@@ -130,9 +132,8 @@ jobs:
           assert saved.get('workflow',{}).get('run_id')==run_id
           assert saved.get('workflow',{}).get('commit_sha')==commit_sha
           assert saved.get('payload',{}).get('schema_version')=='forexai.cost_aware_mean_reversion.v19'
-          echo_path=str(evidence_path)
-          Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8').write(f'EVIDENCE_PATH={echo_path}\n')
-          print('G9_AGENT_EVIDENCE_WRITTEN', echo_path)
+          Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8').write(f'EVIDENCE_PATH={evidence_path}\n')
+          print('G9_AGENT_EVIDENCE_WRITTEN', evidence_path)
           print(json.dumps(saved,indent=2,ensure_ascii=False))
           PY
 
