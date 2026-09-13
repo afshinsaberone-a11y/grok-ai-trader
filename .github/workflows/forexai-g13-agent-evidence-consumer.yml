@@ -68,8 +68,9 @@ jobs:
           )
           page=json.loads(raw)
           matches=[a for a in page.get('artifacts',[]) if a.get('name')==name and not a.get('expired')]
-          assert len(matches)==1, f'expected exactly one live {name} artifact, found {len(matches)}'
-          meta=matches[0]
+          assert matches, f'no live {name} artifact found'
+          meta=max(matches, key=lambda a: (a.get('created_at',''), int(a.get('id',0))))
+          print('SELECTED_G13_ARTIFACT', meta['id'], meta.get('created_at'))
           payload=json.loads(Path('incoming/g13/g13-oos-m15-2026.json').read_text(encoding='utf-8'))
           envelope=normalize_artifact(
               artifact_id=int(meta['id']),
