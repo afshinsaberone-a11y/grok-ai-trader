@@ -35,20 +35,7 @@ jobs:
           python -m py_compile agents/github_artifact_evidence_bridge.py agents/g13_agent_evidence_consumer.py
           python -m pytest -q tests/test_g13_agent_evidence_consumer.py
 
-      - name: Download source G13 artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.source_run_id }}
-        run: |
-          set -euo pipefail
-          mkdir -p incoming/g13
-          gh run download "$RUN_ID" \
-            --repo "$GITHUB_REPOSITORY" \
-            --name g13-oos-m15-2026-current \
-            --dir incoming/g13
-          test -s incoming/g13/g13-oos-m15-2026.json
-
-      - name: Build Agent Evidence from latest live source artifact
+      - name: Resolve source run and newest live G13 artifact
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.source_run_id }}
@@ -57,32 +44,74 @@ jobs:
           python - <<'PY'
           import json, os, subprocess
           from pathlib import Path
-          from agents.github_artifact_evidence_bridge import normalize_artifact, write_evidence
-
           repo=os.environ['GITHUB_REPOSITORY']
           run_id=int(os.environ['RUN_ID'])
+          run=json.loads(subprocess.check_output(
+              ['gh','api',f'repos/{repo}/actions/runs/{run_id}'], text=True, env=os.environ))
+          assert run.get('conclusion') == 'success', f"source run {run_id} is not successful: {run.get('conclusion')}"
+          head_sha=str(run.get('head_sha',''))
+          assert head_sha, 'source run head_sha is missing'
+          page=json.loads(subprocess.check_output(
+              ['gh','api',f'repos/{repo}/actions/runs/{run_id}/artifacts'], text=True, env=os.environ))
           name='g13-oos-m15-2026-current'
-          raw=subprocess.check_output(
-              ['gh','api',f'repos/{repo}/actions/runs/{run_id}/artifacts'],
-              text=True, env=os.environ
-          )
-          page=json.loads(raw)
           matches=[a for a in page.get('artifacts',[]) if a.get('name')==name and not a.get('expired')]
           assert matches, f'no live {name} artifact found for run {run_id}'
           meta=max(matches, key=lambda a: (a.get('created_at',''), int(a.get('id',0))))
-          print('SELECTED_G13_ARTIFACT', meta['id'], meta.get('created_at'))
+          artifact_id=int(meta['id'])
+          digest=str(meta.get('digest',''))
+          assert digest, 'selected artifact digest is missing'
+          print('SOURCE_HEAD_SHA', head_sha)
+          print('SELECTED_G13_ARTIFACT', artifact_id, meta.get('created_at'), digest)
+          env=Path(os.environ['GITHUB_ENV'])
+          with env.open('a',encoding='utf-8') as f:
+              f.write(f'SOURCE_HEAD_SHA={head_sha}\n')
+              f.write(f'G13_ARTIFACT_ID={artifact_id}\n')
+              f.write(f'G13_ARTIFACT_DIGEST={digest}\n')
+          PY
 
-          payload=json.loads(Path('incoming/g13/g13-oos-m15-2026.json').read_text(encoding='utf-8'))
+      - name: Download selected G13 artifact by ID
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ env.G13_ARTIFACT_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming/g13
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
+            > incoming/g13/g13-oos-m15-2026.zip
+          unzip -o incoming/g13/g13-oos-m15-2026.zip -d incoming/g13
+          test -s incoming/g13/g13-oos-m15-2026.json
+
+      - name: Verify selected artifact digest and build Agent Evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_HEAD_SHA: ${{ env.SOURCE_HEAD_SHA }}
+          G13_ARTIFACT_ID: ${{ env.G13_ARTIFACT_ID }}
+          G13_ARTIFACT_DIGEST: ${{ env.G13_ARTIFACT_DIGEST }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from agents.github_artifact_evidence_bridge import normalize_artifact, write_evidence
+          run_id=int(os.environ['RUN_ID'])
+          payload_path=Path('incoming/g13/g13-oos-m15-2026.json')
+          payload=json.loads(payload_path.read_text(encoding='utf-8'))
           envelope=normalize_artifact(
-              artifact_id=int(meta['id']),
-              artifact_name=str(meta['name']),
-              artifact_digest=str(meta['digest']),
+              artifact_id=int(os.environ['G13_ARTIFACT_ID']),
+              artifact_name='g13-oos-m15-2026-current',
+              artifact_digest=os.environ['G13_ARTIFACT_DIGEST'],
               run_id=run_id,
               job_id=None,
-              commit_sha=str(payload.get('provenance',{}).get('commit_sha','')),
+              commit_sha=os.environ['SOURCE_HEAD_SHA'],
               payload=payload,
           )
           evidence_path=write_evidence(envelope, output_dir=Path('artifacts/g13-agent-evidence'))
+          saved=json.loads(evidence_path.read_text(encoding='utf-8'))
+          assert saved['workflow']['commit_sha']==os.environ['SOURCE_HEAD_SHA']
+          assert saved['artifact']['id']==int(os.environ['G13_ARTIFACT_ID'])
+          assert saved['payload']['schema_version']=='forexai.g13.oos_m15.2026.v1'
           print('G13_AGENT_EVIDENCE_WRITTEN', evidence_path)
           Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8').write(f'EVIDENCE_PATH={evidence_path}\n')
           PY
