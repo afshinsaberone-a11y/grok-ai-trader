@@ -14,6 +14,14 @@ permissions:
   contents: read
   actions: read
 
+env:
+  VALIDATION_RUN_ID: '34559825574'
+  VALIDATION_ARTIFACT_ID: '10184001419'
+  ROBUSTNESS_RUN_ID: '34611006027'
+  ROBUSTNESS_ARTIFACT_ID: '10267959324'
+  OOS_RUN_ID: '34654623363'
+  OOS_ARTIFACT_ID: '10319732490'
+
 jobs:
   promotion:
     runs-on: ubuntu-latest
@@ -27,19 +35,44 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Download frozen upstream evidence
+      - name: Verify source runs and download exact evidence artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p evidence/robustness evidence/oos
-          gh run download 34679210600 -n g13-robustness-m15 -D evidence/robustness
-          gh run download 34679937623 -n g13-oos-m15-2026-current -D evidence/oos
+          python - <<'PY'
+          import json, os, subprocess
+          repo=os.environ['GITHUB_REPOSITORY']
+          checks=[
+            ('VALIDATION_RUN_ID', 'VALIDATION_ARTIFACT_ID'),
+            ('ROBUSTNESS_RUN_ID', 'ROBUSTNESS_ARTIFACT_ID'),
+            ('OOS_RUN_ID', 'OOS_ARTIFACT_ID'),
+          ]
+          for run_key, art_key in checks:
+              run_id=int(os.environ[run_key]); artifact_id=int(os.environ[art_key])
+              run=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}'],text=True))
+              assert run.get('conclusion')=='success', (run_id,run.get('conclusion'))
+              print('SOURCE_RUN_OK',run_id,run.get('head_sha'))
+              arts=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}/artifacts'],text=True))['artifacts']
+              match=[a for a in arts if int(a['id'])==artifact_id and not a.get('expired')]
+              assert len(match)==1, (run_id,artifact_id)
+              print('SOURCE_ARTIFACT_OK',artifact_id,match[0].get('name'),match[0].get('digest'))
+          PY
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ROBUSTNESS_ARTIFACT_ID/zip" > evidence/robustness/source.zip
+          unzip -o evidence/robustness/source.zip -d evidence/robustness
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$OOS_ARTIFACT_ID/zip" > evidence/oos/source.zip
+          unzip -o evidence/oos/source.zip -d evidence/oos
       - name: Verify upstream artifacts exist
         run: |
-          test -f evidence/robustness/g13-robustness-m15.json
-          test -f evidence/oos/g13-oos-m15-2026.json
+          set -euo pipefail
+          ROB=$(find evidence/robustness -name 'g13-robustness-m15.json' -type f | head -n1)
+          OOS=$(find evidence/oos -name 'g13-oos-m15-2026.json' -type f | head -n1)
+          test -n "$ROB"
+          test -n "$OOS"
           test -f artifacts/g13/frozen/g13-candidate-handoff-m15.json
+          echo "ROBUSTNESS=$ROB" >> "$GITHUB_ENV"
+          echo "OOS=$OOS" >> "$GITHUB_ENV"
       - name: Compile and unit smoke test
         run: |
           python -m py_compile research/optimization/g13_promotion_gate_m15.py
@@ -48,8 +81,8 @@ jobs:
         run: |
           python -m research.optimization.g13_promotion_gate_m15 \
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
-            --robustness evidence/robustness/g13-robustness-m15.json \
-            --oos evidence/oos/g13-oos-m15-2026.json \
+            --robustness "$ROBUSTNESS" \
+            --oos "$OOS" \
             --output artifacts/g13/g13-promotion-manifest-m15.json
       - name: Fail closed
         run: |
