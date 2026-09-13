@@ -14,11 +14,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-EXPECTED_OOS_RUN = 34679937623
-EXPECTED_OOS_ARTIFACT = 10293797420
-EXPECTED_ROBUST_RUN = 34679210600
-EXPECTED_ROBUST_ARTIFACT = 10293181701
 EXPECTED_VALIDATION_RUN = 34559825574
+EXPECTED_VALIDATION_ARTIFACT = 10184001419
+EXPECTED_ROBUST_RUN = 34611006027
+EXPECTED_ROBUST_ARTIFACT = 10267959324
+EXPECTED_OOS_RUN = 34654623363
+EXPECTED_OOS_ARTIFACT = 10319732490
 PROMOTED_IDS = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 REJECTED_IDS = (44,)
 
@@ -91,7 +92,7 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
             "live_trading_allowed": False,
         },
         "source_artifacts": {
-            "validation": {"run_id": EXPECTED_VALIDATION_RUN, "artifact_id": 10184001419},
+            "validation": {"run_id": EXPECTED_VALIDATION_RUN, "artifact_id": EXPECTED_VALIDATION_ARTIFACT},
             "robustness": {"run_id": EXPECTED_ROBUST_RUN, "artifact_id": EXPECTED_ROBUST_ARTIFACT},
             "oos": {"run_id": EXPECTED_OOS_RUN, "artifact_id": EXPECTED_OOS_ARTIFACT},
         },
