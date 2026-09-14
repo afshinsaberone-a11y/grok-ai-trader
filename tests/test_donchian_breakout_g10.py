@@ -1,4 +1,7 @@
-from research.optimization.donchian_breakout_g10 import candidates, strict_year
+import numpy as np
+
+from research.optimization.donchian_breakout_g10 import _close_position, candidates, strict_year
+from research.optimization.execution_contract_v1 import ExecutionConfig
 
 
 def test_g10_catalog_is_exactly_64_and_unique():
@@ -18,3 +21,16 @@ def test_g10_strict_gate_requires_all_pre_oos_years():
     assert not strict_year(bad_pf)
     assert not strict_year(bad_exp)
     assert not strict_year(bad_dd)
+
+
+def test_g10_zero_risk_exit_fails_closed():
+    rows = []
+    result, equity, peak, maxdd, pos = _close_position(
+        rows, 10000.0, 10000.0, 0.0, 1, 1.1000, 1.1000, 1.1000, 1.1000, ExecutionConfig()
+    )
+    assert result is None
+    assert rows == []
+    assert np.isfinite(equity)
+    assert np.isfinite(peak)
+    assert np.isfinite(maxdd)
+    assert pos == 0
