@@ -53,6 +53,19 @@ def atr_series(x, n=14):
     return tr.rolling(n,min_periods=n).mean().to_numpy()
 
 
+def _close_position(rs, equity, peak, maxdd, pos, entry, stop, target, raw, cfg):
+    risk_distance=abs(float(stop)-float(entry))
+    if not np.isfinite(risk_distance) or risk_distance <= 0.0:
+        return None, equity, peak, maxdd, 0
+    ex=apply_exit_cost(float(raw),pos,cfg)
+    r=pos*(ex-entry)/risk_distance
+    rs.append(float(r))
+    equity*=1.0+r*cfg.risk_pct
+    peak=max(peak,equity)
+    maxdd=max(maxdd,(peak-equity)/peak)
+    return r,equity,peak,maxdd,0
+
+
 def backtest(x, p, cfg):
     if len(x)<max(p["window"],14)+2:
         return {"trades":0,"win_rate_pct":0.0,"profit_factor":0.0,"expectancy_R":0.0,"total_R":0.0,"max_dd_pct":100.0}
@@ -61,7 +74,7 @@ def backtest(x, p, cfg):
     prev_hi=pd.Series(h).rolling(p["window"]).max().shift(1).to_numpy()
     prev_lo=pd.Series(l).rolling(p["window"]).min().shift(1).to_numpy()
     side=1 if p["side"]=="long" else -1
-    pos=0; entry=stop=target=0.0; age=0; rs=[]; equity=10000.0; peak=equity; maxdd=0.0; entries=0
+    pos=0; entry=stop=target=0.0; age=0; rs=[]; equity=10000.0; peak=equity; maxdd=0.0
     for i in range(max(p["window"],14)+1,len(x)):
         if pos==0:
             level=(prev_hi[i]+p["buffer_price"]) if side==1 else (prev_lo[i]-p["buffer_price"])
@@ -71,26 +84,35 @@ def backtest(x, p, cfg):
                 risk=p["atr_mult"]*atr[i-1]
                 stop=entry-side*risk
                 target=entry+side*p["rr"]*risk
-                pos=side; age=0; entries+=1
+                risk_distance=abs(stop-entry)
+                if not np.isfinite(risk_distance) or risk_distance<=0.0:
+                    continue
+                pos=side; age=0
                 continue
         age+=1
         hit_sl=(l[i]<=stop) if pos==1 else (h[i]>=stop)
         hit_tp=(h[i]>=target) if pos==1 else (l[i]<=target)
         if hit_sl or hit_tp or age>=cfg.expiry_bars:
             if hit_sl:
-                raw=stop; reason="SL"
+                raw=stop
             elif hit_tp:
-                raw=target; reason="TP"
+                raw=target
             else:
-                raw=o[i] if i<len(x) else c[i]; reason="EXPIRY"
+                raw=o[i] if i<len(x) else c[i]
+            risk_distance=abs(stop-entry)
+            if not np.isfinite(risk_distance) or risk_distance<=0.0:
+                pos=0
+                continue
             ex=apply_exit_cost(raw,pos,cfg)
-            r=pos*(ex-entry)/(abs(stop-entry))
+            r=pos*(ex-entry)/risk_distance
             rs.append(float(r))
             equity*=1.0+r*cfg.risk_pct
             peak=max(peak,equity); maxdd=max(maxdd,(peak-equity)/peak)
             pos=0
     if pos!=0:
-        ex=apply_exit_cost(c[-1],pos,cfg); r=pos*(ex-entry)/(abs(stop-entry)); rs.append(float(r)); equity*=1.0+r*cfg.risk_pct; peak=max(peak,equity); maxdd=max(maxdd,(peak-equity)/peak)
+        risk_distance=abs(stop-entry)
+        if np.isfinite(risk_distance) and risk_distance>0.0:
+            ex=apply_exit_cost(c[-1],pos,cfg); r=pos*(ex-entry)/risk_distance; rs.append(float(r)); equity*=1.0+r*cfg.risk_pct; peak=max(peak,equity); maxdd=max(maxdd,(peak-equity)/peak)
     arr=np.asarray(rs,float); wins=arr[arr>0]; losses=arr[arr<=0]; gross_loss=abs(losses.sum())
     pf=float(wins.sum()/gross_loss) if gross_loss>0 else (3.0 if wins.size else 0.0)
     return {"trades":int(arr.size),"win_rate_pct":round(float((arr>0).mean()*100),3) if arr.size else 0.0,"profit_factor":round(pf,6),"expectancy_R":round(float(arr.mean()),6) if arr.size else 0.0,"total_R":round(float(arr.sum()),6) if arr.size else 0.0,"max_dd_pct":round(float(maxdd*100),6)}
