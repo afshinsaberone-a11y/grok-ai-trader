@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - research/optimization/donchian_breakout_g10.py
+      - tests/test_donchian_breakout_g10.py
       - .github/workflows/forexai-g10-donchian-m5.yml
       - research/optimization/execution_contract_v1.py
 jobs:
@@ -17,7 +18,9 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Compile
-        run: python -m py_compile research/optimization/donchian_breakout_g10.py research/optimization/execution_contract_v1.py
+        run: python -m py_compile research/optimization/donchian_breakout_g10.py research/optimization/execution_contract_v1.py tests/test_donchian_breakout_g10.py
+      - name: Run G10 unit tests
+        run: pytest -q tests/test_donchian_breakout_g10.py
       - name: Download REAL EURUSD M5
         run: |
           set -euo pipefail
