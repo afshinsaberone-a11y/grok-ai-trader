@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify local Python runtime
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           $python = $null
@@ -51,13 +51,13 @@ jobs:
           "PYTHON_EXE=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install Python dependencies
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m pip install -r requirements.txt
 
       - name: Verify MT5 toolchain
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
@@ -71,7 +71,7 @@ jobs:
           Write-Host "TERMINAL=$terminal"
 
       - name: Generate fresh frozen EAs
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           Remove-Item -Recurse -Force artifacts/g13/mql5 -ErrorAction SilentlyContinue
@@ -81,7 +81,7 @@ jobs:
             --output-dir artifacts/g13/mql5
 
       - name: Compile all 15 EAs with MetaEditor
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
@@ -100,7 +100,7 @@ jobs:
           Write-Host "MT5_COMPILE_OK=15"
 
       - name: Deploy fresh EAs to MT5 Experts
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
@@ -123,7 +123,7 @@ jobs:
           Write-Host "MT5_EXPERTS_DEPLOY_OK=15"
 
       - name: Verify parity input exists
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           PARITY_CSV: ${{ inputs.parity_csv }}
           DATA_CSV: ${{ inputs.data_csv }}
@@ -134,7 +134,7 @@ jobs:
           Write-Host "PARITY_INPUT_OK"
 
       - name: Run fail-closed Python vs MQL5 signal parity
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           PARITY_CSV: ${{ inputs.parity_csv }}
           DATA_CSV: ${{ inputs.data_csv }}
