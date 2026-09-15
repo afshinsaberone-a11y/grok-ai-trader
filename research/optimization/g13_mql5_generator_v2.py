@@ -32,7 +32,7 @@ def render(candidate: dict[str, Any]) -> str:
 //| Live trading is NOT authorized by this source.                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.23"
+#property version "1.24"
 #include <Trade/Trade.mqh>
 CTrade trade;
 
@@ -46,6 +46,8 @@ input double ATRMult = {float(p['atr_mult']):.3f};
 input double RR = {float(p['rr']):.3f};
 input double RSIHigh = {float(p['rsi_high']):.1f};
 input int    ExpiryBars = 30;
+// ParityMode is a deterministic signal-telemetry mode. When true, the EA
+// must not filter on open positions and must not submit broker orders.
 input bool   ParityMode = false;
 input string ParityFile = "g13_mql5_parity.csv";
 
@@ -211,6 +213,24 @@ void OnDeinit(const int reason)
 void OnTick()
 {{
    if(!IsNewBar()) return;
+
+   // Signal-only parity path: log the deterministic signal and do not let
+   // position state, lot sizing, broker rules, or order execution affect it.
+   if(ParityMode)
+   {{
+      if(!BearishDivergence()) return;
+      double atr=ATRAtShift(1);
+      if(atr==EMPTY_VALUE || atr<=0.0) return;
+      double risk=ATRMult*atr;
+      double entry=iOpen(_Symbol,PERIOD_M15,0);
+      if(entry<=0.0) return;
+      double sl=entry+risk;
+      double tp=entry-RR*risk;
+      ParityLogSignal(entry,sl,tp,atr);
+      return;
+   }}
+
+   // Normal research/backtest execution path.
    ManageExpiry();
    if(CountOwnPositions()>0) return;
    if(!BearishDivergence()) return;
@@ -222,7 +242,6 @@ void OnTick()
    if(entry<=0.0) return;
    double sl=entry+risk;
    double tp=entry-RR*risk;
-   ParityLogSignal(entry,sl,tp,atr);
    double lots=LotSize(risk);
    if(lots<=0.0) return;
    trade.Sell(lots,_Symbol,0.0,sl,tp,"ForexAI-G13-{cid:02d}");
