@@ -17,6 +17,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+
 jobs:
   compile-and-parity:
     runs-on: [self-hosted, windows, mt5]
@@ -26,38 +30,74 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify local Python runtime
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
-          $python = $null
-          $cmd = Get-Command python -ErrorAction SilentlyContinue
-          if ($cmd) {
-            $python = $cmd.Source
-          } else {
-            $py = Get-Command py -ErrorAction SilentlyContinue
-            if ($py) {
-              $candidate = (& $py.Source -3.12 -c "import sys; print(sys.executable)" 2>$null | Select-Object -Last 1)
-              if ($candidate -and (Test-Path $candidate)) { $python = $candidate }
+          $candidates = New-Object System.Collections.Generic.List[string]
+
+          function Add-Candidate([string]$p) {
+            if ($p -and (Test-Path $p) -and -not $candidates.Contains($p)) {
+              [void]$candidates.Add($p)
             }
           }
-          if (-not $python) { throw 'Python runtime not found on self-hosted runner. Install Python 3.11+ for the runner service account.' }
-          $version = & $python -c "import sys; print('.'.join(map(str,sys.version_info[:3])))"
-          Write-Host "PYTHON=$python"
-          Write-Host "PYTHON_VERSION=$version"
-          $parts = $version.Split('.')
-          $major = [int]$parts[0]
-          $minor = [int]$parts[1]
-          if (($major -lt 3) -or (($major -eq 3) -and ($minor -lt 11))) { throw "Python 3.11+ required, found $version" }
+
+          $cmd = Get-Command python -ErrorAction SilentlyContinue
+          if ($cmd) { Add-Candidate $cmd.Source }
+
+          $py = Get-Command py -ErrorAction SilentlyContinue
+          if ($py) {
+            try {
+              $candidate = & $py.Source -0p 2>$null | Select-Object -First 1
+              if ($candidate) {
+                $candidate = $candidate.Trim()
+                if ($candidate -match '^\\s*(?:-V:)?3\\.\d+\\s+(.+)$') { $candidate = $Matches[1].Trim() }
+                Add-Candidate $candidate
+              }
+            } catch { }
+          }
+
+          Add-Candidate "$env:LocalAppData\\Programs\\Python\\Python313\\python.exe"
+          Add-Candidate "$env:LocalAppData\\Programs\\Python\\Python312\\python.exe"
+          Add-Candidate "$env:LocalAppData\\Programs\\Python\\Python311\\python.exe"
+          Add-Candidate "C:\\Program Files\\Python313\\python.exe"
+          Add-Candidate "C:\\Program Files\\Python312\\python.exe"
+          Add-Candidate "C:\\Program Files\\Python311\\python.exe"
+          Add-Candidate "C:\\ProgramData\\Anaconda3\\python.exe"
+          Add-Candidate "C:\\ProgramData\\Miniconda3\\python.exe"
+          Add-Candidate "C:\\ProgramData\\miniconda3\\python.exe"
+
+          foreach ($root in @("$env:LocalAppData\\Programs\\Python", 'C:\\Program Files', 'C:\\ProgramData')) {
+            if (Test-Path $root) {
+              Get-ChildItem -Path $root -Filter python.exe -File -Recurse -ErrorAction SilentlyContinue |
+                ForEach-Object { Add-Candidate $_.FullName }
+            }
+          }
+
+          $python = $null
+          foreach ($candidate in $candidates) {
+            try {
+              $version = (& $candidate -c "import sys; print('.'.join(map(str,sys.version_info[:3])))" 2>&1 | Select-Object -Last 1).Trim()
+              if ($LASTEXITCODE -eq 0 -and $version -match '^3\\.(11|12|13)(?:\\.|$)') {
+                $python = $candidate
+                Write-Host "PYTHON=$candidate"
+                Write-Host "PYTHON_VERSION=$version"
+                break
+              }
+            } catch { }
+          }
+
+          if (-not $python) {
+            Write-Host 'PYTHON_CANDIDATES=' ($candidates -join ';')
+            throw 'Python 3.11+ not found on the self-hosted runner. Install Python for the Windows service account or add its executable path to the runner environment.'
+          }
+
           "PYTHON_EXE=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install Python dependencies
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m pip install -r requirements.txt
 
       - name: Verify MT5 toolchain
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
@@ -71,7 +111,6 @@ jobs:
           Write-Host "TERMINAL=$terminal"
 
       - name: Generate fresh frozen EAs
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           Remove-Item -Recurse -Force artifacts/g13/mql5 -ErrorAction SilentlyContinue
@@ -81,7 +120,6 @@ jobs:
             --output-dir artifacts/g13/mql5
 
       - name: Compile all 15 EAs with MetaEditor
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
@@ -100,7 +138,6 @@ jobs:
           Write-Host "MT5_COMPILE_OK=15"
 
       - name: Deploy fresh EAs to MT5 Experts
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
@@ -123,7 +160,6 @@ jobs:
           Write-Host "MT5_EXPERTS_DEPLOY_OK=15"
 
       - name: Verify parity input exists
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           PARITY_CSV: ${{ inputs.parity_csv }}
           DATA_CSV: ${{ inputs.data_csv }}
@@ -134,7 +170,6 @@ jobs:
           Write-Host "PARITY_INPUT_OK"
 
       - name: Run fail-closed Python vs MQL5 signal parity
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           PARITY_CSV: ${{ inputs.parity_csv }}
           DATA_CSV: ${{ inputs.data_csv }}
