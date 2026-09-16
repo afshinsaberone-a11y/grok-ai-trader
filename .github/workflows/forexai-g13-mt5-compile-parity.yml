@@ -35,8 +35,27 @@ jobs:
           $candidates = New-Object System.Collections.Generic.List[string]
 
           function Add-Candidate([string]$p) {
-            if ($p -and (Test-Path $p) -and -not $candidates.Contains($p)) {
-              [void]$candidates.Add($p)
+            if (-not $p -or $candidates.Contains($p)) { return }
+            try {
+              if (Test-Path -LiteralPath $p -PathType Leaf) {
+                [void]$candidates.Add($p)
+              }
+            } catch [System.UnauthorizedAccessException] {
+              Write-Host "PYTHON_PATH_SKIPPED_ACCESS_DENIED=$p"
+            } catch {
+              Write-Host "PYTHON_PATH_SKIPPED_ERROR=$p :: $($_.Exception.Message)"
+            }
+          }
+
+          function Add-Candidates-Under-Root([string]$root) {
+            try {
+              if (-not (Test-Path -LiteralPath $root -PathType Container)) { return }
+              Get-ChildItem -Path $root -Filter python.exe -File -Recurse -ErrorAction SilentlyContinue |
+                ForEach-Object { Add-Candidate $_.FullName }
+            } catch [System.UnauthorizedAccessException] {
+              Write-Host "PYTHON_ROOT_SKIPPED_ACCESS_DENIED=$root"
+            } catch {
+              Write-Host "PYTHON_ROOT_SKIPPED_ERROR=$root :: $($_.Exception.Message)"
             }
           }
 
@@ -52,19 +71,26 @@ jobs:
                 if ($candidate -match '^\s*(?:-V:)?3\.\d+\s+(.+)$') { $candidate = $Matches[1].Trim() }
                 Add-Candidate $candidate
               }
-            } catch { }
+            } catch {
+              Write-Host "PYTHON_LAUNCHER_DISCOVERY_FAILED=$($_.Exception.Message)"
+            }
           }
 
           # The MT5 runner is installed as a Windows service, while Python may
           # have been installed per-user for the interactive Star account.
           foreach ($userRoot in @('C:\\Users\\Star', $env:USERPROFILE)) {
-            if ($userRoot -and (Test-Path $userRoot)) {
+            try {
+              if (-not $userRoot -or -not (Test-Path -LiteralPath $userRoot -PathType Container)) { continue }
               Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\Python313\\python.exe"
               Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
               Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\Python311\\python.exe"
               Add-Candidate "$userRoot\\AppData\\Programs\\Python\\Python313\\python.exe"
               Add-Candidate "$userRoot\\AppData\\Programs\\Python\\Python312\\python.exe"
               Add-Candidate "$userRoot\\AppData\\Programs\\Python\\Python311\\python.exe"
+            } catch [System.UnauthorizedAccessException] {
+              Write-Host "PYTHON_USER_ROOT_SKIPPED_ACCESS_DENIED=$userRoot"
+            } catch {
+              Write-Host "PYTHON_USER_ROOT_SKIPPED_ERROR=$userRoot :: $($_.Exception.Message)"
             }
           }
 
@@ -76,10 +102,7 @@ jobs:
           Add-Candidate 'C:\\ProgramData\\miniconda3\\python.exe'
 
           foreach ($root in @('C:\\Users\\Star\\AppData\\Local\\Programs\\Python', 'C:\\Users\\Star\\AppData\\Programs\\Python', 'C:\\Program Files', 'C:\\ProgramData')) {
-            if (Test-Path $root) {
-              Get-ChildItem -Path $root -Filter python.exe -File -Recurse -ErrorAction SilentlyContinue |
-                ForEach-Object { Add-Candidate $_.FullName }
-            }
+            Add-Candidates-Under-Root $root
           }
 
           $python = $null
@@ -92,7 +115,9 @@ jobs:
                 Write-Host "PYTHON_VERSION=$version"
                 break
               }
-            } catch { }
+            } catch {
+              Write-Host "PYTHON_EXECUTION_SKIPPED=$candidate :: $($_.Exception.Message)"
+            }
           }
 
           if (-not $python) {
@@ -115,8 +140,8 @@ jobs:
           $root = $env:MT5_ROOT
           $meta = Join-Path $root 'metaeditor64.exe'
           $terminal = Join-Path $root 'terminal64.exe'
-          if (!(Test-Path $meta)) { throw "MetaEditor not found: $meta" }
-          if (!(Test-Path $terminal)) { throw "MT5 terminal not found: $terminal" }
+          if (!(Test-Path -LiteralPath $meta -PathType Leaf)) { throw "MetaEditor not found: $meta" }
+          if (!(Test-Path -LiteralPath $terminal -PathType Leaf)) { throw "MT5 terminal not found: $terminal" }
           Write-Host "METAEDITOR=$meta"
           Write-Host "TERMINAL=$terminal"
 
@@ -143,7 +168,7 @@ jobs:
             Write-Host "Compiling $($f.Name)"
             & $meta "/compile:$($f.FullName)" /log
             if ($LASTEXITCODE -ne 0) { throw "MetaEditor returned $LASTEXITCODE for $($f.Name)" }
-            if (!(Test-Path $ex5)) { throw "No EX5 produced for $($f.Name)" }
+            if (!(Test-Path -LiteralPath $ex5 -PathType Leaf)) { throw "No EX5 produced for $($f.Name)" }
           }
           Write-Host "MT5_COMPILE_OK=15"
 
@@ -153,7 +178,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $experts = Join-Path $env:MT5_ROOT 'MQL5\\Experts'
-          if (!(Test-Path $experts)) { throw "MT5 Experts folder not found: $experts" }
+          if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
           $files = @(Get-ChildItem 'artifacts/g13/mql5/*.mq5' | Sort-Object Name)
           if ($files.Count -ne 15) { throw "Expected 15 mq5 files before deploy, found $($files.Count)" }
           foreach ($f in $files) {
@@ -175,8 +200,8 @@ jobs:
           DATA_CSV: ${{ inputs.data_csv }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if (!(Test-Path $env:PARITY_CSV)) { throw "Missing MT5 parity CSV: $env:PARITY_CSV" }
-          if (!(Test-Path $env:DATA_CSV)) { throw "Missing REAL EURUSD M15 CSV: $env:DATA_CSV" }
+          if (!(Test-Path -LiteralPath $env:PARITY_CSV -PathType Leaf)) { throw "Missing MT5 parity CSV: $env:PARITY_CSV" }
+          if (!(Test-Path -LiteralPath $env:DATA_CSV -PathType Leaf)) { throw "Missing REAL EURUSD M15 CSV: $env:DATA_CSV" }
           Write-Host "PARITY_INPUT_OK"
 
       - name: Run fail-closed Python vs MQL5 signal parity
