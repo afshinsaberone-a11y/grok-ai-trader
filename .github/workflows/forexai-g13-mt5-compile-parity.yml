@@ -33,35 +33,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $candidates = New-Object System.Collections.Generic.List[string]
-
           function Add-Candidate([string]$p) {
             if (-not $p -or $candidates.Contains($p)) { return }
             try {
-              if (Test-Path -LiteralPath $p -PathType Leaf) {
-                [void]$candidates.Add($p)
-              }
+              if (Test-Path -LiteralPath $p -PathType Leaf) { [void]$candidates.Add($p) }
             } catch [System.UnauthorizedAccessException] {
               Write-Host "PYTHON_PATH_SKIPPED_ACCESS_DENIED=$p"
-            } catch {
-              Write-Host "PYTHON_PATH_SKIPPED_ERROR=$p :: $($_.Exception.Message)"
-            }
+            } catch { Write-Host "PYTHON_PATH_SKIPPED_ERROR=$p :: $($_.Exception.Message)" }
           }
-
-          function Add-Candidates-Under-Root([string]$root) {
-            try {
-              if (-not (Test-Path -LiteralPath $root -PathType Container)) { return }
-              Get-ChildItem -Path $root -Filter python.exe -File -Recurse -ErrorAction SilentlyContinue |
-                ForEach-Object { Add-Candidate $_.FullName }
-            } catch [System.UnauthorizedAccessException] {
-              Write-Host "PYTHON_ROOT_SKIPPED_ACCESS_DENIED=$root"
-            } catch {
-              Write-Host "PYTHON_ROOT_SKIPPED_ERROR=$root :: $($_.Exception.Message)"
-            }
-          }
-
           $cmd = Get-Command python -ErrorAction SilentlyContinue
           if ($cmd) { Add-Candidate $cmd.Source }
-
           $py = Get-Command py -ErrorAction SilentlyContinue
           if ($py) {
             try {
@@ -71,61 +52,37 @@ jobs:
                 if ($candidate -match '^\s*(?:-V:)?3\.\d+\s+(.+)$') { $candidate = $Matches[1].Trim() }
                 Add-Candidate $candidate
               }
-            } catch {
-              Write-Host "PYTHON_LAUNCHER_DISCOVERY_FAILED=$($_.Exception.Message)"
-            }
+            } catch { Write-Host "PYTHON_LAUNCHER_DISCOVERY_FAILED=$($_.Exception.Message)" }
           }
-
-          # The MT5 runner is installed as a Windows service, while Python may
-          # have been installed per-user for the interactive Star account.
           foreach ($userRoot in @('C:\\Users\\Star', $env:USERPROFILE)) {
-            try {
-              if (-not $userRoot -or -not (Test-Path -LiteralPath $userRoot -PathType Container)) { continue }
-              Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\Python313\\python.exe"
-              Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
-              Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\Python311\\python.exe"
-              Add-Candidate "$userRoot\\AppData\\Programs\\Python\\Python313\\python.exe"
-              Add-Candidate "$userRoot\\AppData\\Programs\\Python\\Python312\\python.exe"
-              Add-Candidate "$userRoot\\AppData\\Programs\\Python\\Python311\\python.exe"
-            } catch [System.UnauthorizedAccessException] {
-              Write-Host "PYTHON_USER_ROOT_SKIPPED_ACCESS_DENIED=$userRoot"
-            } catch {
-              Write-Host "PYTHON_USER_ROOT_SKIPPED_ERROR=$userRoot :: $($_.Exception.Message)"
+            if ($userRoot -and (Test-Path -LiteralPath $userRoot -PathType Container)) {
+              foreach ($ver in 'Python313','Python312','Python311') {
+                Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\$ver\\python.exe"
+                Add-Candidate "$userRoot\\AppData\\Programs\\Python\\$ver\\python.exe"
+              }
             }
           }
-
           Add-Candidate 'C:\\Program Files\\Python313\\python.exe'
           Add-Candidate 'C:\\Program Files\\Python312\\python.exe'
           Add-Candidate 'C:\\Program Files\\Python311\\python.exe'
           Add-Candidate 'C:\\ProgramData\\Anaconda3\\python.exe'
           Add-Candidate 'C:\\ProgramData\\Miniconda3\\python.exe'
-          Add-Candidate 'C:\\ProgramData\\miniconda3\\python.exe'
-
-          foreach ($root in @('C:\\Users\\Star\\AppData\\Local\\Programs\\Python', 'C:\\Users\\Star\\AppData\\Programs\\Python', 'C:\\Program Files', 'C:\\ProgramData')) {
-            Add-Candidates-Under-Root $root
-          }
-
-          $python = $null
           foreach ($candidate in $candidates) {
             try {
               $version = (& $candidate -c "import sys; print('.'.join(map(str,sys.version_info[:3])))" 2>&1 | Select-Object -Last 1).Trim()
               if ($LASTEXITCODE -eq 0 -and $version -match '^3\.(11|12|13)(?:\.|$)') {
-                $python = $candidate
                 Write-Host "PYTHON=$candidate"
                 Write-Host "PYTHON_VERSION=$version"
+                "PYTHON_EXE=$candidate" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
                 break
               }
-            } catch {
-              Write-Host "PYTHON_EXECUTION_SKIPPED=$candidate :: $($_.Exception.Message)"
-            }
+            } catch { }
           }
-
-          if (-not $python) {
+          if (-not $env:GITHUB_ENV) { throw 'GITHUB_ENV unavailable' }
+          if (-not (Get-Content $env:GITHUB_ENV -ErrorAction SilentlyContinue | Select-String '^PYTHON_EXE=')) {
             Write-Host 'PYTHON_CANDIDATES=' ($candidates -join ';')
-            throw 'Python 3.11+ not found on the self-hosted runner. Install Python for the Windows service account or add its executable path to the runner environment.'
+            throw 'Python 3.11+ not found on the self-hosted runner.'
           }
-
-          "PYTHON_EXE=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install Python dependencies
         run: |
@@ -166,9 +123,12 @@ jobs:
             $ex5 = [System.IO.Path]::ChangeExtension($f.FullName, '.ex5')
             Remove-Item $ex5 -Force -ErrorAction SilentlyContinue
             Write-Host "Compiling $($f.Name)"
-            & $meta "/compile:$($f.FullName)" /log
-            if ($LASTEXITCODE -ne 0) { throw "MetaEditor returned $LASTEXITCODE for $($f.Name)" }
-            if (!(Test-Path -LiteralPath $ex5 -PathType Leaf)) { throw "No EX5 produced for $($f.Name)" }
+            $proc = Start-Process -FilePath $meta -ArgumentList @("/compile:$($f.FullName)", '/log') -Wait -PassThru
+            Write-Host "METAEDITOR_EXIT_CODE=$($proc.ExitCode) FILE=$($f.Name)"
+            if (!(Test-Path -LiteralPath $ex5 -PathType Leaf)) {
+              throw "No EX5 produced for $($f.Name); MetaEditor exit code=$($proc.ExitCode)"
+            }
+            if ($proc.ExitCode -ne 0) { throw "MetaEditor returned exit code $($proc.ExitCode) for $($f.Name)" }
           }
           Write-Host "MT5_COMPILE_OK=15"
 
