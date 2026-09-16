@@ -49,23 +49,33 @@ jobs:
               $candidate = & $py.Source -0p 2>$null | Select-Object -First 1
               if ($candidate) {
                 $candidate = $candidate.Trim()
-                if ($candidate -match '^\\s*(?:-V:)?3\\.\d+\\s+(.+)$') { $candidate = $Matches[1].Trim() }
+                if ($candidate -match '^\s*(?:-V:)?3\.\d+\s+(.+)$') { $candidate = $Matches[1].Trim() }
                 Add-Candidate $candidate
               }
             } catch { }
           }
 
-          Add-Candidate "$env:LocalAppData\\Programs\\Python\\Python313\\python.exe"
-          Add-Candidate "$env:LocalAppData\\Programs\\Python\\Python312\\python.exe"
-          Add-Candidate "$env:LocalAppData\\Programs\\Python\\Python311\\python.exe"
-          Add-Candidate "C:\\Program Files\\Python313\\python.exe"
-          Add-Candidate "C:\\Program Files\\Python312\\python.exe"
-          Add-Candidate "C:\\Program Files\\Python311\\python.exe"
-          Add-Candidate "C:\\ProgramData\\Anaconda3\\python.exe"
-          Add-Candidate "C:\\ProgramData\\Miniconda3\\python.exe"
-          Add-Candidate "C:\\ProgramData\\miniconda3\\python.exe"
+          # The MT5 runner is installed as a Windows service, while Python may
+          # have been installed per-user for the interactive Star account.
+          foreach ($userRoot in @('C:\\Users\\Star', $env:USERPROFILE)) {
+            if ($userRoot -and (Test-Path $userRoot)) {
+              Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\Python313\\python.exe"
+              Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
+              Add-Candidate "$userRoot\\AppData\\Local\\Programs\\Python\\Python311\\python.exe"
+              Add-Candidate "$userRoot\\AppData\\Programs\\Python\\Python313\\python.exe"
+              Add-Candidate "$userRoot\\AppData\\Programs\\Python\\Python312\\python.exe"
+              Add-Candidate "$userRoot\\AppData\\Programs\\Python\\Python311\\python.exe"
+            }
+          }
 
-          foreach ($root in @("$env:LocalAppData\\Programs\\Python", 'C:\\Program Files', 'C:\\ProgramData')) {
+          Add-Candidate 'C:\\Program Files\\Python313\\python.exe'
+          Add-Candidate 'C:\\Program Files\\Python312\\python.exe'
+          Add-Candidate 'C:\\Program Files\\Python311\\python.exe'
+          Add-Candidate 'C:\\ProgramData\\Anaconda3\\python.exe'
+          Add-Candidate 'C:\\ProgramData\\Miniconda3\\python.exe'
+          Add-Candidate 'C:\\ProgramData\\miniconda3\\python.exe'
+
+          foreach ($root in @('C:\\Users\\Star\\AppData\\Local\\Programs\\Python', 'C:\\Users\\Star\\AppData\\Programs\\Python', 'C:\\Program Files', 'C:\\ProgramData')) {
             if (Test-Path $root) {
               Get-ChildItem -Path $root -Filter python.exe -File -Recurse -ErrorAction SilentlyContinue |
                 ForEach-Object { Add-Candidate $_.FullName }
@@ -76,7 +86,7 @@ jobs:
           foreach ($candidate in $candidates) {
             try {
               $version = (& $candidate -c "import sys; print('.'.join(map(str,sys.version_info[:3])))" 2>&1 | Select-Object -Last 1).Trim()
-              if ($LASTEXITCODE -eq 0 -and $version -match '^3\\.(11|12|13)(?:\\.|$)') {
+              if ($LASTEXITCODE -eq 0 -and $version -match '^3\.(11|12|13)(?:\.|$)') {
                 $python = $candidate
                 Write-Host "PYTHON=$candidate"
                 Write-Host "PYTHON_VERSION=$version"
