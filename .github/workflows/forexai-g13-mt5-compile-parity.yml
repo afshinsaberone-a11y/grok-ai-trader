@@ -199,27 +199,68 @@ jobs:
           }
           Write-Host "MT5_EXPERTS_DEPLOY_OK=15"
 
+      - name: Stage real parity and market-data inputs
+        env:
+          PARITY_CSV_INPUT: ${{ inputs.parity_csv }}
+          DATA_CSV_INPUT: ${{ inputs.data_csv }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
+          New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+
+          $parityCandidates = @(
+            $env:PARITY_CSV_INPUT,
+            'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\Common\\Files\\g13_mql5_parity.csv',
+            'C:\\Windows\\ServiceProfiles\\NetworkService\\AppData\\Roaming\\MetaQuotes\\Terminal\\Common\\Files\\g13_mql5_parity.csv'
+          ) | Where-Object { $_ }
+
+          $paritySource = $null
+          foreach ($p in $parityCandidates) {
+            try {
+              if (Test-Path -LiteralPath $p -PathType Leaf) { $paritySource = $p; break }
+            } catch [System.UnauthorizedAccessException] {
+              Write-Host "PARITY_PATH_ACCESS_DENIED=$p"
+            }
+          }
+          if (-not $paritySource) {
+            Write-Host 'PARITY_CANDIDATES=' ($parityCandidates -join ';')
+            throw 'REAL MT5 parity CSV not found. Run the MT5 ParityMode tester first; no synthetic fallback is allowed.'
+          }
+
+          $dataSource = $env:DATA_CSV_INPUT
+          if (!(Test-Path -LiteralPath $dataSource -PathType Leaf)) {
+            throw "REAL market-data CSV not found: $dataSource"
+          }
+
+          $parityTarget = Join-Path $stageDir 'g13_mql5_parity.csv'
+          $dataTarget = Join-Path $stageDir 'EURUSDM15_G13_2025.csv'
+          Copy-Item $paritySource $parityTarget -Force
+          Copy-Item $dataSource $dataTarget -Force
+
+          "PARITY_CSV_RESOLVED=$parityTarget" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DATA_CSV_RESOLVED=$dataTarget" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "PARITY_SOURCE=$paritySource"
+          Write-Host "PARITY_CSV_RESOLVED=$parityTarget"
+          Write-Host "DATA_CSV_RESOLVED=$dataTarget"
+          Write-Host 'REAL_INPUTS_STAGED_OK'
+
       - name: Verify parity input exists
         env:
           PARITY_CSV: ${{ inputs.parity_csv }}
-          DATA_CSV: ${{ inputs.data_csv }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if (!(Test-Path -LiteralPath $env:PARITY_CSV -PathType Leaf)) { throw "Missing MT5 parity CSV: $env:PARITY_CSV" }
-          if (!(Test-Path -LiteralPath $env:DATA_CSV -PathType Leaf)) { throw "Missing REAL EURUSD M15 CSV: $env:DATA_CSV" }
+          if (!(Test-Path -LiteralPath $env:PARITY_CSV_RESOLVED -PathType Leaf)) { throw "Staged MT5 parity CSV missing: $env:PARITY_CSV_RESOLVED" }
+          if (!(Test-Path -LiteralPath $env:DATA_CSV_RESOLVED -PathType Leaf)) { throw "Staged REAL EURUSD M15 CSV missing: $env:DATA_CSV_RESOLVED" }
           Write-Host "PARITY_INPUT_OK"
 
       - name: Run fail-closed Python vs MQL5 signal parity
-        env:
-          PARITY_CSV: ${{ inputs.parity_csv }}
-          DATA_CSV: ${{ inputs.data_csv }}
         run: |
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m research.optimization.g13_mql5_parity `
-            --data "$env:DATA_CSV" `
+            --data "$env:DATA_CSV_RESOLVED" `
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
             --manifest artifacts/g13/g13-promotion-manifest-m15.json `
-            --mt5 "$env:PARITY_CSV" `
+            --mt5 "$env:PARITY_CSV_RESOLVED" `
             --output artifacts/g13-mql5-signal-parity.json
 
       - name: Upload compile + parity evidence
@@ -230,4 +271,5 @@ jobs:
             artifacts/g13/mql5/*.mq5
             artifacts/g13/mql5/*.ex5
             artifacts/g13-mql5-signal-parity.json
+            artifacts/g13/ci_inputs/*.csv
           if-no-files-found: error
