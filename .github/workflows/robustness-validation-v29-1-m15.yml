@@ -31,46 +31,62 @@ jobs:
       - name: Download REAL EURUSD M1 dataset
         run: |
           set -euo pipefail
-          mkdir -p data/real/raw
-          curl -fL --retry 3 --retry-delay 2 -o data/real/raw/EURUSD_M1_20220101_20251231.zip \
-            'https://www.histdata.com/download-free-forex-historical-data/?/metatrader/1-minute-bar-quotes/EURUSD/2025'
-          test -s data/real/raw/EURUSD_M1_20220101_20251231.zip
-          unzip -o data/real/raw/EURUSD_M1_20220101_20251231.zip -d data/real/raw
+          mkdir -p data/real/raw/histdata data/real/normalized
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+          import pandas as pd
+          from research.real_data.histdata_ingest import fetch_archive, _extract_archive_csv, _parse_csv
+
+          out = Path('data/real/raw/histdata')
+          frames = []
+          for year in range(2022, 2026):
+              item = fetch_archive(year, out, retries=4, timeout=90)
+              if not zipfile.is_zipfile(item.archive):
+                  raise SystemExit(f'REAL_DATA_REQUIRED: downloaded archive is not a valid ZIP: {item.archive}')
+              name, payload = _extract_archive_csv(item.archive)
+              frame = _parse_csv(payload)
+              frames.append(frame)
+              print(f'validated REAL HistData archive: year={year} file={name} rows={len(frame)} sha256={item.sha256}')
+
+          if len(frames) != 4:
+              raise SystemExit('REAL_DATA_REQUIRED: expected four historical EURUSD M1 archives (2022-2025)')
+          df = pd.concat(frames, ignore_index=True)
+          df = df[(df.timestamp >= pd.Timestamp('2022-01-01', tz='UTC')) & (df.timestamp < pd.Timestamp('2026-01-01', tz='UTC'))]
+          df = df.sort_values('timestamp').drop_duplicates('timestamp', keep='first').reset_index(drop=True)
+          if df.empty:
+              raise SystemExit('REAL_DATA_REQUIRED: no REAL EURUSD M1 rows available')
+          path = Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          df.to_csv(path, index=False)
+          print(f'REAL EURUSD M1 rows={len(df)} start={df.timestamp.min()} end={df.timestamp.max()}')
+          print('2026 holdout: NOT downloaded and NOT included')
+          PY
 
       - name: Locate REAL M15 dataset
         run: |
           set -euo pipefail
-          mkdir -p data/real/normalized
-          M1=$(find data/real/raw -type f \( -iname '*.csv' -o -iname '*.txt' \) | head -n 1)
-          test -n "$M1"
-          python - "$M1" <<'PY'
-          import sys
-          import pandas as pd
+          python - <<'PY'
           from pathlib import Path
-          src = Path(sys.argv[1])
-          df = pd.read_csv(src, header=None)
-          if len(df.columns) < 5:
-              raise SystemExit('REAL source does not contain OHLC data')
-          df = df.iloc[:, :5].copy()
-          df.columns = ['timestamp','open','high','low','close']
-          ts = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
-          if ts.isna().all():
-              raise SystemExit('REAL source timestamp parsing failed')
-          df['timestamp'] = ts
-          for c in ['open','high','low','close']:
-              df[c] = pd.to_numeric(df[c], errors='coerce')
-          df = df.dropna(subset=['timestamp','open','high','low','close'])
+          import pandas as pd
+          from research.real_data.normalizer import resample_ohlcv
+          from research.real_data.validator import validate_ohlcv
+
+          src = Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
+          if not src.exists() or src.stat().st_size == 0:
+              raise SystemExit('REAL_DATA_REQUIRED: validated REAL M1 dataset missing')
+          df = pd.read_csv(src, parse_dates=['timestamp'])
+          required = {'timestamp','open','high','low','close'}
+          if not required.issubset(df.columns):
+              raise SystemExit(f'REAL_DATA_REQUIRED: M1 dataset missing columns: {sorted(required-set(df.columns))}')
+          df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
           df = df.sort_values('timestamp').drop_duplicates('timestamp', keep='first').set_index('timestamp')
-          out = pd.DataFrame({
-              'open': df['open'].resample('15min', label='left', closed='left').first(),
-              'high': df['high'].resample('15min', label='left', closed='left').max(),
-              'low': df['low'].resample('15min', label='left', closed='left').min(),
-              'close': df['close'].resample('15min', label='left', closed='left').last(),
-          }).dropna(subset=['open','high','low','close'])
-          if out.empty:
-              raise SystemExit('REAL M15 aggregation produced no rows')
-          out.to_csv('data/real/normalized/EURUSD_M15_20220101_20251231.csv', index_label='timestamp')
-          print(f'rows={len(out)}')
+          out = resample_ohlcv(df, '15min')
+          report = validate_ohlcv(out.reset_index(), symbol='EURUSD', timeframe='M15')
+          if report.status != 'PASS':
+              raise SystemExit(f'REAL_DATA_REQUIRED: REAL M15 validation failed: {report.to_dict()}')
+          path = Path('data/real/normalized/EURUSD_M15_20220101_20251231.csv')
+          out.to_csv(path, index=True, index_label='timestamp')
+          print(f'validated REAL M15 rows={len(out)}')
           PY
 
       - name: Validate REAL M15 dataset and cadence
@@ -92,7 +108,9 @@ jobs:
           d=df.timestamp.diff().dropna().dt.total_seconds().div(60)
           if d.median() != 15.0:
               raise SystemExit(f'cadence median is {d.median()}, expected 15')
-          print(f'rows={len(df)} median_cadence_minutes={d.median()}')
+          if df.timestamp.max() >= pd.Timestamp('2026-01-01', tz='UTC'):
+              raise SystemExit('2026 holdout contamination detected')
+          print(f'rows={len(df)} median_cadence_minutes={d.median()} start={df.timestamp.min()} end={df.timestamp.max()}')
           PY
 
       - name: Run v29.1 frozen robustness validation — M15
