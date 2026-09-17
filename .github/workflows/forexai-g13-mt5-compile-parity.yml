@@ -7,6 +7,10 @@ on:
         description: 'MT5 installation root on the self-hosted Windows runner'
         required: false
         default: 'C:\\Program Files\\MetaTrader 5'
+      mt5_data_root:
+        description: 'MT5 terminal data root containing MQL5\\Experts'
+        required: false
+        default: 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075'
       parity_csv:
         description: 'Path to the MT5-exported g13_mql5_parity.csv on the runner'
         required: true
@@ -88,18 +92,25 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m pip install -r requirements.txt
 
-      - name: Verify MT5 toolchain
+      - name: Verify MT5 toolchain and data folder
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
+          MT5_DATA_ROOT: ${{ inputs.mt5_data_root }}
         run: |
           $ErrorActionPreference = 'Stop'
           $root = $env:MT5_ROOT
+          $data = $env:MT5_DATA_ROOT
           $meta = Join-Path $root 'metaeditor64.exe'
           $terminal = Join-Path $root 'terminal64.exe'
+          $experts = Join-Path $data 'MQL5\\Experts'
           if (!(Test-Path -LiteralPath $meta -PathType Leaf)) { throw "MetaEditor not found: $meta" }
           if (!(Test-Path -LiteralPath $terminal -PathType Leaf)) { throw "MT5 terminal not found: $terminal" }
+          if (!(Test-Path -LiteralPath $data -PathType Container)) { throw "MT5 data root not found: $data" }
+          if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
           Write-Host "METAEDITOR=$meta"
           Write-Host "TERMINAL=$terminal"
+          Write-Host "MT5_DATA_ROOT=$data"
+          Write-Host "MT5_EXPERTS=$experts"
 
       - name: Generate fresh frozen EAs
         run: |
@@ -113,12 +124,13 @@ jobs:
       - name: Compile all 15 EAs with MetaEditor
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
+          MT5_DATA_ROOT: ${{ inputs.mt5_data_root }}
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
-          $experts = Join-Path $env:MT5_ROOT 'MQL5\\Experts'
-          if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
+          $experts = Join-Path $env:MT5_DATA_ROOT 'MQL5\\Experts'
           $buildDir = Join-Path $experts 'ForexAI_G13_CI_Build'
+          if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
           New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
           Remove-Item -Path (Join-Path $buildDir '*') -Force -ErrorAction SilentlyContinue
           $files = @(Get-ChildItem 'artifacts/g13/mql5/*.mq5' | Sort-Object Name)
@@ -132,24 +144,23 @@ jobs:
             Write-Host "Compiling $($f.Name) from $buildDir"
             $proc = Start-Process -FilePath $meta -WorkingDirectory $buildDir -ArgumentList @("/compile:$src", '/log') -Wait -PassThru
             Write-Host "METAEDITOR_EXIT_CODE=$($proc.ExitCode) FILE=$($f.Name)"
-            if (!(Test-Path -LiteralPath $log -PathType Leaf)) {
-              throw "MetaEditor produced no compile log for $($f.Name); exit code=$($proc.ExitCode)"
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              Get-Content -LiteralPath $log -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "METAEDITOR_LOG=$($_)" }
             }
-            Get-Content -LiteralPath $log -Encoding Unicode -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "METAEDITOR_LOG=$($_)" }
             if (!(Test-Path -LiteralPath $ex5 -PathType Leaf)) {
               throw "No EX5 produced for $($f.Name); MetaEditor exit code=$($proc.ExitCode)"
             }
-            Copy-Item $src (Join-Path 'artifacts/g13/mql5' $f.Name) -Force
+            if ($proc.ExitCode -ne 0) { throw "MetaEditor returned exit code $($proc.ExitCode) for $($f.Name)" }
             Copy-Item $ex5 (Join-Path 'artifacts/g13/mql5' ([System.IO.Path]::GetFileName($ex5))) -Force
           }
           Write-Host "MT5_COMPILE_OK=15"
 
       - name: Deploy fresh EAs to MT5 Experts
         env:
-          MT5_ROOT: ${{ inputs.mt5_root }}
+          MT5_DATA_ROOT: ${{ inputs.mt5_data_root }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $experts = Join-Path $env:MT5_ROOT 'MQL5\\Experts'
+          $experts = Join-Path $env:MT5_DATA_ROOT 'MQL5\\Experts'
           if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
           $files = @(Get-ChildItem 'artifacts/g13/mql5/*.mq5' | Sort-Object Name)
           if ($files.Count -ne 15) { throw "Expected 15 mq5 files before deploy, found $($files.Count)" }
