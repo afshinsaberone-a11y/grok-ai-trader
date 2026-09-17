@@ -140,15 +140,12 @@ jobs:
       - name: Compile all 15 EAs with MetaEditor
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
-          MT5_DATA_ROOT: ${{ inputs.mt5_data_root }}
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
-          $experts = Join-Path $env:MT5_DATA_ROOT 'MQL5\\Experts'
-          $buildDir = Join-Path $experts 'ForexAI_G13_CI_Build'
-          if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\mql5\\_ci_build'
           New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
-          Remove-Item -Path (Join-Path $buildDir '*') -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path (Join-Path $buildDir '*') -Recurse -Force -ErrorAction SilentlyContinue
           $files = @(Get-ChildItem 'artifacts/g13/mql5/*.mq5' | Sort-Object Name)
           if ($files.Count -ne 15) { throw "Expected 15 mq5 files, found $($files.Count)" }
           foreach ($f in $files) {
