@@ -158,12 +158,21 @@ jobs:
             $proc = Start-Process -FilePath $meta -WorkingDirectory $buildDir -ArgumentList @("/compile:$src", '/log') -Wait -PassThru
             Write-Host "METAEDITOR_EXIT_CODE=$($proc.ExitCode) FILE=$($f.Name)"
             if (Test-Path -LiteralPath $log -PathType Leaf) {
-              Get-Content -LiteralPath $log -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "METAEDITOR_LOG=$($_)" }
+              $logText = Get-Content -LiteralPath $log -Raw -ErrorAction Stop
+              $logText -split "`r?`n" | ForEach-Object { if ($_.Trim()) { Write-Host "METAEDITOR_LOG=$($_)" } }
+              $resultMatch = [regex]::Match($logText, 'Result:\s*(\d+) errors,\s*(\d+) warnings')
+              if (!$resultMatch.Success) { throw "Unable to parse MetaEditor compile result for $($f.Name)" }
+              $errors = [int]$resultMatch.Groups[1].Value
+              $warnings = [int]$resultMatch.Groups[2].Value
+              Write-Host "METAEDITOR_ERRORS=$errors FILE=$($f.Name)"
+              Write-Host "METAEDITOR_WARNINGS=$warnings FILE=$($f.Name)"
+              if ($errors -ne 0) { throw "MetaEditor compile produced $errors errors for $($f.Name)" }
+            } else {
+              throw "MetaEditor compile log missing for $($f.Name)"
             }
             if (!(Test-Path -LiteralPath $ex5 -PathType Leaf)) {
               throw "No EX5 produced for $($f.Name); MetaEditor exit code=$($proc.ExitCode)"
             }
-            if ($proc.ExitCode -ne 0) { throw "MetaEditor returned exit code $($proc.ExitCode) for $($f.Name)" }
             Copy-Item $ex5 (Join-Path 'artifacts/g13/mql5' ([System.IO.Path]::GetFileName($ex5))) -Force
           }
           Write-Host "MT5_COMPILE_OK=15"
