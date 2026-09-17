@@ -112,6 +112,22 @@ jobs:
           Write-Host "MT5_DATA_ROOT=$data"
           Write-Host "MT5_EXPERTS=$experts"
 
+      - name: Stage MT5 include tree for service-account MetaEditor
+        env:
+          MT5_DATA_ROOT: ${{ inputs.mt5_data_root }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:MT5_DATA_ROOT 'MQL5\\Include'
+          $serviceData = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075'
+          $target = Join-Path $serviceData 'MQL5\\Include'
+          if (!(Test-Path -LiteralPath $source -PathType Container)) { throw "MT5 Include tree not found: $source" }
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          Copy-Item (Join-Path $source '*') $target -Recurse -Force
+          $trade = Join-Path $target 'Trade\\Trade.mqh'
+          if (!(Test-Path -LiteralPath $trade -PathType Leaf)) { throw "Trade.mqh not staged for service-account MetaEditor: $trade" }
+          Write-Host "MT5_SERVICE_DATA_ROOT=$serviceData"
+          Write-Host "MT5_SERVICE_INCLUDE_OK=$target"
+
       - name: Generate fresh frozen EAs
         run: |
           $ErrorActionPreference = 'Stop'
