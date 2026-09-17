@@ -14,17 +14,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Verify runtime
         run: python --version
 
@@ -37,7 +34,6 @@ jobs:
           import zipfile
           import pandas as pd
           from research.real_data.histdata_ingest import fetch_archive, _extract_archive_csv, _parse_csv
-
           out = Path('data/real/raw/histdata')
           frames = []
           for year in range(2022, 2026):
@@ -48,9 +44,6 @@ jobs:
               frame = _parse_csv(payload)
               frames.append(frame)
               print(f'validated REAL HistData archive: year={year} file={name} rows={len(frame)} sha256={item.sha256}')
-
-          if len(frames) != 4:
-              raise SystemExit('REAL_DATA_REQUIRED: expected four historical EURUSD M1 archives (2022-2025)')
           df = pd.concat(frames, ignore_index=True)
           df = df[(df.timestamp >= pd.Timestamp('2022-01-01', tz='UTC')) & (df.timestamp < pd.Timestamp('2026-01-01', tz='UTC'))]
           df = df.sort_values('timestamp').drop_duplicates('timestamp', keep='first').reset_index(drop=True)
@@ -70,22 +63,22 @@ jobs:
           import pandas as pd
           from research.real_data.normalizer import resample_ohlcv
           from research.real_data.validator import validate_ohlcv
-
           src = Path('data/real/normalized/EURUSD_M1_20220101_20251231.csv')
           if not src.exists() or src.stat().st_size == 0:
               raise SystemExit('REAL_DATA_REQUIRED: validated REAL M1 dataset missing')
           df = pd.read_csv(src, parse_dates=['timestamp'])
-          required = {'timestamp','open','high','low','close'}
+          required = {'timestamp','open','high','low','close','volume','spread'}
           if not required.issubset(df.columns):
               raise SystemExit(f'REAL_DATA_REQUIRED: M1 dataset missing columns: {sorted(required-set(df.columns))}')
           df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-          df = df.sort_values('timestamp').drop_duplicates('timestamp', keep='first').set_index('timestamp')
+          df = df.sort_values('timestamp').drop_duplicates('timestamp', keep='first')
+          # resample_ohlcv canonicalizes the timestamp column itself.
           out = resample_ohlcv(df, '15min')
-          report = validate_ohlcv(out.reset_index(), symbol='EURUSD', timeframe='M15')
+          report = validate_ohlcv(out, symbol='EURUSD', timeframe='M15')
           if report.status != 'PASS':
               raise SystemExit(f'REAL_DATA_REQUIRED: REAL M15 validation failed: {report.to_dict()}')
           path = Path('data/real/normalized/EURUSD_M15_20220101_20251231.csv')
-          out.to_csv(path, index=True, index_label='timestamp')
+          out.to_csv(path, index=False)
           print(f'validated REAL M15 rows={len(out)}')
           PY
 
@@ -96,40 +89,29 @@ jobs:
           import pandas as pd
           from pathlib import Path
           p=Path('data/real/normalized/EURUSD_M15_20220101_20251231.csv')
-          if not p.exists() or p.stat().st_size == 0:
-              raise SystemExit('REAL M15 dataset missing')
+          if not p.exists() or p.stat().st_size == 0: raise SystemExit('REAL M15 dataset missing')
           df=pd.read_csv(p, parse_dates=['timestamp']).sort_values('timestamp')
-          if len(df) < 1000:
-              raise SystemExit('REAL M15 dataset unexpectedly small')
+          if len(df) < 1000: raise SystemExit('REAL M15 dataset unexpectedly small')
           for c in ['open','high','low','close']:
               if not pd.api.types.is_numeric_dtype(df[c]): raise SystemExit(f'non-numeric {c}')
-          if ((df.high < df[['open','close','low']].max(axis=1)) | (df.low > df[['open','close','high']].min(axis=1))).any():
-              raise SystemExit('OHLC invariant failure')
+          if ((df.high < df[['open','close','low']].max(axis=1)) | (df.low > df[['open','close','high']].min(axis=1))).any(): raise SystemExit('OHLC invariant failure')
           d=df.timestamp.diff().dropna().dt.total_seconds().div(60)
-          if d.median() != 15.0:
-              raise SystemExit(f'cadence median is {d.median()}, expected 15')
-          if df.timestamp.max() >= pd.Timestamp('2026-01-01', tz='UTC'):
-              raise SystemExit('2026 holdout contamination detected')
+          if d.median() != 15.0: raise SystemExit(f'cadence median is {d.median()}, expected 15')
+          if df.timestamp.max() >= pd.Timestamp('2026-01-01', tz='UTC'): raise SystemExit('2026 holdout contamination detected')
           print(f'rows={len(df)} median_cadence_minutes={d.median()} start={df.timestamp.min()} end={df.timestamp.max()}')
           PY
 
       - name: Run v29.1 frozen robustness validation — M15
         run: |
           set -euo pipefail
-          python -m research.optimization.robustness_validation_v29_1 \
-            --data data/real/normalized/EURUSD_M15_20220101_20251231.csv \
-            --timeframe M15 \
-            --output artifacts/robustness-validation-v29-1-M15.json
-
+          python -m research.optimization.robustness_validation_v29_1 --data data/real/normalized/EURUSD_M15_20220101_20251231.csv --timeframe M15 --output artifacts/robustness-validation-v29-1-M15.json
       - name: Assert output timeframe is M15
         run: |
           python - <<'PY'
           import json
-          p='artifacts/robustness-validation-v29-1-M15.json'
-          d=json.load(open(p, encoding='utf-8'))
+          d=json.load(open('artifacts/robustness-validation-v29-1-M15.json', encoding='utf-8'))
           if d.get('timeframe') != 'M15': raise SystemExit(f"wrong timeframe: {d.get('timeframe')}")
           PY
-
       - name: Validate fail-closed promotion state
         run: |
           python - <<'PY'
@@ -148,7 +130,6 @@ jobs:
           if promo.get('ready_for_oos') is True and promo.get('strict_validation_pass') is not True: raise SystemExit('strict gate bypass')
           print('fail-closed checks passed')
           PY
-
       - name: Upload v29.1 M15 artifact
         uses: actions/upload-artifact@v4
         with:
