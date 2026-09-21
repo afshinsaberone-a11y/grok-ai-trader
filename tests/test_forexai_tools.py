@@ -37,5 +37,14 @@ def test_search_and_state_tools_are_present() -> None:
     assert tools.inspect_discovery_artifact is not None
 
 
+def test_repository_state_returns_structured_git_output() -> None:
+    payload = json.loads(tools.repository_state())
+    assert set(payload) == {"status", "log"}
+    for section in ("status", "log"):
+        assert isinstance(payload[section]["returncode"], int)
+        assert isinstance(payload[section]["stdout"], str)
+        assert isinstance(payload[section]["stderr"], str)
+
+
 def test_repo_root_is_repo_like() -> None:
     assert Path(tools.REPO_ROOT, ".git").exists()
