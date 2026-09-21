@@ -87,15 +87,33 @@ def search_evidence(term: str, subdir: str = "") -> str:
     return json.dumps({"term": term, "hits": hits}, ensure_ascii=False)
 
 
-def _run_git(*args: str) -> str:
-    proc = subprocess.run(["git", *args], cwd=REPO_ROOT, text=True, capture_output=True, timeout=30, check=False)
-    return json.dumps({"returncode": proc.returncode, "stdout": proc.stdout[:MAX_READ], "stderr": proc.stderr[:MAX_READ]}, ensure_ascii=False)
+def _run_git(*args: str) -> dict[str, object]:
+    """Run a bounded read-only git command and return structured output."""
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    return {
+        "returncode": proc.returncode,
+        "stdout": proc.stdout[:MAX_READ],
+        "stderr": proc.stderr[:MAX_READ],
+    }
 
 
 @function_tool
 def repository_state() -> str:
-    """Return read-only git state."""
-    return json.dumps({"status": json.loads(_run_git("status", "--short", "--branch")), "log": json.loads(_run_git("log", "-12", "--oneline", "--decorate"))}, ensure_ascii=False)
+    """Return read-only git state as structured JSON."""
+    return json.dumps(
+        {
+            "status": _run_git("status", "--short", "--branch"),
+            "log": _run_git("log", "-12", "--oneline", "--decorate"),
+        },
+        ensure_ascii=False,
+    )
 
 
 @function_tool
