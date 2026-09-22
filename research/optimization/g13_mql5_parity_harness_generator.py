@@ -33,13 +33,13 @@ struct Bar
    double close;
 };
 
-const int CANDIDATE_COUNT=15;
-const int CIDS[CANDIDATE_COUNT]={__CIDS__};
-const int PIVOTS[CANDIDATE_COUNT]={__PIVOTS__};
-const double MIN_DELTAS[CANDIDATE_COUNT]={__DELTAS__};
-const double ATR_MULTS[CANDIDATE_COUNT]={__ATR_MULTS__};
-const double RRS[CANDIDATE_COUNT]={__RRS__};
-const double RSI_HIGHS[CANDIDATE_COUNT]={__RSI_HIGHS__};
+#define CANDIDATE_COUNT 15
+int CIDS[CANDIDATE_COUNT]={__CIDS__};
+int PIVOTS[CANDIDATE_COUNT]={__PIVOTS__};
+double MIN_DELTAS[CANDIDATE_COUNT]={__DELTAS__};
+double ATR_MULTS[CANDIDATE_COUNT]={__ATR_MULTS__};
+double RRS[CANDIDATE_COUNT]={__RRS__};
+double RSI_HIGHS[CANDIDATE_COUNT]={__RSI_HIGHS__};
 
 bool FiniteValue(const double x)
 {
