@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 1.50             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 1.60             |
 //|     ربات اختصاصی طلا/دلار با فیلتر هزینه، Squeeze و ریسک ATR     |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "1.50"
+#property version   "1.60"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -45,6 +45,10 @@ input double MaxDailyLoss=2.0;
 input double MinSLSpreadMult=1.8;
 input double MaxSpreadATRRatio=0.25;
 input bool   UseTrailing=true;
+input double TrailStartR=1.0;
+input double TrailTightR=1.8;
+input double TrailWideMult=1.2;
+input double TrailTightMult=0.80;
 input int    MagicNumber=20260922;
 
 input group "=== Session UTC ==="
@@ -76,7 +80,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v1.50 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v1.60 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -188,6 +192,13 @@ bool ShockRegime(double atr)
    return (atr > ShockAtrMult * med);
 }
 
+double TrailMultFromR(double profitR)
+{
+   if(profitR < TrailStartR) return 0.0;
+   if(profitR >= TrailTightR) return TrailTightMult;
+   return TrailWideMult;
+}
+
 bool InSqueeze()
 {
    double bw[];
@@ -251,6 +262,7 @@ void Manage()
       double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
       double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
       double r=atr[0]*slm;
+      if(r<=0) continue;
       if(type==POSITION_TYPE_BUY)
       {
          double profitR=(bid-open)/r;
@@ -260,10 +272,14 @@ void Manage()
             partialDone=true;
             trade.PositionModify(t, MathMax(sl,open), tp);
          }
-         else if(UseTrailing && profitR>=1.0)
+         else if(UseTrailing)
          {
-            double nsl=bid-atr[0]*slm;
-            if(nsl>sl && nsl>open) trade.PositionModify(t,nsl,tp);
+            double tmult=TrailMultFromR(profitR);
+            if(tmult>0)
+            {
+               double nsl=bid-atr[0]*tmult;
+               if(nsl>sl && nsl>open) trade.PositionModify(t,nsl,tp);
+            }
          }
       }
       else
@@ -275,10 +291,14 @@ void Manage()
             partialDone=true;
             trade.PositionModify(t, (sl==0?open:MathMin(sl,open)), tp);
          }
-         else if(UseTrailing && profitR>=1.0)
+         else if(UseTrailing)
          {
-            double nsl=ask+atr[0]*slm;
-            if((sl==0||nsl<sl) && nsl<open) trade.PositionModify(t,nsl,tp);
+            double tmult=TrailMultFromR(profitR);
+            if(tmult>0)
+            {
+               double nsl=ask+atr[0]*tmult;
+               if((sl==0||nsl<sl) && nsl<open) trade.PositionModify(t,nsl,tp);
+            }
          }
       }
    }
@@ -314,7 +334,6 @@ void OnTick()
    bool pullUp=alignedUp && (low0<=m[0]+band) && (close0>f[0]);
    bool pullDn=alignedDn && (high0>=m[0]-band) && (close0<f[0]);
    double slm=SlMult(atr[0]);
-   double dummyBw0=0,dummyBw1=0;
    int q=QualityScore(adx[0],adx[1], BwExpanding()?1.0:0.0, 0.0);
    if(q<MinQuality) return;
 
@@ -325,7 +344,7 @@ void OnTick()
       if(CostOk(close0-sl, atr[0]))
       {
          double lots=LotFromSL(close0-sl);
-         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v1.5");
+         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v1.6");
       }
    }
    else if(trendDn && squeeze && pullDn && rsi[0]>=RSI_ShortLow && rsi[0]<=RSI_ShortHigh)
@@ -335,7 +354,7 @@ void OnTick()
       if(CostOk(sl-close0, atr[0]))
       {
          double lots=LotFromSL(sl-close0);
-         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v1.5");
+         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v1.6");
       }
    }
 }
