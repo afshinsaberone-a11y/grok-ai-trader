@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //| GRK_Hybrid_Regime_EA.mq5                                         |
-//| ID: GRK-FX-HYBRID-008  version 2.40                              |
+//| ID: GRK-FX-HYBRID-010 version 2.50                              |
 //| TREND/RANGE/COMPRESS/SHOCK + DI + loss-only cooldown + margin    |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "2.40"
+#property version   "2.50"
 #property strict
 
 #include <Trade\\Trade.mqh>
@@ -52,6 +52,8 @@ input double TrailStartR  = 1.0;
 input int    MagicNumber  = 20260922;
 input int    Slippage     = 20;
 input int    MaxSpreadPts = 25;
+input int    NewsBlackoutMin = 15;
+input int    MaxConsecLoss   = 3;
 
 input group "=== Session (server + GMT offset hours) ==="
 input bool UseSession = true;
@@ -72,6 +74,7 @@ int lastYday = -1;
 int lastYyear = -1;
 int tradesToday = 0;
 int cooldownLeft = 0;
+int consecLoss = 0;
 bool tradingLocked = false;
 
 int OnInit()
@@ -101,6 +104,7 @@ int OnInit()
    lastYyear = dt.year;
    tradesToday = 0;
    cooldownLeft = 0;
+   consecLoss = 0;
    tradingLocked = false;
    return INIT_SUCCEEDED;
 }
@@ -129,6 +133,7 @@ void OnTick()
    if(cooldownLeft > 0) cooldownLeft--;
    if(UseSession && !InSession()) return;
    if(FridayBlocked()) return;
+   if(NewsBlocked()) return;
    if(SpreadPoints() > MaxSpreadPts) return;
 
    double emaF[3],emaM[3],emaS[3],adx[3],pdi[3],mdi[3],atr[3],rsi[3],bbU[3],bbM[3],bbL[3],htf[3];
@@ -230,6 +235,19 @@ bool InSession()
    while(hour < 0) hour += 24;
    while(hour >= 24) hour -= 24;
    return (hour>=SessStart && hour<SessEnd);
+}
+
+bool NewsBlocked()
+{
+   if(NewsBlackoutMin <= 0) return false;
+   MqlDateTime dt; TimeToStruct(TimeCurrent(),dt);
+   int hour = dt.hour + GmtOffset;
+   while(hour < 0) hour += 24;
+   while(hour >= 24) hour -= 24;
+   int releaseHours[6] = {8,9,12,13,14,15};
+   for(int i=0;i<6;i++)
+      if(hour==releaseHours[i] && dt.min < NewsBlackoutMin) return true;
+   return false;
 }
 
 bool FridayBlocked()
@@ -432,6 +450,7 @@ void CheckDailyLoss()
       lastYyear=dt.year;
       tradesToday=0;
       cooldownLeft=0;
+      consecLoss=0;
       tradingLocked=false;
    }
    double eq=AccountInfoDouble(ACCOUNT_EQUITY);
@@ -468,5 +487,13 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    double profit = HistoryDealGetDouble(deal, DEAL_PROFIT)
                  + HistoryDealGetDouble(deal, DEAL_SWAP)
                  + HistoryDealGetDouble(deal, DEAL_COMMISSION);
-   if(profit < 0) cooldownLeft = CooldownBars;
+   if(profit < 0)
+   {
+      cooldownLeft = CooldownBars;
+      consecLoss++;
+      if(MaxConsecLoss > 0 && consecLoss >= MaxConsecLoss)
+         tradingLocked = true;
+   }
+   else
+      consecLoss = 0;
 }
