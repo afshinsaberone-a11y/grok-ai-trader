@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 1.30             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 1.40             |
 //|     ربات اختصاصی طلا/دلار با فیلتر هزینه، Squeeze و ریسک ATR     |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "1.30"
+#property version   "1.40"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -37,6 +37,7 @@ input double ATR_SL_High=2.2;
 input double ATR_LowRatio=0.85;
 input double ATR_HighRatio=1.40;
 input double ShockAtrMult=2.0;
+input double PullbackAtr=0.25;
 input double ATR_TP=2.4;
 input double PartialR=1.2;
 input double RiskPercent=0.5;
@@ -72,7 +73,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v1.30 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v1.40 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -275,29 +276,34 @@ void OnTick()
    bool squeeze=InSqueeze();
    bool trendUp=m[0]>s[0] && adx[0]>ADX_Min;
    bool trendDn=m[0]<s[0] && adx[0]>ADX_Min;
-   bool xUp=f[1]<=m[1] && f[0]>m[0];
-   bool xDn=f[1]>=m[1] && f[0]<m[0];
+   bool alignedUp=f[0]>m[0] && f[1]>m[1];
+   bool alignedDn=f[0]<m[0] && f[1]<m[1];
    double close0=iClose(_Symbol,PERIOD_CURRENT,0);
+   double high0=iHigh(_Symbol,PERIOD_CURRENT,0);
+   double low0=iLow(_Symbol,PERIOD_CURRENT,0);
+   double band=PullbackAtr*atr[0];
+   bool pullUp=alignedUp && (low0<=m[0]+band) && (close0>f[0]);
+   bool pullDn=alignedDn && (high0>=m[0]-band) && (close0<f[0]);
    double slm=SlMult(atr[0]);
 
-   if(trendUp && squeeze && xUp && rsi[0]>=RSI_LongLow && rsi[0]<=RSI_LongHigh)
+   if(trendUp && squeeze && pullUp && rsi[0]>=RSI_LongLow && rsi[0]<=RSI_LongHigh)
    {
       double sl=close0-atr[0]*slm;
       double tp=close0+atr[0]*ATR_TP;
       if(CostOk(close0-sl, atr[0]))
       {
          double lots=LotFromSL(close0-sl);
-         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v1.3");
+         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v1.4");
       }
    }
-   else if(trendDn && squeeze && xDn && rsi[0]>=RSI_ShortLow && rsi[0]<=RSI_ShortHigh)
+   else if(trendDn && squeeze && pullDn && rsi[0]>=RSI_ShortLow && rsi[0]<=RSI_ShortHigh)
    {
       double sl=close0+atr[0]*slm;
       double tp=close0-atr[0]*ATR_TP;
       if(CostOk(sl-close0, atr[0]))
       {
          double lots=LotFromSL(sl-close0);
-         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v1.3");
+         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v1.4");
       }
    }
 }
