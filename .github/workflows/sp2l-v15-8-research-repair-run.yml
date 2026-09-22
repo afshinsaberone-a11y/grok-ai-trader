@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/sp2l-v15-8-research-repair-20260922
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
