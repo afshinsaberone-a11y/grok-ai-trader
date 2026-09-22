@@ -77,6 +77,12 @@ def audit(text: str) -> list[str]:
         fails.append("orders sent without SYMBOL_TRADE_MODE check")
     if "MaybeExitRange" in text and "cooldownLeft=CooldownBars" not in compact:
         fails.append("emergency range exit does not start cooldown")
+    if "SYMBOL_TRADE_FREEZE_LEVEL" not in text:
+        fails.append("stops not checked against FreezeLevel")
+    if "SYMBOL_VOLUME_LIMIT" not in text:
+        fails.append("lots not capped by SYMBOL_VOLUME_LIMIT")
+    if "MondaySkip" not in text:
+        fails.append("no Monday open gap skip")
     return fails
 
 
