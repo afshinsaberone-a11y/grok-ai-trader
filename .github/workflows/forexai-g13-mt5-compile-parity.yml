@@ -258,7 +258,7 @@ jobs:
 
       - name: Resolve REAL EURUSD M15 dataset
         env:
-          DATA_CSV_INPUT: \${{ inputs.data_csv }}
+          DATA_CSV_INPUT: ${{ inputs.data_csv }}
         run: |
           $ErrorActionPreference = 'Stop'
           $requested = ($env:DATA_CSV_INPUT | Out-String).Trim()
