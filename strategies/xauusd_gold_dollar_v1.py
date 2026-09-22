@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v1.3.
+"""XAUUSD Gold-Dollar research strategy v1.4.
 
 Does not download market data. Feed a real OHLCV dataset with columns
 open/high/low/close (or Open/High/Low/Close) and an optional timestamp index.
 Optional real `spread` column is used when present; otherwise assumed_spread.
 ATR stop is calibrated to gold volatility vs its 50-bar median.
 v1.3 blocks new entries in a shock regime (ATR > shock_atr_mult * median).
+v1.4 replaces raw EMA cross with a pullback-to-EMA-mid entry.
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ class GoldParams:
     atr_low_ratio: float = 0.85
     atr_high_ratio: float = 1.40
     shock_atr_mult: float = 2.0
+    pullback_atr: float = 0.25
     rr_partial: float = 1.2
     rr_final: float = 2.4
     ema_fast: int = 20
@@ -43,7 +45,7 @@ class GoldParams:
     min_sl_spread_mult: float = 1.8
     assumed_spread: float = 0.30
     max_spread_atr_ratio: float = 0.25
-    version: str = "1.3"
+    version: str = "1.4"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -124,6 +126,11 @@ class XAUUSDGoldDollarV1:
         out["cost_ok"] = (sl_dist >= self.p.min_sl_spread_mult * out["spread_used"]) & (
             out["spread_used"] <= self.p.max_spread_atr_ratio * out["atr"]
         )
+        band = self.p.pullback_atr * out["atr"]
+        aligned_up = (out["ema_fast"] > out["ema_mid"]) & (out["ema_fast"].shift(1) > out["ema_mid"].shift(1))
+        aligned_dn = (out["ema_fast"] < out["ema_mid"]) & (out["ema_fast"].shift(1) < out["ema_mid"].shift(1))
+        out["pull_up"] = aligned_up & (low <= out["ema_mid"] + band) & (close > out["ema_fast"])
+        out["pull_dn"] = aligned_dn & (high >= out["ema_mid"] - band) & (close < out["ema_fast"])
         if isinstance(out.index, pd.DatetimeIndex):
             out["hour"] = out.index.hour
             out["session_ok"] = (out["hour"] >= self.p.session_start) & (out["hour"] < self.p.session_end)
@@ -137,15 +144,13 @@ class XAUUSDGoldDollarV1:
         vol_ok = d["atr"] >= d["atr_med"]
         trend_up = (d["ema_mid"] > d["ema_slow"]) & (d["adx"] > self.p.adx_min)
         trend_dn = (d["ema_mid"] < d["ema_slow"]) & (d["adx"] > self.p.adx_min)
-        cross_up = (d["ema_fast"] > d["ema_mid"]) & (d["ema_fast"].shift(1) <= d["ema_mid"].shift(1))
-        cross_dn = (d["ema_fast"] < d["ema_mid"]) & (d["ema_fast"].shift(1) >= d["ema_mid"].shift(1))
         rsi_l = d["rsi"].between(*self.p.rsi_long)
         rsi_s = d["rsi"].between(*self.p.rsi_short)
         d["signal"] = 0
         shock_ok = ~d["shock"].fillna(False)
         base = squeeze & vol_ok & d["session_ok"] & d["cost_ok"] & shock_ok
-        d.loc[trend_up & base & cross_up & rsi_l, "signal"] = 1
-        d.loc[trend_dn & base & cross_dn & rsi_s, "signal"] = -1
+        d.loc[trend_up & base & d["pull_up"] & rsi_l, "signal"] = 1
+        d.loc[trend_dn & base & d["pull_dn"] & rsi_s, "signal"] = -1
         return d
 
     def backtest(self, df: pd.DataFrame) -> dict:
