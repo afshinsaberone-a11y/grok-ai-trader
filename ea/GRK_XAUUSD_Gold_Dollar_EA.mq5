@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 1.10             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 1.20             |
 //|     ربات اختصاصی طلا/دلار با فیلتر هزینه، Squeeze و ریسک ATR     |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "1.10"
+#property version   "1.20"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -30,7 +30,12 @@ input double RSI_ShortHigh=60;
 
 input group "=== Gold risk ==="
 input int    ATR_Period=14;
+input int    ATR_MedPeriod=50;
 input double ATR_SL=1.8;
+input double ATR_SL_Low=1.6;
+input double ATR_SL_High=2.2;
+input double ATR_LowRatio=0.85;
+input double ATR_HighRatio=1.40;
 input double ATR_TP=2.4;
 input double PartialR=1.2;
 input double RiskPercent=0.5;
@@ -66,7 +71,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v1.10 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v1.20 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -131,6 +136,31 @@ bool CostOk(double slDist, double atr)
    return true;
 }
 
+double AtrMedian(int period)
+{
+   double buf[];
+   int n=period;
+   if(n<5) n=5;
+   ArraySetAsSeries(buf,true);
+   if(CopyBuffer(hATR,0,0,n,buf)<n) return 0;
+   double tmp[];
+   ArrayResize(tmp,n);
+   for(int i=0;i<n;i++) tmp[i]=buf[i];
+   ArraySort(tmp);
+   if((n%2)==1) return tmp[n/2];
+   return 0.5*(tmp[n/2-1]+tmp[n/2]);
+}
+
+double SlMult(double atr)
+{
+   double med=AtrMedian(ATR_MedPeriod);
+   if(med<=0 || atr<=0) return ATR_SL;
+   double ratio=atr/med;
+   if(ratio>=ATR_HighRatio) return ATR_SL_High;
+   if(ratio<=ATR_LowRatio) return ATR_SL_Low;
+   return ATR_SL;
+}
+
 bool InSqueeze()
 {
    double bw[];
@@ -169,6 +199,7 @@ void CheckDay()
 void Manage()
 {
    double atr[1]; if(CopyBuffer(hATR,0,0,1,atr)<1) return;
+   double slm=SlMult(atr[0]);
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong t=PositionGetTicket(i);
@@ -181,7 +212,7 @@ void Manage()
       long type=PositionGetInteger(POSITION_TYPE);
       double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
       double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-      double r=atr[0]*ATR_SL;
+      double r=atr[0]*slm;
       if(type==POSITION_TYPE_BUY)
       {
          double profitR=(bid-open)/r;
@@ -193,7 +224,7 @@ void Manage()
          }
          else if(UseTrailing && profitR>=1.0)
          {
-            double nsl=bid-atr[0]*ATR_SL;
+            double nsl=bid-atr[0]*slm;
             if(nsl>sl && nsl>open) trade.PositionModify(t,nsl,tp);
          }
       }
@@ -208,7 +239,7 @@ void Manage()
          }
          else if(UseTrailing && profitR>=1.0)
          {
-            double nsl=ask+atr[0]*ATR_SL;
+            double nsl=ask+atr[0]*slm;
             if((sl==0||nsl<sl) && nsl<open) trade.PositionModify(t,nsl,tp);
          }
       }
@@ -237,25 +268,26 @@ void OnTick()
    bool xUp=f[1]<=m[1] && f[0]>m[0];
    bool xDn=f[1]>=m[1] && f[0]<m[0];
    double close0=iClose(_Symbol,PERIOD_CURRENT,0);
+   double slm=SlMult(atr[0]);
 
    if(trendUp && squeeze && xUp && rsi[0]>=RSI_LongLow && rsi[0]<=RSI_LongHigh)
    {
-      double sl=close0-atr[0]*ATR_SL;
+      double sl=close0-atr[0]*slm;
       double tp=close0+atr[0]*ATR_TP;
       if(CostOk(close0-sl, atr[0]))
       {
          double lots=LotFromSL(close0-sl);
-         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v1.1");
+         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v1.2");
       }
    }
    else if(trendDn && squeeze && xDn && rsi[0]>=RSI_ShortLow && rsi[0]<=RSI_ShortHigh)
    {
-      double sl=close0+atr[0]*ATR_SL;
+      double sl=close0+atr[0]*slm;
       double tp=close0-atr[0]*ATR_TP;
       if(CostOk(sl-close0, atr[0]))
       {
          double lots=LotFromSL(sl-close0);
-         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v1.1");
+         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v1.2");
       }
    }
 }
