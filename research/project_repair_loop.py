@@ -67,6 +67,10 @@ def audit(text: str) -> list[str]:
         fails.append("positions not filtered by magic")
     if "CountPos" not in text:
         fails.append("no concurrent-position cap helper")
+    if "NewsBlackout" not in text and "newsBlackout" not in text:
+        fails.append("no news blackout window")
+    if "MaxConsecLoss" not in text and "consecLoss" not in text:
+        fails.append("no consecutive-loss circuit breaker")
     return fails
 
 
