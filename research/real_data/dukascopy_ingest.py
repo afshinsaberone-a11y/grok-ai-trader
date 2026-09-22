@@ -50,8 +50,10 @@ class DukascopyM1Ingestor:
         output_dir: str | Path,
         *,
         timeout: int = 30,
-        retries: int = 8,
+        retries: int = 4,
         workers: int = 4,
+        batch_size: int = 10,
+        batch_pause: float = 1.0,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.raw_dir = self.output_dir / "raw" / "EURUSD" / "m1"
@@ -61,6 +63,8 @@ class DukascopyM1Ingestor:
         self.timeout = timeout
         self.retries = retries
         self.workers = workers
+        self.batch_size = batch_size
+        self.batch_pause = batch_pause
 
     @staticmethod
     def url_for(day: date) -> str:
@@ -123,7 +127,7 @@ class DukascopyM1Ingestor:
             if tmp.exists():
                 tmp.unlink()
             if attempt < self.retries:
-                delay = min(20.0, 1.5 * (2 ** (attempt - 1))) + random.uniform(0.0, 0.75)
+                delay = min(8.0, 1.5 * (2 ** (attempt - 1))) + random.uniform(0.0, 0.5)
                 LOGGER.warning(
                     "Transient JETTA failure for %s (attempt %d/%d); retrying in %.2fs: %s",
                     day.isoformat(), attempt, self.retries, delay, last_error,
@@ -149,7 +153,11 @@ class DukascopyM1Ingestor:
         days = []
         current = start
         while current < end:
-            days.append(current)
+            # Dukascopy has no trading candles on Saturday/Sunday. Do not issue
+            # network requests for weekends: this keeps resume runs fast and
+            # avoids spending retry budget on expected non-trading days.
+            if not self._is_weekend(current):
+                days.append(current)
             current += timedelta(days=1)
 
         def fetch(day: date) -> DownloadedDay | None:
@@ -159,14 +167,19 @@ class DukascopyM1Ingestor:
                 return None
             return DownloadedDay(day, destination, url, sha256_file(destination), destination.stat().st_size)
 
-        # Limited concurrency avoids hammering the provider while keeping a large
-        # two-year daily pull practical inside GitHub Actions.
-        with ThreadPoolExecutor(max_workers=self.workers) as executor:
-            futures = {executor.submit(fetch, day): day for day in days}
-            for future in as_completed(futures):
-                downloaded_day = future.result()
-                if downloaded_day is not None:
-                    downloaded.append(downloaded_day)
+        # Download in small batches with bounded concurrency and a short pause.
+        # This mirrors common Dukascopy client behavior and reduces the chance of
+        # sustained transport resets while preserving resumability via raw cache.
+        for batch_start in range(0, len(days), self.batch_size):
+            batch = days[batch_start:batch_start + self.batch_size]
+            with ThreadPoolExecutor(max_workers=self.workers) as executor:
+                futures = {executor.submit(fetch, day): day for day in batch}
+                for future in as_completed(futures):
+                    downloaded_day = future.result()
+                    if downloaded_day is not None:
+                        downloaded.append(downloaded_day)
+            if batch_start + self.batch_size < len(days) and self.batch_pause > 0:
+                time.sleep(self.batch_pause)
 
         downloaded.sort(key=lambda item: item.day)
         if not downloaded:
@@ -288,8 +301,20 @@ def ingest_m1(
     output_dir: str | Path,
     *,
     force: bool = False,
+    timeout: int = 20,
+    retries: int = 4,
+    workers: int = 4,
+    batch_size: int = 10,
+    batch_pause: float = 1.0,
 ) -> dict[str, object]:
-    ingestor = DukascopyM1Ingestor(output_dir)
+    ingestor = DukascopyM1Ingestor(
+        output_dir,
+        timeout=timeout,
+        retries=retries,
+        workers=workers,
+        batch_size=batch_size,
+        batch_pause=batch_pause,
+    )
     files = ingestor.download_range(start, end, force=force)
     dataset_id = f"{start:%Y%m%d}_{(end - timedelta(days=1)):%Y%m%d}"
     m1 = ingestor.build_m1(files)
@@ -311,6 +336,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--resume", action="store_true", help="Reuse existing raw files; default behavior")
+    parser.add_argument("--timeout", type=int, default=20)
+    parser.add_argument("--retries", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=10)
+    parser.add_argument("--batch-pause", type=float, default=1.0)
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -323,6 +353,11 @@ def main(argv: list[str] | None = None) -> int:
             _parse_date(args.end),
             args.output,
             force=args.force,
+            timeout=args.timeout,
+            retries=args.retries,
+            workers=args.workers,
+            batch_size=args.batch_size,
+            batch_pause=args.batch_pause,
         )
         if args.timeframe != "M1":
             m1 = pd.read_csv(result["dataset"], parse_dates=["timestamp"])
