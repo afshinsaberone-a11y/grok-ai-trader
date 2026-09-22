@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v1.8.
+"""XAUUSD Gold-Dollar research strategy v1.9.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high columns only. No fake OHLCV.
-v1.8 caps new entries at max_trades_per_day=2 when a real datetime index exists.
+v1.9 locks new entries after two consecutive losing exits on the same calendar day.
 """
 from __future__ import annotations
 
@@ -54,7 +54,8 @@ class GoldParams:
     news_wed_start: int = 18
     news_wed_end: int = 20
     max_trades_per_day: int = 2
-    version: str = "1.8"
+    max_consecutive_losses_per_day: int = 2
+    version: str = "1.9"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -206,7 +207,10 @@ class XAUUSDGoldDollarV1:
         blocked_quality = int((d["quality"] < self.p.min_quality).sum())
         blocked_news = int(d["news_block"].fillna(False).sum())
         blocked_day_cap = 0
+        blocked_loss_lock = 0
         day_counts: dict = {}
+        day_consec: dict = {}
+        day_locked: dict = {}
         sl_used = []
         for i in range(1, len(d)):
             row = d.iloc[i]
@@ -218,10 +222,14 @@ class XAUUSDGoldDollarV1:
             if pos == 0:
                 if row["signal"] in (1, -1):
                     day_key = row["trade_date"]
-                    if day_key is not None and not (isinstance(day_key, float) and pd.isna(day_key)):
+                    has_day = day_key is not None and not (isinstance(day_key, float) and pd.isna(day_key))
+                    if has_day:
                         used = day_counts.get(day_key, 0)
                         if used >= self.p.max_trades_per_day:
                             blocked_day_cap += 1
+                            continue
+                        if day_locked.get(day_key, False) or day_consec.get(day_key, 0) >= self.p.max_consecutive_losses_per_day:
+                            blocked_loss_lock += 1
                             continue
                     if row["signal"] == 1:
                         pos, entry = 1, close
@@ -235,7 +243,7 @@ class XAUUSDGoldDollarV1:
                         tp1, tp2 = entry - self.p.rr_partial * init_risk, entry - self.p.rr_final * init_risk
                     half_done = False
                     sl_used.append(slm)
-                    if day_key is not None and not (isinstance(day_key, float) and pd.isna(day_key)):
+                    if has_day:
                         day_counts[day_key] = day_counts.get(day_key, 0) + 1
                 continue
             realized = 0.0
@@ -291,6 +299,15 @@ class XAUUSDGoldDollarV1:
             if closed:
                 wins += realized > 0
                 losses += realized <= 0
+                day_key = row["trade_date"]
+                has_day = day_key is not None and not (isinstance(day_key, float) and pd.isna(day_key))
+                if has_day:
+                    if realized <= 0:
+                        day_consec[day_key] = day_consec.get(day_key, 0) + 1
+                        if day_consec[day_key] >= self.p.max_consecutive_losses_per_day:
+                            day_locked[day_key] = True
+                    else:
+                        day_consec[day_key] = 0
                 pos = 0
             self.peak = max(self.peak, self.equity)
             self.max_dd = max(self.max_dd, (self.peak - self.equity) / self.peak)
@@ -315,7 +332,9 @@ class XAUUSDGoldDollarV1:
             "bars_quality_blocked": blocked_quality,
             "bars_news_blocked": blocked_news,
             "bars_day_cap_blocked": blocked_day_cap,
+            "bars_loss_lock_blocked": blocked_loss_lock,
             "max_trades_per_day": self.p.max_trades_per_day,
+            "max_consecutive_losses_per_day": self.p.max_consecutive_losses_per_day,
             "avg_sl_mult": round(float(np.mean(sl_used)), 3) if sl_used else self.p.atr_sl,
             "risk_pct": self.p.risk_pct,
             "trail_wide_mult": self.p.trail_wide_mult,
