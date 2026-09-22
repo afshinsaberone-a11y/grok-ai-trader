@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //| GRK_Hybrid_Regime_EA.mq5                                         |
-//| ID: GRK-FX-HYBRID-004  version 2.00                              |
-//| Regime switch: TREND / RANGE / SHOCK + closed-bar entries        |
+//| ID: GRK-FX-HYBRID-005  version 2.10                              |
+//| Regime switch TREND / RANGE / SHOCK + closed-bar + correct BB    |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "2.00"
+#property version   "2.10"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -28,10 +28,12 @@ input double BB_Dev     = 2.0;
 input int    RSI_Period = 14;
 
 input group "=== Risk ==="
-input double RiskTrend   = 1.0;
-input double RiskRange   = 0.7;
-input double ATR_SL_T    = 1.6;
-input double ATR_TP_T    = 2.4;
+input double RiskTrend    = 1.0;
+input double RiskRange    = 0.7;
+input double ATR_SL_T     = 1.6;
+input double ATR_TP_T     = 2.4;
+input double RangeSL_ATR  = 1.2;
+input double MinRangeRR   = 0.6;
 input double MaxDailyLoss = 2.0;
 input bool   UseTrailing  = true;
 input double TrailStartR  = 1.0;
@@ -68,15 +70,19 @@ int OnInit()
 
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(Slippage);
-   ENUM_ORDER_TYPE_FILLING fill = (ENUM_ORDER_TYPE_FILLING)SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE);
-   if((fill & ORDER_FILLING_IOC)==ORDER_FILLING_IOC) trade.SetTypeFilling(ORDER_FILLING_IOC);
-   else if((fill & ORDER_FILLING_FOK)==ORDER_FILLING_FOK) trade.SetTypeFilling(ORDER_FILLING_FOK);
-   else trade.SetTypeFilling(ORDER_FILLING_RETURN);
+   ApplyFilling();
 
    dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
    lastDay = TimeCurrent();
    tradingLocked = false;
    return INIT_SUCCEEDED;
+}
+
+void ApplyFilling()
+{
+   if(trade.SetTypeFilling(ORDER_FILLING_IOC)) return;
+   if(trade.SetTypeFilling(ORDER_FILLING_FOK)) return;
+   trade.SetTypeFilling(ORDER_FILLING_RETURN);
 }
 
 void OnDeinit(const int reason)
@@ -102,15 +108,15 @@ void OnTick()
    if(CopyBuffer(hADX,0,1,3,adx)<3) return;
    if(CopyBuffer(hATR,0,1,3,atr)<3) return;
    if(CopyBuffer(hRSI,0,1,3,rsi)<3) return;
-   if(CopyBuffer(hBB,0,1,3,bbU)<3) return;
-   if(CopyBuffer(hBB,1,1,3,bbM)<3) return;
+   if(CopyBuffer(hBB,1,1,3,bbU)<3) return;
+   if(CopyBuffer(hBB,0,1,3,bbM)<3) return;
    if(CopyBuffer(hBB,2,1,3,bbL)<3) return;
 
    double close1 = iClose(_Symbol,PERIOD_CURRENT,1);
    double low1   = iLow(_Symbol,PERIOD_CURRENT,1);
    double high1  = iHigh(_Symbol,PERIOD_CURRENT,1);
 
-   double atrSma = AtrSma(50);
+   double atrSma = AtrSma(ATR_SMA);
    Regime reg = Classify(adx[0], atr[0], atrSma, bbU[0], bbL[0], bbM[0]);
    if(reg==REG_SHOCK || reg==REG_NEUTRAL) return;
 
@@ -146,6 +152,7 @@ Regime Classify(double adx, double atr, double atrSma, double up, double lo, dou
 
 double AtrSma(int n)
 {
+   if(n < 2) n = 2;
    double a[];
    if(CopyBuffer(hATR,0,1,n,a) < n) return 0;
    double s=0;
@@ -178,10 +185,30 @@ int CountPos()
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong tk=PositionGetTicket(i);
-      if(tk==0) continue;
+      if(tk==0 || !PositionSelectByTicket(tk)) continue;
       if(PositionGetString(POSITION_SYMBOL)==_Symbol && PositionGetInteger(POSITION_MAGIC)==MagicNumber) c++;
    }
    return c;
+}
+
+double Tick()
+{
+   double t=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+   return (t>0 ? t : _Point);
+}
+
+double Align(double price)
+{
+   double t=Tick();
+   return NormalizeDouble(MathRound(price/t)*t, _Digits);
+}
+
+double MinStopDist()
+{
+   long stops = SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   double dist = (double)stops * _Point;
+   if(dist < Tick()) dist = Tick();
+   return dist;
 }
 
 double NormLots(double lots)
@@ -210,42 +237,64 @@ double LotByRisk(double slDist, double riskPct)
    return NormLots(risk/perLot);
 }
 
+bool StopsValid(double price, double sl, double tp, bool isBuy)
+{
+   double minD = MinStopDist();
+   if(isBuy)
+   {
+      if(price - sl < minD) return false;
+      if(tp > 0 && tp - price < minD) return false;
+   }
+   else
+   {
+      if(sl - price < minD) return false;
+      if(tp > 0 && price - tp < minD) return false;
+   }
+   return true;
+}
+
 void OpenBuy(double atr, double riskPct)
 {
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-   double sl=ask-atr*ATR_SL_T;
-   double tp=ask+atr*ATR_TP_T;
+   double sl=Align(ask-atr*ATR_SL_T);
+   double tp=Align(ask+atr*ATR_TP_T);
+   if(!StopsValid(ask,sl,tp,true)) return;
    double lots=LotByRisk(ask-sl, riskPct);
-   if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"GRK4-TREND-L");
+   if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"GRK5-TREND-L");
 }
 
 void OpenSell(double atr, double riskPct)
 {
    double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double sl=bid+atr*ATR_SL_T;
-   double tp=bid-atr*ATR_TP_T;
+   double sl=Align(bid+atr*ATR_SL_T);
+   double tp=Align(bid-atr*ATR_TP_T);
+   if(!StopsValid(bid,sl,tp,false)) return;
    double lots=LotByRisk(sl-bid, riskPct);
-   if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"GRK4-TREND-S");
+   if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"GRK5-TREND-S");
 }
 
 void OpenBuyRange(double mid, double atr)
 {
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-   double sl=ask-atr*1.2;
-   double tp=mid;
+   double sl=Align(ask-atr*RangeSL_ATR);
+   double tp=Align(mid);
    if(tp<=ask) return;
+   if((tp-ask) < (ask-sl)*MinRangeRR) return;
+   if(!StopsValid(ask,sl,tp,true)) return;
    double lots=LotByRisk(ask-sl, RiskRange);
-   if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"GRK4-RANGE-L");
+   if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"GRK5-RANGE-L");
 }
 
 void OpenSellRange(double mid, double atr)
 {
    double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double sl=bid+atr*1.2;
-   double tp=mid;
+   double sl=Align(bid+atr*RangeSL_ATR);
+   double tp=Align(mid);
    if(tp>=bid) return;
+   if((bid-tp) < (sl-bid)*MinRangeRR) return;
+   if(!StopsValid(bid,sl,tp,false)) return;
    double lots=LotByRisk(sl-bid, RiskRange);
-   if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"GRK4-RANGE-S");
+   if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"GRK5-RANGE-S");
 }
 
 void MaybeExitRangeRegimeShift()
@@ -268,7 +317,7 @@ void ManageTrailing()
 {
    if(!UseTrailing) return;
    double atr[];
-   if(CopyBuffer(hATR,0,0,1,atr)<1) return;
+   if(CopyBuffer(hATR,0,1,1,atr)<1) return;
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong tk=PositionGetTicket(i);
@@ -288,16 +337,16 @@ void ManageTrailing()
       {
          if((bid-open)/r >= TrailStartR)
          {
-            double nsl=bid-atr[0]*ATR_SL_T;
-            if(nsl>sl && nsl>open) trade.PositionModify(tk,nsl,tp);
+            double nsl=Align(bid-atr[0]*ATR_SL_T);
+            if(nsl>sl && nsl>open && (bid-nsl)>=MinStopDist()) trade.PositionModify(tk,nsl,tp);
          }
       }
       else
       {
          if((open-ask)/r >= TrailStartR)
          {
-            double nsl=ask+atr[0]*ATR_SL_T;
-            if(sl==0 || (nsl<sl && nsl<open)) trade.PositionModify(tk,nsl,tp);
+            double nsl=Align(ask+atr[0]*ATR_SL_T);
+            if(sl==0 || (nsl<sl && nsl<open && (nsl-ask)>=MinStopDist())) trade.PositionModify(tk,nsl,tp);
          }
       }
    }
@@ -323,7 +372,7 @@ void CheckDailyLoss()
       for(int i=PositionsTotal()-1;i>=0;i--)
       {
          ulong tk=PositionGetTicket(i);
-         if(tk==0) continue;
+         if(tk==0 || !PositionSelectByTicket(tk)) continue;
          if(PositionGetString(POSITION_SYMBOL)==_Symbol && PositionGetInteger(POSITION_MAGIC)==MagicNumber)
             trade.PositionClose(tk);
       }
