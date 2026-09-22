@@ -61,6 +61,12 @@ def audit(text: str) -> list[str]:
         fails.append("spread not compared to ATR")
     if "REG_COMPRESS" not in text:
         fails.append("no compression-expansion regime")
+    if "MagicNumber" not in text:
+        fails.append("no MagicNumber isolation")
+    if "POSITION_MAGIC" not in text:
+        fails.append("positions not filtered by magic")
+    if "CountPos" not in text:
+        fails.append("no concurrent-position cap helper")
     return fails
 
 
