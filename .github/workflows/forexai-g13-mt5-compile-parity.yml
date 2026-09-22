@@ -1,6 +1,9 @@
 name: ForexAI G13 MT5 Compile + Signal Parity
 
 on:
+  push:
+    paths:
+      - research/real_data/dukascopy_ingest.py
   workflow_dispatch:
     inputs:
       mt5_root:
