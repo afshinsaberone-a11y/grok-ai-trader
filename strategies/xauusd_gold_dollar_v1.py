@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v1.0.
+"""XAUUSD Gold-Dollar research strategy v1.1.
 
 Does not download market data. Feed a real OHLCV dataset with columns
 open/high/low/close (or Open/High/Low/Close) and an optional timestamp index.
+Optional real `spread` column is used when present; otherwise assumed_spread.
 """
 from __future__ import annotations
 
@@ -32,7 +33,10 @@ class GoldParams:
     bw_pct: float = 25.0
     session_start: int = 7
     session_end: int = 20
-    version: str = "1.0"
+    min_sl_spread_mult: float = 1.8
+    assumed_spread: float = 0.30
+    max_spread_atr_ratio: float = 0.25
+    version: str = "1.1"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -40,6 +44,11 @@ def _col(df: pd.DataFrame, name: str) -> str:
     if name.lower() not in mapping:
         raise ValueError(f"REAL_DATA_REQUIRED: missing column {name}")
     return mapping[name.lower()]
+
+
+def _optional_col(df: pd.DataFrame, name: str) -> str | None:
+    mapping = {c.lower(): c for c in df.columns}
+    return mapping.get(name.lower())
 
 
 def wilder_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
@@ -84,6 +93,15 @@ class XAUUSDGoldDollarV1:
         out["bw"] = ((mid + 2 * std) - (mid - 2 * std)) / mid.replace(0, np.nan)
         out["bw_pctile"] = out["bw"].rolling(self.p.bw_lookback).rank(pct=True)
         out["adx"] = wilder_adx(high, low, close, self.p.adx_period)
+        spread_col = _optional_col(out, "spread")
+        if spread_col is not None:
+            out["spread_used"] = pd.to_numeric(out[spread_col], errors="coerce").fillna(self.p.assumed_spread)
+        else:
+            out["spread_used"] = self.p.assumed_spread
+        sl_dist = self.p.atr_sl * out["atr"]
+        out["cost_ok"] = (sl_dist >= self.p.min_sl_spread_mult * out["spread_used"]) & (
+            out["spread_used"] <= self.p.max_spread_atr_ratio * out["atr"]
+        )
         if isinstance(out.index, pd.DatetimeIndex):
             out["hour"] = out.index.hour
             out["session_ok"] = (out["hour"] >= self.p.session_start) & (out["hour"] < self.p.session_end)
@@ -102,8 +120,9 @@ class XAUUSDGoldDollarV1:
         rsi_l = d["rsi"].between(*self.p.rsi_long)
         rsi_s = d["rsi"].between(*self.p.rsi_short)
         d["signal"] = 0
-        d.loc[trend_up & squeeze & cross_up & rsi_l & vol_ok & d["session_ok"], "signal"] = 1
-        d.loc[trend_dn & squeeze & cross_dn & rsi_s & vol_ok & d["session_ok"], "signal"] = -1
+        base = squeeze & vol_ok & d["session_ok"] & d["cost_ok"]
+        d.loc[trend_up & base & cross_up & rsi_l, "signal"] = 1
+        d.loc[trend_dn & base & cross_dn & rsi_s, "signal"] = -1
         return d
 
     def backtest(self, df: pd.DataFrame) -> dict:
@@ -115,6 +134,7 @@ class XAUUSDGoldDollarV1:
         wins = losses = 0
         total_r = 0.0
         log = []
+        blocked_cost = int((d["cost_ok"] == False).sum())
         for i in range(1, len(d)):
             row = d.iloc[i]
             atr = row["atr"]
@@ -193,6 +213,8 @@ class XAUUSDGoldDollarV1:
             "final_equity": round(self.equity, 2),
             "max_dd_pct": round(self.max_dd * 100, 2),
             "total_R": round(total_r, 2),
+            "bars_cost_blocked": blocked_cost,
+            "risk_pct": self.p.risk_pct,
         }
 
 
