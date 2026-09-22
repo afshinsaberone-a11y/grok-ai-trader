@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v1.4.
+"""XAUUSD Gold-Dollar research strategy v1.5.
 
 Does not download market data. Feed a real OHLCV dataset with columns
 open/high/low/close (or Open/High/Low/Close) and an optional timestamp index.
@@ -7,6 +7,7 @@ Optional real `spread` column is used when present; otherwise assumed_spread.
 ATR stop is calibrated to gold volatility vs its 50-bar median.
 v1.3 blocks new entries in a shock regime (ATR > shock_atr_mult * median).
 v1.4 replaces raw EMA cross with a pullback-to-EMA-mid entry.
+v1.5 requires a signal quality score >= min_quality (session core + ADX slope + BW expansion).
 """
 from __future__ import annotations
 
@@ -42,10 +43,13 @@ class GoldParams:
     bw_pct: float = 25.0
     session_start: int = 7
     session_end: int = 20
+    core_session_start: int = 12
+    core_session_end: int = 16
+    min_quality: int = 2
     min_sl_spread_mult: float = 1.8
     assumed_spread: float = 0.30
     max_spread_atr_ratio: float = 0.25
-    version: str = "1.4"
+    version: str = "1.5"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -134,8 +138,13 @@ class XAUUSDGoldDollarV1:
         if isinstance(out.index, pd.DatetimeIndex):
             out["hour"] = out.index.hour
             out["session_ok"] = (out["hour"] >= self.p.session_start) & (out["hour"] < self.p.session_end)
+            out["q_session"] = ((out["hour"] >= self.p.core_session_start) & (out["hour"] < self.p.core_session_end)).astype(int)
         else:
             out["session_ok"] = True
+            out["q_session"] = 1
+        out["q_adx"] = ((out["adx"] > out["adx"].shift(1)) & (out["adx"] >= self.p.adx_min)).astype(int)
+        out["q_bw"] = (out["bw"] > out["bw"].shift(1)).astype(int)
+        out["quality"] = out["q_session"] + out["q_adx"] + out["q_bw"]
         return out
 
     def signals(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -148,7 +157,8 @@ class XAUUSDGoldDollarV1:
         rsi_s = d["rsi"].between(*self.p.rsi_short)
         d["signal"] = 0
         shock_ok = ~d["shock"].fillna(False)
-        base = squeeze & vol_ok & d["session_ok"] & d["cost_ok"] & shock_ok
+        quality_ok = d["quality"] >= self.p.min_quality
+        base = squeeze & vol_ok & d["session_ok"] & d["cost_ok"] & shock_ok & quality_ok
         d.loc[trend_up & base & d["pull_up"] & rsi_l, "signal"] = 1
         d.loc[trend_dn & base & d["pull_dn"] & rsi_s, "signal"] = -1
         return d
@@ -164,6 +174,7 @@ class XAUUSDGoldDollarV1:
         log = []
         blocked_cost = int((d["cost_ok"] == False).sum())
         blocked_shock = int(d["shock"].fillna(False).sum())
+        blocked_quality = int((d["quality"] < self.p.min_quality).sum())
         sl_used = []
         for i in range(1, len(d)):
             row = d.iloc[i]
@@ -248,6 +259,7 @@ class XAUUSDGoldDollarV1:
             "total_R": round(total_r, 2),
             "bars_cost_blocked": blocked_cost,
             "bars_shock_blocked": blocked_shock,
+            "bars_quality_blocked": blocked_quality,
             "avg_sl_mult": round(float(np.mean(sl_used)), 3) if sl_used else self.p.atr_sl,
             "risk_pct": self.p.risk_pct,
         }
