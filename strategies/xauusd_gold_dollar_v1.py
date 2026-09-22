@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v1.1.
+"""XAUUSD Gold-Dollar research strategy v1.2.
 
 Does not download market data. Feed a real OHLCV dataset with columns
 open/high/low/close (or Open/High/Low/Close) and an optional timestamp index.
 Optional real `spread` column is used when present; otherwise assumed_spread.
+ATR stop is calibrated to gold volatility vs its 50-bar median.
 """
 from __future__ import annotations
 
@@ -18,6 +19,10 @@ import pandas as pd
 class GoldParams:
     risk_pct: float = 0.005
     atr_sl: float = 1.8
+    atr_sl_low: float = 1.6
+    atr_sl_high: float = 2.2
+    atr_low_ratio: float = 0.85
+    atr_high_ratio: float = 1.40
     rr_partial: float = 1.2
     rr_final: float = 2.4
     ema_fast: int = 20
@@ -36,7 +41,7 @@ class GoldParams:
     min_sl_spread_mult: float = 1.8
     assumed_spread: float = 0.30
     max_spread_atr_ratio: float = 0.25
-    version: str = "1.1"
+    version: str = "1.2"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -74,6 +79,16 @@ class XAUUSDGoldDollarV1:
         self.peak = 10_000.0
         self.max_dd = 0.0
 
+    def sl_mult_from_atr(self, atr: float, atr_med: float) -> float:
+        if pd.isna(atr) or pd.isna(atr_med) or atr_med <= 0:
+            return self.p.atr_sl
+        ratio = atr / atr_med
+        if ratio >= self.p.atr_high_ratio:
+            return self.p.atr_sl_high
+        if ratio <= self.p.atr_low_ratio:
+            return self.p.atr_sl_low
+        return self.p.atr_sl
+
     def prepare(self, df: pd.DataFrame) -> pd.DataFrame:
         out = df.copy()
         c, h, l = _col(out, "close"), _col(out, "high"), _col(out, "low")
@@ -88,6 +103,10 @@ class XAUUSDGoldDollarV1:
         tr = pd.concat([(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
         out["atr"] = tr.rolling(14).mean()
         out["atr_med"] = out["atr"].rolling(50).median()
+        ratio = out["atr"] / out["atr_med"].replace(0, np.nan)
+        out["sl_mult"] = self.p.atr_sl
+        out.loc[ratio >= self.p.atr_high_ratio, "sl_mult"] = self.p.atr_sl_high
+        out.loc[ratio <= self.p.atr_low_ratio, "sl_mult"] = self.p.atr_sl_low
         mid = close.rolling(self.p.bb_period).mean()
         std = close.rolling(self.p.bb_period).std()
         out["bw"] = ((mid + 2 * std) - (mid - 2 * std)) / mid.replace(0, np.nan)
@@ -98,7 +117,7 @@ class XAUUSDGoldDollarV1:
             out["spread_used"] = pd.to_numeric(out[spread_col], errors="coerce").fillna(self.p.assumed_spread)
         else:
             out["spread_used"] = self.p.assumed_spread
-        sl_dist = self.p.atr_sl * out["atr"]
+        sl_dist = out["sl_mult"] * out["atr"]
         out["cost_ok"] = (sl_dist >= self.p.min_sl_spread_mult * out["spread_used"]) & (
             out["spread_used"] <= self.p.max_spread_atr_ratio * out["atr"]
         )
@@ -135,25 +154,29 @@ class XAUUSDGoldDollarV1:
         total_r = 0.0
         log = []
         blocked_cost = int((d["cost_ok"] == False).sum())
+        sl_used = []
         for i in range(1, len(d)):
             row = d.iloc[i]
             atr = row["atr"]
             if pd.isna(atr) or atr <= 0:
                 continue
             high, low, close = row[high_col], row[low_col], row[close_col]
+            slm = float(row["sl_mult"]) if not pd.isna(row["sl_mult"]) else self.p.atr_sl
             if pos == 0:
                 if row["signal"] == 1:
                     pos, entry = 1, close
-                    stop = entry - self.p.atr_sl * atr
+                    stop = entry - slm * atr
                     risk = entry - stop
                     tp1, tp2 = entry + self.p.rr_partial * risk, entry + self.p.rr_final * risk
                     half_done = False
+                    sl_used.append(slm)
                 elif row["signal"] == -1:
                     pos, entry = -1, close
-                    stop = entry + self.p.atr_sl * atr
+                    stop = entry + slm * atr
                     risk = stop - entry
                     tp1, tp2 = entry - self.p.rr_partial * risk, entry - self.p.rr_final * risk
                     half_done = False
+                    sl_used.append(slm)
                 continue
             realized = 0.0
             closed = False
@@ -214,6 +237,7 @@ class XAUUSDGoldDollarV1:
             "max_dd_pct": round(self.max_dd * 100, 2),
             "total_R": round(total_r, 2),
             "bars_cost_blocked": blocked_cost,
+            "avg_sl_mult": round(float(np.mean(sl_used)), 3) if sl_used else self.p.atr_sl,
             "risk_pct": self.p.risk_pct,
         }
 
