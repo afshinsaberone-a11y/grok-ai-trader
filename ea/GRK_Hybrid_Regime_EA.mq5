@@ -1,14 +1,14 @@
 //+------------------------------------------------------------------+
 //| GRK_Hybrid_Regime_EA.mq5                                         |
-//| ID: GRK-FX-HYBRID-005  version 2.10                              |
-//| Regime switch TREND / RANGE / SHOCK + closed-bar + correct BB    |
+//| ID: GRK-FX-HYBRID-006  version 2.20                              |
+//| Regime TREND/RANGE/SHOCK + HTF + Friday cut + bandwidth gate     |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "2.10"
+#property version   "2.20"
 #property strict
 
-#include <Trade\Trade.mqh>
+#include <Trade\\Trade.mqh>
 CTrade trade;
 
 input group "=== Trend EMAs ==="
@@ -25,7 +25,9 @@ input int    ATR_SMA    = 50;
 input double ShockRatio = 1.8;
 input int    BB_Period  = 20;
 input double BB_Dev     = 2.0;
+input double BB_MaxWidth= 0.035;
 input int    RSI_Period = 14;
+input bool   UseHtfFilter = true;
 
 input group "=== Risk ==="
 input double RiskTrend    = 1.0;
@@ -35,24 +37,30 @@ input double ATR_TP_T     = 2.4;
 input double RangeSL_ATR  = 1.2;
 input double MinRangeRR   = 0.6;
 input double MaxDailyLoss = 2.0;
+input int    MaxTradesDay = 4;
 input bool   UseTrailing  = true;
 input double TrailStartR  = 1.0;
 input int    MagicNumber  = 20260922;
 input int    Slippage     = 20;
 input int    MaxSpreadPts = 25;
 
-input group "=== Session (server clock) ==="
+input group "=== Session (server + GMT offset hours) ==="
 input bool UseSession = true;
 input int  SessStart  = 7;
 input int  SessEnd    = 20;
+input int  GmtOffset  = 0;
+input bool FridayCut  = true;
+input int  FridayCutHour = 18;
 input bool TradeLong  = true;
 input bool TradeShort = true;
 
 enum Regime { REG_NEUTRAL=0, REG_TREND=1, REG_RANGE=2, REG_SHOCK=3 };
 
-int hFast,hMid,hSlow,hADX,hATR,hBB,hRSI;
+int hFast,hMid,hSlow,hADX,hATR,hBB,hRSI,hHtf;
 double dayStartEquity = 0;
-datetime lastDay = 0;
+int lastYday = -1;
+int lastYyear = -1;
+int tradesToday = 0;
 bool tradingLocked = false;
 
 int OnInit()
@@ -64,8 +72,10 @@ int OnInit()
    hATR  = iATR(_Symbol,PERIOD_CURRENT,ATR_Period);
    hBB   = iBands(_Symbol,PERIOD_CURRENT,BB_Period,0,BB_Dev,PRICE_CLOSE);
    hRSI  = iRSI(_Symbol,PERIOD_CURRENT,RSI_Period,PRICE_CLOSE);
+   hHtf  = iMA(_Symbol,PERIOD_H1,EMA_Slow,0,MODE_EMA,PRICE_CLOSE);
    if(hFast==INVALID_HANDLE||hMid==INVALID_HANDLE||hSlow==INVALID_HANDLE||
-      hADX==INVALID_HANDLE||hATR==INVALID_HANDLE||hBB==INVALID_HANDLE||hRSI==INVALID_HANDLE)
+      hADX==INVALID_HANDLE||hATR==INVALID_HANDLE||hBB==INVALID_HANDLE||
+      hRSI==INVALID_HANDLE||hHtf==INVALID_HANDLE)
       return INIT_FAILED;
 
    trade.SetExpertMagicNumber(MagicNumber);
@@ -73,7 +83,10 @@ int OnInit()
    ApplyFilling();
 
    dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
-   lastDay = TimeCurrent();
+   MqlDateTime dt; TimeToStruct(TimeCurrent(),dt);
+   lastYday = dt.day_of_year;
+   lastYyear = dt.year;
+   tradesToday = 0;
    tradingLocked = false;
    return INIT_SUCCEEDED;
 }
@@ -88,7 +101,8 @@ void ApplyFilling()
 void OnDeinit(const int reason)
 {
    IndicatorRelease(hFast); IndicatorRelease(hMid); IndicatorRelease(hSlow);
-   IndicatorRelease(hADX); IndicatorRelease(hATR); IndicatorRelease(hBB); IndicatorRelease(hRSI);
+   IndicatorRelease(hADX); IndicatorRelease(hATR); IndicatorRelease(hBB);
+   IndicatorRelease(hRSI); IndicatorRelease(hHtf);
 }
 
 void OnTick()
@@ -98,10 +112,10 @@ void OnTick()
    if(tradingLocked) return;
    if(!IsNewBar()) return;
    if(UseSession && !InSession()) return;
+   if(FridayBlocked()) return;
    if(SpreadPoints() > MaxSpreadPts) return;
-   if(CountPos() > 0) { MaybeExitRangeRegimeShift(); return; }
 
-   double emaF[3],emaM[3],emaS[3],adx[3],atr[3],rsi[3],bbU[3],bbM[3],bbL[3];
+   double emaF[3],emaM[3],emaS[3],adx[3],atr[3],rsi[3],bbU[3],bbM[3],bbL[3],htf[3];
    if(CopyBuffer(hFast,0,1,3,emaF)<3) return;
    if(CopyBuffer(hMid,0,1,3,emaM)<3) return;
    if(CopyBuffer(hSlow,0,1,3,emaS)<3) return;
@@ -111,19 +125,30 @@ void OnTick()
    if(CopyBuffer(hBB,1,1,3,bbU)<3) return;
    if(CopyBuffer(hBB,0,1,3,bbM)<3) return;
    if(CopyBuffer(hBB,2,1,3,bbL)<3) return;
+   if(CopyBuffer(hHtf,0,1,3,htf)<3) return;
+
+   double atrSma = AtrSma(ATR_SMA);
+   Regime reg = Classify(adx[0], atr[0], atrSma, bbU[0], bbL[0], bbM[0]);
+
+   if(CountPos() > 0)
+   {
+      MaybeExitRange(reg, adx[0]);
+      return;
+   }
+   if(reg==REG_SHOCK || reg==REG_NEUTRAL) return;
+   if(tradesToday >= MaxTradesDay) return;
 
    double close1 = iClose(_Symbol,PERIOD_CURRENT,1);
    double low1   = iLow(_Symbol,PERIOD_CURRENT,1);
    double high1  = iHigh(_Symbol,PERIOD_CURRENT,1);
-
-   double atrSma = AtrSma(ATR_SMA);
-   Regime reg = Classify(adx[0], atr[0], atrSma, bbU[0], bbL[0], bbM[0]);
-   if(reg==REG_SHOCK || reg==REG_NEUTRAL) return;
+   double htfClose = iClose(_Symbol,PERIOD_H1,1);
 
    if(reg==REG_TREND)
    {
-      bool up = emaM[0] > emaS[0];
-      bool dn = emaM[0] < emaS[0];
+      bool htfUp = !UseHtfFilter || htfClose > htf[0];
+      bool htfDn = !UseHtfFilter || htfClose < htf[0];
+      bool up = emaM[0] > emaS[0] && htfUp;
+      bool dn = emaM[0] < emaS[0] && htfDn;
       bool pullL = up && close1 > emaF[0] && low1 <= emaF[0] * 1.0015 && close1 > emaM[0];
       bool pullS = dn && close1 < emaF[0] && high1 >= emaF[0] * 0.9985 && close1 < emaM[0];
       if(TradeLong && pullL) OpenBuy(atr[0], RiskTrend);
@@ -145,7 +170,7 @@ Regime Classify(double adx, double atr, double atrSma, double up, double lo, dou
    if(adx < ADX_Range && mid > 0)
    {
       double bw = (up-lo)/mid;
-      if(bw > 0) return REG_RANGE;
+      if(bw > 0 && bw <= BB_MaxWidth) return REG_RANGE;
    }
    return REG_NEUTRAL;
 }
@@ -171,7 +196,22 @@ bool IsNewBar()
 bool InSession()
 {
    MqlDateTime dt; TimeToStruct(TimeCurrent(),dt);
-   return (dt.hour>=SessStart && dt.hour<SessEnd);
+   int hour = dt.hour + GmtOffset;
+   while(hour < 0) hour += 24;
+   while(hour >= 24) hour -= 24;
+   return (hour>=SessStart && hour<SessEnd);
+}
+
+bool FridayBlocked()
+{
+   if(!FridayCut) return false;
+   MqlDateTime dt; TimeToStruct(TimeCurrent(),dt);
+   int hour = dt.hour + GmtOffset;
+   while(hour < 0) hour += 24;
+   while(hour >= 24) hour -= 24;
+   if(dt.day_of_week == 5 && hour >= FridayCutHour) return true;
+   if(dt.day_of_week == 6 || dt.day_of_week == 0) return true;
+   return false;
 }
 
 int SpreadPoints()
@@ -253,6 +293,11 @@ bool StopsValid(double price, double sl, double tp, bool isBuy)
    return true;
 }
 
+void NoteFill()
+{
+   tradesToday++;
+}
+
 void OpenBuy(double atr, double riskPct)
 {
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
@@ -260,7 +305,7 @@ void OpenBuy(double atr, double riskPct)
    double tp=Align(ask+atr*ATR_TP_T);
    if(!StopsValid(ask,sl,tp,true)) return;
    double lots=LotByRisk(ask-sl, riskPct);
-   if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"GRK5-TREND-L");
+   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,"GRK6-TREND-L")) NoteFill();
 }
 
 void OpenSell(double atr, double riskPct)
@@ -270,7 +315,7 @@ void OpenSell(double atr, double riskPct)
    double tp=Align(bid-atr*ATR_TP_T);
    if(!StopsValid(bid,sl,tp,false)) return;
    double lots=LotByRisk(sl-bid, riskPct);
-   if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"GRK5-TREND-S");
+   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,"GRK6-TREND-S")) NoteFill();
 }
 
 void OpenBuyRange(double mid, double atr)
@@ -282,7 +327,7 @@ void OpenBuyRange(double mid, double atr)
    if((tp-ask) < (ask-sl)*MinRangeRR) return;
    if(!StopsValid(ask,sl,tp,true)) return;
    double lots=LotByRisk(ask-sl, RiskRange);
-   if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"GRK5-RANGE-L");
+   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,"GRK6-RANGE-L")) NoteFill();
 }
 
 void OpenSellRange(double mid, double atr)
@@ -294,13 +339,11 @@ void OpenSellRange(double mid, double atr)
    if((bid-tp) < (sl-bid)*MinRangeRR) return;
    if(!StopsValid(bid,sl,tp,false)) return;
    double lots=LotByRisk(sl-bid, RiskRange);
-   if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"GRK5-RANGE-S");
+   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,"GRK6-RANGE-S")) NoteFill();
 }
 
-void MaybeExitRangeRegimeShift()
+void MaybeExitRange(Regime reg, double adx)
 {
-   double adx[];
-   if(CopyBuffer(hADX,0,1,1,adx)<1) return;
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong tk=PositionGetTicket(i);
@@ -308,7 +351,7 @@ void MaybeExitRangeRegimeShift()
       if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
       if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
       string cmt=PositionGetString(POSITION_COMMENT);
-      if(StringFind(cmt,"RANGE")>=0 && adx[0]>=ADX_Trend)
+      if(StringFind(cmt,"RANGE")>=0 && (adx>=ADX_Trend || reg==REG_SHOCK))
          trade.PositionClose(tk);
    }
 }
@@ -355,12 +398,12 @@ void ManageTrailing()
 void CheckDailyLoss()
 {
    MqlDateTime dt; TimeToStruct(TimeCurrent(),dt);
-   string ds=IntegerToString(dt.year)+"."+IntegerToString(dt.mon)+"."+IntegerToString(dt.day);
-   datetime today=StringToTime(ds);
-   if(today!=lastDay)
+   if(dt.year!=lastYyear || dt.day_of_year!=lastYday)
    {
       dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY);
-      lastDay=today;
+      lastYday=dt.day_of_year;
+      lastYyear=dt.year;
+      tradesToday=0;
       tradingLocked=false;
    }
    double eq=AccountInfoDouble(ACCOUNT_EQUITY);
