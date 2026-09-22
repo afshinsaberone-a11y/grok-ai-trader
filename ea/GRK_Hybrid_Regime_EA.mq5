@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //| GRK_Hybrid_Regime_EA.mq5                                         |
-//| ID: GRK-FX-HYBRID-010 version 2.50                              |
+//| ID: GRK-FX-HYBRID-011 version 2.60                              |
 //| TREND/RANGE/COMPRESS/SHOCK + DI + loss-only cooldown + margin    |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "2.50"
+#property version   "2.60"
 #property strict
 
 #include <Trade\\Trade.mqh>
@@ -54,6 +54,7 @@ input int    Slippage     = 20;
 input int    MaxSpreadPts = 25;
 input int    NewsBlackoutMin = 15;
 input int    MaxConsecLoss   = 3;
+input double MaxLot         = 5.0;
 
 input group "=== Session (server + GMT offset hours) ==="
 input bool UseSession = true;
@@ -135,6 +136,7 @@ void OnTick()
    if(FridayBlocked()) return;
    if(NewsBlocked()) return;
    if(SpreadPoints() > MaxSpreadPts) return;
+   if(!TradeAllowed()) return;
 
    double emaF[3],emaM[3],emaS[3],adx[3],pdi[3],mdi[3],atr[3],rsi[3],bbU[3],bbM[3],bbL[3],htf[3];
    if(CopyBuffer(hFast,0,1,3,emaF)<3) return;
@@ -177,13 +179,13 @@ void OnTick()
       bool dn = emaM[0] < emaS[0] && htfDn && diDn;
       bool pullL = up && close1 > emaF[0] && low1 <= emaF[0] * 1.0015 && close1 > emaM[0];
       bool pullS = dn && close1 < emaF[0] && high1 >= emaF[0] * 0.9985 && close1 < emaM[0];
-      if(TradeLong && pullL) OpenBuy(atr[0], RiskTrend, "GRK8-TREND-L");
-      if(TradeShort && pullS) OpenSell(atr[0], RiskTrend, "GRK8-TREND-S");
+      if(TradeLong && pullL) OpenBuy(atr[0], RiskTrend, "GRK11-TREND-L");
+      if(TradeShort && pullS) OpenSell(atr[0], RiskTrend, "GRK11-TREND-S");
    }
    else if(reg==REG_RANGE)
    {
-      bool longR  = TradeLong && low1 <= bbL[0] && rsi[0] < 30.0;
-      bool shortR = TradeShort && high1 >= bbU[0] && rsi[0] > 70.0;
+      bool longR  = TradeLong && low1 <= bbL[0] && close1 > bbL[0] && rsi[0] < 30.0;
+      bool shortR = TradeShort && high1 >= bbU[0] && close1 < bbU[0] && rsi[0] > 70.0;
       if(longR) OpenBuyRange(bbM[0], atr[0]);
       if(shortR) OpenSellRange(bbM[0], atr[0]);
    }
@@ -191,8 +193,8 @@ void OnTick()
    {
       bool brkL = TradeLong && close1 > high2 && close1 > close2;
       bool brkS = TradeShort && close1 < low2 && close1 < close2;
-      if(brkL) OpenBuy(atr[0], RiskCompress, "GRK8-CMP-L");
-      if(brkS) OpenSell(atr[0], RiskCompress, "GRK8-CMP-S");
+      if(brkL) OpenBuy(atr[0], RiskCompress, "GRK11-CMP-L");
+      if(brkS) OpenSell(atr[0], RiskCompress, "GRK11-CMP-S");
    }
 }
 
@@ -262,6 +264,12 @@ bool FridayBlocked()
    return false;
 }
 
+bool TradeAllowed()
+{
+   long mode = SymbolInfoInteger(_Symbol,SYMBOL_TRADE_MODE);
+   return (mode == SYMBOL_TRADE_MODE_FULL);
+}
+
 int SpreadPoints() { return (int)SymbolInfoInteger(_Symbol,SYMBOL_SPREAD); }
 double SpreadPtsToPrice() { return (double)SpreadPoints() * _Point; }
 
@@ -313,6 +321,7 @@ double NormLots(double lots)
    if(step<=0) step=0.01;
    lots=MathFloor(lots/step)*step;
    lots=MathMax(minl,MathMin(maxl,lots));
+   if(MaxLot > 0) lots=MathMin(lots, MaxLot);
    int dg=0; double st=step;
    while(st<1.0 && dg<8){ st*=10.0; dg++; }
    return NormalizeDouble(lots,dg);
@@ -371,7 +380,7 @@ void OpenBuyRange(double mid, double atr)
    if((tp-ask) < (ask-sl)*MinRangeRR) return;
    if(!StopsValid(ask,sl,tp,true)) return;
    double lots=LotByRisk(ask-sl, RiskRange);
-   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,"GRK8-RANGE-L")) NoteFill();
+   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,"GRK11-RANGE-L")) NoteFill();
 }
 
 void OpenSellRange(double mid, double atr)
@@ -383,7 +392,7 @@ void OpenSellRange(double mid, double atr)
    if((bid-tp) < (sl-bid)*MinRangeRR) return;
    if(!StopsValid(bid,sl,tp,false)) return;
    double lots=LotByRisk(sl-bid, RiskRange);
-   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,"GRK8-RANGE-S")) NoteFill();
+   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,"GRK11-RANGE-S")) NoteFill();
 }
 
 void MaybeExitRange(Regime reg, double adx)
@@ -396,7 +405,10 @@ void MaybeExitRange(Regime reg, double adx)
       if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
       string cmt=PositionGetString(POSITION_COMMENT);
       if(StringFind(cmt,"RANGE")>=0 && (adx>=ADX_Trend || reg==REG_SHOCK))
-         trade.PositionClose(tk);
+      {
+         if(trade.PositionClose(tk))
+            cooldownLeft = CooldownBars;
+      }
    }
 }
 
