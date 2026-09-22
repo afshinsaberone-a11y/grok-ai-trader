@@ -262,21 +262,42 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $requested = ($env:DATA_CSV_INPUT | Out-String).Trim()
-          $canonical = Join-Path $env:GITHUB_WORKSPACE 'data\\real\\normalized\\EURUSD_M15_20220101_20251231.csv'
+          $workspaceCanonical = Join-Path $env:GITHUB_WORKSPACE 'data\\real\\normalized\\EURUSD_M15_20220101_20251231.csv'
+          $cacheRoot = 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13'
+          $cacheCanonical = Join-Path $cacheRoot 'normalized\\EURUSD_M15_20220101_20251231.csv'
           $data = $requested
+
           if (-not $data -or !(Test-Path -LiteralPath $data -PathType Leaf)) {
-            Write-Host "REAL_DATA_INPUT_MISSING=$requested"
-            Write-Host "BUILDING_CANONICAL_REAL_EURUSD_M15_FROM_DUKASCOPY"
-            & $env:PYTHON_EXE -m research.real_data.dukascopy_ingest --symbol EURUSD --timeframe M15 --start 2022-01-01 --end 2026-01-01 --output data/real --validate --manifest --resume
-            if ($LASTEXITCODE -ne 0) {
-              throw "REAL_DATA_REQUIRED: Dukascopy real-data ingestion failed with exit code $LASTEXITCODE"
+            if (Test-Path -LiteralPath $workspaceCanonical -PathType Leaf) {
+              $data = $workspaceCanonical
+              Write-Host "REAL_M15_SOURCE=workspace"
+            } elseif (Test-Path -LiteralPath $cacheCanonical -PathType Leaf) {
+              $data = $cacheCanonical
+              Write-Host "REAL_M15_SOURCE=runner_cache"
+            } else {
+              Write-Host "REAL_DATA_INPUT_MISSING=$requested"
+              Write-Host "BUILDING_CANONICAL_REAL_EURUSD_M15_FROM_DUKASCOPY"
+              New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+              & $env:PYTHON_EXE -m research.real_data.dukascopy_ingest --symbol EURUSD --timeframe M15 --start 2022-01-01 --end 2026-01-01 --output $cacheRoot --validate --manifest --resume
+              if ($LASTEXITCODE -ne 0) {
+                throw "REAL_DATA_REQUIRED: Dukascopy real-data ingestion failed with exit code $LASTEXITCODE"
+              }
+              $data = $cacheCanonical
+              Write-Host "REAL_M15_SOURCE=dukascopy_runner_cache"
             }
-            $data = $canonical
           }
+
           if (!(Test-Path -LiteralPath $data -PathType Leaf)) {
-            throw "REAL_DATA_REQUIRED: canonical EURUSD M15 dataset not found after resolution: $data"
+            throw "REAL_DATA_REQUIRED: EURUSD M15 dataset not found after resolution: $data"
           }
+
           "DATA_CSV_RESOLVED=$data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          & $env:PYTHON_EXE -c "import pandas as pd; p=r'$data'; d=pd.read_csv(p); t=pd.to_datetime(d['timestamp'],utc=True); assert len(d)>=100, 'insufficient rows'; assert t.is_monotonic_increasing, 'timestamps not monotonic'; assert t.min()>=pd.Timestamp('2022-01-01',tz='UTC'), 'starts before 2022'; assert t.max()<pd.Timestamp('2026-01-01',tz='UTC'), 'contains 2026+ data'; print(f'REAL_M15_DATA_OK rows={len(d)} first={t.min()} last={t.max()}')"
+          if ($LASTEXITCODE -ne 0) {
+            throw "REAL_DATA_REQUIRED: resolved EURUSD M15 dataset failed strict scope validation"
+          }
+
           Write-Host "REAL_EURUSD_M15_RESOLVED=$data"
           Write-Host "REAL_EURUSD_M15_RESOLVED_OK"
 
