@@ -16,8 +16,9 @@ on:
         required: false
         default: 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\Common\\Files\\g13_mql5_parity.csv'
       data_csv:
-        description: 'Path to the REAL EURUSD M15 CSV on the runner'
-        required: true
+        description: 'Optional path to the REAL EURUSD M15 CSV on the runner; if missing, build the canonical 2022-2025 dataset from real Dukascopy data'
+        required: false
+        default: 'C:\\actions-runner\\ForexAI\\grok-ai-trader\\grok-ai-trader\\data\\real\\normalized\\EURUSD_M15_20220101_20251231.csv'
 
 permissions:
   contents: read
@@ -29,7 +30,7 @@ defaults:
 jobs:
   compile-and-parity:
     runs-on: [self-hosted, windows, mt5]
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -255,13 +256,35 @@ jobs:
           }
           Write-Host "MT5_EXPERTS_DEPLOY_OK=15"
 
-      - name: Stage REAL M15 data for MQL5 parity harness
+      - name: Resolve REAL EURUSD M15 dataset
         env:
-          DATA_CSV_INPUT: ${{ inputs.data_csv }}
+          DATA_CSV_INPUT: \${{ inputs.data_csv }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if (!(Test-Path -LiteralPath $env:DATA_CSV_INPUT -PathType Leaf)) {
-            throw "REAL market-data CSV not found: $env:DATA_CSV_INPUT"
+          $requested = ($env:DATA_CSV_INPUT | Out-String).Trim()
+          $canonical = Join-Path $env:GITHUB_WORKSPACE 'data\\real\\normalized\\EURUSD_M15_20220101_20251231.csv'
+          $data = $requested
+          if (-not $data -or !(Test-Path -LiteralPath $data -PathType Leaf)) {
+            Write-Host "REAL_DATA_INPUT_MISSING=$requested"
+            Write-Host "BUILDING_CANONICAL_REAL_EURUSD_M15_FROM_DUKASCOPY"
+            & $env:PYTHON_EXE -m research.real_data.dukascopy_ingest --symbol EURUSD --timeframe M15 --start 2022-01-01 --end 2026-01-01 --output data/real --validate --manifest --resume
+            if ($LASTEXITCODE -ne 0) {
+              throw "REAL_DATA_REQUIRED: Dukascopy real-data ingestion failed with exit code $LASTEXITCODE"
+            }
+            $data = $canonical
+          }
+          if (!(Test-Path -LiteralPath $data -PathType Leaf)) {
+            throw "REAL_DATA_REQUIRED: canonical EURUSD M15 dataset not found after resolution: $data"
+          }
+          "DATA_CSV_RESOLVED=$data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "REAL_EURUSD_M15_RESOLVED=$data"
+          Write-Host "REAL_EURUSD_M15_RESOLVED_OK"
+
+      - name: Stage REAL M15 data for MQL5 parity harness
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!(Test-Path -LiteralPath $env:DATA_CSV_RESOLVED -PathType Leaf)) {
+            throw "REAL market-data CSV not found after resolution: $env:DATA_CSV_RESOLVED"
           }
           $serviceCommon = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
           New-Item -ItemType Directory -Path $serviceCommon -Force | Out-Null
@@ -269,7 +292,7 @@ jobs:
           $parityTarget = Join-Path $serviceCommon 'g13_mql5_parity.csv'
           $doneTarget = Join-Path $serviceCommon 'g13_mql5_parity.done.txt'
           Remove-Item $parityTarget,$doneTarget -Force -ErrorAction SilentlyContinue
-          Copy-Item $env:DATA_CSV_INPUT $inputTarget -Force
+          Copy-Item $env:DATA_CSV_RESOLVED $inputTarget -Force
           if (!(Test-Path -LiteralPath $inputTarget -PathType Leaf)) {
             throw "Failed to stage REAL M15 CSV for MQL5 parity harness: $inputTarget"
           }
