@@ -167,6 +167,8 @@ class DukascopyM1Ingestor:
                 return None
             return DownloadedDay(day, destination, url, sha256_file(destination), destination.stat().st_size)
 
+        # CI uses bounded batches plus resume-cache behavior so long historical pulls
+        # remain restartable without turning expected weekend gaps into network retries.
         # Download in small batches with bounded concurrency and a short pause.
         # This mirrors common Dukascopy client behavior and reduces the chance of
         # sustained transport resets while preserving resumability via raw cache.
