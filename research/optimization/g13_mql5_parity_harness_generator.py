@@ -71,7 +71,7 @@ bool ReadRealM15(Bar &bars[])
    string h3=FileReadString(h);
    string h4=FileReadString(h);
    string h5=FileReadString(h);
-   if(StringToLower(h0)!="timestamp")
+   StringToLower(h0);\n   if(h0!="timestamp")
    {
       PrintFormat("PARITY_HARNESS_FAIL bad_header=%s",h0);
       FileClose(h);
