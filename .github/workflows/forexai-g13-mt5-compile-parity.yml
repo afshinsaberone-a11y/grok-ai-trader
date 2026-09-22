@@ -154,7 +154,7 @@ jobs:
           $buildDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\mql5\\_ci_build'
           New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
           Remove-Item -Path (Join-Path $buildDir '*') -Recurse -Force -ErrorAction SilentlyContinue
-          $files = @(Get-ChildItem 'artifacts/g13/mql5/*.mq5' | Sort-Object Name)
+          $files = @(Get-ChildItem 'artifacts/g13/mql5/ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
           if ($files.Count -ne 15) { throw "Expected 15 mq5 files, found $($files.Count)" }
           foreach ($f in $files) {
             $src = Join-Path $buildDir $f.Name
@@ -203,7 +203,7 @@ jobs:
           Write-Host "PARITY_HARNESS_METAEDITOR_EXIT_CODE=$($proc.ExitCode)"
           if (!(Test-Path -LiteralPath $log -PathType Leaf)) { throw "Parity harness MetaEditor compile log missing" }
           $logText = Get-Content -LiteralPath $log -Raw -ErrorAction Stop
-          $resultMatch = [regex]::Match($logText, 'Result:\\s*(\\d+) errors,\\s*(\\d+) warnings')
+          $resultMatch = [regex]::Match($logText, 'Result:\s*(\d+) errors,\s*(\d+) warnings')
           if (!$resultMatch.Success) { throw "Unable to parse parity harness MetaEditor result" }
           $errors = [int]$resultMatch.Groups[1].Value
           $warnings = [int]$resultMatch.Groups[2].Value
