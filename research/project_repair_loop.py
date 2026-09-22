@@ -71,6 +71,12 @@ def audit(text: str) -> list[str]:
         fails.append("no news blackout window")
     if "MaxConsecLoss" not in text and "consecLoss" not in text:
         fails.append("no consecutive-loss circuit breaker")
+    if "MaxLot" not in text:
+        fails.append("no hard max-lot cap")
+    if "SYMBOL_TRADE_MODE" not in text:
+        fails.append("orders sent without SYMBOL_TRADE_MODE check")
+    if "MaybeExitRange" in text and "cooldownLeft=CooldownBars" not in compact:
+        fails.append("emergency range exit does not start cooldown")
     return fails
 
 
