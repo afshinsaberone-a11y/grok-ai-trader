@@ -240,8 +240,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $experts = Join-Path $env:MT5_DATA_ROOT 'MQL5\\Experts'
           if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
-          $files = @(Get-ChildItem 'artifacts/g13/mql5/*.mq5' | Sort-Object Name)
-          if ($files.Count -ne 15) { throw "Expected 15 mq5 files before deploy, found $($files.Count)" }
+          $files = @(Get-ChildItem 'artifacts/g13/mql5/ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
+          if ($files.Count -ne 15) { throw "Expected 15 candidate mq5 files before deploy, found $($files.Count)" }
           foreach ($f in $files) {
             $ex5 = [System.IO.Path]::ChangeExtension($f.FullName, '.ex5')
             $dstMq5 = Join-Path $experts $f.Name
