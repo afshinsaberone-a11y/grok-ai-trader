@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //| GRK_Hybrid_Regime_EA.mq5                                         |
-//| ID: GRK-FX-HYBRID-007  version 2.30                              |
-//| Regime TREND/RANGE/SHOCK + DI + cooldown + equity peak breaker   |
+//| ID: GRK-FX-HYBRID-008  version 2.40                              |
+//| TREND/RANGE/COMPRESS/SHOCK + DI + loss-only cooldown + margin    |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "2.30"
+#property version   "2.40"
 #property strict
 
 #include <Trade\\Trade.mqh>
@@ -23,16 +23,19 @@ input double ADX_Range  = 18.0;
 input int    ATR_Period = 14;
 input int    ATR_SMA    = 50;
 input double ShockRatio = 1.8;
+input double CompressRatio = 0.72;
 input int    BB_Period  = 20;
 input double BB_Dev     = 2.0;
 input double BB_MaxWidth= 0.035;
 input int    RSI_Period = 14;
 input bool   UseHtfFilter = true;
 input bool   UseDiFilter  = true;
+input bool   UseCompress  = true;
 
 input group "=== Risk ==="
 input double RiskTrend    = 1.0;
 input double RiskRange    = 0.7;
+input double RiskCompress = 0.6;
 input double ATR_SL_T     = 1.6;
 input double ATR_TP_T     = 2.4;
 input double RangeSL_ATR  = 1.2;
@@ -42,6 +45,8 @@ input double MaxPeakDD    = 3.0;
 input int    MaxTradesDay = 4;
 input int    CooldownBars = 2;
 input double MinTpSpread  = 3.0;
+input double SpreadAtrMax = 0.35;
+input double MinFreeMarginPct = 20.0;
 input bool   UseTrailing  = true;
 input double TrailStartR  = 1.0;
 input int    MagicNumber  = 20260922;
@@ -58,7 +63,7 @@ input int  FridayCutHour = 18;
 input bool TradeLong  = true;
 input bool TradeShort = true;
 
-enum Regime { REG_NEUTRAL=0, REG_TREND=1, REG_RANGE=2, REG_SHOCK=3 };
+enum Regime { REG_NEUTRAL=0, REG_TREND=1, REG_RANGE=2, REG_SHOCK=3, REG_COMPRESS=4 };
 
 int hFast,hMid,hSlow,hADX,hPlus,hMinus,hATR,hBB,hRSI,hHtf;
 double dayStartEquity = 0;
@@ -86,11 +91,9 @@ int OnInit()
       hATR==INVALID_HANDLE||hBB==INVALID_HANDLE||
       hRSI==INVALID_HANDLE||hHtf==INVALID_HANDLE)
       return INIT_FAILED;
-
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(Slippage);
    ApplyFilling();
-
    dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
    equityPeak = dayStartEquity;
    MqlDateTime dt; TimeToStruct(TimeCurrent(),dt);
@@ -141,22 +144,22 @@ void OnTick()
    if(CopyBuffer(hBB,0,1,3,bbM)<3) return;
    if(CopyBuffer(hBB,2,1,3,bbL)<3) return;
    if(CopyBuffer(hHtf,0,1,3,htf)<3) return;
+   if(atr[0] > 0 && SpreadPtsToPrice()/atr[0] > SpreadAtrMax) return;
 
    double atrSma = AtrSma(ATR_SMA);
    Regime reg = Classify(adx[0], atr[0], atrSma, bbU[0], bbL[0], bbM[0]);
-
-   if(CountPos() > 0)
-   {
-      MaybeExitRange(reg, adx[0]);
-      return;
-   }
+   if(CountPos() > 0) { MaybeExitRange(reg, adx[0]); return; }
    if(reg==REG_SHOCK || reg==REG_NEUTRAL) return;
    if(tradesToday >= MaxTradesDay) return;
    if(cooldownLeft > 0) return;
+   if(!HasFreeMargin()) return;
 
    double close1 = iClose(_Symbol,PERIOD_CURRENT,1);
+   double close2 = iClose(_Symbol,PERIOD_CURRENT,2);
    double low1   = iLow(_Symbol,PERIOD_CURRENT,1);
    double high1  = iHigh(_Symbol,PERIOD_CURRENT,1);
+   double high2  = iHigh(_Symbol,PERIOD_CURRENT,2);
+   double low2   = iLow(_Symbol,PERIOD_CURRENT,2);
    double htfClose = iClose(_Symbol,PERIOD_H1,1);
 
    if(reg==REG_TREND)
@@ -169,8 +172,8 @@ void OnTick()
       bool dn = emaM[0] < emaS[0] && htfDn && diDn;
       bool pullL = up && close1 > emaF[0] && low1 <= emaF[0] * 1.0015 && close1 > emaM[0];
       bool pullS = dn && close1 < emaF[0] && high1 >= emaF[0] * 0.9985 && close1 < emaM[0];
-      if(TradeLong && pullL) OpenBuy(atr[0], RiskTrend);
-      if(TradeShort && pullS) OpenSell(atr[0], RiskTrend);
+      if(TradeLong && pullL) OpenBuy(atr[0], RiskTrend, "GRK8-TREND-L");
+      if(TradeShort && pullS) OpenSell(atr[0], RiskTrend, "GRK8-TREND-S");
    }
    else if(reg==REG_RANGE)
    {
@@ -179,12 +182,21 @@ void OnTick()
       if(longR) OpenBuyRange(bbM[0], atr[0]);
       if(shortR) OpenSellRange(bbM[0], atr[0]);
    }
+   else if(reg==REG_COMPRESS && UseCompress)
+   {
+      bool brkL = TradeLong && close1 > high2 && close1 > close2;
+      bool brkS = TradeShort && close1 < low2 && close1 < close2;
+      if(brkL) OpenBuy(atr[0], RiskCompress, "GRK8-CMP-L");
+      if(brkS) OpenSell(atr[0], RiskCompress, "GRK8-CMP-S");
+   }
 }
 
 Regime Classify(double adx, double atr, double atrSma, double up, double lo, double mid)
 {
    if(atrSma > 0 && atr / atrSma >= ShockRatio) return REG_SHOCK;
    if(adx >= ADX_Trend) return REG_TREND;
+   if(UseCompress && atrSma > 0 && atr / atrSma <= CompressRatio && adx < ADX_Trend)
+      return REG_COMPRESS;
    if(adx < ADX_Range && mid > 0)
    {
       double bw = (up-lo)/mid;
@@ -232,14 +244,15 @@ bool FridayBlocked()
    return false;
 }
 
-int SpreadPoints()
-{
-   return (int)SymbolInfoInteger(_Symbol,SYMBOL_SPREAD);
-}
+int SpreadPoints() { return (int)SymbolInfoInteger(_Symbol,SYMBOL_SPREAD); }
+double SpreadPtsToPrice() { return (double)SpreadPoints() * _Point; }
 
-double SpreadPtsToPrice()
+bool HasFreeMargin()
 {
-   return (double)SpreadPoints() * _Point;
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   double free = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   if(eq <= 0) return false;
+   return (free / eq * 100.0) >= MinFreeMarginPct;
 }
 
 int CountPos()
@@ -304,47 +317,31 @@ bool StopsValid(double price, double sl, double tp, bool isBuy)
 {
    double minD = MinStopDist();
    double minTp = MathMax(minD, SpreadPtsToPrice() * MinTpSpread);
-   if(isBuy)
-   {
-      if(price - sl < minD) return false;
-      if(tp > 0 && tp - price < minTp) return false;
-   }
-   else
-   {
-      if(sl - price < minD) return false;
-      if(tp > 0 && price - tp < minTp) return false;
-   }
+   if(isBuy) { if(price - sl < minD) return false; if(tp > 0 && tp - price < minTp) return false; }
+   else { if(sl - price < minD) return false; if(tp > 0 && price - tp < minTp) return false; }
    return true;
 }
 
-void NoteFill()
-{
-   tradesToday++;
-}
+void NoteFill() { tradesToday++; }
 
-void NoteLossCooldown()
-{
-   cooldownLeft = CooldownBars;
-}
-
-void OpenBuy(double atr, double riskPct)
+void OpenBuy(double atr, double riskPct, string cmt)
 {
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
    double sl=Align(ask-atr*ATR_SL_T);
    double tp=Align(ask+atr*ATR_TP_T);
    if(!StopsValid(ask,sl,tp,true)) return;
    double lots=LotByRisk(ask-sl, riskPct);
-   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,"GRK7-TREND-L")) NoteFill();
+   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,cmt)) NoteFill();
 }
 
-void OpenSell(double atr, double riskPct)
+void OpenSell(double atr, double riskPct, string cmt)
 {
    double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
    double sl=Align(bid+atr*ATR_SL_T);
    double tp=Align(bid-atr*ATR_TP_T);
    if(!StopsValid(bid,sl,tp,false)) return;
    double lots=LotByRisk(sl-bid, riskPct);
-   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,"GRK7-TREND-S")) NoteFill();
+   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,cmt)) NoteFill();
 }
 
 void OpenBuyRange(double mid, double atr)
@@ -356,7 +353,7 @@ void OpenBuyRange(double mid, double atr)
    if((tp-ask) < (ask-sl)*MinRangeRR) return;
    if(!StopsValid(ask,sl,tp,true)) return;
    double lots=LotByRisk(ask-sl, RiskRange);
-   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,"GRK7-RANGE-L")) NoteFill();
+   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,"GRK8-RANGE-L")) NoteFill();
 }
 
 void OpenSellRange(double mid, double atr)
@@ -368,7 +365,7 @@ void OpenSellRange(double mid, double atr)
    if((bid-tp) < (sl-bid)*MinRangeRR) return;
    if(!StopsValid(bid,sl,tp,false)) return;
    double lots=LotByRisk(sl-bid, RiskRange);
-   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,"GRK7-RANGE-S")) NoteFill();
+   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,"GRK8-RANGE-S")) NoteFill();
 }
 
 void MaybeExitRange(Regime reg, double adx)
@@ -381,9 +378,7 @@ void MaybeExitRange(Regime reg, double adx)
       if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
       string cmt=PositionGetString(POSITION_COMMENT);
       if(StringFind(cmt,"RANGE")>=0 && (adx>=ADX_Trend || reg==REG_SHOCK))
-      {
-         if(trade.PositionClose(tk)) NoteLossCooldown();
-      }
+         trade.PositionClose(tk);
    }
 }
 
@@ -456,4 +451,22 @@ void CheckDailyLoss()
             trade.PositionClose(tk);
       }
    }
+}
+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+{
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+   ulong deal = trans.deal;
+   if(deal == 0) return;
+   if(!HistoryDealSelect(deal)) return;
+   if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol) return;
+   if((long)HistoryDealGetInteger(deal, DEAL_MAGIC) != MagicNumber) return;
+   long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+   if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_INOUT) return;
+   double profit = HistoryDealGetDouble(deal, DEAL_PROFIT)
+                 + HistoryDealGetDouble(deal, DEAL_SWAP)
+                 + HistoryDealGetDouble(deal, DEAL_COMMISSION);
+   if(profit < 0) cooldownLeft = CooldownBars;
 }
