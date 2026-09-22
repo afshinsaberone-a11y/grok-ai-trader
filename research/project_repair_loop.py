@@ -53,6 +53,14 @@ def audit(text: str) -> list[str]:
         fails.append("no equity-peak circuit breaker")
     if "SpreadPtsToPrice" not in text and "MinTpSpread" not in text:
         fails.append("targets not checked versus current spread")
+    if "ACCOUNT_MARGIN_FREE" not in text:
+        fails.append("orders sent without free-margin check")
+    if "OnTradeTransaction" not in text:
+        fails.append("no deal-level win/loss hook for cooldown")
+    if "SpreadAtrMax" not in text and "spread/atr" not in text.lower():
+        fails.append("spread not compared to ATR")
+    if "REG_COMPRESS" not in text:
+        fails.append("no compression-expansion regime")
     return fails
 
 
