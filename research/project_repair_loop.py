@@ -45,6 +45,14 @@ def audit(text: str) -> list[str]:
         fails.append("no daily trade cap")
     if "GmtOffset" not in text and "SessOffset" not in text:
         fails.append("session clock has no GMT offset input")
+    if "PLUS_DI" not in text and "PlusDI" not in text and "hPlus" not in text:
+        fails.append("trend direction lacks +DI/-DI confirmation")
+    if "CooldownBars" not in text and "cooldown" not in text.lower():
+        fails.append("no post-loss cooldown")
+    if "equityPeak" not in text and "EquityPeak" not in text:
+        fails.append("no equity-peak circuit breaker")
+    if "SpreadPtsToPrice" not in text and "MinTpSpread" not in text:
+        fails.append("targets not checked versus current spread")
     return fails
 
 
