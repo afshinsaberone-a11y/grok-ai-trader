@@ -3,13 +3,15 @@
 ربات‌ها و تحقیقات استراتژی فارکس ساخته‌شده توسط **Grok** (استاد تریدر فارکس و نابغه برنامه‌نویسی کامپیوتر)
 
 ## آخرین تحقیق
-**شناسه:** GRK-FX-2026-002 (بهبود یافته از 001)  
-**امتیاز نهایی استراتژی:** **۹.۵/۱۰**
+**شناسه:** GRK-FX-2026-003 (کاتالوگ + اصلاح + ترکیب رژیم)  
+قبلی: GRK-FX-2026-002 — امتیاز طراحی HYBRID **۹.۵/۱۰**
 
 ### فایل‌ها:
-- `research/RESEARCH_SUMMARY.md` : خلاصه کامل تحقیق، لوپ امتیازدهی، ایرادات و رفع آن‌ها
-- `strategies/GRK_HYBRID_STRATEGY.md` : قوانین دقیق استراتژی نهایی GRK-FX-HYBRID-002
-- `ea/GRK_Hybrid_Trend_ATR_EA.mq5` : کد کامل Expert Advisor برای MetaTrader 5 (نسخه ۱.۱۰ با Bollinger Squeeze)
+- `research/BEST_STRATEGIES_CATALOG_2026.md` : دسته‌بندی، امتیاز، ایراد و اصلاح ۱۵ خانواده استراتژی + ترکیب‌های خلاقانه
+- `strategies/GRK_REGIME_SWITCH.md` : مشخصات سیستم دو مغزی ترند/رنج/شوک
+- `research/RESEARCH_SUMMARY.md` : خلاصه تحقیق نسخه قبل
+- `strategies/GRK_HYBRID_STRATEGY.md` : قوانین GRK-FX-HYBRID-002
+- `ea/GRK_Hybrid_Trend_ATR_EA.mq5` : Expert Advisor متاتریدر ۵
 
 ### نحوه استفاده
 1. فایل `.mq5` را در MetaEditor باز کنید و کامپایل کنید.
@@ -17,13 +19,14 @@
 3. پارامترها را به صورت محدود بهینه کنید (از over-optimization شدید اجتناب کنید).
 4. همیشه با ریسک ۱٪ یا کمتر شروع کنید و حداقل ۵۰-۱۰۰ ترید در دمو forward-test کنید.
 
-### ویژگی‌های نسخه فعلی (HYBRID-002)
+### ویژگی‌های نسخه فعلی (HYBRID-002 + مسیر 003)
 - فیلتر ترند چند EMA + ADX
 - تشخیص Squeeze با Bollinger Bandwidth percentile
 - مدیریت ریسک دینامیک ATR + % Equity
 - Trailing Stop هوشمند
 - فیلتر سشن London/NY
 - Daily Loss Circuit Breaker
+- طرح سوئیچ رژیم TREND / RANGE / SHOCK برای نسخه بعد
 
 **هشدار ریسک بسیار مهم:** معامله فارکس و CFD ریسک از دست دادن سرمایه دارد. این کد و تحقیق صرفاً آموزشی و تحقیقاتی است و هیچ ضمانت سودی ندارد. همیشه مسئولیت کامل معاملات با خود شماست.
 
