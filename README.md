@@ -3,14 +3,14 @@
 ربات‌ها و تحقیقات استراتژی فارکس ساخته‌شده توسط **Grok**.
 
 ## آخرین تحقیق
-**شناسه:** GRK-FX-2026-005 (کاتالوگ امتیازدهی + رژیم‌سوئیچ + لوپ رفع ایراد)
+**شناسه:** GRK-FX-2026-006 (کاتالوگ امتیازدهی + رژیم‌سوئیچ v2.20 + لوپ رفع ایراد)
 
 ### فایل‌های کلیدی
-- `research/BEST_STRATEGIES_CATALOG_2026.md` — دسته‌بندی و امتیاز خانواده‌ها
-- `research/EA_AUDIT_LOOP_005.md` — ایرادهای v2.00 و اصلاحات v2.10
-- `research/project_repair_loop.py` — چک‌لیست ایستا روی فایل‌های `ea/*.mq5`
+- `research/BEST_STRATEGIES_CATALOG_2026.md` — دسته‌بندی، ایراد و امتیاز خانواده‌ها
+- `research/EA_AUDIT_LOOP_006.md` — ایرادهای v2.10 و اصلاحات v2.20
+- `research/project_repair_loop.py` — چک‌لیست ایستا روی `ea/*.mq5`
 - `strategies/GRK_REGIME_SWITCH.md` — مشخصات TREND / RANGE / SHOCK
-- `ea/GRK_Hybrid_Regime_EA.mq5` — نسخه ۲.۱۰ رژیم‌سوئیچ (قهرمان فعلی)
+- `ea/GRK_Hybrid_Regime_EA.mq5` — نسخه ۲.۲۰ رژیم‌سوئیچ (قهرمان فعلی)
 
 ### لوپ رفع ایراد
 ```bash
