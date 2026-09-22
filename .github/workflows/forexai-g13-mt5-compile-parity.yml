@@ -199,8 +199,23 @@ jobs:
           $ex5 = [System.IO.Path]::ChangeExtension($src, '.ex5')
           $log = [System.IO.Path]::ChangeExtension($src, '.log')
           Copy-Item $f.FullName $src -Force
-          $proc = Start-Process -FilePath $meta -WorkingDirectory $buildDir -ArgumentList @("/compile:$src", '/log') -Wait -PassThru
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = $meta
+          $psi.WorkingDirectory = $buildDir
+          $psi.Arguments = "/compile:$src /log"
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow = $true
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $proc = New-Object System.Diagnostics.Process
+          $proc.StartInfo = $psi
+          [void]$proc.Start()
+          $stdout = $proc.StandardOutput.ReadToEnd()
+          $stderr = $proc.StandardError.ReadToEnd()
+          $proc.WaitForExit()
           Write-Host "PARITY_HARNESS_METAEDITOR_EXIT_CODE=$($proc.ExitCode)"
+          if ($stdout) { $stdout -split [Environment]::NewLine | ForEach-Object { if ($_.Trim()) { Write-Host "PARITY_HARNESS_STDOUT=$($_.Trim())" } } }
+          if ($stderr) { $stderr -split [Environment]::NewLine | ForEach-Object { if ($_.Trim()) { Write-Host "PARITY_HARNESS_STDERR=$($_.Trim())" } } }
           if (!(Test-Path -LiteralPath $log -PathType Leaf)) { throw "Parity harness MetaEditor compile log missing" }
           $logText = Get-Content -LiteralPath $log -Raw -ErrorAction Stop
           $resultMatch = [regex]::Match($logText, 'Result:\s*(\d+) errors,\s*(\d+) warnings')
