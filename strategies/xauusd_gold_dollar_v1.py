@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v1.2.
+"""XAUUSD Gold-Dollar research strategy v1.3.
 
 Does not download market data. Feed a real OHLCV dataset with columns
 open/high/low/close (or Open/High/Low/Close) and an optional timestamp index.
 Optional real `spread` column is used when present; otherwise assumed_spread.
 ATR stop is calibrated to gold volatility vs its 50-bar median.
+v1.3 blocks new entries in a shock regime (ATR > shock_atr_mult * median).
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ class GoldParams:
     atr_sl_high: float = 2.2
     atr_low_ratio: float = 0.85
     atr_high_ratio: float = 1.40
+    shock_atr_mult: float = 2.0
     rr_partial: float = 1.2
     rr_final: float = 2.4
     ema_fast: int = 20
@@ -41,7 +43,7 @@ class GoldParams:
     min_sl_spread_mult: float = 1.8
     assumed_spread: float = 0.30
     max_spread_atr_ratio: float = 0.25
-    version: str = "1.2"
+    version: str = "1.3"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -107,6 +109,7 @@ class XAUUSDGoldDollarV1:
         out["sl_mult"] = self.p.atr_sl
         out.loc[ratio >= self.p.atr_high_ratio, "sl_mult"] = self.p.atr_sl_high
         out.loc[ratio <= self.p.atr_low_ratio, "sl_mult"] = self.p.atr_sl_low
+        out["shock"] = ratio > self.p.shock_atr_mult
         mid = close.rolling(self.p.bb_period).mean()
         std = close.rolling(self.p.bb_period).std()
         out["bw"] = ((mid + 2 * std) - (mid - 2 * std)) / mid.replace(0, np.nan)
@@ -139,7 +142,8 @@ class XAUUSDGoldDollarV1:
         rsi_l = d["rsi"].between(*self.p.rsi_long)
         rsi_s = d["rsi"].between(*self.p.rsi_short)
         d["signal"] = 0
-        base = squeeze & vol_ok & d["session_ok"] & d["cost_ok"]
+        shock_ok = ~d["shock"].fillna(False)
+        base = squeeze & vol_ok & d["session_ok"] & d["cost_ok"] & shock_ok
         d.loc[trend_up & base & cross_up & rsi_l, "signal"] = 1
         d.loc[trend_dn & base & cross_dn & rsi_s, "signal"] = -1
         return d
@@ -154,6 +158,7 @@ class XAUUSDGoldDollarV1:
         total_r = 0.0
         log = []
         blocked_cost = int((d["cost_ok"] == False).sum())
+        blocked_shock = int(d["shock"].fillna(False).sum())
         sl_used = []
         for i in range(1, len(d)):
             row = d.iloc[i]
@@ -237,6 +242,7 @@ class XAUUSDGoldDollarV1:
             "max_dd_pct": round(self.max_dd * 100, 2),
             "total_R": round(total_r, 2),
             "bars_cost_blocked": blocked_cost,
+            "bars_shock_blocked": blocked_shock,
             "avg_sl_mult": round(float(np.mean(sl_used)), 3) if sl_used else self.p.atr_sl,
             "risk_pct": self.p.risk_pct,
         }
