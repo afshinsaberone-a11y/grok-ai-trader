@@ -10,6 +10,13 @@
 
 ## Changelog
 
+### v2.9 — 2026-09-23
+- ارتقا: فیلتر همپوشانی نیویورک (12–13 UTC) وقتی اسپرد نسبت به ATR بالا بماند.
+- پایتون: `ny_open_hour=12`، `ny_open_end_hour=13`، `ny_wide_spread_atr=0.10`. ستون `ny_wide_spread_block`. بدون ساخت اسپرد جعلی.
+- EA: `NyOpenHour=12`، `NyOpenEndHour=13`، `NyWideSpreadAtr=0.10` و `NyWideSpreadBlock()`.
+- ریسک پایه ۰.۵٪. سود تضمین نیست.
+- مورد بعدی: فیلتر حجم نازک ساعت اول نیویورک فقط با ستون حجم واقعی.
+
 ### v2.8 — 2026-09-23
 - ارتقا: فیلتر همپوشانی اسپرد گشاد + حجم نازک ساعت اول لندن (07–08 UTC).
 - پایتون: `london_open_hour=7`، `london_open_end_hour=8`، `london_thin_vol_ratio=0.70`، `london_vol_lookback=20`، `london_wide_spread_atr=0.10`. فقط با ستون حجم واقعی. شرط AND است.
