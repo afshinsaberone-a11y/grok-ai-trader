@@ -194,3 +194,209 @@ class XAUUSDGoldDollarV1:
         d.loc[trend_up & base & d["pull_up"] & rsi_l, "signal"] = 1
         d.loc[trend_dn & base & d["pull_dn"] & rsi_s, "signal"] = -1
         return d
+
+    def backtest(self, df: pd.DataFrame) -> dict:
+        d = self.signals(df)
+        close_col, high_col, low_col = _col(d, "close"), _col(d, "high"), _col(d, "low")
+        pos = 0
+        entry = stop = tp1 = tp2 = 0.0
+        init_risk = 0.0
+        trade_risk = self.p.risk_pct
+        half_done = False
+        bars_held = 0
+        wins = losses = 0
+        total_r = 0.0
+        log = []
+        blocked_cost = int((d["cost_ok"] == False).sum())
+        blocked_shock = int(d["shock"].fillna(False).sum())
+        blocked_quality = int((d["quality"] < self.p.min_quality).sum())
+        blocked_news = int(d["news_block"].fillna(False).sum())
+        blocked_day_cap = 0
+        blocked_loss_lock = 0
+        risk_cut_trades = 0
+        blocked_daily_loss = 0
+        time_stop_closes = 0
+        day_counts: dict = {}
+        day_consec: dict = {}
+        day_locked: dict = {}
+        day_start_eq: dict = {}
+        sl_used = []
+        for i in range(1, len(d)):
+            row = d.iloc[i]
+            atr = row["atr"]
+            if pd.isna(atr) or atr <= 0:
+                continue
+            high, low, close = row[high_col], row[low_col], row[close_col]
+            slm = float(row["sl_mult"]) if not pd.isna(row["sl_mult"]) else self.p.atr_sl
+            day_key = row["trade_date"]
+            has_day = day_key is not None and not (isinstance(day_key, float) and pd.isna(day_key))
+            if has_day and day_key not in day_start_eq:
+                day_start_eq[day_key] = self.equity
+            if pos == 0:
+                if row["signal"] in (1, -1):
+                    if has_day:
+                        used = day_counts.get(day_key, 0)
+                        if used >= self.p.max_trades_per_day:
+                            blocked_day_cap += 1
+                            continue
+                        if day_locked.get(day_key, False) or day_consec.get(day_key, 0) >= self.p.max_consecutive_losses_per_day:
+                            blocked_loss_lock += 1
+                            continue
+                        start_eq = day_start_eq.get(day_key, self.equity)
+                        if start_eq > 0 and (start_eq - self.equity) / start_eq >= self.p.max_daily_loss_entry_pct:
+                            blocked_daily_loss += 1
+                            continue
+                    trade_risk = self.p.risk_pct
+                    if has_day and day_consec.get(day_key, 0) >= 1:
+                        trade_risk = self.p.risk_pct * self.p.loss_risk_mult
+                        risk_cut_trades += 1
+                    if row["signal"] == 1:
+                        pos, entry = 1, close
+                        stop = entry - slm * atr
+                        init_risk = entry - stop
+                        tp1, tp2 = entry + self.p.rr_partial * init_risk, entry + self.p.rr_final * init_risk
+                    else:
+                        pos, entry = -1, close
+                        stop = entry + slm * atr
+                        init_risk = stop - entry
+                        tp1, tp2 = entry - self.p.rr_partial * init_risk, entry - self.p.rr_final * init_risk
+                    half_done = False
+                    bars_held = 0
+                    sl_used.append(slm)
+                    if has_day:
+                        day_counts[day_key] = day_counts.get(day_key, 0) + 1
+                continue
+            bars_held += 1
+            realized = 0.0
+            closed = False
+            if pos == 1:
+                if init_risk > 0:
+                    profit_r = (high - entry) / init_risk
+                    tmult = self.trail_mult(profit_r)
+                    if tmult is not None:
+                        trail = high - tmult * atr
+                        stop = max(stop, trail if half_done else max(entry, trail))
+                if low <= stop:
+                    r_hit = (stop - entry) / init_risk if init_risk else -1.0
+                    realized = r_hit if not half_done else 0.5 * r_hit
+                    closed = True
+                elif (not half_done) and high >= tp1:
+                    realized = 0.5 * self.p.rr_partial
+                    half_done = True
+                    stop = max(stop, entry)
+                elif half_done and high >= tp2:
+                    realized = 0.5 * self.p.rr_final
+                    closed = True
+                elif row["signal"] == -1:
+                    r_now = (close - entry) / init_risk if init_risk else 0
+                    realized = r_now if not half_done else 0.5 * r_now
+                    closed = True
+                elif (not half_done) and self.p.time_stop_bars > 0 and bars_held >= self.p.time_stop_bars:
+                    r_now = (close - entry) / init_risk if init_risk else 0
+                    realized = r_now
+                    closed = True
+                    time_stop_closes += 1
+            else:
+                if init_risk > 0:
+                    profit_r = (entry - low) / init_risk
+                    tmult = self.trail_mult(profit_r)
+                    if tmult is not None:
+                        trail = low + tmult * atr
+                        stop = min(stop, trail if half_done else min(entry, trail))
+                if high >= stop:
+                    r_hit = (entry - stop) / init_risk if init_risk else -1.0
+                    realized = r_hit if not half_done else 0.5 * r_hit
+                    closed = True
+                elif (not half_done) and low <= tp1:
+                    realized = 0.5 * self.p.rr_partial
+                    half_done = True
+                    stop = min(stop, entry)
+                elif half_done and low <= tp2:
+                    realized = 0.5 * self.p.rr_final
+                    closed = True
+                elif row["signal"] == 1:
+                    r_now = (entry - close) / init_risk if init_risk else 0
+                    realized = r_now if not half_done else 0.5 * r_now
+                    closed = True
+                elif (not half_done) and self.p.time_stop_bars > 0 and bars_held >= self.p.time_stop_bars:
+                    r_now = (entry - close) / init_risk if init_risk else 0
+                    realized = r_now
+                    closed = True
+                    time_stop_closes += 1
+            if realized:
+                total_r += realized
+                self.equity *= 1 + realized * trade_risk
+                log.append(realized)
+            if closed:
+                wins += realized > 0
+                losses += realized <= 0
+                day_key = row["trade_date"]
+                has_day = day_key is not None and not (isinstance(day_key, float) and pd.isna(day_key))
+                if has_day:
+                    if realized <= 0:
+                        day_consec[day_key] = day_consec.get(day_key, 0) + 1
+                        if day_consec[day_key] >= self.p.max_consecutive_losses_per_day:
+                            day_locked[day_key] = True
+                    else:
+                        day_consec[day_key] = 0
+                pos = 0
+                bars_held = 0
+            self.peak = max(self.peak, self.equity)
+            self.max_dd = max(self.max_dd, (self.peak - self.equity) / self.peak)
+        n = wins + losses
+        gp = sum(x for x in log if x > 0)
+        gl = abs(sum(x for x in log if x <= 0))
+        pf = gp / gl if gl else float("inf")
+        wr = wins / n if n else 0.0
+        exp = total_r / n if n else 0.0
+        return {
+            "symbol": "XAUUSD",
+            "version": self.p.version,
+            "trades": n,
+            "win_rate": round(wr * 100, 2),
+            "expectancy_R": round(exp, 3),
+            "profit_factor": round(pf, 2) if np.isfinite(pf) else "inf",
+            "final_equity": round(self.equity, 2),
+            "max_dd_pct": round(self.max_dd * 100, 2),
+            "total_R": round(total_r, 2),
+            "bars_cost_blocked": blocked_cost,
+            "bars_shock_blocked": blocked_shock,
+            "bars_quality_blocked": blocked_quality,
+            "bars_news_blocked": blocked_news,
+            "bars_day_cap_blocked": blocked_day_cap,
+            "bars_loss_lock_blocked": blocked_loss_lock,
+            "risk_cut_trades": risk_cut_trades,
+            "bars_daily_loss_blocked": blocked_daily_loss,
+            "time_stop_closes": time_stop_closes,
+            "time_stop_bars": self.p.time_stop_bars,
+            "max_daily_loss_entry_pct": self.p.max_daily_loss_entry_pct,
+            "max_trades_per_day": self.p.max_trades_per_day,
+            "max_consecutive_losses_per_day": self.p.max_consecutive_losses_per_day,
+            "loss_risk_mult": self.p.loss_risk_mult,
+            "avg_sl_mult": round(float(np.mean(sl_used)), 3) if sl_used else self.p.atr_sl,
+            "risk_pct": self.p.risk_pct,
+            "trail_wide_mult": self.p.trail_wide_mult,
+            "trail_tight_mult": self.p.trail_tight_mult,
+        }
+
+
+def load_ohlcv(path: str | Path) -> pd.DataFrame:
+    p = Path(path)
+    if p.suffix.lower() == ".csv":
+        df = pd.read_csv(p)
+    else:
+        df = pd.read_parquet(p)
+    for cand in ("timestamp", "time", "datetime", "date"):
+        if cand in df.columns:
+            df[cand] = pd.to_datetime(df[cand], utc=True, errors="coerce")
+            df = df.set_index(cand)
+            break
+    return df
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", required=True)
+    args = parser.parse_args()
+    print(XAUUSDGoldDollarV1().backtest(load_ohlcv(args.data)))
