@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //| GRK_Hybrid_Regime_EA.mq5                                         |
-//| ID: GRK-FX-HYBRID-012 version 2.70                              |
+//| ID: GRK-FX-HYBRID-013 version 2.80                              |
 //| TREND/RANGE/COMPRESS/SHOCK + freeze/volume/Monday skip           |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "2.70"
+#property version   "2.80"
 #property strict
 
 #include <Trade\\Trade.mqh>
@@ -56,6 +56,8 @@ input int    NewsBlackoutMin = 15;
 input int    MaxConsecLoss   = 3;
 input double MaxLot         = 5.0;
 input int    MondaySkipBars = 2;
+input int    MaxPositions    = 1;
+input int    ShockLockBars   = 3;
 
 input group "=== Session (server + GMT offset hours) ==="
 input bool UseSession = true;
@@ -77,6 +79,7 @@ int lastYyear = -1;
 int tradesToday = 0;
 int cooldownLeft = 0;
 int consecLoss = 0;
+int shockLockLeft = 0;
 bool tradingLocked = false;
 
 int OnInit()
@@ -107,12 +110,16 @@ int OnInit()
    tradesToday = 0;
    cooldownLeft = 0;
    consecLoss = 0;
+   shockLockLeft = 0;
    tradingLocked = false;
    return INIT_SUCCEEDED;
 }
 
 void ApplyFilling()
 {
+   long fm = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+   if((fm & SYMBOL_FILLING_IOC) == SYMBOL_FILLING_IOC && trade.SetTypeFilling(ORDER_FILLING_IOC)) return;
+   if((fm & SYMBOL_FILLING_FOK) == SYMBOL_FILLING_FOK && trade.SetTypeFilling(ORDER_FILLING_FOK)) return;
    if(trade.SetTypeFilling(ORDER_FILLING_IOC)) return;
    if(trade.SetTypeFilling(ORDER_FILLING_FOK)) return;
    trade.SetTypeFilling(ORDER_FILLING_RETURN);
@@ -133,6 +140,7 @@ void OnTick()
    if(tradingLocked) return;
    if(!IsNewBar()) return;
    if(cooldownLeft > 0) cooldownLeft--;
+   if(shockLockLeft > 0) shockLockLeft--;
    if(UseSession && !InSession()) return;
    if(FridayBlocked()) return;
    if(MondaySkip()) return;
@@ -157,9 +165,11 @@ void OnTick()
 
    double atrSma = AtrSma(ATR_SMA);
    Regime reg = Classify(adx[0], atr[0], atrSma, bbU[0], bbL[0], bbM[0]);
+   if(reg==REG_SHOCK) shockLockLeft = ShockLockBars;
    if(CountPos() > 0) { MaybeExitRange(reg, adx[0]); return; }
-   if(reg==REG_SHOCK || reg==REG_NEUTRAL) return;
+   if(reg==REG_SHOCK || reg==REG_NEUTRAL || shockLockLeft > 0) return;
    if(tradesToday >= MaxTradesDay) return;
+   if(CountPos() >= MaxPositions) return;
    if(cooldownLeft > 0) return;
    if(!HasFreeMargin()) return;
 
@@ -181,8 +191,8 @@ void OnTick()
       bool dn = emaM[0] < emaS[0] && htfDn && diDn;
       bool pullL = up && close1 > emaF[0] && low1 <= emaF[0] * 1.0015 && close1 > emaM[0];
       bool pullS = dn && close1 < emaF[0] && high1 >= emaF[0] * 0.9985 && close1 < emaM[0];
-      if(TradeLong && pullL) OpenBuy(atr[0], RiskTrend, "GRK12-TREND-L");
-      if(TradeShort && pullS) OpenSell(atr[0], RiskTrend, "GRK12-TREND-S");
+      if(TradeLong && pullL) OpenBuy(atr[0], RiskTrend, "GRK13-TREND-L");
+      if(TradeShort && pullS) OpenSell(atr[0], RiskTrend, "GRK13-TREND-S");
    }
    else if(reg==REG_RANGE)
    {
@@ -195,8 +205,8 @@ void OnTick()
    {
       bool brkL = TradeLong && close1 > high2 && close1 > close2;
       bool brkS = TradeShort && close1 < low2 && close1 < close2;
-      if(brkL) OpenBuy(atr[0], RiskCompress, "GRK12-CMP-L");
-      if(brkS) OpenSell(atr[0], RiskCompress, "GRK12-CMP-S");
+      if(brkL) OpenBuy(atr[0], RiskCompress, "GRK13-CMP-L");
+      if(brkS) OpenSell(atr[0], RiskCompress, "GRK13-CMP-S");
    }
 }
 
@@ -280,6 +290,8 @@ bool MondaySkip()
 
 bool TradeAllowed()
 {
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return false;
+   if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) return false;
    long mode = SymbolInfoInteger(_Symbol,SYMBOL_TRADE_MODE);
    return (mode == SYMBOL_TRADE_MODE_FULL);
 }
@@ -397,7 +409,7 @@ void OpenBuyRange(double mid, double atr)
    if((tp-ask) < (ask-sl)*MinRangeRR) return;
    if(!StopsValid(ask,sl,tp,true)) return;
    double lots=LotByRisk(ask-sl, RiskRange);
-   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,"GRK12-RANGE-L")) NoteFill();
+   if(lots>0 && trade.Buy(lots,_Symbol,0,sl,tp,"GRK13-RANGE-L")) NoteFill();
 }
 
 void OpenSellRange(double mid, double atr)
@@ -409,7 +421,7 @@ void OpenSellRange(double mid, double atr)
    if((bid-tp) < (sl-bid)*MinRangeRR) return;
    if(!StopsValid(bid,sl,tp,false)) return;
    double lots=LotByRisk(sl-bid, RiskRange);
-   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,"GRK12-RANGE-S")) NoteFill();
+   if(lots>0 && trade.Sell(lots,_Symbol,0,sl,tp,"GRK13-RANGE-S")) NoteFill();
 }
 
 void MaybeExitRange(Regime reg, double adx)
@@ -480,6 +492,7 @@ void CheckDailyLoss()
       tradesToday=0;
       cooldownLeft=0;
       consecLoss=0;
+      shockLockLeft=0;
       tradingLocked=false;
    }
    double eq=AccountInfoDouble(ACCOUNT_EQUITY);
