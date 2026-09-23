@@ -390,20 +390,55 @@ jobs:
           ShutdownTerminal=1
           "@ | Set-Content -LiteralPath $config -Encoding ascii
 
-          Remove-Item (Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files\\g13_mql5_parity.csv') -Force -ErrorAction SilentlyContinue
-          Remove-Item (Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files\\g13_mql5_parity.done.txt') -Force -ErrorAction SilentlyContinue
-
-          Write-Host "Launching MT5 parity harness via terminal config"
-          $proc = Start-Process -FilePath $terminal -ArgumentList @("/config:$config") -PassThru
-          if (!$proc.WaitForExit(180000)) {
-            try { $proc.Kill() } catch {}
-            throw "MT5 parity harness timed out after 180 seconds"
-          }
-          Write-Host "MT5_PARITY_TERMINAL_EXIT_CODE=$($proc.ExitCode)"
-
           $serviceCommon = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
           $parity = Join-Path $serviceCommon 'g13_mql5_parity.csv'
           $done = Join-Path $serviceCommon 'g13_mql5_parity.done.txt'
+          $started = Join-Path $serviceCommon 'g13_mql5_parity.started.txt'
+          Remove-Item $parity,$done,$started -Force -ErrorAction SilentlyContinue
+
+          Write-Host "Launching MT5 parity harness via terminal config"
+          $configArg = '/config:"' + $config + '"'
+          $proc = Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @($configArg,'/skipupdate') -PassThru
+
+          # Prove that the MQL5 script actually started before waiting on
+          # the terminal process. This distinguishes config/startup issues
+          # from a slow parity calculation.
+          $startDeadline = (Get-Date).AddSeconds(90)
+          $startedSeen = $false
+          while (-not $proc.HasExited -and (Get-Date) -lt $startDeadline) {
+            if (Test-Path -LiteralPath $started -PathType Leaf) {
+              $startedSeen = $true
+              Write-Host "MQL5_PARITY_SCRIPT_STARTED"
+              Get-Content -LiteralPath $started -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.Trim()) { Write-Host "MQL5_PARITY_STARTED_MARKER=$($_.Trim())" }
+              }
+              break
+            }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $startedSeen) {
+            if ($proc.HasExited) {
+              Write-Host "MT5_PARITY_TERMINAL_EXITED_BEFORE_SCRIPT_START exit_code=$($proc.ExitCode)"
+            } else {
+              Write-Host "MT5_PARITY_TERMINAL_STILL_RUNNING_BEFORE_SCRIPT_START"
+            }
+            throw "MT5 parity harness script did not start within 90 seconds"
+          }
+
+          # Allow a bounded 7-minute window for the 93k-row real dataset
+          # across all 15 frozen candidates.
+          $deadline = (Get-Date).AddSeconds(420)
+          while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+            if (Test-Path -LiteralPath $done -PathType Leaf) {
+              Write-Host "MQL5_PARITY_DONE_MARKER_DETECTED"
+            }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $proc.HasExited) {
+            try { $proc.Kill() } catch {}
+            throw "MT5 parity harness timed out after 420 seconds"
+          }
+          Write-Host "MT5_PARITY_TERMINAL_EXIT_CODE=$($proc.ExitCode)"
           if (!(Test-Path -LiteralPath $parity -PathType Leaf)) {
             throw "MQL5 parity output was not generated: $parity"
           }
@@ -431,6 +466,53 @@ jobs:
           "DATA_CSV_RESOLVED=$(Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files\\g13_real_eurusd_m15.csv')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "MQL5_REAL_DATA_PARITY_OK"
 
+      - name: Collect MT5 parity diagnostics
+        if: always()
+        env:
+          MT5_ROOT: ${{ inputs.mt5_root }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\diagnostics'
+          New-Item -ItemType Directory -Path $diag -Force | Out-Null
+
+          $serviceData = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075'
+          $commonFiles = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
+          $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
+          $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\mql5\\g13_parity_harness.ini'
+
+          if (Test-Path $terminal) {
+            (Get-Item $terminal).VersionInfo | Out-File (Join-Path $diag 'terminal_version.txt') -Encoding utf8
+          }
+          Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" |
+            Select-Object ProcessId,ExecutablePath,CommandLine,CreationDate |
+            Format-List * |
+            Out-File (Join-Path $diag 'terminal_processes.txt') -Encoding utf8
+          if (Test-Path $config) { Copy-Item $config (Join-Path $diag 'g13_parity_harness.ini') -Force }
+
+          foreach ($logDir in @(
+            (Join-Path $serviceData 'logs'),
+            (Join-Path $serviceData 'MQL5\\Logs')
+          )) {
+            if (Test-Path $logDir) {
+              $out = Join-Path $diag ([IO.Path]::GetFileName($logDir))
+              New-Item -ItemType Directory -Path $out -Force | Out-Null
+              Get-ChildItem $logDir -File |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 10 |
+                ForEach-Object { Copy-Item $_.FullName (Join-Path $out $_.Name) -Force }
+            }
+          }
+
+          if (Test-Path $commonFiles) {
+            Get-ChildItem $commonFiles -File |
+              Where-Object { $_.Name -like 'g13_mql5_parity*' -or $_.Name -eq 'g13_real_eurusd_m15.csv' } |
+              Select-Object Name,Length,LastWriteTime |
+              Format-Table -AutoSize |
+              Out-File (Join-Path $diag 'common_files_inventory.txt') -Encoding utf8
+          }
+          Write-Host "MT5_DIAGNOSTICS_COLLECTED=$diag"
+
+
       - name: Verify generated parity input
         run: |
           $ErrorActionPreference = 'Stop'
@@ -448,6 +530,14 @@ jobs:
             --manifest artifacts/g13/g13-promotion-manifest-m15.json `
             --mt5 "$env:PARITY_CSV_RESOLVED" `
             --output artifacts/g13-mql5-signal-parity.json
+
+      - name: Upload MT5 parity diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-mt5-parity-diagnostics-${{ github.run_id }}
+          path: artifacts/g13/diagnostics/**
+          if-no-files-found: warn
 
       - name: Upload compile + parity evidence
         uses: actions/upload-artifact@v4
