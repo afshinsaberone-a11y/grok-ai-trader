@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_DIR = ROOT / "ea"
+CHAMPION = "GRK_Hybrid_Regime_EA.mq5"
 
 
-def audit(text: str) -> list[str]:
+def _fails(text: str) -> list[str]:
     compact = re.sub(r"\s+", "", text)
     fails: list[str] = []
-
     if "iClose(_Symbol,PERIOD_CURRENT,0)" in compact and "iClose(_Symbol,PERIOD_CURRENT,1)" not in compact:
         fails.append("entry uses forming bar 0 without closed bar 1")
     if "tradingLocked" not in text:
@@ -93,7 +94,53 @@ def audit(text: str) -> list[str]:
         fails.append("filling mode not read from SYMBOL_FILLING_MODE")
     if "ShockLock" not in text and "shockLock" not in text:
         fails.append("no post-shock lock bars")
+    if "ACCOUNT_TRADE_EXPERT" not in text:
+        fails.append("orders sent without ACCOUNT_TRADE_EXPERT")
+    if "HalfRisk" not in text and "halfRisk" not in text:
+        fails.append("no same-day half-risk after loss")
     return fails
+
+
+def _structured_from_fails(fails: list[str], champion_ok: bool) -> dict[str, Any]:
+    checks = []
+    for item in fails:
+        checks.append(
+            {
+                "check": item,
+                "status": "FAIL",
+                "severity": "high",
+                "evidence": item,
+                "remediation": "patch champion EA and re-run loop",
+            }
+        )
+    if not checks:
+        checks.append(
+            {
+                "check": "champion_static_contract",
+                "status": "PASS",
+                "severity": "info",
+                "evidence": "no static failures",
+                "remediation": "compile in MetaEditor and tick-backtest",
+            }
+        )
+    return {
+        "fail_closed": True,
+        "status": "READY_FOR_TEST_RUN" if champion_ok else "BLOCKED",
+        "checks": checks,
+    }
+
+
+def audit(source: str | Path) -> list[str] | dict[str, Any]:
+    if isinstance(source, Path):
+        champion = source / "ea" / CHAMPION if source.is_dir() else source
+        if champion.is_dir():
+            champion = champion / "ea" / CHAMPION
+        if not champion.exists():
+            return _structured_from_fails(["champion EA missing"], False)
+        text = champion.read_text(encoding="utf-8", errors="replace")
+        fails = _fails(text)
+        return _structured_from_fails(fails, not fails)
+    return _fails(source)
 
 
 def main() -> int:
@@ -104,7 +151,7 @@ def main() -> int:
     worst = 0
     for f in files:
         text = f.read_text(encoding="utf-8", errors="replace")
-        fails = audit(text)
+        fails = _fails(text)
         print(f"== {f.name} ==")
         champion = "Hybrid_Regime" in f.name
         if fails:
