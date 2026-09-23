@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 2.70             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 2.80             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "2.70"
+#property version   "2.80"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -55,6 +55,11 @@ input int    MondayWideSpreadHour=8;
 input double WideSpreadAtrRatio=0.12;
 input double PreNewsVolRatio=0.65;
 input int    PreNewsVolLookback=20;
+input int    LondonOpenHour=7;
+input int    LondonOpenEndHour=8;
+input double LondonThinVolRatio=0.70;
+input int    LondonVolLookback=20;
+input double LondonWideSpreadAtr=0.10;
 input double MinSLSpreadMult=1.8;
 input double MaxSpreadATRRatio=0.25;
 input bool   UseTrailing=true;
@@ -100,7 +105,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v2.70 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v2.80 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -208,6 +213,69 @@ bool PreNewsVolumeBlock()
    long todayVol=iVolume(_Symbol,PERIOD_D1,0);
    if(todayVol<=0) return false;
    return ((double)todayVol < PreNewsVolRatio*med);
+}
+
+bool LondonThinWideBlock()
+{
+   MqlDateTime dt; TimeToStruct(TimeCurrent(),dt);
+   if(dt.hour<LondonOpenHour || dt.hour>=LondonOpenEndHour) return false;
+   if(LondonThinVolRatio<=0.0 || LondonWideSpreadAtr<=0.0 || LondonVolLookback<5) return false;
+   double atr[1];
+   if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0) return false;
+   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double spread=ask-bid;
+   if(spread<=0.0) return true;
+   bool wide=(spread>=LondonWideSpreadAtr*atr[0]);
+   if(!wide) return false;
+   int n=LondonVolLookback;
+   double vols[];
+   ArrayResize(vols,n);
+   int filled=0;
+   for(int d=1;d<=n;d++)
+   {
+      datetime day=iTime(_Symbol,PERIOD_D1,d);
+      if(day<=0) continue;
+      MqlDateTime ddt; TimeToStruct(day,ddt);
+      ddt.hour=LondonOpenHour; ddt.min=0; ddt.sec=0;
+      datetime from=StructToTime(ddt);
+      ddt.hour=LondonOpenEndHour;
+      datetime to=StructToTime(ddt);
+      long sum=0;
+      int bars=iBars(_Symbol,PERIOD_H1);
+      for(int i=0;i<bars && i<48;i++)
+      {
+         datetime bt=iTime(_Symbol,PERIOD_H1,i);
+         if(bt>=from && bt<to) sum+=iVolume(_Symbol,PERIOD_H1,i);
+      }
+      if(sum>0)
+      {
+         vols[filled]=(double)sum;
+         filled++;
+      }
+   }
+   if(filled<5) return false;
+   ArrayResize(vols,filled);
+   ArraySort(vols);
+   double med;
+   if((filled%2)==1) med=vols[filled/2];
+   else med=0.5*(vols[filled/2-1]+vols[filled/2]);
+   if(med<=0.0) return false;
+   long todaySum=0;
+   datetime now=TimeCurrent();
+   MqlDateTime ndt; TimeToStruct(now,ndt);
+   ndt.hour=LondonOpenHour; ndt.min=0; ndt.sec=0;
+   datetime tfrom=StructToTime(ndt);
+   ndt.hour=LondonOpenEndHour;
+   datetime tto=StructToTime(ndt);
+   int bars=iBars(_Symbol,PERIOD_H1);
+   for(int i=0;i<bars && i<24;i++)
+   {
+      datetime bt=iTime(_Symbol,PERIOD_H1,i);
+      if(bt>=tfrom && bt<tto) todaySum+=iVolume(_Symbol,PERIOD_H1,i);
+   }
+   if(todaySum<=0) return false;
+   return ((double)todaySum < LondonThinVolRatio*med);
 }
 
 bool InCoreSession()
@@ -546,6 +614,7 @@ void OnTick()
    if(MondayGapBlock()) return;
    if(WideOpenSpreadBlock()) return;
    if(PreNewsVolumeBlock()) return;
+   if(LondonThinWideBlock()) return;
    partialDone=false;
    if(InNewsWindow()) return;
    if(DayCapReached()) return;
@@ -584,7 +653,7 @@ void OnTick()
       if(CostOk(close0-sl, atr[0]))
       {
          double lots=LotFromSL(close0-sl);
-         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v2.7");
+         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v2.8");
       }
    }
    else if(trendDn && squeeze && pullDn && rsi[0]>=RSI_ShortLow && rsi[0]<=RSI_ShortHigh)
@@ -594,7 +663,7 @@ void OnTick()
       if(CostOk(sl-close0, atr[0]))
       {
          double lots=LotFromSL(sl-close0);
-         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v2.7");
+         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v2.8");
       }
    }
 }
