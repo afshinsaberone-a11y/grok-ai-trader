@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v2.0.
+"""XAUUSD Gold-Dollar research strategy v2.1.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high columns only. No fake OHLCV.
-v2.0 halves risk on the next same-day entry after a losing exit.
+v2.1 blocks new entries after 1% same-day realized equity loss.
 """
 from __future__ import annotations
 
@@ -56,7 +56,8 @@ class GoldParams:
     news_wed_end: int = 20
     max_trades_per_day: int = 2
     max_consecutive_losses_per_day: int = 2
-    version: str = "2.0"
+    max_daily_loss_entry_pct: float = 0.01
+    version: str = "2.1"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -211,9 +212,11 @@ class XAUUSDGoldDollarV1:
         blocked_day_cap = 0
         blocked_loss_lock = 0
         risk_cut_trades = 0
+        blocked_daily_loss = 0
         day_counts: dict = {}
         day_consec: dict = {}
         day_locked: dict = {}
+        day_start_eq: dict = {}
         sl_used = []
         for i in range(1, len(d)):
             row = d.iloc[i]
@@ -222,10 +225,12 @@ class XAUUSDGoldDollarV1:
                 continue
             high, low, close = row[high_col], row[low_col], row[close_col]
             slm = float(row["sl_mult"]) if not pd.isna(row["sl_mult"]) else self.p.atr_sl
+            day_key = row["trade_date"]
+            has_day = day_key is not None and not (isinstance(day_key, float) and pd.isna(day_key))
+            if has_day and day_key not in day_start_eq:
+                day_start_eq[day_key] = self.equity
             if pos == 0:
                 if row["signal"] in (1, -1):
-                    day_key = row["trade_date"]
-                    has_day = day_key is not None and not (isinstance(day_key, float) and pd.isna(day_key))
                     if has_day:
                         used = day_counts.get(day_key, 0)
                         if used >= self.p.max_trades_per_day:
@@ -233,6 +238,10 @@ class XAUUSDGoldDollarV1:
                             continue
                         if day_locked.get(day_key, False) or day_consec.get(day_key, 0) >= self.p.max_consecutive_losses_per_day:
                             blocked_loss_lock += 1
+                            continue
+                        start_eq = day_start_eq.get(day_key, self.equity)
+                        if start_eq > 0 and (start_eq - self.equity) / start_eq >= self.p.max_daily_loss_entry_pct:
+                            blocked_daily_loss += 1
                             continue
                     trade_risk = self.p.risk_pct
                     if has_day and day_consec.get(day_key, 0) >= 1:
@@ -341,6 +350,8 @@ class XAUUSDGoldDollarV1:
             "bars_day_cap_blocked": blocked_day_cap,
             "bars_loss_lock_blocked": blocked_loss_lock,
             "risk_cut_trades": risk_cut_trades,
+            "bars_daily_loss_blocked": blocked_daily_loss,
+            "max_daily_loss_entry_pct": self.p.max_daily_loss_entry_pct,
             "max_trades_per_day": self.p.max_trades_per_day,
             "max_consecutive_losses_per_day": self.p.max_consecutive_losses_per_day,
             "loss_risk_mult": self.p.loss_risk_mult,
