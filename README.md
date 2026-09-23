@@ -3,17 +3,17 @@
 ربات‌ها و تحقیقات استراتژی فارکس ساخته‌شده توسط **Grok**.
 
 ## آخرین تحقیق
-**شناسه:** GRK-FX-2026-016 (کاتالوگ به‌روز + رژیم‌سوئیچ v3.10 + لوپ رفع ایراد)
+**شناسه:** GRK-FX-2026-017 (کاتالوگ امتیازدهی + رژیم‌سوئیچ v3.11 + لوپ قرارداد ایمنی)
 
 ### فایل‌های کلیدی
 - `research/BEST_STRATEGIES_CATALOG_2026.md`
-- `research/EA_AUDIT_LOOP_016.md`
+- `research/EA_AUDIT_LOOP_017.md`
 - `research/project_repair_loop.py`
 - `strategies/GRK_REGIME_SWITCH.md`
-- `ea/GRK_Hybrid_Regime_EA.mq5` نسخه ۳.۱۰
+- `ea/GRK_Hybrid_Regime_EA.mq5` نسخه ۳.۱۱
 
 ```bash
-python research/project_repair_loop.py
+python research/project_repair_loop.py --root .
 ```
 
 لوپ استاتیک قرارداد ایمنی را چک می‌کند؛ سود زنده را تضمین نمی‌کند.
