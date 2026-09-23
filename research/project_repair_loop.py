@@ -98,31 +98,36 @@ def _fails(text: str) -> list[str]:
         fails.append("orders sent without ACCOUNT_TRADE_EXPERT")
     if "HalfRisk" not in text and "halfRisk" not in text:
         fails.append("no same-day half-risk after loss")
+    if "iVolume" not in text and "TICK_VOLUME" not in text and "UseVolume" not in text:
+        fails.append("no tick-volume confirmation gate")
+    if "REG_COMPRESS" in text and "OpenBuy(atr[0], RiskCompress" in compact:
+        block_start = compact.find("reg==REG_COMPRESS")
+        block = compact[block_start:block_start+900] if block_start >= 0 else ""
+        if block and "htf" not in block.lower() and "UseHtfFilter" not in block:
+            fails.append("compression breakout lacks HTF alignment")
+    if "consecWin" not in text:
+        fails.append("half-risk never resets after consecutive wins")
     return fails
 
 
 def _structured_from_fails(fails: list[str], champion_ok: bool) -> dict[str, Any]:
     checks = []
     for item in fails:
-        checks.append(
-            {
-                "check": item,
-                "status": "FAIL",
-                "severity": "high",
-                "evidence": item,
-                "remediation": "patch champion EA and re-run loop",
-            }
-        )
+        checks.append({
+            "check": item,
+            "status": "FAIL",
+            "severity": "high",
+            "evidence": item,
+            "remediation": "patch champion EA and re-run loop",
+        })
     if not checks:
-        checks.append(
-            {
-                "check": "champion_static_contract",
-                "status": "PASS",
-                "severity": "info",
-                "evidence": "no static failures",
-                "remediation": "compile in MetaEditor and tick-backtest",
-            }
-        )
+        checks.append({
+            "check": "champion_static_contract",
+            "status": "PASS",
+            "severity": "info",
+            "evidence": "no static failures",
+            "remediation": "compile in MetaEditor and tick-backtest",
+        })
     return {
         "fail_closed": True,
         "status": "READY_FOR_TEST_RUN" if champion_ok else "BLOCKED",
