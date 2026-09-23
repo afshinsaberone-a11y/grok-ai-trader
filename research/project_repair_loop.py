@@ -102,11 +102,26 @@ def _fails(text: str) -> list[str]:
         fails.append("no tick-volume confirmation gate")
     if "REG_COMPRESS" in text and "OpenBuy(atr[0], RiskCompress" in compact:
         block_start = compact.find("reg==REG_COMPRESS")
-        block = compact[block_start:block_start+900] if block_start >= 0 else ""
+        block = compact[block_start:block_start + 900] if block_start >= 0 else ""
         if block and "htf" not in block.lower() and "UseHtfFilter" not in block:
             fails.append("compression breakout lacks HTF alignment")
     if "consecWin" not in text:
         fails.append("half-risk never resets after consecutive wins")
+    if "SessionWrap" not in text and "SessStart>SessEnd" not in compact and "hour>=SessStart||hour<SessEnd" not in compact:
+        fails.append("session clock cannot wrap midnight")
+    if "UseOverlap" not in text and "OverlapStart" not in text:
+        fails.append("no London/NY overlap session option")
+    if "reg==REG_RANGE" in compact:
+        rstart = compact.find("reg==REG_RANGE")
+        rblock = compact[rstart:rstart + 700]
+        if rblock and "VolumeOk" not in rblock and "volOk" not in rblock:
+            fails.append("range entries lack volume confirmation")
+    low = text.lower()
+    if "martingale" in low or re.search(r"\bgrid\b", low):
+        if "forbid" not in low and "ممنوع" not in text and "banned" not in low and "disabled" not in low:
+            fails.append("grid/martingale mentioned without explicit ban")
+    if "MartingaleBanned" not in text and "GridBanned" not in text:
+        fails.append("no explicit GridBanned/MartingaleBanned contract flag")
     return fails
 
 
