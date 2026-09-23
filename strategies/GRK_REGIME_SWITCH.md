@@ -1,11 +1,13 @@
-# GRK Regime Switch v3.00
+# GRK Regime Switch v3.10
 
-ترکیب خلاقانه خانواده‌های Trend pullback + BB mean-reversion + compression breakout + stacked candle + tick-volume.
+ترکیب خلاقانه خانواده‌های Trend pullback + BB mean-reversion + compression breakout
++ stacked candle + tick-volume + session wrap + London/NY overlap.
 
 رژیم‌ها: TREND / RANGE / COMPRESS / SHOCK / NEUTRAL
 
-گیت‌های ایمنی v3.00:
-- همه گیت‌های v2.90
-- تأیید حجم تیک نسبت به میانگین
-- فشردگی فقط با فیلتر H1 و ADX افزایشی
-- ریست HalfRisk پس از دو برد پیاپی همان روز
+گیت‌های ایمنی v3.10:
+- همه گیت‌های v3.00
+- سشن می‌تواند از نیمه‌شب عبور کند (SessStart > SessEnd)
+- گزینه همپوشانی لندن/نیویورک
+- تأیید حجم برای معاملات رنج
+- ممنوعیت صریح گرید و مارتینگیل در قرارداد کد
