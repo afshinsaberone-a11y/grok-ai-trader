@@ -83,6 +83,16 @@ def audit(text: str) -> list[str]:
         fails.append("lots not capped by SYMBOL_VOLUME_LIMIT")
     if "MondaySkip" not in text:
         fails.append("no Monday open gap skip")
+    if "ACCOUNT_TRADE_ALLOWED" not in text:
+        fails.append("orders sent without ACCOUNT_TRADE_ALLOWED")
+    if "TERMINAL_TRADE_ALLOWED" not in text:
+        fails.append("orders sent without TERMINAL_TRADE_ALLOWED")
+    if "MaxPositions" not in text:
+        fails.append("no MaxPositions concurrent cap input")
+    if "SYMBOL_FILLING_MODE" not in text:
+        fails.append("filling mode not read from SYMBOL_FILLING_MODE")
+    if "ShockLock" not in text and "shockLock" not in text:
+        fails.append("no post-shock lock bars")
     return fails
 
 
