@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 2.10             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 2.20             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "2.10"
+#property version   "2.20"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -45,6 +45,7 @@ input double MaxDailyLoss=2.0;
 input double MaxDailyLossEntry=1.0;
 input int    MaxTradesPerDay=2;
 input int    MaxConsecutiveLossesPerDay=2;
+input int    TimeStopBars=16;
 input double MinSLSpreadMult=1.8;
 input double MaxSpreadATRRatio=0.25;
 input bool   UseTrailing=true;
@@ -90,7 +91,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v2.10 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v2.20 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -243,6 +244,14 @@ bool DailyLossEntryCapReached()
    return (closed/dayStart*100.0) <= -MaxDailyLossEntry;
 }
 
+int BarsSinceOpen(datetime openTime)
+{
+   if(openTime<=0) return 0;
+   int shift=iBarShift(_Symbol,PERIOD_CURRENT,openTime,true);
+   if(shift<0) return 0;
+   return shift;
+}
+
 double LotFromSL(double slDist)
 {
    if(slDist<=0) return 0;
@@ -373,6 +382,7 @@ void Manage()
       double tp=PositionGetDouble(POSITION_TP);
       double vol=PositionGetDouble(POSITION_VOLUME);
       long type=PositionGetInteger(POSITION_TYPE);
+      datetime openTime=(datetime)PositionGetInteger(POSITION_TIME);
       double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
       double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
       double r=atr[0]*slm;
@@ -380,6 +390,11 @@ void Manage()
       if(type==POSITION_TYPE_BUY)
       {
          double profitR=(bid-open)/r;
+         if(TimeStopBars>0 && !partialDone && profitR<PartialR && BarsSinceOpen(openTime)>=TimeStopBars)
+         {
+            trade.PositionClose(t);
+            continue;
+         }
          if(!partialDone && profitR>=PartialR && vol>SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN)*1.01)
          {
             trade.PositionClosePartial(t, NormalizeDouble(vol*0.5,2));
@@ -399,6 +414,11 @@ void Manage()
       else
       {
          double profitR=(open-ask)/r;
+         if(TimeStopBars>0 && !partialDone && profitR<PartialR && BarsSinceOpen(openTime)>=TimeStopBars)
+         {
+            trade.PositionClose(t);
+            continue;
+         }
          if(!partialDone && profitR>=PartialR && vol>SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN)*1.01)
          {
             trade.PositionClosePartial(t, NormalizeDouble(vol*0.5,2));
@@ -422,8 +442,8 @@ void OnTick()
 {
    CheckDay();
    if(!IsNewBar()) { if(CountPos()>0) Manage(); return; }
-   if(!InSession()) return;
    if(CountPos()>0) { Manage(); return; }
+   if(!InSession()) return;
    partialDone=false;
    if(InNewsWindow()) return;
    if(DayCapReached()) return;
@@ -462,7 +482,7 @@ void OnTick()
       if(CostOk(close0-sl, atr[0]))
       {
          double lots=LotFromSL(close0-sl);
-         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v2.1");
+         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v2.2");
       }
    }
    else if(trendDn && squeeze && pullDn && rsi[0]>=RSI_ShortLow && rsi[0]<=RSI_ShortHigh)
@@ -472,7 +492,7 @@ void OnTick()
       if(CostOk(sl-close0, atr[0]))
       {
          double lots=LotFromSL(sl-close0);
-         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v2.1");
+         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v2.2");
       }
    }
 }
