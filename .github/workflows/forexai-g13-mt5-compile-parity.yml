@@ -300,6 +300,9 @@ jobs:
           }
 
           if (-not $data) {
+            # Primary build source: real Dukascopy JETTA. If the runner network
+            # blocks JETTA, use the existing real HistData ingestion path.
+            # No synthetic fallback is permitted.
             Write-Host "BUILDING_CANONICAL_REAL_EURUSD_M15_FROM_DUKASCOPY"
             New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
             & $env:PYTHON_EXE -m research.real_data.dukascopy_ingest `
@@ -311,16 +314,29 @@ jobs:
               --validate `
               --manifest `
               --resume
-            if ($LASTEXITCODE -ne 0) {
-              throw "REAL_DATA_REQUIRED: Dukascopy real-data ingestion failed with exit code $LASTEXITCODE"
+            if ($LASTEXITCODE -eq 0 -and (Try-ReadableFile $cacheCanonical)) {
+              $data = $cacheCanonical
+              Write-Host "REAL_M15_SOURCE=dukascopy_runner_cache"
+            } else {
+              Write-Host "DUKASCOPY_SOURCE_UNAVAILABLE=falling back to real HistData ingestion"
+              & $env:PYTHON_EXE -m research.real_data.histdata_ingest `
+                --symbol EURUSD `
+                --timeframe M15 `
+                --start 2022-01-01 `
+                --end 2026-01-01 `
+                --output $cacheRoot `
+                --validate `
+                --manifest
+              if ($LASTEXITCODE -ne 0) {
+                throw "REAL_DATA_REQUIRED: both Dukascopy JETTA and HistData real-data ingestion failed (HistData exit code $LASTEXITCODE)"
+              }
+              if (-not (Try-ReadableFile $cacheCanonical)) {
+                throw "REAL_DATA_REQUIRED: HistData ingestion completed without producing the canonical EURUSD M15 dataset: $cacheCanonical"
+              }
+              $data = $cacheCanonical
+              Write-Host "REAL_M15_SOURCE=histdata_runner_cache"
             }
-            if (-not (Try-ReadableFile $cacheCanonical)) {
-              throw "REAL_DATA_REQUIRED: Dukascopy ingestion completed without producing the canonical EURUSD M15 dataset: $cacheCanonical"
-            }
-            $data = $cacheCanonical
-            Write-Host "REAL_M15_SOURCE=dukascopy_runner_cache"
           }
-
           if (-not (Try-ReadableFile $data)) {
             throw "REAL_DATA_REQUIRED: resolved EURUSD M15 dataset is not readable: $data"
           }
