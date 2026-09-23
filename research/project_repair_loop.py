@@ -5,7 +5,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 FORBIDDEN = [(r"martin ?gale", "martingale_forbidden"), (r"grid", "grid_forbidden"), (r"average.?down", "averaging_down_forbidden"), (r"no stop", "missing_stop"), (r"بدون استاپ", "missing_stop"), (r"ضمانت سود|guaranteed profit", "profit_guarantee_forbidden")]
-REQUIRED_MARKERS = [("risk", r"0\.5\s*%|RiskPercent"), ("spread_filter", r"spread|اسپرد"), ("news_filter", r"news|خبر")]
+REQUIRED_MARKERS = [("risk", r"0\.5\s*%|RiskPercent"), ("spread_filter", r"spread|اسپرد"), ("news_filter", r"news|خبر"), ("flat_regime", r"REGIME_FLAT|FLAT")]
 @dataclass
 class Finding:
     path: str; rule: str; detail: str; severity: str
@@ -17,6 +17,14 @@ def scan_file(path: Path):
                 if rule in {"grid_forbidden", "martingale_forbidden"}:
                     continue
             findings.append(Finding(str(path), rule, pat, "high"))
+    if path.suffix == ".mq5":
+        for name, pat in REQUIRED_MARKERS:
+            if not re.search(pat, text, re.I):
+                findings.append(Finding(str(path), f"missing_{name}", pat, "medium"))
+        if "ORDER_TYPE_SELL" not in text and "trade.Sell" not in text:
+            findings.append(Finding(str(path), "missing_sell_branch", "no sell path", "high"))
+        if "REGIME_RANGE" in text and "rsi" not in lower:
+            findings.append(Finding(str(path), "range_engine_incomplete", "range without rsi", "high"))
     return findings
 def iter_targets(root: Path):
     out=[]
@@ -34,7 +42,7 @@ def main():
         history.append({"loop": i, "count": len(findings)}); remaining=findings
         if not findings: break
         if not a.fix: break
-    report={"generated_at": datetime.now(timezone.utc).isoformat(), "loops": history, "remaining": [asdict(f) for f in remaining], "clean": len(remaining)==0, "disclaimer": "Static contract only. Not a profitability guarantee."}
-    out=root/"research"/"EA_AUDIT_LOOP_017.json"; out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"); print(json.dumps(report, ensure_ascii=False, indent=2)); return 0 if report["clean"] else 1
+    report={"generated_at": datetime.now(timezone.utc).isoformat(), "loops": history, "remaining": [asdict(f) for f in remaining], "clean": len(remaining)==0, "disclaimer": "Static contract only. Not a profitability guarantee.", "version": "GRK-FX-2026-018"}
+    out=root/"research"/"EA_AUDIT_LOOP_018.json"; out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"); print(json.dumps(report, ensure_ascii=False, indent=2)); return 0 if report["clean"] else 1
 if __name__=="__main__":
     raise SystemExit(main())
