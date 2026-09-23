@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 2.20             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 2.30             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "2.20"
+#property version   "2.30"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -46,6 +46,7 @@ input double MaxDailyLossEntry=1.0;
 input int    MaxTradesPerDay=2;
 input int    MaxConsecutiveLossesPerDay=2;
 input int    TimeStopBars=16;
+input int    FlattenLeadHours=1;
 input double MinSLSpreadMult=1.8;
 input double MaxSpreadATRRatio=0.25;
 input bool   UseTrailing=true;
@@ -91,7 +92,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v2.20 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v2.30 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -113,7 +114,18 @@ bool InSession()
 {
    if(!UseSession) return true;
    MqlDateTime dt; TimeToStruct(TimeCurrent(),dt);
-   return (dt.hour>=SessionStart && dt.hour<SessionEnd);
+   int endHour=SessionEnd-FlattenLeadHours;
+   if(endHour<=SessionStart) endHour=SessionEnd;
+   return (dt.hour>=SessionStart && dt.hour<endHour);
+}
+
+bool NearSessionEnd()
+{
+   if(!UseSession) return false;
+   if(FlattenLeadHours<=0) return false;
+   MqlDateTime dt; TimeToStruct(TimeCurrent(),dt);
+   int fromHour=SessionEnd-FlattenLeadHours;
+   return (dt.hour>=fromHour);
 }
 
 bool InCoreSession()
@@ -387,6 +399,11 @@ void Manage()
       double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
       double r=atr[0]*slm;
       if(r<=0) continue;
+      if(NearSessionEnd())
+      {
+         trade.PositionClose(t);
+         continue;
+      }
       if(type==POSITION_TYPE_BUY)
       {
          double profitR=(bid-open)/r;
@@ -482,7 +499,7 @@ void OnTick()
       if(CostOk(close0-sl, atr[0]))
       {
          double lots=LotFromSL(close0-sl);
-         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v2.2");
+         if(lots>0) trade.Buy(lots,_Symbol,0,sl,tp,"XAU-GD-L-v2.3");
       }
    }
    else if(trendDn && squeeze && pullDn && rsi[0]>=RSI_ShortLow && rsi[0]<=RSI_ShortHigh)
@@ -492,7 +509,7 @@ void OnTick()
       if(CostOk(sl-close0, atr[0]))
       {
          double lots=LotFromSL(sl-close0);
-         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v2.2");
+         if(lots>0) trade.Sell(lots,_Symbol,0,sl,tp,"XAU-GD-S-v2.3");
       }
    }
 }
