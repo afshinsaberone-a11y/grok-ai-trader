@@ -1,8 +1,8 @@
-# کاتالوگ استراتژی‌های فارکس — GRK-FX-2026-012
+# کاتالوگ استراتژی‌های فارکس — GRK-FX-2026-013
 
-منابع ۲۰۲۵–۲۰۲۶: ThinkMarkets, Tradereview, AlgoTradingSpace, Fazen Capital,
-TradeAlgo, Nurp, IG, TMGM, LiteFinance, Arxum, FOREX.com, Traders Union,
-Synapse, Tokenist, FXGlory, Brokermat, Quantum-Algo, B2Prime.
+منابع ۲۰۲۵–۲۰۲۶: ThinkMarkets, Traders Union, Tradereview, Fazen Capital,
+TradeAlgo, Nurp, IG, TMGM, Arxum, Synapse, Tokenist, FXGlory, Rally Trade,
+Piprider, MarketMates, Benzinga.
 
 **هشدار:** هیچ استراتژی‌ای سود زنده را تضمین نمی‌کند. امتیازها قضاوت پژوهشی
 چندمحوره است، نه بک‌تست حساب واقعی این ریپو.
@@ -27,6 +27,10 @@ Synapse, Tokenist, FXGlory, Brokermat, Quantum-Algo, B2Prime.
 | Structure / SMC-ICT | سوئیپ، BOS/CHoCH، FVG | چندساعته | جفت اصلی با عمق | قوانین مبهم و روایی |
 | Hybrid regime-switch | انتخاب خانواده با گیت رژیم | متغیر | همه رژیم‌ها با قفل شوک | گیت بیش‌ازحد پیچیده |
 
+نظرسنجی Traders Union (حدود ۲۴۰۰ رأی): سوئینگ ۳۱٪، پوزیشن ۲۸٪، روزانه ۲۷٪، اسکالپ ۱۴٪.
+ترجیح تحلیل: تکنیکال ۳۹٪، فاندامنتال ۳۳٪، ترکیبی ۲۸٪.
+ترجیح رفتار روند: دنبال‌کننده ۵۴٪، رنج ۳۱٪، خلاف‌روند ۱۵٪.
+
 ## امتیاز، ایراد، اصلاح
 
 | # | استراتژی | خانواده | امتیاز خام | امتیاز اصلاح‌شده | ایراد اصلی | اصلاح / ترکیب |
@@ -50,9 +54,9 @@ Synapse, Tokenist, FXGlory, Brokermat, Quantum-Algo, B2Prime.
 | 17 | Volatility compression→expansion | Breakout | 7.2 | 8.4 | ورود زود روی فشردگی | صبر تا کلوز شکست + نسبت ATR |
 | 18 | Session VWAP fade | Range | 6.0 | 6.9 | در روند روزانه می‌سوزد | فقط ADX پایین و پهنا محدود |
 | 19 | COT / positioning overlay | Position | 6.5 | 7.0 | تأخیر گزارش | فقط بایاس هفتگی |
-| 20 | Hybrid Regime Switch | Hybrid | 8.3 | **8.8** | فریزلِول بروکر، سقف حجم نماد، گپ دوشنبه | v2.70: FreezeLevel + VolumeLimit + MondaySkip |
+| 20 | Hybrid Regime Switch | Hybrid | 8.3 | **8.9** | ترمینال قفل، سقف همزمانی، قفل پساشوک | v2.80: TradeAllowed + MaxPositions + ShockLock |
 
-## ترکیب خلاقانه قهرمان (v2.70)
+## ترکیب خلاقانه قهرمان (v2.80)
 
 ایده: هر خانواده تک‌رژیمی است. قهرمان رژیم را تشخیص می‌دهد و خانواده درست را روشن می‌کند.
 
@@ -60,7 +64,7 @@ Synapse, Tokenist, FXGlory, Brokermat, Quantum-Algo, B2Prime.
 2. **TREND:** پولبک بسته به EMA سریع در جهت EMA50/200 و H1 و +DI/−DI.
 3. **RANGE:** لمس باند + کلوز برگشتی داخل باند و سمت درست میانگین + RSI افراطی؛ خروج اگر ADX جهید و سپس کول‌داون.
 4. **COMPRESS:** ورود فقط پس از کلوز شکست دو کندل قبلی.
-5. **SHOCK:** قفل روی نسبت ATR، اسپرد، و پنجره خبر تقریبی.
-6. **ریسک:** ریسک شناور، قفل ضرر روزانه و قله اکوییتی، سقف معامله، کول‌داون ضرر، ضرر متوالی، تراز تیک، StopsLevel، FreezeLevel، مارجین آزاد، سقف لات و سقف حجم نماد، حالت معامله نماد، مجیک ایزوله، پرش نوارهای اول دوشنبه.
+5. **SHOCK:** قفل روی نسبت ATR، اسپرد، پنجره خبر تقریبی، و قفل چندنواره پس از شوک.
+6. **ریسک:** ریسک شناور، قفل ضرر روزانه و قله اکوییتی، سقف معامله و سقف پوزیشن همزمان، کول‌داون ضرر، ضرر متوالی، تراز تیک، StopsLevel، FreezeLevel، مارجین آزاد، سقف لات و سقف حجم نماد، حالت معامله نماد، مجیک ایزوله، پرش نوارهای اول دوشنبه، ACCOUNT/TERMINAL_TRADE_ALLOWED، تطبیق SYMBOL_FILLING_MODE.
 
 این ترکیب «سیگنال جادویی» نیست؛ ایراد تک‌رژیمی خانواده‌ها را پوشش می‌دهد.
