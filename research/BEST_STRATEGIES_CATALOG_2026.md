@@ -1,10 +1,11 @@
-# کاتالوگ استراتژی‌های فارکس — GRK-FX-2026-014
+# کاتالوگ استراتژی‌های فارکس — GRK-FX-2026-015
 
-منابع ۲۰۲۵–۲۰۲۶: ThinkMarkets, VT Markets, Arxum, Forex Vitals, FXGlory,
-TradeAlgo, Forex.com, Sashares, Fazen Capital, FXEmpire.
+منابع ۲۰۲۵–۲۰۲۶: ThinkMarkets, VT Markets, Arxum, FXDetails, Traders Union,
+TradeAlgo, AlphaEx, Fazen Capital, FXEmpire, Audacity Capital.
 
 **هشدار:** هیچ استراتژی‌ای سود زنده را تضمین نمی‌کند. امتیازها قضاوت پژوهشی
-چندمحوره است، نه بک‌تست حساب واقعی این ریپو.
+چندمحوره است، نه بک‌تست حساب واقعی این ریپو. ۷۴–۸۹٪ حساب‌های خرده‌فروش طبق
+داده‌های نظارتی زیان می‌کنند؛ لبه بدون هزینه، سایز و رژیم‌فیلتر معمولاً منفی است.
 
 امتیاز خام = میانگین پنج محور از ۱۰:
 1. دوام لبه در رژیم‌های TREND / RANGE / SHOCK / COMPRESS
@@ -31,7 +32,7 @@ TradeAlgo, Forex.com, Sashares, Fazen Capital, FXEmpire.
 
 | # | استراتژی | خانواده | امتیاز خام | امتیاز اصلاح‌شده | ایراد اصلی | اصلاح / ترکیب |
 |---|---|---|---|---|---|---|
-| 1 | Trend pullback EMA+ADX | Trend | 7.5 | 8.8 | ویپ‌ساو در رنج | ADX+DI، پولبک EMA، فیلتر H1 |
+| 1 | Trend pullback EMA+ADX | Trend | 7.5 | 8.8 | ویپ‌ساو در رنج | ADX+DI، پولبک EMA، فیلتر H1، کلوز قوی |
 | 2 | Golden/Death Cross 50/200 | Trend | 6.1 | 7.2 | سیگنال دیر | فقط فیلتر روزانه |
 | 3 | Donchian / channel break | Breakout | 6.7 | 7.8 | شکست کاذب | ریتست + انبساط ATR |
 | 4 | London Open Breakout | Breakout | 7.0 | 8.0 | گپ آسیا | ریتست، فیلتر اسپرد |
@@ -47,20 +48,20 @@ TradeAlgo, Forex.com, Sashares, Fazen Capital, FXEmpire.
 | 14 | Grid / Martingale | Other | 2.2 | 1.0 | ریسک دمِ چاق | **ممنوع در EA قهرمان** |
 | 15 | Ichimoku کامل | Trend | 6.3 | 7.0 | شلوغ روی تایم پایین | ابر روزانه فقط فیلتر |
 | 16 | Flag / continuation | Trend | 6.8 | 7.6 | تشخیص ذهنی | شکست پرچم + کلوز مکانیکی |
-| 17 | Volatility compression | Breakout | 7.2 | 8.4 | ورود زود | صبر تا کلوز شکست |
+| 17 | Volatility compression | Breakout | 7.2 | 8.4 | ورود زود | کلوز شکست + حجم + HTF |
 | 18 | Session VWAP fade | Range | 6.0 | 6.9 | در روند روزانه | فقط ADX پایین |
 | 19 | COT overlay | Position | 6.5 | 7.0 | تأخیر گزارش | فقط بایاس هفتگی |
-| 20 | Currency strength meter | Filter | 6.2 | 7.4 | سیگنال ورود نیست | فقط فیلتر وچ‌لیست + ساختار قیمت |
-| 21 | Stacked confluence (Arxum) | Hybrid | 7.4 | 8.6 | انتظار زیاد شرط | ترکیب با رژیم‌سوئیچ و کندل بسته |
-| 22 | Hybrid Regime Switch | Hybrid | 8.3 | **9.0** | ریسک پساضرر همان‌روز | v2.90: ExpertAllowed + HalfRisk + stacked close |
+| 20 | Currency strength meter | Filter | 6.2 | 7.4 | سیگنال ورود نیست | فقط فیلتر وچ‌لیست |
+| 21 | Stacked confluence (Arxum) | Hybrid | 7.4 | 8.6 | انتظار زیاد شرط | ترکیب با رژیم‌سوئیچ |
+| 22 | Hybrid Regime Switch v3 | Hybrid | 8.4 | **9.1** | شکست فشردگی بدون حجم/HTF | v3.00: حجم تیک + HTF روی فشردگی + ریست نیمه‌ریسک |
 
-## ترکیب قهرمان (v2.90)
+## ترکیب قهرمان (v3.00)
 
-1. رژیم‌سنج ADX + پهنای BB + نسبت ATR + اسپرد.
+1. رژیم‌سنج ADX + پهنای BB + نسبت ATR + اسپرد/ATR.
 2. TREND: پولبک EMA سریع + DI + H1 + کلوز قوی‌تر از کندل قبل.
 3. RANGE: لمس باند + RSI افراطی + خروج اضطراری اگر ADX جهید.
-4. COMPRESS: فقط پس از کلوز شکست دو کندل قبلی.
+4. COMPRESS: کلوز شکست دو کندل قبلی + هم‌جهت HTF + ADX در حال افزایش + حجم تیک بالای میانگین.
 5. SHOCK: قفل + ShockLockBars.
-6. ریسک: نیمه‌ریسک پس از ضرر همان روز، قفل روزانه، قله اکوییتی، ACCOUNT_TRADE_EXPERT.
+6. ریسک: نیمه‌ریسک پس از ضرر همان روز، ریست پس از دو برد پیاپی، قفل روزانه، قله اکوییتی، ACCOUNT_TRADE_EXPERT.
 
 Grid/مارتینگیل همچنان ممنوع است.
