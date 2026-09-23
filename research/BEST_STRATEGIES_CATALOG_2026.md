@@ -1,10 +1,10 @@
-# کاتالوگ استراتژی‌های فارکس — GRK-FX-2026-015
+# کاتالوگ استراتژی‌های فارکس — GRK-FX-2026-016
 
-منابع ۲۰۲۵–۲۰۲۶: ThinkMarkets, VT Markets, Arxum, FXDetails, Traders Union,
-TradeAlgo, AlphaEx, Fazen Capital, FXEmpire, Audacity Capital.
+منابع ۲۰۲۵–۲۰۲۶: FXDetails, VT Markets, Arxum, Audacity, Traders Union,
+FXGlory, Fazen Capital, BrokersCourt, AlfaTactix, Forex.com.
 
 **هشدار:** هیچ استراتژی‌ای سود زنده را تضمین نمی‌کند. امتیازها قضاوت پژوهشی
-چندمحوره است، نه بک‌تست حساب واقعی این ریپو. ۷۴–۸۹٪ حساب‌های خرده‌فروش طبق
+چندمحوره است، نه بک‌تست حساب واقعی این ریپو. بیشتر حساب‌های خرده‌فروش طبق
 داده‌های نظارتی زیان می‌کنند؛ لبه بدون هزینه، سایز و رژیم‌فیلتر معمولاً منفی است.
 
 امتیاز خام = میانگین پنج محور از ۱۰:
@@ -52,10 +52,12 @@ TradeAlgo, AlphaEx, Fazen Capital, FXEmpire, Audacity Capital.
 | 18 | Session VWAP fade | Range | 6.0 | 6.9 | در روند روزانه | فقط ADX پایین |
 | 19 | COT overlay | Position | 6.5 | 7.0 | تأخیر گزارش | فقط بایاس هفتگی |
 | 20 | Currency strength meter | Filter | 6.2 | 7.4 | سیگنال ورود نیست | فقط فیلتر وچ‌لیست |
-| 21 | Stacked confluence (Arxum) | Hybrid | 7.4 | 8.6 | انتظار زیاد شرط | ترکیب با رژیم‌سوئیچ |
-| 22 | Hybrid Regime Switch v3 | Hybrid | 8.4 | **9.1** | شکست فشردگی بدون حجم/HTF | v3.00: حجم تیک + HTF روی فشردگی + ریست نیمه‌ریسک |
+| 21 | Stacked confluence | Hybrid | 7.4 | 8.6 | انتظار زیاد شرط | ترکیب با رژیم‌سوئیچ |
+| 22 | Order block / demand | Structure | 6.5 | 7.3 | مرز ذهنی زون | فقط سوئیپ ناکام + کلوز |
+| 23 | Harmonic Gartley/Bat | Structure | 5.8 | 6.5 | اورفیت نقاط فیب | فقط با رژیم رنج و RSI |
+| 24 | Hybrid Regime Switch v3 | Hybrid | 8.4 | **9.1** | شکست فشردگی بدون حجم/HTF | v3.00: حجم تیک + HTF + ریست نیمه‌ریسک |
 
-## ترکیب قهرمان (v3.00)
+## ترکیب قهرمان (v3.00 + یادداشت 016)
 
 1. رژیم‌سنج ADX + پهنای BB + نسبت ATR + اسپرد/ATR.
 2. TREND: پولبک EMA سریع + DI + H1 + کلوز قوی‌تر از کندل قبل.
@@ -63,5 +65,6 @@ TradeAlgo, AlphaEx, Fazen Capital, FXEmpire, Audacity Capital.
 4. COMPRESS: کلوز شکست دو کندل قبلی + هم‌جهت HTF + ADX در حال افزایش + حجم تیک بالای میانگین.
 5. SHOCK: قفل + ShockLockBars.
 6. ریسک: نیمه‌ریسک پس از ضرر همان روز، ریست پس از دو برد پیاپی، قفل روزانه، قله اکوییتی، ACCOUNT_TRADE_EXPERT.
+7. فیلتر خارجی: قدرت ارز فقط برای وچ‌لیست جفت؛ Carry فقط بایاس هفتگی.
 
 Grid/مارتینگیل همچنان ممنوع است.
