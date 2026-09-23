@@ -261,50 +261,75 @@ jobs:
           DATA_CSV_INPUT: ${{ inputs.data_csv }}
         run: |
           $ErrorActionPreference = 'Stop'
+          function Try-ReadableFile([string]$p) {
+            if (-not $p) { return $false }
+            try {
+              return [bool](Test-Path -LiteralPath $p -PathType Leaf)
+            } catch [System.UnauthorizedAccessException] {
+              Write-Host "REAL_M15_PATH_ACCESS_DENIED=$p"
+              return $false
+            } catch {
+              Write-Host "REAL_M15_PATH_CHECK_FAILED=$p :: $($_.Exception.Message)"
+              return $false
+            }
+          }
+
           $requested = ($env:DATA_CSV_INPUT | Out-String).Trim()
           $workspaceCanonical = Join-Path $env:GITHUB_WORKSPACE 'data\\real\\normalized\\EURUSD_M15_20220101_20251231.csv'
           $cacheRoot = 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13'
           $cacheCanonical = Join-Path $cacheRoot 'normalized\\EURUSD_M15_20220101_20251231.csv'
-          $data = $requested
+          $data = $null
 
-          if (-not $data -or !(Test-Path -LiteralPath $data -PathType Leaf)) {
-            $knownLocal = @(
-              'C:\\Users\\Star\\Desktop\\AI\\EURUSDM15_G13_2025.csv',
-              'C:\\Users\\Star\\Desktop\\AI\\EURUSDM15.csv'
-            )
-            foreach ($candidate in $knownLocal) {
-              try {
-                if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-                  $data = $candidate
-                  Write-Host "REAL_M15_SOURCE=known_local"
-                  break
-                }
-              } catch {
-                Write-Host "REAL_M15_LOCAL_PATH_CHECK_FAILED=$candidate :: $($_.Exception.Message)"
-              }
-            }
-            if (-not $data -and (Test-Path -LiteralPath $workspaceCanonical -PathType Leaf)) {
-              $data = $workspaceCanonical
-              Write-Host "REAL_M15_SOURCE=workspace"
-            } elseif (-not $data -and (Test-Path -LiteralPath $cacheCanonical -PathType Leaf)) {
-              $data = $cacheCanonical
-              Write-Host "REAL_M15_SOURCE=runner_cache"
-            }
+          # Only accept a supplied path if it is readable; service-account
+          # permission errors must not terminate dataset resolution.
+          if (Try-ReadableFile $requested) {
+            $data = $requested
+            Write-Host "REAL_M15_SOURCE=input"
+          } elseif ($requested) {
+            Write-Host "REAL_M15_INPUT_SKIPPED=$requested"
           }
 
-          if (-not $data -or !(Test-Path -LiteralPath $data -PathType Leaf)) {
-            throw "REAL_DATA_REQUIRED: no usable REAL EURUSD M15 CSV is available on the runner. Provide data_csv explicitly; automatic remote ingestion is intentionally not attempted here because this gate must remain bounded and fail-closed."
+          if (-not $data -and (Try-ReadableFile $workspaceCanonical)) {
+            $data = $workspaceCanonical
+            Write-Host "REAL_M15_SOURCE=workspace"
           }
 
-          if (!(Test-Path -LiteralPath $data -PathType Leaf)) {
-            throw "REAL_DATA_REQUIRED: EURUSD M15 dataset not found after resolution: $data"
+          if (-not $data -and (Try-ReadableFile $cacheCanonical)) {
+            $data = $cacheCanonical
+            Write-Host "REAL_M15_SOURCE=runner_cache"
+          }
+
+          if (-not $data) {
+            Write-Host "BUILDING_CANONICAL_REAL_EURUSD_M15_FROM_DUKASCOPY"
+            New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+            & $env:PYTHON_EXE -m research.real_data.dukascopy_ingest `
+              --symbol EURUSD `
+              --timeframe M15 `
+              --start 2022-01-01 `
+              --end 2026-01-01 `
+              --output $cacheRoot `
+              --validate `
+              --manifest `
+              --resume
+            if ($LASTEXITCODE -ne 0) {
+              throw "REAL_DATA_REQUIRED: Dukascopy real-data ingestion failed with exit code $LASTEXITCODE"
+            }
+            if (-not (Try-ReadableFile $cacheCanonical)) {
+              throw "REAL_DATA_REQUIRED: Dukascopy ingestion completed without producing the canonical EURUSD M15 dataset: $cacheCanonical"
+            }
+            $data = $cacheCanonical
+            Write-Host "REAL_M15_SOURCE=dukascopy_runner_cache"
+          }
+
+          if (-not (Try-ReadableFile $data)) {
+            throw "REAL_DATA_REQUIRED: resolved EURUSD M15 dataset is not readable: $data"
           }
 
           "DATA_CSV_RESOLVED=$data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
           & $env:PYTHON_EXE -c "import pandas as pd; p=r'$data'; d=pd.read_csv(p); t=pd.to_datetime(d['timestamp'],utc=True); assert len(d)>=100, 'insufficient rows'; assert t.is_monotonic_increasing, 'timestamps not monotonic'; assert t.min()>=pd.Timestamp('2022-01-01',tz='UTC'), 'starts before 2022'; assert t.max()<pd.Timestamp('2026-01-01',tz='UTC'), 'contains 2026+ data'; print(f'REAL_M15_DATA_OK rows={len(d)} first={t.min()} last={t.max()}')"
           if ($LASTEXITCODE -ne 0) {
-            throw "REAL_DATA_REQUIRED: resolved EURUSD M15 dataset failed strict scope validation"
+            throw "REAL_DATA_REQUIRED: resolved EURUSD M15 dataset failed strict 2022-2025 scope validation"
           }
 
           Write-Host "REAL_EURUSD_M15_RESOLVED=$data"
