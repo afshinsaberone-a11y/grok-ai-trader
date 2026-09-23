@@ -10,6 +10,13 @@
 
 ## Changelog
 
+### v2.8 — 2026-09-23
+- ارتقا: فیلتر همپوشانی اسپرد گشاد + حجم نازک ساعت اول لندن (07–08 UTC).
+- پایتون: `london_open_hour=7`، `london_open_end_hour=8`، `london_thin_vol_ratio=0.70`، `london_vol_lookback=20`، `london_wide_spread_atr=0.10`. فقط با ستون حجم واقعی. شرط AND است.
+- EA: `LondonOpenHour=7`، `LondonOpenEndHour=8`، `LondonThinVolRatio=0.70`، `LondonVolLookback=20`، `LondonWideSpreadAtr=0.10`.
+- ریسک پایه ۰.۵٪. سود تضمین نیست.
+- مورد بعدی: فیلتر همپوشانی نیویورک (12–13 UTC) وقتی اسپرد نسبت به ATR بالا بماند.
+
 ### v2.7 — 2026-09-23
 - ارتقا: فیلتر حجم ناکافی روز قبل از اخبار بزرگ دلار (NFP/CPI). فقط اگر ستون تقویم واقعی و ستون حجم واقعی موجود باشد.
 - پایتون: `pre_news_vol_ratio=0.65`، `pre_news_vol_lookback=20`. اگر روز بعد رویداد بزرگ دلار باشد و حجم روز < 0.65 میانه ۲۰روزه، `pre_news_vol_block`.
