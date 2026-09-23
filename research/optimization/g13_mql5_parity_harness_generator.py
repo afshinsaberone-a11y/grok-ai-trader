@@ -265,6 +265,18 @@ int CountSignals(
 
 void OnStart()
 {
+   // Emit an immediate marker so CI can distinguish terminal startup/config
+   // problems from a slow or failed parity calculation.
+   bool startedFromConfig=(MQLInfoInteger(MQL_STARTED_FROM_CONFIG)!=0);
+   int started=FileOpen("g13_mql5_parity.started.txt",FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
+   if(started!=INVALID_HANDLE)
+   {
+      FileWrite(started,"status","STARTED");
+      FileWrite(started,"started_from_config",startedFromConfig ? "true" : "false");
+      FileClose(started);
+   }
+   PrintFormat("PARITY_HARNESS_START started_from_config=%d",startedFromConfig ? 1 : 0);
+
    Bar bars[];
    if(!ReadRealM15(bars))
       return;
@@ -310,6 +322,10 @@ void OnStart()
    FileClose(done);
 
    PrintFormat("PARITY_HARNESS_OK candidates=%d signal_rows=%d",CANDIDATE_COUNT,totalRows);
+   // Do not depend solely on ShutdownTerminal=1 in the startup config.
+   // Explicitly close a config-launched terminal after successful completion.
+   if(startedFromConfig)
+      TerminalClose(0);
 }
 '''
 
