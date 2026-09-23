@@ -300,41 +300,41 @@ jobs:
           }
 
           if (-not $data) {
-            # Primary build source: real Dukascopy JETTA. If the runner network
-            # blocks JETTA, use the existing real HistData ingestion path.
-            # No synthetic fallback is permitted.
-            Write-Host "BUILDING_CANONICAL_REAL_EURUSD_M15_FROM_DUKASCOPY"
+            # G13 canonical parity must use the same real-data provenance as
+            # the frozen validation/robustness runs: HistData.com M1 resampled
+            # to M15. Dukascopy JETTA is retained as a real-data fallback only.
+            Write-Host "BUILDING_CANONICAL_REAL_EURUSD_M15_FROM_HISTDATA"
             New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
-            & $env:PYTHON_EXE -m research.real_data.dukascopy_ingest `
+            & $env:PYTHON_EXE -m research.real_data.histdata_ingest `
               --symbol EURUSD `
               --timeframe M15 `
               --start 2022-01-01 `
               --end 2026-01-01 `
               --output $cacheRoot `
               --validate `
-              --manifest `
-              --resume
+              --manifest
             if ($LASTEXITCODE -eq 0 -and (Try-ReadableFile $cacheCanonical)) {
               $data = $cacheCanonical
-              Write-Host "REAL_M15_SOURCE=dukascopy_runner_cache"
+              Write-Host "REAL_M15_SOURCE=histdata_runner_cache"
             } else {
-              Write-Host "DUKASCOPY_SOURCE_UNAVAILABLE=falling back to real HistData ingestion"
-              & $env:PYTHON_EXE -m research.real_data.histdata_ingest `
+              Write-Host "HISTDATA_SOURCE_UNAVAILABLE=falling back to real Dukascopy JETTA ingestion"
+              & $env:PYTHON_EXE -m research.real_data.dukascopy_ingest `
                 --symbol EURUSD `
                 --timeframe M15 `
                 --start 2022-01-01 `
                 --end 2026-01-01 `
                 --output $cacheRoot `
                 --validate `
-                --manifest
+                --manifest `
+                --resume
               if ($LASTEXITCODE -ne 0) {
-                throw "REAL_DATA_REQUIRED: both Dukascopy JETTA and HistData real-data ingestion failed (HistData exit code $LASTEXITCODE)"
+                throw "REAL_DATA_REQUIRED: both HistData and Dukascopy real-data ingestion failed"
               }
               if (-not (Try-ReadableFile $cacheCanonical)) {
-                throw "REAL_DATA_REQUIRED: HistData ingestion completed without producing the canonical EURUSD M15 dataset: $cacheCanonical"
+                throw "REAL_DATA_REQUIRED: Dukascopy ingestion completed without producing the canonical EURUSD M15 dataset: $cacheCanonical"
               }
               $data = $cacheCanonical
-              Write-Host "REAL_M15_SOURCE=histdata_runner_cache"
+              Write-Host "REAL_M15_SOURCE=dukascopy_runner_cache"
             }
           }
           if (-not (Try-ReadableFile $data)) {
