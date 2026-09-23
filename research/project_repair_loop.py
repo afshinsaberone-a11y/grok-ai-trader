@@ -19,6 +19,9 @@ REQUIRED_EA = [
     ("stop_loss", r"req\.sl|StopLoss|sl ="),
     ("no_grid_flag", r"InpAllowGrid\s*=\s*false"),
     ("no_martingale_flag", r"InpAllowMartingale\s*=\s*false"),
+    ("new_bar", r"NewH1Bar|iTime\(_Symbol, PERIOD_H1"),
+    ("symbol_allow", r"EURUSD"),
+    ("cost_ok", r"CostOk|spread \* 3"),
 ]
 
 @dataclass
@@ -76,13 +79,13 @@ def main():
             break
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "id": "GRK-FX-2026-018",
+        "id": "GRK-FX-2026-019",
         "loops": history,
         "remaining": [asdict(f) for f in remaining],
         "clean": len(remaining) == 0,
         "disclaimer": "Static contract only. Not a profitability guarantee.",
     }
-    out = root / "research" / "EA_AUDIT_LOOP_018.json"
+    out = root / "research" / "EA_AUDIT_LOOP_019.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
