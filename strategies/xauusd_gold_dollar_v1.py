@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v2.7.
+"""XAUUSD Gold-Dollar research strategy v2.8.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v2.7 blocks entries the day before major USD news when volume is thin.
+v2.8 blocks first London hour when spread is wide AND volume is thin.
 """
 from __future__ import annotations
 
@@ -68,7 +68,12 @@ class GoldParams:
     wide_spread_atr_ratio: float = 0.12
     pre_news_vol_ratio: float = 0.65
     pre_news_vol_lookback: int = 20
-    version: str = "2.7"
+    london_open_hour: int = 7
+    london_open_end_hour: int = 8
+    london_thin_vol_ratio: float = 0.70
+    london_vol_lookback: int = 20
+    london_wide_spread_atr: float = 0.10
+    version: str = "2.8"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -183,6 +188,7 @@ class XAUUSDGoldDollarV1:
         out["monday_gap_block"] = False
         out["open_spread_block"] = False
         out["pre_news_vol_block"] = False
+        out["london_thin_wide_block"] = False
         if isinstance(out.index, pd.DatetimeIndex):
             out["hour"] = out.index.hour
             out["weekday"] = out.index.weekday
@@ -222,6 +228,15 @@ class XAUUSDGoldDollarV1:
                 med_mapped = pd.Series(day, index=out.index).map(vol_med)
                 thin = daily_vol < (self.p.pre_news_vol_ratio * med_mapped)
                 out["pre_news_vol_block"] = next_is_event.fillna(False) & thin.fillna(False)
+                london_hour = (out["hour"] >= self.p.london_open_hour) & (out["hour"] < self.p.london_open_end_hour)
+                hour_vol = vol.where(london_hour)
+                hour_sum = hour_vol.groupby(day).transform("sum")
+                day_hour_sum = hour_vol.groupby(day).sum()
+                hour_med = day_hour_sum.rolling(self.p.london_vol_lookback, min_periods=5).median()
+                hour_med_mapped = pd.Series(day, index=out.index).map(hour_med)
+                thin_london = hour_sum < (self.p.london_thin_vol_ratio * hour_med_mapped)
+                wide_london = out["spread_used"] >= (self.p.london_wide_spread_atr * out["atr"])
+                out["london_thin_wide_block"] = london_hour & thin_london.fillna(False) & wide_london.fillna(False)
             out["session_ok"] = (
                 (out["hour"] >= self.p.session_start)
                 & (out["hour"] < flatten_from)
@@ -229,6 +244,7 @@ class XAUUSDGoldDollarV1:
                 & (~out["monday_gap_block"])
                 & (~out["open_spread_block"])
                 & (~out["pre_news_vol_block"])
+                & (~out["london_thin_wide_block"])
             )
             out["flatten_now"] = (out["hour"] >= flatten_from) | weekend_flat
             out["q_session"] = (
@@ -267,6 +283,7 @@ class XAUUSDGoldDollarV1:
         gap_ok = ~d["monday_gap_block"].fillna(False)
         open_spread_ok = ~d["open_spread_block"].fillna(False)
         pre_news_vol_ok = ~d["pre_news_vol_block"].fillna(False)
+        london_ok = ~d["london_thin_wide_block"].fillna(False)
         base = (
             squeeze
             & vol_ok
@@ -278,10 +295,12 @@ class XAUUSDGoldDollarV1:
             & gap_ok
             & open_spread_ok
             & pre_news_vol_ok
+            & london_ok
         )
         d.loc[trend_up & base & d["pull_up"] & rsi_l, "signal"] = 1
         d.loc[trend_dn & base & d["pull_dn"] & rsi_s, "signal"] = -1
         d.attrs["monday_gap_blocks"] = int(d["monday_gap_block"].fillna(False).sum())
         d.attrs["open_spread_blocks"] = int(d["open_spread_block"].fillna(False).sum())
         d.attrs["pre_news_vol_blocks"] = int(d["pre_news_vol_block"].fillna(False).sum())
+        d.attrs["london_thin_wide_blocks"] = int(d["london_thin_wide_block"].fillna(False).sum())
         return d
