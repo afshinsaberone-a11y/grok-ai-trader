@@ -311,9 +311,8 @@ bool RunHarness()
    FileClose(done);
 
    PrintFormat("PARITY_HARNESS_OK candidates=%d signal_rows=%d",CANDIDATE_COUNT,totalRows);
-   // Do not depend solely on ShutdownTerminal=1 in the startup config.
-   // Explicitly close a config-launched terminal after successful completion.
    return true;
+}
 
 int OnInit()
 {
@@ -347,8 +346,6 @@ void OnTick()
    bool ok=RunHarness();
    PrintFormat("PARITY_HARNESS_RUN_COMPLETE status=%s",ok ? "PASS" : "FAIL");
    ExpertRemove();
-}
-
 }
 '''
 
