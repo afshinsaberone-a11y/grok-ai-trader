@@ -18,7 +18,8 @@ TEMPLATE = r'''//+--------------------------------------------------------------
 //| Generated from frozen candidate handoff; research-only.          |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.00"
+#property version "1.10"
+#property description "ForexAI G13 research-only real-data signal parity harness EA"
 
 input string InputFile = "g13_real_eurusd_m15.csv";
 input string OutputFile = "g13_mql5_parity.csv";
@@ -263,11 +264,19 @@ int CountSignals(
    return outRows;
 }
 
-void OnStart()
+int OnInit()
 {
-   // Emit an immediate marker so CI can distinguish terminal startup/config
-   // problems from a slow or failed parity calculation.
+   // Emit startup markers in both terminal-local Files and FILE_COMMON.
+   // The local marker proves the EA started even if the Common share is
+   // unavailable; the Common marker is retained for CI handoff.
    bool startedFromConfig=(MQLInfoInteger(MQL_STARTED_FROM_CONFIG)!=0);
+   int localStarted=FileOpen("g13_mql5_parity.started.local.txt",FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
+   if(localStarted!=INVALID_HANDLE)
+   {
+      FileWrite(localStarted,"status","STARTED");
+      FileWrite(localStarted,"started_from_config",startedFromConfig ? "true" : "false");
+      FileClose(localStarted);
+   }
    int started=FileOpen("g13_mql5_parity.started.txt",FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
    if(started!=INVALID_HANDLE)
    {
@@ -326,6 +335,8 @@ void OnStart()
    // Explicitly close a config-launched terminal after successful completion.
    if(startedFromConfig)
       TerminalClose(0);
+
+   return(INIT_SUCCEEDED);
 }
 '''
 
