@@ -1,6 +1,6 @@
-# GRK Regime Switch v3.23
+# GRK Regime Switch v3.23 / catalog 030
 
-ترکیب GRK-FX-2026-029:
+ترکیب GRK-FX-2026-030:
 
 - رونده‌روی پول‌بک (EMA20/50 + بیاس D1)
 - بازگشت به میانگین (BB + RSI) فقط در ADX پایین
