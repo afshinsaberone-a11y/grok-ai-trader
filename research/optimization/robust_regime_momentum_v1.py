@@ -175,6 +175,7 @@ def backtest(
     risk_pct: float = 0.005,
     cost_atr: float = 0.10,
     slippage_atr: float = 0.02,
+    include_trade_series: bool = False,
 ) -> dict[str, Any]:
     d = build_features(df, p)
     equity = 10000.0
@@ -244,6 +245,7 @@ def backtest(
         "max_dd_pct": round(100.0 * max_dd, 3),
         "final_equity": round(equity, 2),
         "trade_sharpe_proxy": round(sharpe, 4),
+        **({"net_R_series": rs} if include_trade_series else {}),
     }
 
 
