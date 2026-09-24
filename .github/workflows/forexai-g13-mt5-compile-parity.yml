@@ -383,10 +383,18 @@ jobs:
           AllowDllImport=0
           Enabled=1
 
-          [StartUp]
+          [Tester]
           Expert=ForexAI_G13_Parity_Harness
-          Symbol=EURUSD.cent
+          Symbol=EURUSD
           Period=M15
+          Model=0
+          Optimization=0
+          Visual=0
+          FromDate=2022.01.03
+          ToDate=2022.01.04
+          Report=g13_parity_harness
+          ReplaceReport=1
+          ShutdownTerminal=1
           "@ | Set-Content -LiteralPath $config -Encoding ascii
 
           $serviceCommon = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
@@ -395,7 +403,7 @@ jobs:
           $started = Join-Path $serviceCommon 'g13_mql5_parity.started.txt'
           Remove-Item $parity,$done,$started -Force -ErrorAction SilentlyContinue
 
-          Write-Host "Launching MT5 parity harness via terminal config"
+          Write-Host "Launching MT5 parity harness via Strategy Tester config"
           $configArg = '/config:"' + $config + '"'
           $procInfo = Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
             Where-Object {
@@ -410,8 +418,8 @@ jobs:
           }
           $proc = Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @($configArg,'/skipupdate') -PassThru
 
-          # Prove that the MQL5 script actually started before waiting on
-          # the terminal process. This distinguishes config/startup issues
+          # Prove that the MQL5 EA actually started before waiting on
+          # the terminal process. This distinguishes config/tester issues
           # from a slow parity calculation.
           $startDeadline = (Get-Date).AddSeconds(90)
           $startedSeen = $false
