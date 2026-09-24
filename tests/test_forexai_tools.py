@@ -30,6 +30,19 @@ def test_missing_evidence_is_explicit() -> None:
     assert payload == {"path": "agents/does-not-exist.txt", "exists": False}
 
 
+def test_github_actions_tool_is_present() -> None:
+    assert tools.inspect_github_actions_run is not None
+
+
+def test_github_api_helper_rejects_non_repo_endpoint() -> None:
+    try:
+        tools._github_api_json("user")
+    except ValueError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("non-repository endpoint accepted")
+
+
 def test_search_and_state_tools_are_present() -> None:
     assert tools.search_evidence is not None
     assert tools.repository_state is not None
