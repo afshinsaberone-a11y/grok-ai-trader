@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 3.00             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 3.10             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "3.00"
+#property version   "3.10"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -18,8 +18,8 @@ input double ADX_Min=22.0;
 
 input group "=== Squeeze / Momentum ==="
 input int    BB_Period=20;
-input double BB_Dev=2.0;
 input int    BW_Lookback=30;
+input double BB_Dev=2.0;
 input double BW_Pct=25.0;
 input int    RSI_Period=14;
 input double RSI_LongLow=40;
@@ -110,6 +110,52 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v3.00 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v3.10 ready");
    return INIT_SUCCEEDED;
+}
+
+bool NyThinWideBlock()
+{
+   MqlDateTime gt;
+   TimeToStruct(TimeGMT(), gt);
+   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour)
+      return false;
+   double atr[1];
+   if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0)
+      return false;
+   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double spread = ask-bid;
+   if(spread<=0.0)
+      return false;
+   bool wide = (spread >= NyWideSpreadAtr * atr[0]);
+   long vol_now = iVolume(_Symbol,PERIOD_H1,0);
+   if(vol_now<=0)
+      return false;
+   double sample[];
+   ArrayResize(sample, NyVolLookback);
+   int n=0;
+   for(int i=1; i<=NyVolLookback*30 && n<NyVolLookback; i++)
+   {
+      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
+      if(bar_time==0)
+         continue;
+      MqlDateTime bt;
+      TimeToStruct(bar_time, bt);
+      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour)
+         continue;
+      long v = iVolume(_Symbol,PERIOD_H1,i);
+      if(v<=0)
+         continue;
+      sample[n++] = (double)v;
+   }
+   if(n<5)
+      return false;
+   ArrayResize(sample,n);
+   ArraySort(sample);
+   double med = sample[n/2];
+   if(med<=0.0)
+      return false;
+   bool thin = ((double)vol_now < NyThinVolRatio * med);
+   return wide && thin;
 }
