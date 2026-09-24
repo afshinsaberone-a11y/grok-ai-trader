@@ -264,11 +264,62 @@ int CountSignals(
    return outRows;
 }
 
+bool RunHarness()
+{
+   Bar bars[];
+   if(!ReadRealM15(bars))
+      return false;
+
+   double atr[],rsi[];
+   BuildIndicators(bars,ArraySize(bars),atr,rsi);
+
+   // Always start a fresh output for deterministic parity evidence.
+   int trunc=FileOpen(OutputFile,FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
+   if(trunc==INVALID_HANDLE)
+   {
+      PrintFormat("PARITY_HARNESS_FAIL truncate_output error=%d",GetLastError());
+      return false;
+   }
+   FileWrite(trunc,"candidate_id","event","timestamp","side","entry","sl","tp","atr");
+   FileClose(trunc);
+
+   int totalRows=0;
+   for(int c=0;c<CANDIDATE_COUNT;c++)
+   {
+      int rows=0;
+      int rc=CountSignals(bars,ArraySize(bars),atr,rsi,
+                          PIVOTS[c],MIN_DELTAS[c],ATR_MULTS[c],
+                          RRS[c],RSI_HIGHS[c],CIDS[c],rows);
+      if(rc<0) return false;
+      PrintFormat("PARITY_CANDIDATE=%d SIGNAL_ROWS=%d",CIDS[c],rows);
+      totalRows+=rows;
+   }
+
+   int done=FileOpen(DoneFile,FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
+   if(done==INVALID_HANDLE)
+   {
+      PrintFormat("PARITY_HARNESS_FAIL done_open error=%d",GetLastError());
+      return false;
+   }
+   FileWrite(done,"status","PASS");
+   FileWrite(done,"real_data_only","true");
+   FileWrite(done,"synthetic_data","false");
+   FileWrite(done,"candidate_count",CANDIDATE_COUNT);
+   FileWrite(done,"signal_rows",totalRows);
+   FileWrite(done,"first_timestamp",IsoTimestamp(bars[0].ts));
+   FileWrite(done,"last_timestamp",IsoTimestamp(bars[ArraySize(bars)-1].ts));
+   FileClose(done);
+
+   PrintFormat("PARITY_HARNESS_OK candidates=%d signal_rows=%d",CANDIDATE_COUNT,totalRows);
+   // Do not depend solely on ShutdownTerminal=1 in the startup config.
+   // Explicitly close a config-launched terminal after successful completion.
+   return true;
+
 int OnInit()
 {
-   // Emit startup markers in both terminal-local Files and FILE_COMMON.
-   // The local marker proves the EA started even if the Common share is
-   // unavailable; the Common marker is retained for CI handoff.
+   // Strategy Tester must load the EA first; do not perform the heavy
+   // 93k-row file scan from OnInit. Emit a startup marker, then execute
+   // the deterministic harness on the first tester tick.
    bool startedFromConfig=(MQLInfoInteger(MQL_STARTED_FROM_CONFIG)!=0);
    int localStarted=FileOpen("g13_mql5_parity.started.local.txt",FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
    if(localStarted!=INVALID_HANDLE)
@@ -284,59 +335,20 @@ int OnInit()
       FileWrite(started,"started_from_config",startedFromConfig ? "true" : "false");
       FileClose(started);
    }
-   PrintFormat("PARITY_HARNESS_START started_from_config=%d",startedFromConfig ? 1 : 0);
-
-   Bar bars[];
-   if(!ReadRealM15(bars))
-      return(INIT_FAILED);
-
-   double atr[],rsi[];
-   BuildIndicators(bars,ArraySize(bars),atr,rsi);
-
-   // Always start a fresh output for deterministic parity evidence.
-   int trunc=FileOpen(OutputFile,FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
-   if(trunc==INVALID_HANDLE)
-   {
-      PrintFormat("PARITY_HARNESS_FAIL truncate_output error=%d",GetLastError());
-      return(INIT_FAILED);
-   }
-   FileWrite(trunc,"candidate_id","event","timestamp","side","entry","sl","tp","atr");
-   FileClose(trunc);
-
-   int totalRows=0;
-   for(int c=0;c<CANDIDATE_COUNT;c++)
-   {
-      int rows=0;
-      int rc=CountSignals(bars,ArraySize(bars),atr,rsi,
-                          PIVOTS[c],MIN_DELTAS[c],ATR_MULTS[c],
-                          RRS[c],RSI_HIGHS[c],CIDS[c],rows);
-      if(rc<0) return(INIT_FAILED);
-      PrintFormat("PARITY_CANDIDATE=%d SIGNAL_ROWS=%d",CIDS[c],rows);
-      totalRows+=rows;
-   }
-
-   int done=FileOpen(DoneFile,FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
-   if(done==INVALID_HANDLE)
-   {
-      PrintFormat("PARITY_HARNESS_FAIL done_open error=%d",GetLastError());
-      return(INIT_FAILED);
-   }
-   FileWrite(done,"status","PASS");
-   FileWrite(done,"real_data_only","true");
-   FileWrite(done,"synthetic_data","false");
-   FileWrite(done,"candidate_count",CANDIDATE_COUNT);
-   FileWrite(done,"signal_rows",totalRows);
-   FileWrite(done,"first_timestamp",IsoTimestamp(bars[0].ts));
-   FileWrite(done,"last_timestamp",IsoTimestamp(bars[ArraySize(bars)-1].ts));
-   FileClose(done);
-
-   PrintFormat("PARITY_HARNESS_OK candidates=%d signal_rows=%d",CANDIDATE_COUNT,totalRows);
-   // Do not depend solely on ShutdownTerminal=1 in the startup config.
-   // Explicitly close a config-launched terminal after successful completion.
-   if(startedFromConfig)
-      TerminalClose(0);
-
+   PrintFormat("PARITY_HARNESS_EA_INIT started_from_config=%d",startedFromConfig ? 1 : 0);
    return(INIT_SUCCEEDED);
+}
+
+void OnTick()
+{
+   static bool executed=false;
+   if(executed) return;
+   executed=true;
+   bool ok=RunHarness();
+   PrintFormat("PARITY_HARNESS_RUN_COMPLETE status=%s",ok ? "PASS" : "FAIL");
+   ExpertRemove();
+}
+
 }
 '''
 
