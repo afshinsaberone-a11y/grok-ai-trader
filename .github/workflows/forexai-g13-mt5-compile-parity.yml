@@ -384,16 +384,23 @@ jobs:
           Enabled=1
 
           [Tester]
-          Expert=ForexAI_G13_Parity_Harness
-          Symbol=EURUSD.cent
+          Expert=ForexAI_G13_Parity_Harness.ex5
+          Symbol=EURUSD
           Period=M15
+          Login=0
+          Deposit=10000
+          Leverage=1:100
           Model=2
+          ExecutionMode=0
           Optimization=0
+          OptimizationCriterion=0
+          ForwardMode=0
           Visual=0
           FromDate=2022.01.01
           ToDate=2026.01.01
-          Report=g13_parity_harness
-          ReplaceReport=1
+          UseLocal=1
+          UseRemote=0
+          UseCloud=0
           ShutdownTerminal=1
           "@ | Set-Content -LiteralPath $config -Encoding ascii
 
@@ -405,6 +412,8 @@ jobs:
 
           Write-Host "Launching MT5 parity harness via Strategy Tester config"
           $configArg = '/config:"' + $config + '"'
+          Write-Host "MT5_PARITY_CONFIG_CONTENT="
+          Get-Content -LiteralPath $config | ForEach-Object { Write-Host "MT5_PARITY_CONFIG_LINE=$($_)" }
           $procInfo = Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
             Where-Object {
               $_.ExecutablePath -and
