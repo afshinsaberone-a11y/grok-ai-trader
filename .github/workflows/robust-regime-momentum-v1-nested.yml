@@ -1,0 +1,61 @@
+name: Robust Regime-Momentum v1 Nested Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      data_path:
+        description: "Validated real EURUSD M5 dataset"
+        required: true
+        default: "data/real/normalized/EURUSD_M5_20220101_20251231.csv"
+      cost_atr:
+        description: "Round-trip cost stress as ATR fraction"
+        required: true
+        default: "0.10"
+      slippage_atr:
+        description: "Entry slippage as ATR fraction"
+        required: true
+        default: "0.02"
+
+permissions:
+  contents: read
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Validate real dataset
+        env:
+          DATA: ${{ inputs.data_path }}
+        run: |
+          test -f "$DATA"
+          python - <<'PY'
+          import os, pandas as pd
+          d=pd.read_csv(os.environ["DATA"])
+          req={"timestamp","open","high","low","close"}
+          cols={c.lower() for c in d.columns}
+          if req-cols:
+              raise SystemExit(f"REAL_DATA_REQUIRED: missing {sorted(req-cols)}")
+          ts=pd.to_datetime(d["timestamp"],utc=True)
+          if len(d)<100000:
+              raise SystemExit("REAL_DATA_REQUIRED: insufficient history")
+          if ts.min()>=pd.Timestamp("2022-01-01",tz="UTC"):
+              raise SystemExit("REAL_DATA_REQUIRED: discovery starts too late")
+          print("rows",len(d),"start",ts.min(),"end",ts.max())
+          PY
+      - name: Run nested discovery
+        env:
+          DATA: ${{ inputs.data_path }}
+        run: |
+          python -m research.optimization.robust_regime_momentum_v1_discovery             --data "$DATA"             --cost-atr "${{ inputs.cost_atr }}"             --slippage-atr "${{ inputs.slippage_atr }}"             --output artifacts/robust-regime-momentum-v1-discovery.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: robust-regime-momentum-v1-nested-discovery
+          path: artifacts/robust-regime-momentum-v1-discovery.json
+          if-no-files-found: error
