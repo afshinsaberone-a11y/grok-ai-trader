@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.13                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.14                                  |
 //| Safety: no grid, no martingale, hard risk cap                    |
 //| Educational research only. Not a profitability guarantee.        |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.13"
+#property version   "3.14"
 
 input double InpRiskPercent     = 0.5;
 input double InpMaxRiskPercent  = 0.5;
@@ -20,9 +20,10 @@ input double InpShockATR        = 1.8;
 input double InpMinRR           = 2.0;
 input double InpRangeMinRR      = 1.5;
 input int    InpMaxPositions    = 2;
-input int    InpMagic           = 2026019;
+input int    InpMagic           = 2026020;
 input bool   InpAllowGrid       = false;
 input bool   InpAllowMartingale = false;
+input int    InpMaxSpreadPoints = 40;
 
 int hADX, hATR, hEF, hES, hRSI, hBB;
 double gDayStartEquity = 0.0;
@@ -83,7 +84,9 @@ Regime DetectRegime()
 bool SpreadOk()
 {
    long spreadPts = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
-   return spreadPts < 30;
+   int cap = InpMaxSpreadPoints;
+   if(StringFind(_Symbol,"XAU")>=0) cap = InpMaxSpreadPoints * 6;
+   return spreadPts < cap;
 }
 
 bool SessionOk()
@@ -91,6 +94,7 @@ bool SessionOk()
    MqlDateTime t;
    TimeToStruct(TimeCurrent(), t);
    int h = t.hour;
+   if(t.day_of_week==0 || t.day_of_week==6) return false;
    if(t.day_of_week==5 && h>=16) return false;
    return (h>=7 && h<17);
 }
@@ -167,7 +171,7 @@ double VolumeByRisk(double sl_dist)
    double risk_money = equity * (InpRiskPercent / 100.0);
    double tick_val = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
    double tick_sz  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   if(tick_val<=0 || tick_sz<=0) return SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   if(tick_val<=0 || tick_sz<=0) return 0;
    double vol = risk_money / (sl_dist / tick_sz * tick_val);
    double vmin = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double vmax = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
@@ -198,7 +202,7 @@ bool SendDeal(ENUM_ORDER_TYPE type, double sl, double tp)
    req.type = type;
    req.sl = sl;
    req.tp = tp;
-   req.comment = "GRK019";
+   req.comment = "GRK020";
    req.price = (type==ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
                                      : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double sl_dist = MathAbs(req.price - sl);

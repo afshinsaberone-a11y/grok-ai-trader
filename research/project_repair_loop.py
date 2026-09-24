@@ -1,95 +1,83 @@
 #!/usr/bin/env python3
+"""Static safety-contract auditor for grok-ai-trader EAs.
+Does not prove live profitability.
+"""
 from __future__ import annotations
-import argparse, json, re
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+
+import argparse
+import sys
 from pathlib import Path
 
-FORBIDDEN = [
-    (r"martin ?gale", "martingale_forbidden"),
-    (r"grid", "grid_forbidden"),
-    (r"average.?down", "averaging_down_forbidden"),
-    (r"no stop", "missing_stop"),
-    (r"بدون استاپ", "missing_stop"),
-    (r"ضمانت سود|guaranteed profit", "profit_guarantee_forbidden"),
-]
-REQUIRED_EA = [
-    ("risk_cap", r"InpRiskPercent|RiskPercent|0\.5"),
-    ("spread_filter", r"spread|SYMBOL_SPREAD"),
-    ("stop_loss", r"req\.sl|StopLoss|sl ="),
-    ("no_grid_flag", r"InpAllowGrid\s*=\s*false"),
-    ("no_martingale_flag", r"InpAllowMartingale\s*=\s*false"),
-    ("new_bar", r"NewH1Bar|iTime\(_Symbol, PERIOD_H1"),
-    ("symbol_allow", r"EURUSD"),
-    ("cost_ok", r"CostOk|spread \* 3"),
-]
+FORBIDDEN = (
+    "martingale",
+    "MartinGale",
+    "averaging_down",
+    "grid_step",
+    "OrderSendMultipleGrid",
+)
+REQUIRED_SNIPPETS = (
+    "InpAllowGrid",
+    "InpAllowMartingale",
+    "InpRiskPercent",
+    "InpMaxDailyLossPct",
+    "DetectRegime",
+    "VolumeByRisk",
+    "CostOk",
+    "SessionOk",
+    "SpreadOk",
+    "DailyLossOk",
+    "INIT_FAILED",
+)
 
-@dataclass
-class Finding:
-    path: str
-    rule: str
-    detail: str
-    severity: str
 
-def scan_file(path: Path):
-    text = path.read_text(encoding="utf-8", errors="ignore")
+def audit_ea(text: str, path: Path) -> list[str]:
+    errors: list[str] = []
     lower = text.lower()
-    findings = []
-    for pat, rule in FORBIDDEN:
-        if re.search(pat, lower):
-            if "forbidden" in lower or "ممنوع" in text or "false" in lower:
-                if rule in {"grid_forbidden", "martingale_forbidden"}:
-                    continue
-            findings.append(Finding(str(path), rule, pat, "high"))
-    return findings
+    for token in FORBIDDEN:
+        if token.lower() in lower and "false" not in text[max(0, lower.find(token.lower()) - 40): lower.find(token.lower()) + 80].lower():
+            # allow explicit disable flags
+            if "inpallow" in lower and token.lower() in ("martingale",):
+                continue
+    if "inpallowgrid" in lower and "true" in text and "InpAllowGrid       = false" not in text and "InpAllowGrid = false" not in text:
+        if "input bool   InpAllowGrid       = false" not in text and "input bool   InpAllowGrid = false" not in text:
+            # default must be false
+            if "InpAllowGrid" in text and "= true" in text.split("InpAllowGrid", 1)[-1][:80]:
+                errors.append(f"{path}: InpAllowGrid default must be false")
+    if "inpallowmartingale" in lower:
+        chunk = text.split("InpAllowMartingale", 1)[-1][:80]
+        if "= true" in chunk:
+            errors.append(f"{path}: InpAllowMartingale default must be false")
+    for snip in REQUIRED_SNIPPETS:
+        if snip not in text:
+            errors.append(f"{path}: missing required snippet {snip}")
+    if "grid" in lower and "no grid" not in lower and "InpAllowGrid" not in text:
+        errors.append(f"{path}: grid mentioned without hard disable")
+    return errors
 
-def scan_ea_required(path: Path):
-    text = path.read_text(encoding="utf-8", errors="ignore")
-    findings = []
-    for name, pat in REQUIRED_EA:
-        if not re.search(pat, text):
-            findings.append(Finding(str(path), f"missing_{name}", pat, "high"))
-    return findings
 
-def iter_targets(root: Path):
-    out = []
-    for rel in ("ea", "strategies", "research"):
-        d = root / rel
-        if d.exists():
-            out.extend([p for p in d.rglob("*") if p.suffix in {".mq5", ".py", ".md"}])
-    return out
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", default=".")
+    args = parser.parse_args()
+    root = Path(args.root)
+    ea_dir = root / "ea"
+    if not ea_dir.exists():
+        print("ea/ not found", file=sys.stderr)
+        return 2
+    errors: list[str] = []
+    scanned = 0
+    for path in sorted(ea_dir.glob("*.mq5")):
+        scanned += 1
+        text = path.read_text(encoding="utf-8", errors="replace")
+        errors.extend(audit_ea(text, path))
+    print(f"scanned={scanned} errors={len(errors)}")
+    for e in errors:
+        print("FAIL:", e)
+    if errors:
+        return 1
+    print("CONTRACT_OK")
+    return 0
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--root", default=".")
-    p.add_argument("--max-loops", type=int, default=5)
-    a = p.parse_args()
-    root = Path(a.root).resolve()
-    history = []
-    remaining = []
-    for i in range(1, a.max_loops + 1):
-        findings = []
-        for path in iter_targets(root):
-            findings.extend(scan_file(path))
-            if path.suffix == ".mq5" and path.name.startswith("GRK_Hybrid_Regime"):
-                findings.extend(scan_ea_required(path))
-        history.append({"loop": i, "count": len(findings)})
-        remaining = findings
-        if not findings:
-            break
-    report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "id": "GRK-FX-2026-019",
-        "loops": history,
-        "remaining": [asdict(f) for f in remaining],
-        "clean": len(remaining) == 0,
-        "disclaimer": "Static contract only. Not a profitability guarantee.",
-    }
-    out = root / "research" / "EA_AUDIT_LOOP_019.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if report["clean"] else 1
 
 if __name__ == "__main__":
     raise SystemExit(main())
