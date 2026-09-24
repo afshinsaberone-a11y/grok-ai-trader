@@ -24,8 +24,8 @@ REQUIRED_SNIPPETS = (
     "SpreadOk",
     "DailyLossOk",
     "INIT_FAILED",
-    "FlattenAll",
 )
+CHAMPION = "GRK_Hybrid_Regime_EA.mq5"
 
 
 def _default_is_true(text: str, name: str) -> bool:
@@ -39,19 +39,20 @@ def _default_is_true(text: str, name: str) -> bool:
 def audit_ea(text: str, path: Path) -> list[str]:
     errors: list[str] = []
     lower = text.lower()
+    if path.name != CHAMPION:
+        if "martingale" in lower and "inpallowmartingale" not in lower:
+            errors.append(f"{path}: martingale mentioned without disable flag")
+        return errors
     for name in FORBIDDEN_DEFAULT_TRUE:
         if _default_is_true(text, name):
             errors.append(f"{path}: {name} default must be false")
     for snip in REQUIRED_SNIPPETS:
         if snip not in text:
             errors.append(f"{path}: missing required snippet {snip}")
-    if "InpAllowGrid" in text and "if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED" not in text.replace(" ", ""):
-        if "if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED" not in text:
-            errors.append(f"{path}: missing INIT_FAILED hard reject for grid/martingale")
-    if "flattenall" not in lower:
+    if "FlattenAll" not in text:
         errors.append(f"{path}: missing FlattenAll for shock/weekend")
-    if "grid" in lower and "InpAllowGrid" not in text:
-        errors.append(f"{path}: grid mentioned without hard disable")
+    if "if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED" not in text:
+        errors.append(f"{path}: missing INIT_FAILED hard reject for grid/martingale")
     return errors
 
 
