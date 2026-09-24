@@ -387,7 +387,8 @@ jobs:
           Expert=ForexAI_G13_Parity_Harness.ex5
           Symbol=EURUSD
           Period=M15
-          Login=0
+          # Emulated Strategy Tester account only; no broker authorization.
+          Login=123456
           Deposit=10000
           Leverage=1:100
           Model=2
