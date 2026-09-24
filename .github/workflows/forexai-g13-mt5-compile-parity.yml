@@ -390,8 +390,8 @@ jobs:
           Model=0
           Optimization=0
           Visual=0
-          FromDate=2022.01.03
-          ToDate=2022.01.04
+          FromDate=2022.01.01
+          ToDate=2025.12.31
           Report=g13_parity_harness
           ReplaceReport=1
           ShutdownTerminal=1
@@ -443,9 +443,9 @@ jobs:
             throw "G13 parity EA did not start within 180 seconds; inspect MT5 diagnostics artifact"
           }
 
-          # Allow a bounded 7-minute window for the 93k-row real dataset
+          # Allow a bounded 10-minute window for the 93k-row real dataset
           # across all 15 frozen candidates.
-          $deadline = (Get-Date).AddSeconds(420)
+          $deadline = (Get-Date).AddSeconds(600)
           while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
             if (Test-Path -LiteralPath $done -PathType Leaf) {
               Write-Host "MQL5_PARITY_DONE_MARKER_DETECTED"
@@ -454,7 +454,7 @@ jobs:
           }
           if (-not $proc.HasExited) {
             try { $proc.Kill() } catch {}
-            throw "MT5 parity harness timed out after 420 seconds"
+            throw "MT5 parity harness timed out after 600 seconds"
           }
           Write-Host "MT5_PARITY_TERMINAL_EXIT_CODE=$($proc.ExitCode)"
           if (!(Test-Path -LiteralPath $parity -PathType Leaf)) {
