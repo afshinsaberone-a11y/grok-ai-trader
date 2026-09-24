@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 3.20             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 3.30             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "3.20"
+#property version   "3.30"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -68,6 +68,8 @@ input int    NyVolLookback=20;
 input int    SessionCloseHour=19;
 input int    SessionCloseEndHour=20;
 input double SessionCloseWideSpreadAtr=0.10;
+input double SessionCloseThinVolRatio=0.70;
+input int    SessionCloseVolLookback=20;
 input double MinSLSpreadMult=1.8;
 input double MaxSpreadATRRatio=0.25;
 input bool   UseTrailing=true;
@@ -113,7 +115,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v3.20 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v3.30 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -178,4 +180,40 @@ bool SessionCloseWideBlock()
    if(spread<=0.0)
       return false;
    return (spread >= SessionCloseWideSpreadAtr * atr[0]);
+}
+
+bool SessionCloseThinVolBlock()
+{
+   MqlDateTime gt;
+   TimeToStruct(TimeGMT(), gt);
+   if(gt.hour < SessionCloseHour || gt.hour >= SessionCloseEndHour)
+      return false;
+   long vol_now = iVolume(_Symbol,PERIOD_H1,0);
+   if(vol_now<=0)
+      return false;
+   double sample[];
+   ArrayResize(sample, SessionCloseVolLookback);
+   int n=0;
+   for(int i=1; i<=SessionCloseVolLookback*30 && n<SessionCloseVolLookback; i++)
+   {
+      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
+      if(bar_time==0)
+         continue;
+      MqlDateTime bt;
+      TimeToStruct(bar_time, bt);
+      if(bt.hour<SessionCloseHour || bt.hour>=SessionCloseEndHour)
+         continue;
+      long v = iVolume(_Symbol,PERIOD_H1,i);
+      if(v<=0)
+         continue;
+      sample[n++] = (double)v;
+   }
+   if(n<5)
+      return false;
+   ArrayResize(sample,n);
+   ArraySort(sample);
+   double med = sample[n/2];
+   if(med<=0.0)
+      return false;
+   return ((double)vol_now < SessionCloseThinVolRatio * med);
 }
