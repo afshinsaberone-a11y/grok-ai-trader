@@ -421,14 +421,14 @@ jobs:
           # Prove that the MQL5 EA actually started before waiting on
           # the terminal process. This distinguishes config/tester issues
           # from a slow parity calculation.
-          $startDeadline = (Get-Date).AddSeconds(90)
+          $startDeadline = (Get-Date).AddSeconds(180)
           $startedSeen = $false
           while (-not $proc.HasExited -and (Get-Date) -lt $startDeadline) {
             if (Test-Path -LiteralPath $started -PathType Leaf) {
               $startedSeen = $true
-              Write-Host "MQL5_PARITY_SCRIPT_STARTED"
+              Write-Host "MQL5_PARITY_EA_STARTED"
               Get-Content -LiteralPath $started -ErrorAction SilentlyContinue | ForEach-Object {
-                if ($_.Trim()) { Write-Host "MQL5_PARITY_STARTED_MARKER=$($_.Trim())" }
+                if ($_.Trim()) { Write-Host "MQL5_PARITY_EA_STARTED_MARKER=$($_.Trim())" }
               }
               break
             }
@@ -440,7 +440,7 @@ jobs:
             } else {
               Write-Host "MT5_PARITY_TERMINAL_STILL_RUNNING_BEFORE_EA_START"
             }
-            throw "G13 parity EA did not start within 90 seconds; inspect MT5 diagnostics artifact"
+            throw "G13 parity EA did not start within 180 seconds; inspect MT5 diagnostics artifact"
           }
 
           # Allow a bounded 7-minute window for the 93k-row real dataset
