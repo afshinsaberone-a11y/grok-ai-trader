@@ -385,13 +385,13 @@ jobs:
 
           [Tester]
           Expert=ForexAI_G13_Parity_Harness
-          Symbol=EURUSD
+          Symbol=EURUSD.cent
           Period=M15
-          Model=0
+          Model=2
           Optimization=0
           Visual=0
           FromDate=2022.01.01
-          ToDate=2025.12.31
+          ToDate=2026.01.01
           Report=g13_parity_harness
           ReplaceReport=1
           ShutdownTerminal=1
