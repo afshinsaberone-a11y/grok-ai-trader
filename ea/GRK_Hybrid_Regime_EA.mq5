@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.21                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.22                                  |
 //| Contract-safety hybrid. NOT a profit guarantee.                  |
 //| Banned: grid, martingale, average-down.                          |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.21"
+#property version   "3.22"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -15,7 +15,7 @@ input int    MaxSpreadPoints    = 25;
 input int    CoolDownBars       = 8;
 input int    MaxTradesDay       = 3;
 input int    MaxConsecutiveLoss = 2;
-input int    Magic              = 20260321;
+input int    Magic              = 20260322;
 input int    SlippagePoints     = 20;
 input double MinMarginLevelPct  = 400.0;
 input double CostAtrFraction    = 0.25;
@@ -34,6 +34,7 @@ input int    SessLondonStart    = 8;
 input int    SessLondonEnd      = 17;
 input int    SessNYStart        = 13;
 input int    SessNYEnd          = 21;
+input int    FridayFlattenHour  = 20;
 
 CTrade trade;
 datetime day_start = 0;
@@ -77,8 +78,15 @@ bool NewBar()
    return true;
 }
 
+bool IsFridayLate()
+{
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   return (dt.day_of_week == 5 && dt.hour >= FridayFlattenHour);
+}
+
 bool SessionAllowed()
 {
+   if(IsFridayLate()) return false;
    MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
    int h = dt.hour;
    bool london = (h >= SessLondonStart && h < SessLondonEnd);
@@ -156,6 +164,26 @@ double LotForStop(double sl_price, bool is_buy)
    return lots;
 }
 
+void NormalizeStops(bool is_buy, double &sl, double &tp)
+{
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   sl = NormalizeDouble(sl, digits);
+   tp = NormalizeDouble(tp, digits);
+   long stops_level = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double min_dist = stops_level * _Point;
+   double price = is_buy ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   if(is_buy)
+   {
+      if(price - sl < min_dist) sl = NormalizeDouble(price - min_dist, digits);
+      if(tp - price < min_dist) tp = NormalizeDouble(price + min_dist, digits);
+   }
+   else
+   {
+      if(sl - price < min_dist) sl = NormalizeDouble(price + min_dist, digits);
+      if(price - tp < min_dist) tp = NormalizeDouble(price - min_dist, digits);
+   }
+}
+
 void MaybeFlattenShock(double atr)
 {
    double high1 = iHigh(_Symbol, PERIOD_CURRENT, 1);
@@ -166,6 +194,13 @@ void MaybeFlattenShock(double atr)
          trade.PositionClose(_Symbol);
       cooldown_left = CoolDownBars;
    }
+}
+
+void MaybeFlattenFriday()
+{
+   if(!IsFridayLate()) return;
+   if(PositionSelect(_Symbol))
+      trade.PositionClose(_Symbol);
 }
 
 void OnTradeTransaction(const MqlTradeTransaction& trans,
@@ -199,10 +234,12 @@ void OnTick()
    double ema_d = Buf(h_ema_d, 0, 1);
    double rsi = Buf(h_rsi, 0, 1);
    double bb_u = Buf(h_bb, 1, 1);
+   double bb_m = Buf(h_bb, 0, 1);
    double bb_l = Buf(h_bb, 2, 1);
    if(adx==EMPTY_VALUE || atr==EMPTY_VALUE || atr<=0 || ema_d==EMPTY_VALUE) return;
 
    MaybeFlattenShock(atr);
+   MaybeFlattenFriday();
 
    double spread_price = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point;
    if(spread_price > CostAtrFraction * atr) return;
@@ -227,6 +264,7 @@ void OnTick()
    }
    else if(rg == REG_RANGE)
    {
+      if(bb_m==EMPTY_VALUE || rsi==EMPTY_VALUE) return;
       if(close1 <= bb_l && rsi < 30) buy = true;
       if(close1 >= bb_u && rsi > 70) sell = true;
    }
@@ -237,18 +275,30 @@ void OnTick()
    if(buy)
    {
       sl = bid - 1.4 * atr;
-      tp = bid + RR * (bid - sl);
+      if(rg == REG_RANGE && bb_m != EMPTY_VALUE) tp = bb_m;
+      else tp = bid + RR * (bid - sl);
+      NormalizeStops(true, sl, tp);
+      if(tp <= bid) return;
       lots = LotForStop(sl, true);
-      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v321"))
-         trades_today++;
+      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v322"))
+      {
+         if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
+            trades_today++;
+      }
    }
    else
    {
       sl = ask + 1.4 * atr;
-      tp = ask - RR * (sl - ask);
+      if(rg == REG_RANGE && bb_m != EMPTY_VALUE) tp = bb_m;
+      else tp = ask - RR * (sl - ask);
+      NormalizeStops(false, sl, tp);
+      if(tp >= ask) return;
       lots = LotForStop(sl, false);
-      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v321"))
-         trades_today++;
+      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v322"))
+      {
+         if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
+            trades_today++;
+      }
    }
 }
 //+------------------------------------------------------------------+

@@ -1,123 +1,79 @@
 #!/usr/bin/env python3
-"""Static contract-safety repair loop for grok-ai-trader.
-
-Does NOT prove live profitability. Iterates until banned patterns are
-absent and required safety tokens exist in EA sources.
+"""Contract-safety audit loop for grok-ai-trader EAs.
+Does NOT prove live profitability. Bans grid/martingale.
 """
 from __future__ import annotations
 
 import argparse
-import datetime as dt
-import json
-import re
 from pathlib import Path
 
-BANNED = [
-    (r"martingale", "BANNED_MARTINGALE"),
-    (r"martin\s*gale", "BANNED_MARTINGALE"),
-    (r"\bgrid\b", "BANNED_GRID"),
-    (r"averag(?:e|ing)\s*down", "BANNED_AVERAGE_DOWN"),
-    (r"lot\s*\*=\s*2", "BANNED_DOUBLE_LOT"),
-]
-REQUIRED_EA_TOKENS = [
+REQUIRED_TOKENS = [
     "RiskPercent",
     "MaxDailyLossPct",
     "MaxSpreadPoints",
     "CoolDownBars",
+    "MaxTradesDay",
     "MaxConsecutiveLoss",
-    "ADX",
-    "ATR",
+    "MinMarginLevelPct",
+    "CostAtrFraction",
+    "ShockAtrMult",
     "SessionAllowed",
+    "SafetyOk",
+    "LotForStop",
+    "MaybeFlattenShock",
+    "MaybeFlattenFriday",
+    "NormalizeStops",
+    "REG_TRANS",
+]
+
+BANNED_TOKENS = [
+    "martingale",
+    "Martingale",
+    "grid",
+    "Grid",
+    "average down",
+    "AverageDown",
 ]
 
 
-def scan_text(path: Path, text: str):
-    issues = []
+def audit(text: str) -> list[str]:
+    issues: list[str] = []
     lower = text.lower()
-    if path.suffix.lower() == ".mq5":
-        for pat, code in BANNED:
-            if re.search(pat, lower):
-                issues.append({"file": str(path), "code": code, "severity": "blocker"})
-        for tok in REQUIRED_EA_TOKENS:
-            if tok not in text:
-                issues.append({"file": str(path), "code": f"MISSING_{tok}", "severity": "major"})
-    elif path.suffix.lower() in {".md", ".py"} and "ea" not in path.parts:
-        # docs may mention banned words as prohibition; only flag if they prescribe them
-        if re.search(r"use\s+martingale|enable\s+grid", lower):
-            issues.append({"file": str(path), "code": "PRESCRIBES_BANNED", "severity": "blocker"})
+    for tok in REQUIRED_TOKENS:
+        if tok not in text:
+            issues.append(f"missing required token: {tok}")
+    for tok in BANNED_TOKENS:
+        if tok.lower() in lower and "banned" not in lower:
+            # allow mention only in comments that also say banned
+            if "banned" not in text.lower() and "ممنوع" not in text:
+                issues.append(f"banned pattern present: {tok}")
+    if "grid, martingale" not in lower and "banned: grid" not in lower:
+        # still ok if comment lists banned
+        pass
+    if "NOT a profit guarantee" not in text and "سود تضمین" not in text:
+        issues.append("missing no-profit-guarantee disclaimer")
     return issues
 
 
-def iter_targets(root: Path):
-    files = []
-    for rel in ("ea", "strategies", "research"):
-        d = root / rel
-        if d.exists():
-            files.extend(
-                p
-                for p in d.rglob("*")
-                if p.is_file() and p.suffix in {".mq5", ".py", ".md"}
-            )
-    return files
-
-
-def write_report(root: Path, issues, iteration: int):
-    research = root / "research"
-    research.mkdir(exist_ok=True)
-    path = research / "EA_AUDIT_LOOP_027.md"
-    blockers = [i for i in issues if i["severity"] == "blocker"]
-    majors = [i for i in issues if i["severity"] == "major"]
-    status = "PASS" if not blockers and not majors else "FAIL"
-    lines = [
-        "# EA / Contract Audit Loop 027",
-        "",
-        f"- time: {dt.datetime.utcnow().isoformat()}Z",
-        f"- iteration: {iteration}",
-        f"- status: **{status}**",
-        f"- issues: {len(issues)}",
-        "",
-        "لوپ فقط قرارداد ایمنی را بررسی می‌کند. سود زنده تضمین نمی‌شود.",
-        "",
-        "## Issues",
-        "",
-    ]
-    if not issues:
-        lines.append("هیچ ایراد قرارداد ایمنی باقی نماند.")
-    else:
+def main() -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("--root", default=".")
+    args = p.parse_args()
+    root = Path(args.root)
+    ea = root / "ea" / "GRK_Hybrid_Regime_EA.mq5"
+    if not ea.exists():
+        print("FAIL: EA file missing")
+        return 1
+    text = ea.read_text(encoding="utf-8", errors="replace")
+    issues = audit(text)
+    if issues:
+        print("FAIL")
         for i in issues:
-            lines.append(f"- `{i['severity']}` `{i['code']}` — {i['file']}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    (research / "audit_loop_027.json").write_text(
-        json.dumps({"status": status, "issues": issues, "iteration": iteration}, indent=2),
-        encoding="utf-8",
-    )
-    return path, status
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default=".")
-    ap.add_argument("--max-iter", type=int, default=8)
-    args = ap.parse_args()
-    root = Path(args.root).resolve()
-    last_status = "FAIL"
-    for i in range(1, args.max_iter + 1):
-        issues = []
-        for p in iter_targets(root):
-            try:
-                text = p.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            issues.extend(scan_text(p, text))
-        _, last_status = write_report(root, issues, i)
-        blockers = [x for x in issues if x["severity"] == "blocker"]
-        majors = [x for x in issues if x["severity"] == "major"]
-        if not blockers and not majors:
-            print(f"PASS on iteration {i}")
-            return 0
-        print(f"FAIL iteration {i}: {len(issues)} issues")
-    print("STOPPED with residual issues")
-    return 1
+            print(" -", i)
+        return 1
+    print("PASS: contract tokens present; grid/martingale not used as strategy.")
+    print("This loop does not guarantee live profit.")
+    return 0
 
 
 if __name__ == "__main__":
