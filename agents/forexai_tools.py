@@ -150,5 +150,46 @@ def inspect_robustness_handoff(path: str, max_candidates: int = 20) -> str:
     return decision.to_json()
 
 
+def _github_api_json(endpoint: str) -> dict[str, object]:
+    """Read a GitHub API endpoint through the authenticated gh CLI."""
+    if not endpoint.startswith("repos/") or ".." in endpoint.split("/"):
+        raise ValueError("GitHub endpoint must be a repository-scoped path")
+    proc = subprocess.run(
+        ["gh", "api", endpoint],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return {"returncode": proc.returncode, "stdout": "", "stderr": proc.stderr[:MAX_READ]}
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {"returncode": proc.returncode, "stdout": proc.stdout[:MAX_READ], "stderr": "invalid JSON response"}
+    return {"returncode": proc.returncode, "payload": payload}
+
+
+@function_tool
+def inspect_github_actions_run(run_id: int, repository: str = "") -> str:
+    """Inspect a GitHub Actions run using read-only metadata; never downloads artifacts."""
+    if run_id <= 0:
+        raise ValueError("run_id must be positive")
+    repo = repository.strip()
+    if not repo:
+        import os
+        repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not repo or repo.count("/") != 1 or any(part in {"", ".", ".."} for part in repo.split("/")):
+        raise ValueError("repository must be owner/name")
+    run = _github_api_json(f"repos/{repo}/actions/runs/{run_id}")
+    jobs = _github_api_json(f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100")
+    artifacts = _github_api_json(f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100")
+    return json.dumps(
+        {"repository": repo, "run": run, "jobs": jobs, "artifacts": artifacts},
+        ensure_ascii=False,
+    )
+
+
 def evidence_tools() -> list:
-    return [list_evidence_files, read_evidence_file, search_evidence, repository_state, run_pytest, inspect_discovery_artifact, inspect_validation_artifact, inspect_robustness_handoff]
+    return [list_evidence_files, read_evidence_file, search_evidence, repository_state, run_pytest, inspect_discovery_artifact, inspect_validation_artifact, inspect_robustness_handoff, inspect_github_actions_run]
