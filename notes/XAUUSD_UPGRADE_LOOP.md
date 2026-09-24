@@ -10,6 +10,14 @@
 
 ## Changelog
 
+### v3.3 — 2026-09-24
+- ارتقا: فیلتر حجم نازک آخرین ساعت سشن (19–20 UTC) فقط با ستون حجم واقعی.
+- پایتون: `session_close_thin_vol_ratio=0.70`، `session_close_vol_lookback=20`. ستون `session_close_thin_vol_block`. اگر `volume`/`tick_volume` نباشد فیلتر خاموش است. حجم جعلی ساخته نمی‌شود.
+- ورود در 19–20 UTC بسته است اگر حجم همان ساعت < 0.70 میانه ۲۰روزه همان ساعت باشد.
+- EA: `SessionCloseThinVolRatio=0.70`، `SessionCloseVolLookback=20` و `SessionCloseThinVolBlock()` با iVolume ساعتی واقعی. نسخه 3.30.
+- ریسک پایه ۰.۵٪. سود تضمین نیست. معامله زنده فعال نشد.
+- مورد بعدی: فیلتر همپوشانی آخرین ساعت سشن اسپرد گشاد AND حجم نازک.
+
 ### v3.2 — 2026-09-24
 - ارتقا: فیلتر اسپرد گشاد آخرین ساعت سشن (19–20 UTC) فقط با اسپرد واقعی نسبت به ATR.
 - پایتون: `session_close_hour=19`، `session_close_end_hour=20`، `session_close_wide_spread_atr=0.10`. ستون `session_close_wide_block`. اسپرد جعلی ساخته نمی‌شود.
