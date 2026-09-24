@@ -10,6 +10,14 @@
 
 ## Changelog
 
+### v4.3 — 2026-09-24
+- ارتقا: فیلتر پنج‌شنبه ساعت اول لندن فقط با نسبت اسپرد به ATR نسبت به میانه ۲۰روزه همان ساعت (07–08 UTC).
+- پایتون: `thursday_london_spread_atr_med_mult=1.50`، `thursday_london_spread_atr_lookback=20`. تابع `thursday_london_spread_atr_med_block` = پنج‌شنبه و ساعت لندن و `spread_used/ATR >= 1.50 * میانه ۲۰روزه همان نسبت در همان ساعت`. اسپرد جعلی ساخته نمی‌شود.
+- ورود پنج‌شنبه 07–08 UTC بسته است اگر نسبت اسپرد/ATR نسبت به تاریخچه همان ساعت بالا باشد.
+- EA: `ThursdayLondonSpreadAtrMedMult=1.50`، `ThursdayLondonSpreadAtrLookback=20` و `ThursdayLondonSpreadAtrMedBlock()` نسبت اسپرد زنده ASK-BID به ATR را با میانه iSpread ساعتی واقعی پنج‌شنبه‌ها مقایسه می‌کند. نسخه 4.30.
+- ریسک پایه ۰.۵٪. سود تضمین نیست. معامله زنده فعال نشد.
+- مورد بعدی: فیلتر پنج‌شنبه ساعت اول لندن نسبت اسپرد/ATR بالا AND حجم نازک همان ساعت.
+
 ### v4.2 — 2026-09-24
 - ارتقا: فیلتر چهارشنبه ساعت اول لندن نسبت اسپرد/ATR بالا AND حجم نازک همان ساعت (07–08 UTC).
 - پایتون: `wednesday_london_thin_vol_ratio=0.70`، `wednesday_london_vol_lookback=20`. ستون `wednesday_london_spread_atr_med_thin_block` = چهارشنبه و ساعت لندن و `spread_used/ATR >= 1.50 * میانه ۲۰روزه همان نسبت` AND حجم همان ساعت < `wednesday_london_thin_vol_ratio` × میانه ۲۰روزه. اگر ستون حجم نباشد فیلتر AND خاموش است. اسپرد/حجم جعلی ساخته نمی‌شود.
@@ -17,19 +25,3 @@
 - EA: `WednesdayLondonSpreadAtrMedThinBlock()` نسبت اسپرد زنده ASK-BID به ATR را با میانه iSpread ساعتی چهارشنبه‌ها و iVolume همان ساعت مقایسه می‌کند. نسخه 4.20.
 - ریسک پایه ۰.۵٪. سود تضمین نیست. معامله زنده فعال نشد.
 - مورد بعدی: فیلتر پنج‌شنبه ساعت اول لندن نسبت اسپرد/ATR بالا نسبت به میانه ۲۰روزه همان ساعت.
-
-### v4.1 — 2026-09-24
-- ارتقا: فیلتر چهارشنبه ساعت اول لندن فقط با نسبت اسپرد به ATR نسبت به میانه ۲۰روزه همان ساعت (07–08 UTC).
-- پایتون: `wednesday_london_spread_atr_med_mult=1.50`، `wednesday_london_spread_atr_lookback=20`. ستون `wednesday_london_spread_atr_med_block` = چهارشنبه و ساعت لندن و `spread_used/ATR >= 1.50 * میانه ۲۰روزه همان نسبت در همان ساعت`. اسپرد جعلی ساخته نمی‌شود.
-- ورود چهارشنبه 07–08 UTC بسته است اگر نسبت اسپرد/ATR نسبت به تاریخچه همان ساعت بالا باشد.
-- EA: `WednesdayLondonSpreadAtrMedMult=1.50`، `WednesdayLondonSpreadAtrLookback=20` و `WednesdayLondonSpreadAtrMedBlock()` نسبت اسپرد زنده ASK-BID به ATR را با میانه iSpread ساعتی واقعی چهارشنبه‌ها مقایسه می‌کند. نسخه 4.10.
-- ریسک پایه ۰.۵٪. سود تضمین نیست. معامله زنده فعال نشد.
-- مورد بعدی: فیلتر چهارشنبه ساعت اول لندن نسبت اسپرد/ATR بالا AND حجم نازک همان ساعت.
-
-### v4.0 — 2026-09-24
-- ارتقا: فیلتر سه‌شنبه ساعت اول لندن نسبت اسپرد/ATR بالا AND حجم نازک همان ساعت (07–08 UTC).
-- پایتون: ستون `tuesday_london_spread_atr_med_thin_block` = سه‌شنبه و ساعت لندن و `spread_used/ATR >= 1.50 * میانه ۲۰روزه همان نسبت` AND حجم همان ساعت < `tuesday_london_thin_vol_ratio` × میانه ۲۰روزه. اگر ستون حجم نباشد فیلتر AND خاموش است. اسپرد/حجم جعلی ساخته نمی‌شود.
-- ورود سه‌شنبه 07–08 UTC فقط با هر دو شرط همزمان بسته می‌شود.
-- EA: `TuesdayLondonSpreadAtrMedThinBlock()` نسبت اسپرد زنده ASK-BID به ATR را با میانه iSpread ساعتی سه‌شنبه‌ها و iVolume همان ساعت مقایسه می‌کند. نسخه 4.00.
-- ریسک پایه ۰.۵٪. سود تضمین نیست. معامله زنده فعال نشد.
-- مورد بعدی: فیلتر چهارشنبه ساعت اول لندن نسبت اسپرد/ATR بالا نسبت به میانه ۲۰روزه همان ساعت.
