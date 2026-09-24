@@ -288,7 +288,7 @@ int OnInit()
 
    Bar bars[];
    if(!ReadRealM15(bars))
-      return;
+      return(INIT_FAILED);
 
    double atr[],rsi[];
    BuildIndicators(bars,ArraySize(bars),atr,rsi);
@@ -298,7 +298,7 @@ int OnInit()
    if(trunc==INVALID_HANDLE)
    {
       PrintFormat("PARITY_HARNESS_FAIL truncate_output error=%d",GetLastError());
-      return;
+      return(INIT_FAILED);
    }
    FileWrite(trunc,"candidate_id","event","timestamp","side","entry","sl","tp","atr");
    FileClose(trunc);
@@ -310,7 +310,7 @@ int OnInit()
       int rc=CountSignals(bars,ArraySize(bars),atr,rsi,
                           PIVOTS[c],MIN_DELTAS[c],ATR_MULTS[c],
                           RRS[c],RSI_HIGHS[c],CIDS[c],rows);
-      if(rc<0) return;
+      if(rc<0) return(INIT_FAILED);
       PrintFormat("PARITY_CANDIDATE=%d SIGNAL_ROWS=%d",CIDS[c],rows);
       totalRows+=rows;
    }
@@ -319,7 +319,7 @@ int OnInit()
    if(done==INVALID_HANDLE)
    {
       PrintFormat("PARITY_HARNESS_FAIL done_open error=%d",GetLastError());
-      return;
+      return(INIT_FAILED);
    }
    FileWrite(done,"status","PASS");
    FileWrite(done,"real_data_only","true");
