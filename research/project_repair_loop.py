@@ -27,6 +27,9 @@ REQUIRED_SNIPPETS = (
     "DailyLossOk",
     "INIT_FAILED",
     "FlattenAll",
+    "TryBreakoutRetest",
+    "SelectFilling",
+    "TRADE_RETCODE_DONE",
 )
 CHAMPION = "GRK_Hybrid_Regime_EA.mq5"
 HARD_REJECT = "if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED"
@@ -57,6 +60,9 @@ def audit_ea(text: str, path: Path) -> list[str]:
             errors.append(f"{path}: missing required snippet {snip}")
     if HARD_REJECT not in text:
         errors.append(f"{path}: missing INIT_FAILED hard reject for grid/martingale")
+    if "version   \"3.17\"" not in text and "version   \"3.17\"" not in text.replace(" ", ""):
+        if '#property version   "3.17"' not in text:
+            errors.append(f"{path}: champion version should be 3.17")
     return errors
 
 

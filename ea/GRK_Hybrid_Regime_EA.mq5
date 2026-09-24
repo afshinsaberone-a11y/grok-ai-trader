@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.15                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.17                                  |
 //| Safety: no grid, no martingale, flatten on shock/weekend         |
 //| Educational research only. Not a profitability guarantee.        |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.15"
+#property version   "3.17"
 
 input double InpRiskPercent     = 0.5;
 input double InpMaxRiskPercent  = 0.5;
@@ -20,10 +20,12 @@ input double InpShockATR        = 1.8;
 input double InpMinRR           = 2.0;
 input double InpRangeMinRR      = 1.5;
 input int    InpMaxPositions    = 2;
-input int    InpMagic           = 2026021;
+input int    InpMagic           = 2026023;
 input bool   InpAllowGrid       = false;
 input bool   InpAllowMartingale = false;
 input int    InpMaxSpreadPoints = 40;
+input int    InpAsiaStartHour   = 0;
+input int    InpAsiaEndHour     = 7;
 
 int hADX, hATR, hEF, hES, hRSI, hBB;
 double gDayStartEquity = 0.0;
@@ -163,6 +165,14 @@ int OurDirection()
    return 0;
 }
 
+ENUM_ORDER_TYPE_FILLING SelectFilling()
+{
+   long fm = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+   if((fm & SYMBOL_FILLING_IOC) == SYMBOL_FILLING_IOC) return ORDER_FILLING_IOC;
+   if((fm & SYMBOL_FILLING_FOK) == SYMBOL_FILLING_FOK) return ORDER_FILLING_FOK;
+   return ORDER_FILLING_RETURN;
+}
+
 void FlattenAll()
 {
    for(int i=PositionsTotal()-1;i>=0;i--)
@@ -180,6 +190,7 @@ void FlattenAll()
       req.volume = vol;
       req.deviation = 30;
       req.position = ticket;
+      req.type_filling = SelectFilling();
       if(type==POSITION_TYPE_BUY)
       {
          req.type = ORDER_TYPE_SELL;
@@ -241,7 +252,8 @@ bool SendDeal(ENUM_ORDER_TYPE type, double sl, double tp)
    req.type = type;
    req.sl = sl;
    req.tp = tp;
-   req.comment = "GRK021";
+   req.comment = "GRK023";
+   req.type_filling = SelectFilling();
    req.price = (type==ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
                                      : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double sl_dist = MathAbs(req.price - sl);
@@ -249,7 +261,54 @@ bool SendDeal(ENUM_ORDER_TYPE type, double sl, double tp)
    if(!CostOk(sl_dist, tp_dist)) return false;
    req.volume = VolumeByRisk(sl_dist);
    if(req.volume <= 0) return false;
-   return OrderSend(req, res);
+   if(!OrderSend(req, res)) return false;
+   return (res.retcode==TRADE_RETCODE_DONE || res.retcode==TRADE_RETCODE_PLACED ||
+           res.retcode==TRADE_RETCODE_DONE_PARTIAL);
+}
+
+bool AsiaRange(double &hi, double &lo)
+{
+   hi = -1e100; lo = 1e100;
+   int counted = 0;
+   for(int i=1;i<=24;i++)
+   {
+      datetime t = iTime(_Symbol, PERIOD_H1, i);
+      if(t==0) break;
+      MqlDateTime dt; TimeToStruct(t, dt);
+      if(dt.hour>=InpAsiaStartHour && dt.hour<InpAsiaEndHour)
+      {
+         double h = iHigh(_Symbol, PERIOD_H1, i);
+         double l = iLow(_Symbol, PERIOD_H1, i);
+         if(h>hi) hi=h;
+         if(l<lo) lo=l;
+         counted++;
+      }
+   }
+   return (counted>=3 && hi>lo);
+}
+
+void TryBreakoutRetest(double atr, double bias, int dir)
+{
+   double hi, lo;
+   if(!AsiaRange(hi, lo)) return;
+   double close1 = iClose(_Symbol, PERIOD_H1, 1);
+   double low1   = iLow(_Symbol, PERIOD_H1, 1);
+   double high1  = iHigh(_Symbol, PERIOD_H1, 1);
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   // long: prior close broke Asia high, current closed bar retested and held
+   if(dir<=0 && bias>=0 && iClose(_Symbol, PERIOD_H1, 2)>hi && low1<=hi && close1>hi)
+   {
+      double sl = MathMin(low1, lo) - atr*0.2;
+      double sl_dist = ask - sl;
+      if(sl_dist>0) SendDeal(ORDER_TYPE_BUY, sl, ask + sl_dist * InpMinRR);
+   }
+   if(dir>=0 && bias<=0 && iClose(_Symbol, PERIOD_H1, 2)<lo && high1>=lo && close1<lo)
+   {
+      double sl = MathMax(high1, hi) + atr*0.2;
+      double sl_dist = sl - bid;
+      if(sl_dist>0) SendDeal(ORDER_TYPE_SELL, sl, bid - sl_dist * InpMinRR);
+   }
 }
 
 void OnTick()
@@ -271,7 +330,6 @@ void OnTick()
    if(!DailyLossOk()) return;
    if(!NewH1Bar()) return;
    if(CountOurPositions() >= InpMaxPositions) return;
-   if(rg==REGIME_FLAT) return;
 
    double emaF[], emaS[], atr[], rsi[], bbU[], bbL[], bbM[];
    if(CopyBuffer(hEF,0,1,3,emaF)<3) return;
@@ -289,6 +347,9 @@ void OnTick()
    int dir = OurDirection();
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   if(rg==REGIME_FLAT || rg==REGIME_TREND)
+      TryBreakoutRetest(atr[0], bias, dir);
 
    if(rg==REGIME_TREND)
    {
