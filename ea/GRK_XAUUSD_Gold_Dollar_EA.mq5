@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 3.40             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 3.50             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "3.40"
+#property version   "3.50"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -60,6 +60,7 @@ input int    LondonOpenEndHour=8;
 input double LondonThinVolRatio=0.70;
 input int    LondonVolLookback=20;
 input double LondonWideSpreadAtr=0.10;
+input double MondayLondonWideSpreadAtr=0.10;
 input int    NyOpenHour=12;
 input int    NyOpenEndHour=13;
 input double NyWideSpreadAtr=0.10;
@@ -115,7 +116,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v3.40 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v3.50 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -262,4 +263,23 @@ bool SessionCloseThinWideBlock()
       return false;
    bool thin = ((double)vol_now < SessionCloseThinVolRatio * med);
    return wide && thin;
+}
+
+bool MondayLondonWideBlock()
+{
+   MqlDateTime gt;
+   TimeToStruct(TimeGMT(), gt);
+   if(gt.day_of_week != 1)
+      return false;
+   if(gt.hour < LondonOpenHour || gt.hour >= LondonOpenEndHour)
+      return false;
+   double atr[1];
+   if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0)
+      return false;
+   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double spread = ask-bid;
+   if(spread<=0.0)
+      return false;
+   return (spread >= MondayLondonWideSpreadAtr * atr[0]);
 }
