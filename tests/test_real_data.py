@@ -1,7 +1,6 @@
 from pathlib import Path
 import inspect
-import lzma
-import struct
+import json
 
 import pandas as pd
 import pytest
@@ -90,20 +89,44 @@ def test_weekend_gap_is_not_reported_as_missing_intraday_bars():
     assert report.status == "PASS"
 
 
-def test_dukascopy_bi5_ohlc_field_order(tmp_path: Path):
-    # Dukascopy candle BI5 order is seconds, Open, Close, Low, High, Volume.
-    payload = struct.pack(">IIIIIf", 60, 110000, 110200, 109900, 110300, 12.5)
-    raw_path = tmp_path / "fixture.bi5"
-    raw_path.write_bytes(lzma.compress(payload))
+def test_dukascopy_jetta_m1_decoding(tmp_path: Path):
+    # Current JETTA API payload is compact JSON with a base candle plus deltas.
+    payload = {
+        "timestamp": 1767571200000,
+        "multiplier": 100000,
+        "shift": 1000,
+        "open": 110000,
+        "high": 110300,
+        "low": 109900,
+        "close": 110200,
+        "times": [60, 60],
+        "opens": [0, 10],
+        "highs": [0, 5],
+        "lows": [0, -5],
+        "closes": [5, 10],
+        "volumes": [12.5, 13.0],
+    }
+    raw_path = tmp_path / "fixture.json"
+    raw_path.write_text(json.dumps(payload), encoding="utf-8")
 
     decoded = DukascopyM1Ingestor.decode_m1(raw_path, pd.Timestamp("2026-01-05").date())
-    row = decoded.iloc[0]
-    assert row["timestamp"] == pd.Timestamp("2026-01-05T00:01:00Z")
-    assert row["open"] == pytest.approx(1.10)
-    assert row["close"] == pytest.approx(1.102)
-    assert row["low"] == pytest.approx(1.099)
-    assert row["high"] == pytest.approx(1.103)
-    assert row["volume"] == pytest.approx(12.5)
+    assert len(decoded) == 2
+
+    first = decoded.iloc[0]
+    assert first["timestamp"] == pd.Timestamp("2026-01-05T00:00:00Z")
+    assert first["open"] == pytest.approx(1.10)
+    assert first["close"] == pytest.approx(1.10205)
+    assert first["low"] == pytest.approx(1.099)
+    assert first["high"] == pytest.approx(1.103)
+    assert first["volume"] == pytest.approx(12.5)
+
+    second = decoded.iloc[1]
+    assert second["timestamp"] == pd.Timestamp("2026-01-05T00:01:00Z")
+    assert second["open"] == pytest.approx(1.10010)
+    assert second["close"] == pytest.approx(1.10215)
+    assert second["low"] == pytest.approx(1.09895)
+    assert second["high"] == pytest.approx(1.10305)
+    assert second["volume"] == pytest.approx(13.0)
 
 
 def test_m1_to_m5():
@@ -168,3 +191,4 @@ def test_strategy_does_not_trade_before_atr_warmup():
     }, index=ts)
     result = GrokHybridStrategy().backtest_simple(data)
     assert result["trades"] == 0
+}
