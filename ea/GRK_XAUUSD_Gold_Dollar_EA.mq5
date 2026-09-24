@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 3.80             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 3.90             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "3.80"
+#property version   "3.90"
 
-#include <Trade\Trade.mqh>
+#include <Trade\\Trade.mqh>
 CTrade trade;
 
 input group "=== Trend ==="
@@ -65,6 +65,8 @@ input double MondayLondonThinVolRatio=0.70;
 input int    MondayLondonVolLookback=20;
 input double MondayLondonSpreadAtrMedMult=1.50;
 input int    MondayLondonSpreadAtrLookback=20;
+input double TuesdayLondonSpreadAtrMedMult=1.50;
+input int    TuesdayLondonSpreadAtrLookback=20;
 input int    NyOpenHour=12;
 input int    NyOpenEndHour=13;
 input double NyWideSpreadAtr=0.10;
@@ -120,7 +122,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v3.80 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v3.90 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -218,4 +220,57 @@ bool MondayLondonSpreadAtrMedThinBlock()
       return false;
    bool thin = ((double)vol_now < MondayLondonThinVolRatio * med);
    return thin;
+}
+
+bool TuesdayLondonSpreadAtrMedBlock()
+{
+   MqlDateTime gt;
+   TimeToStruct(TimeGMT(), gt);
+   if(gt.day_of_week != 2)
+      return false;
+   if(gt.hour < LondonOpenHour || gt.hour >= LondonOpenEndHour)
+      return false;
+   double atr[1];
+   if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0)
+      return false;
+   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double spread = ask-bid;
+   if(spread<=0.0)
+      return false;
+   double ratio_now = spread / atr[0];
+   double sample[];
+   ArrayResize(sample, TuesdayLondonSpreadAtrLookback);
+   int n=0;
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if(point<=0.0)
+      return false;
+   for(int i=1; i<=TuesdayLondonSpreadAtrLookback*30 && n<TuesdayLondonSpreadAtrLookback; i++)
+   {
+      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
+      if(bar_time==0)
+         continue;
+      MqlDateTime bt;
+      TimeToStruct(bar_time, bt);
+      if(bt.day_of_week != 2)
+         continue;
+      if(bt.hour<LondonOpenHour || bt.hour>=LondonOpenEndHour)
+         continue;
+      int spr_pts = (int)iSpread(_Symbol,PERIOD_H1,i);
+      if(spr_pts<=0)
+         continue;
+      double hist_spread = (double)spr_pts * point;
+      double hist_atr = atr[0];
+      if(hist_atr<=0.0)
+         continue;
+      sample[n++] = hist_spread / hist_atr;
+   }
+   if(n<5)
+      return false;
+   ArrayResize(sample,n);
+   ArraySort(sample);
+   double med = sample[n/2];
+   if(med<=0.0)
+      return false;
+   return (ratio_now >= TuesdayLondonSpreadAtrMedMult * med);
 }

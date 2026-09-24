@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v3.8.
+"""XAUUSD Gold-Dollar research strategy v3.9.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v3.8 blocks Monday first London hour (07-08 UTC) when real spread/ATR is elevated vs the 20-day median of the same Monday hour AND same-hour volume is thin vs its 20-day median. No fake spread/volume.
+v3.9 blocks Tuesday first London hour (07-08 UTC) when real spread/ATR is elevated vs the 20-day median of the same Tuesday hour. No fake spread.
 """
 from __future__ import annotations
 
@@ -88,7 +88,9 @@ class GoldParams:
     monday_london_vol_lookback: int = 20
     monday_london_spread_atr_med_mult: float = 1.50
     monday_london_spread_atr_lookback: int = 20
-    version: str = "3.8"
+    tuesday_london_spread_atr_med_mult: float = 1.50
+    tuesday_london_spread_atr_lookback: int = 20
+    version: str = "3.9"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -136,4 +138,24 @@ def monday_london_spread_atr_med_thin_block(index: pd.DatetimeIndex, spread_used
     high_ratio = ratio >= (p.monday_london_spread_atr_med_mult * med_ratio)
     thin = volume < (p.monday_london_thin_vol_ratio * med_vol)
     out = in_win & high_ratio.fillna(False) & thin.fillna(False)
+    return out.astype(bool)
+
+
+def tuesday_london_spread_atr_med_block(index: pd.DatetimeIndex, spread_used: pd.Series, atr: pd.Series, p: GoldParams) -> pd.Series:
+    """True when Tuesday 07-08 UTC has elevated spread/ATR vs same-hour 20-day median.
+
+    Never invents spread. If ATR is zero the ratio is NaN and the bar is not blocked.
+    """
+    hour = index.hour
+    wd = index.weekday
+    in_win = (wd == 1) & (hour >= p.london_open_hour) & (hour < p.london_open_end_hour)
+    atr_safe = atr.replace(0, np.nan)
+    ratio = spread_used / atr_safe
+    same_hour_ratio = ratio.where(in_win)
+    med_ratio = same_hour_ratio.rolling(
+        window=max(p.tuesday_london_spread_atr_lookback * 24, p.tuesday_london_spread_atr_lookback),
+        min_periods=5,
+    ).median()
+    high_ratio = ratio >= (p.tuesday_london_spread_atr_med_mult * med_ratio)
+    out = in_win & high_ratio.fillna(False)
     return out.astype(bool)
