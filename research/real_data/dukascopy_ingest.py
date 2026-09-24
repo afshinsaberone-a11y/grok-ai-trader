@@ -11,6 +11,8 @@ import argparse
 import hashlib
 import json
 import logging
+import lzma
+import struct
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -190,6 +192,31 @@ class DukascopyM1Ingestor:
 
     @staticmethod
     def decode_m1(path: str | Path, day: date) -> pd.DataFrame:
+        # Backward-compatible reader for legacy Dukascopy BI5 fixtures/files.
+        raw = Path(path).read_bytes()
+        if raw.startswith(b"\xfd7zXZ") or Path(path).suffix.lower() == ".bi5":
+            try:
+                payload = lzma.decompress(raw)
+            except lzma.LZMAError as exc:
+                raise DukascopyIngestError(f"Invalid BI5 LZMA payload for {day}") from exc
+            record_size = 24
+            if len(payload) % record_size != 0:
+                raise DukascopyIngestError(f"Invalid BI5 payload length for {day}: {len(payload)}")
+            rows = []
+            day_start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+            for offset in range(0, len(payload), record_size):
+                seconds, open_i, close_i, low_i, high_i, volume = struct.unpack(">IIIIIf", payload[offset:offset + record_size])
+                rows.append((
+                    day_start + timedelta(seconds=int(seconds)),
+                    open_i / 100000.0,
+                    high_i / 100000.0,
+                    low_i / 100000.0,
+                    close_i / 100000.0,
+                    float(volume),
+                    0.0,
+                ))
+            return pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume", "spread"])
+
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         required = {"timestamp", "multiplier", "times", "shift", "open", "high", "low", "close", "opens", "highs", "lows", "closes", "volumes"}
         missing = required.difference(data)
