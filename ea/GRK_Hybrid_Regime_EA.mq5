@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.17                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.18                                  |
 //| Safety: no grid, no martingale, flatten on shock/weekend         |
 //| Educational research only. Not a profitability guarantee.        |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.17"
+#property version   "3.18"
 
 input double InpRiskPercent     = 0.5;
 input double InpMaxRiskPercent  = 0.5;
@@ -20,12 +20,15 @@ input double InpShockATR        = 1.8;
 input double InpMinRR           = 2.0;
 input double InpRangeMinRR      = 1.5;
 input int    InpMaxPositions    = 2;
-input int    InpMagic           = 2026023;
+input int    InpMagic           = 2026024;
 input bool   InpAllowGrid       = false;
 input bool   InpAllowMartingale = false;
 input int    InpMaxSpreadPoints = 40;
 input int    InpAsiaStartHour   = 0;
 input int    InpAsiaEndHour     = 7;
+input int    InpNewsBlackoutStart = -1;
+input int    InpNewsBlackoutEnd   = -1;
+input int    InpMaxConsecutiveLosses = 3;
 
 int hADX, hATR, hEF, hES, hRSI, hBB;
 double gDayStartEquity = 0.0;
@@ -100,12 +103,24 @@ bool WeekendFlattenWindow()
    return false;
 }
 
+bool NewsBlackout()
+{
+   if(InpNewsBlackoutStart < 0 || InpNewsBlackoutEnd < 0) return false;
+   MqlDateTime t;
+   TimeToStruct(TimeCurrent(), t);
+   int h = t.hour;
+   if(InpNewsBlackoutStart <= InpNewsBlackoutEnd)
+      return (h >= InpNewsBlackoutStart && h < InpNewsBlackoutEnd);
+   return (h >= InpNewsBlackoutStart || h < InpNewsBlackoutEnd);
+}
+
 bool SessionOk()
 {
    MqlDateTime t;
    TimeToStruct(TimeCurrent(), t);
    int h = t.hour;
    if(WeekendFlattenWindow()) return false;
+   if(NewsBlackout()) return false;
    return (h>=7 && h<17);
 }
 
@@ -137,6 +152,28 @@ bool DailyLossOk()
    if(gDayStartEquity <= 0) return false;
    double dd = (gDayStartEquity - eq) / gDayStartEquity * 100.0;
    return dd < InpMaxDailyLossPct;
+}
+
+bool ConsecutiveLossOk()
+{
+   if(InpMaxConsecutiveLosses <= 0) return true;
+   if(!HistorySelect(TimeCurrent()-86400*14, TimeCurrent())) return true;
+   int losses = 0;
+   int total = HistoryDealsTotal();
+   for(int i=total-1;i>=0;i--)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket==0) continue;
+      if(HistoryDealGetString(ticket, DEAL_SYMBOL)!=_Symbol) continue;
+      if((long)HistoryDealGetInteger(ticket, DEAL_MAGIC)!=InpMagic) continue;
+      if((long)HistoryDealGetInteger(ticket, DEAL_ENTRY)!=DEAL_ENTRY_OUT) continue;
+      double pnl = HistoryDealGetDouble(ticket, DEAL_PROFIT)
+                 + HistoryDealGetDouble(ticket, DEAL_SWAP)
+                 + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+      if(pnl < 0) { losses++; if(losses >= InpMaxConsecutiveLosses) return false; }
+      else if(pnl > 0) break;
+   }
+   return true;
 }
 
 int CountOurPositions()
@@ -252,7 +289,7 @@ bool SendDeal(ENUM_ORDER_TYPE type, double sl, double tp)
    req.type = type;
    req.sl = sl;
    req.tp = tp;
-   req.comment = "GRK023";
+   req.comment = "GRK024";
    req.type_filling = SelectFilling();
    req.price = (type==ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
                                      : SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -296,7 +333,6 @@ void TryBreakoutRetest(double atr, double bias, int dir)
    double high1  = iHigh(_Symbol, PERIOD_H1, 1);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   // long: prior close broke Asia high, current closed bar retested and held
    if(dir<=0 && bias>=0 && iClose(_Symbol, PERIOD_H1, 2)>hi && low1<=hi && close1>hi)
    {
       double sl = MathMin(low1, lo) - atr*0.2;
@@ -328,6 +364,7 @@ void OnTick()
    if(!SpreadOk()) return;
    if(!SessionOk()) return;
    if(!DailyLossOk()) return;
+   if(!ConsecutiveLossOk()) return;
    if(!NewH1Bar()) return;
    if(CountOurPositions() >= InpMaxPositions) return;
 
