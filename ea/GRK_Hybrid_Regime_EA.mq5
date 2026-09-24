@@ -1,10 +1,11 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.14                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.15                                  |
 //| Safety: no grid, no martingale, hard risk cap                    |
 //| Educational research only. Not a profitability guarantee.        |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.14"
+#property version   "3.15"
+#property strict
 
 input double InpRiskPercent     = 0.5;
 input double InpMaxRiskPercent  = 0.5;
@@ -19,13 +20,14 @@ input double InpRangeADX        = 20.0;
 input double InpShockATR        = 1.8;
 input double InpMinRR           = 2.0;
 input double InpRangeMinRR      = 1.5;
-input int    InpMaxPositions    = 2;
-input int    InpMagic           = 2026020;
+input int    InpMaxPositions    = 1;
+input int    InpMagic           = 2026021;
 input bool   InpAllowGrid       = false;
 input bool   InpAllowMartingale = false;
-input int    InpMaxSpreadPoints = 40;
+input int    InpMaxSpreadPoints = 35;
+input int    InpSlippagePoints  = 20;
 
-int hADX, hATR, hEF, hES, hRSI, hBB;
+int hADX, hATR, hEF, hES, hRSI, hBB, hED;
 double gDayStartEquity = 0.0;
 int    gDayStamp = -1;
 datetime gLastBar = 0;
@@ -33,16 +35,19 @@ datetime gLastBar = 0;
 int OnInit()
 {
    if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED;
-   if(InpRiskPercent > InpMaxRiskPercent || InpRiskPercent <= 0) return INIT_FAILED;
+   if(InpRiskPercent > InpMaxRiskPercent || InpRiskPercent <= 0.0) return INIT_FAILED;
+   if(InpMaxPositions < 1 || InpMaxPositions > 2) return INIT_FAILED;
    if(!SymbolAllowed()) return INIT_FAILED;
    hADX = iADX(_Symbol, PERIOD_H4, InpADXPeriod);
    hATR = iATR(_Symbol, PERIOD_H1, InpATRPeriod);
    hEF  = iMA(_Symbol, PERIOD_H1, InpEMAFast, 0, MODE_EMA, PRICE_CLOSE);
    hES  = iMA(_Symbol, PERIOD_H1, InpEMASlow, 0, MODE_EMA, PRICE_CLOSE);
+   hED  = iMA(_Symbol, PERIOD_D1, 50, 0, MODE_EMA, PRICE_CLOSE);
    hRSI = iRSI(_Symbol, PERIOD_H1, InpRSIPeriod, PRICE_CLOSE);
    hBB  = iBands(_Symbol, PERIOD_H1, 20, 0, 2.0, PRICE_CLOSE);
    if(hADX==INVALID_HANDLE || hATR==INVALID_HANDLE || hEF==INVALID_HANDLE ||
-      hES==INVALID_HANDLE || hRSI==INVALID_HANDLE || hBB==INVALID_HANDLE)
+      hES==INVALID_HANDLE || hRSI==INVALID_HANDLE || hBB==INVALID_HANDLE ||
+      hED==INVALID_HANDLE)
       return INIT_FAILED;
    gDayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
    return INIT_SUCCEEDED;
@@ -54,6 +59,7 @@ void OnDeinit(const int reason)
    if(hATR!=INVALID_HANDLE) IndicatorRelease(hATR);
    if(hEF!=INVALID_HANDLE)  IndicatorRelease(hEF);
    if(hES!=INVALID_HANDLE)  IndicatorRelease(hES);
+   if(hED!=INVALID_HANDLE)  IndicatorRelease(hED);
    if(hRSI!=INVALID_HANDLE) IndicatorRelease(hRSI);
    if(hBB!=INVALID_HANDLE)  IndicatorRelease(hBB);
 }
@@ -85,7 +91,7 @@ bool SpreadOk()
 {
    long spreadPts = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
    int cap = InpMaxSpreadPoints;
-   if(StringFind(_Symbol,"XAU")>=0) cap = InpMaxSpreadPoints * 6;
+   if(StringFind(_Symbol,"XAU")>=0) cap = InpMaxSpreadPoints * 8;
    return spreadPts < cap;
 }
 
@@ -96,6 +102,7 @@ bool SessionOk()
    int h = t.hour;
    if(t.day_of_week==0 || t.day_of_week==6) return false;
    if(t.day_of_week==5 && h>=16) return false;
+   if(t.day_of_week==5 && h>=12 && h<15) return false;
    return (h>=7 && h<17);
 }
 
@@ -155,12 +162,45 @@ int OurDirection()
    return 0;
 }
 
+void CloseOurPositions(const string why)
+{
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(!PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol || PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
+      MqlTradeRequest req; MqlTradeResult res;
+      ZeroMemory(req); ZeroMemory(res);
+      req.action = TRADE_ACTION_DEAL;
+      req.symbol = _Symbol;
+      req.magic  = InpMagic;
+      req.deviation = InpSlippagePoints;
+      req.position = ticket;
+      long type = PositionGetInteger(POSITION_TYPE);
+      double vol = PositionGetDouble(POSITION_VOLUME);
+      req.volume = vol;
+      if(type==POSITION_TYPE_BUY)
+      {
+         req.type = ORDER_TYPE_SELL;
+         req.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      }
+      else
+      {
+         req.type = ORDER_TYPE_BUY;
+         req.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      }
+      req.comment = why;
+      OrderSend(req, res);
+   }
+}
+
 double DailyBias()
 {
+   double emaD[];
+   if(CopyBuffer(hED,0,1,2,emaD)<2) return 0;
    double c1 = iClose(_Symbol, PERIOD_D1, 1);
-   double c2 = iClose(_Symbol, PERIOD_D1, 2);
-   if(c1>c2) return 1;
-   if(c1<c2) return -1;
+   if(c1 > emaD[0]) return 1;
+   if(c1 < emaD[0]) return -1;
    return 0;
 }
 
@@ -186,8 +226,10 @@ bool CostOk(double sl_dist, double tp_dist)
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    if(point<=0) return false;
    double spread = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * point;
-   if(tp_dist < spread * 3.0) return false;
+   if(tp_dist < spread * 4.0) return false;
    if(sl_dist<=0 || tp_dist/sl_dist < 1.0) return false;
+   int stops = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   if(sl_dist < stops * point) return false;
    return true;
 }
 
@@ -198,11 +240,12 @@ bool SendDeal(ENUM_ORDER_TYPE type, double sl, double tp)
    req.action = TRADE_ACTION_DEAL;
    req.symbol = _Symbol;
    req.magic  = InpMagic;
-   req.deviation = 20;
+   req.deviation = InpSlippagePoints;
    req.type = type;
+   req.type_filling = ORDER_FILLING_FOK;
    req.sl = sl;
    req.tp = tp;
-   req.comment = "GRK020";
+   req.comment = "GRK021";
    req.price = (type==ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
                                      : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double sl_dist = MathAbs(req.price - sl);
@@ -210,20 +253,26 @@ bool SendDeal(ENUM_ORDER_TYPE type, double sl, double tp)
    if(!CostOk(sl_dist, tp_dist)) return false;
    req.volume = VolumeByRisk(sl_dist);
    if(req.volume <= 0) return false;
-   return OrderSend(req, res);
+   if(!OrderSend(req, res)) return false;
+   return (res.retcode==TRADE_RETCODE_DONE || res.retcode==TRADE_RETCODE_PLACED);
 }
 
 void OnTick()
 {
    if(!SymbolAllowed()) return;
-   if(!SpreadOk()) return;
-   if(!SessionOk()) return;
-   if(!DailyLossOk()) return;
-   if(!NewH1Bar()) return;
-   if(CountOurPositions() >= InpMaxPositions) return;
+   ResetDayIfNeeded();
 
    Regime rg = DetectRegime();
-   if(rg==REGIME_FLAT || rg==REGIME_SHOCK) return;
+   if(rg==REGIME_SHOCK || !DailyLossOk())
+   {
+      if(CountOurPositions()>0) CloseOurPositions("shock_or_dd");
+      return;
+   }
+
+   if(!SpreadOk()) return;
+   if(!SessionOk()) return;
+   if(!NewH1Bar()) return;
+   if(CountOurPositions() >= InpMaxPositions) return;
 
    double emaF[], emaS[], atr[], rsi[], bbU[], bbL[], bbM[];
    if(CopyBuffer(hEF,0,1,3,emaF)<3) return;
@@ -239,41 +288,48 @@ void OnTick()
    double high1  = iHigh(_Symbol, PERIOD_H1, 1);
    double bias   = DailyBias();
    int dir = OurDirection();
+   if(rg==REGIME_FLAT) return;
 
    if(rg==REGIME_TREND)
    {
-      if(dir<=0 && bias>=0 && close1>emaS[0] && low1<=emaF[0] && close1>emaF[0])
+      if(dir==0 && bias>0 && close1>emaS[0] && low1<=emaF[0] && close1>emaF[0])
       {
+         double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
          double sl = low1 - atr[0]*0.3;
-         double sl_dist = close1 - sl;
+         double sl_dist = ask - sl;
          if(sl_dist<=0) return;
-         SendDeal(ORDER_TYPE_BUY, sl, close1 + sl_dist * InpMinRR);
+         SendDeal(ORDER_TYPE_BUY, sl, ask + sl_dist * InpMinRR);
       }
-      if(dir>=0 && bias<=0 && close1<emaS[0] && high1>=emaF[0] && close1<emaF[0])
+      if(dir==0 && bias<0 && close1<emaS[0] && high1>=emaF[0] && close1<emaF[0])
       {
+         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          double sl = high1 + atr[0]*0.3;
-         double sl_dist = sl - close1;
+         double sl_dist = sl - bid;
          if(sl_dist<=0) return;
-         SendDeal(ORDER_TYPE_SELL, sl, close1 - sl_dist * InpMinRR);
+         SendDeal(ORDER_TYPE_SELL, sl, bid - sl_dist * InpMinRR);
       }
    }
    else if(rg==REGIME_RANGE)
    {
-      if(dir<=0 && close1<=bbL[0] && rsi[0]<=30)
+      if(dir==0 && close1<=bbL[0] && rsi[0]<=30 && bias>=0)
       {
+         double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
          double sl = low1 - atr[0]*0.4;
-         double sl_dist = close1 - sl;
-         double tp_dist = bbM[0] - close1;
+         double sl_dist = ask - sl;
+         double tp = bbM[0];
+         double tp_dist = tp - ask;
          if(sl_dist<=0 || tp_dist/sl_dist < InpRangeMinRR) return;
-         SendDeal(ORDER_TYPE_BUY, sl, bbM[0]);
+         SendDeal(ORDER_TYPE_BUY, sl, tp);
       }
-      if(dir>=0 && close1>=bbU[0] && rsi[0]>=70)
+      if(dir==0 && close1>=bbU[0] && rsi[0]>=70 && bias<=0)
       {
+         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          double sl = high1 + atr[0]*0.4;
-         double sl_dist = sl - close1;
-         double tp_dist = close1 - bbM[0];
+         double sl_dist = sl - bid;
+         double tp = bbM[0];
+         double tp_dist = bid - tp;
          if(sl_dist<=0 || tp_dist/sl_dist < InpRangeMinRR) return;
-         SendDeal(ORDER_TYPE_SELL, sl, bbM[0]);
+         SendDeal(ORDER_TYPE_SELL, sl, tp);
       }
    }
 }
