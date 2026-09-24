@@ -1,34 +1,39 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.20                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.21                                  |
 //| Contract-safety hybrid. NOT a profit guarantee.                  |
 //| Banned: grid, martingale, average-down.                          |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.20"
+#property version   "3.21"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input double RiskPercent       = 0.5;
-input double MaxDailyLossPct   = 2.0;
-input int    MaxSpreadPoints   = 25;
-input int    CoolDownBars      = 8;
-input int    MaxTradesDay      = 3;
-input int    MaxConsecutiveLoss= 2;
-input int    Magic             = 20260320;
-input int    SlippagePoints    = 20;
-input double MinMarginLevelPct = 400.0;
-input double CostAtrFraction   = 0.25;
-input int    ADX_Period        = 14;
-input int    ATR_Period        = 14;
-input int    EMA_Fast          = 20;
-input int    EMA_Slow          = 50;
-input double ADX_Trend         = 25.0;
-input double ADX_Range         = 18.0;
-input double ShockAtrMult      = 2.5;
-input double RR                = 2.0;
-input int    RSI_Period        = 14;
-input int    BB_Period         = 20;
+input double RiskPercent        = 0.5;
+input double MaxDailyLossPct    = 2.0;
+input int    MaxSpreadPoints    = 25;
+input int    CoolDownBars       = 8;
+input int    MaxTradesDay       = 3;
+input int    MaxConsecutiveLoss = 2;
+input int    Magic              = 20260321;
+input int    SlippagePoints     = 20;
+input double MinMarginLevelPct  = 400.0;
+input double CostAtrFraction    = 0.25;
+input int    ADX_Period         = 14;
+input int    ATR_Period         = 14;
+input int    EMA_Fast           = 20;
+input int    EMA_Slow           = 50;
+input int    EMA_Daily          = 50;
+input double ADX_Trend          = 25.0;
+input double ADX_Range          = 18.0;
+input double ShockAtrMult       = 2.5;
+input double RR                 = 2.0;
+input int    RSI_Period         = 14;
+input int    BB_Period          = 20;
+input int    SessLondonStart    = 8;
+input int    SessLondonEnd      = 17;
+input int    SessNYStart        = 13;
+input int    SessNYEnd          = 21;
 
 CTrade trade;
 datetime day_start = 0;
@@ -38,7 +43,7 @@ int      consec_loss = 0;
 int      cooldown_left = 0;
 datetime last_bar = 0;
 
-int h_adx, h_atr, h_ema_f, h_ema_s, h_rsi, h_bb;
+int h_adx, h_atr, h_ema_f, h_ema_s, h_ema_d, h_rsi, h_bb;
 
 int OnInit()
 {
@@ -48,10 +53,11 @@ int OnInit()
    h_atr   = iATR(_Symbol, PERIOD_CURRENT, ATR_Period);
    h_ema_f = iMA(_Symbol, PERIOD_CURRENT, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
    h_ema_s = iMA(_Symbol, PERIOD_CURRENT, EMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
+   h_ema_d = iMA(_Symbol, PERIOD_D1, EMA_Daily, 0, MODE_EMA, PRICE_CLOSE);
    h_rsi   = iRSI(_Symbol, PERIOD_CURRENT, RSI_Period, PRICE_CLOSE);
    h_bb    = iBands(_Symbol, PERIOD_CURRENT, BB_Period, 0, 2.0, PRICE_CLOSE);
    if(h_adx==INVALID_HANDLE || h_atr==INVALID_HANDLE || h_ema_f==INVALID_HANDLE ||
-      h_ema_s==INVALID_HANDLE || h_rsi==INVALID_HANDLE || h_bb==INVALID_HANDLE)
+      h_ema_s==INVALID_HANDLE || h_ema_d==INVALID_HANDLE || h_rsi==INVALID_HANDLE || h_bb==INVALID_HANDLE)
       return INIT_FAILED;
    return INIT_SUCCEEDED;
 }
@@ -59,7 +65,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    IndicatorRelease(h_adx); IndicatorRelease(h_atr);
-   IndicatorRelease(h_ema_f); IndicatorRelease(h_ema_s);
+   IndicatorRelease(h_ema_f); IndicatorRelease(h_ema_s); IndicatorRelease(h_ema_d);
    IndicatorRelease(h_rsi); IndicatorRelease(h_bb);
 }
 
@@ -69,6 +75,15 @@ bool NewBar()
    if(t == last_bar) return false;
    last_bar = t;
    return true;
+}
+
+bool SessionAllowed()
+{
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   int h = dt.hour;
+   bool london = (h >= SessLondonStart && h < SessLondonEnd);
+   bool ny     = (h >= SessNYStart && h < SessNYEnd);
+   return (london || ny);
 }
 
 void ResetDay()
@@ -86,6 +101,7 @@ void ResetDay()
 
 bool SafetyOk()
 {
+   if(!SessionAllowed()) return false;
    if(consec_loss >= MaxConsecutiveLoss) return false;
    if(trades_today >= MaxTradesDay) return false;
    if(cooldown_left > 0) return false;
@@ -180,10 +196,11 @@ void OnTick()
    double atr = Buf(h_atr, 0, 1);
    double ema_f = Buf(h_ema_f, 0, 1);
    double ema_s = Buf(h_ema_s, 0, 1);
+   double ema_d = Buf(h_ema_d, 0, 1);
    double rsi = Buf(h_rsi, 0, 1);
    double bb_u = Buf(h_bb, 1, 1);
    double bb_l = Buf(h_bb, 2, 1);
-   if(adx==EMPTY_VALUE || atr==EMPTY_VALUE || atr<=0) return;
+   if(adx==EMPTY_VALUE || atr==EMPTY_VALUE || atr<=0 || ema_d==EMPTY_VALUE) return;
 
    MaybeFlattenShock(atr);
 
@@ -201,9 +218,11 @@ void OnTick()
    bool buy=false, sell=false;
    if(rg == REG_TREND)
    {
-      if(ema_f > ema_s && pdi > mdi && close1 <= ema_f && close1 > ema_s)
+      bool htf_up = close1 > ema_d;
+      bool htf_dn = close1 < ema_d;
+      if(htf_up && ema_f > ema_s && pdi > mdi && close1 <= ema_f && close1 > ema_s)
          buy = true;
-      if(ema_f < ema_s && mdi > pdi && close1 >= ema_f && close1 < ema_s)
+      if(htf_dn && ema_f < ema_s && mdi > pdi && close1 >= ema_f && close1 < ema_s)
          sell = true;
    }
    else if(rg == REG_RANGE)
@@ -220,7 +239,7 @@ void OnTick()
       sl = bid - 1.4 * atr;
       tp = bid + RR * (bid - sl);
       lots = LotForStop(sl, true);
-      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v320"))
+      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v321"))
          trades_today++;
    }
    else
@@ -228,7 +247,7 @@ void OnTick()
       sl = ask + 1.4 * atr;
       tp = ask - RR * (sl - ask);
       lots = LotForStop(sl, false);
-      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v320"))
+      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v321"))
          trades_today++;
    }
 }
