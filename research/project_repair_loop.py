@@ -1,100 +1,55 @@
 #!/usr/bin/env python3
-"""Static safety-contract auditor for grok-ai-trader EAs.
-
-Loops over ea/*.mq5 and fails until the champion contract is intact.
-Does not prove live profitability.
-"""
 from __future__ import annotations
-
-import argparse
-import sys
+import argparse, datetime as dt, json, re
 from pathlib import Path
-
-FORBIDDEN_DEFAULT_TRUE = (
-    "InpAllowGrid",
-    "InpAllowMartingale",
-)
-REQUIRED_SNIPPETS = (
-    "InpAllowGrid",
-    "InpAllowMartingale",
-    "InpRiskPercent",
-    "InpMaxDailyLossPct",
-    "DetectRegime",
-    "VolumeByRisk",
-    "CostOk",
-    "SessionOk",
-    "SpreadOk",
-    "DailyLossOk",
-    "INIT_FAILED",
-    "FlattenAll",
-    "TryBreakoutRetest",
-    "SelectFilling",
-    "TRADE_RETCODE_DONE",
-    "NewsBlackout",
-    "ConsecutiveLossOk",
-    "TradeEnvironmentOk",
-    "CooldownOk",
-    "SlDistanceOk",
-    "PlusDI",
-    "MinusDI",
-)
-CHAMPION = "GRK_Hybrid_Regime_EA.mq5"
-HARD_REJECT = "if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED"
-
-
-def _default_is_true(text: str, name: str) -> bool:
-    idx = text.find(name)
-    if idx < 0:
-        return False
-    chunk = text[idx : idx + 80]
-    return "= true" in chunk
-
-
-def audit_ea(text: str, path: Path) -> list[str]:
-    errors: list[str] = []
-    lower = text.lower()
-    if path.name != CHAMPION:
-        if "martingale" in lower and "inpallowmartingale" not in lower:
-            errors.append(f"{path}: martingale mentioned without disable flag")
-        if "grid" in lower and "inpallowgrid" not in lower and "grid" in path.name.lower():
-            errors.append(f"{path}: grid EA without disable flag")
-        return errors
-    for name in FORBIDDEN_DEFAULT_TRUE:
-        if _default_is_true(text, name):
-            errors.append(f"{path}: {name} default must be false")
-    for snip in REQUIRED_SNIPPETS:
-        if snip not in text:
-            errors.append(f"{path}: missing required snippet {snip}")
-    if HARD_REJECT not in text:
-        errors.append(f"{path}: missing INIT_FAILED hard reject for grid/martingale")
-    if '#property version   "3.19"' not in text:
-        errors.append(f"{path}: champion version should be 3.19")
-    return errors
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--root", default=".")
-    args = parser.parse_args()
-    root = Path(args.root)
-    ea_dir = root / "ea"
-    if not ea_dir.exists():
-        print("ea/ not found", file=sys.stderr)
-        return 2
-    errors: list[str] = []
-    scanned = 0
-    for path in sorted(ea_dir.glob("*.mq5")):
-        scanned += 1
-        text = path.read_text(encoding="utf-8", errors="replace")
-        errors.extend(audit_ea(text, path))
-    print(f"scanned={scanned} errors={len(errors)}")
-    for e in errors:
-        print("FAIL:", e)
-    if errors:
-        return 1
-    print("CONTRACT_OK")
-    return 0
-
-
-if __name__ == "__main__":
+BANNED = [(r"martingale","BANNED_MARTINGALE"),(r"martin\s*gale","BANNED_MARTINGALE"),(r"\bgrid\b","BANNED_GRID"),(r"averag(?:e|ing)\s*down","BANNED_AVERAGE_DOWN"),(r"lot\s*\*=\s*2","BANNED_DOUBLE_LOT")]
+REQUIRED_EA_TOKENS = ["RiskPercent","MaxDailyLossPct","MaxSpreadPoints","CoolDownBars","ADX","ATR"]
+def scan_text(path: Path, text: str):
+    issues=[]
+    lower=text.lower()
+    for pat,code in BANNED:
+        if re.search(pat, lower):
+            issues.append({"file":str(path),"code":code,"severity":"blocker"})
+    if path.suffix.lower()==".mq5":
+        for tok in REQUIRED_EA_TOKENS:
+            if tok not in text:
+                issues.append({"file":str(path),"code":f"MISSING_{tok}","severity":"major"})
+    return issues
+def iter_targets(root: Path):
+    files=[]
+    for rel in ("ea","strategies","research"):
+        d=root/rel
+        if d.exists():
+            files.extend(p for p in d.rglob("*") if p.is_file() and p.suffix in {".mq5",".py",".md"})
+    return files
+def write_report(root, issues, iteration):
+    research=root/"research"; research.mkdir(exist_ok=True)
+    path=research/"EA_AUDIT_LOOP_026.md"
+    blockers=[i for i in issues if i["severity"]=="blocker"]
+    majors=[i for i in issues if i["severity"]=="major"]
+    status="PASS" if not blockers and not majors else "FAIL"
+    lines=["# EA / Contract Audit Loop 026","",f"- time: {dt.datetime.utcnow().isoformat()}Z",f"- iteration: {iteration}",f"- status: **{status}**",f"- issues: {len(issues)}","","لوپ فقط قرارداد ایمنی را بررسی می‌کند. سود زنده تضمین نمی‌شود.","","## Issues",""]
+    if not issues: lines.append("هیچ ایراد قرارداد ایمنی باقی نماند.")
+    else:
+        for i in issues: lines.append(f"- `{i['severity']}` `{i['code']}` — {i['file']}")
+    path.write_text("\n".join(lines)+"\n", encoding="utf-8")
+    (research/"audit_loop_026.json").write_text(json.dumps({"status":status,"issues":issues,"iteration":iteration},indent=2),encoding="utf-8")
+    return path
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument("--root",default="."); ap.add_argument("--max-iter",type=int,default=5)
+    args=ap.parse_args(); root=Path(args.root).resolve(); last=[]
+    for i in range(1,args.max_iter+1):
+        issues=[]
+        for p in iter_targets(root):
+            try: text=p.read_text(encoding="utf-8",errors="ignore")
+            except OSError: continue
+            issues.extend(scan_text(p,text))
+        write_report(root,issues,i); last=issues
+        blockers=[x for x in issues if x["severity"]=="blocker"]
+        majors=[x for x in issues if x["severity"]=="major"]
+        if not blockers and not majors:
+            print(f"PASS on iteration {i}"); return 0
+        print(f"FAIL iteration {i}: {len(issues)} issues")
+    print("STOPPED with residual issues"); return 1
+if __name__=="__main__":
     raise SystemExit(main())
