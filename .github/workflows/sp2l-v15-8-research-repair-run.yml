@@ -1,0 +1,85 @@
+name: ForexAI SP2L v15.8 Research Repair Real M5
+
+on:
+  push:
+    branches:
+      - agent/sp2l-v15-8-research-repair-20260922
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  repair_backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate train-only window
+        run: |
+          python - <<'PY'
+          from datetime import datetime
+          s=datetime.fromisoformat('2022-01-01')
+          e=datetime.fromisoformat('2025-01-01')
+          assert s < e <= datetime(2025,1,1), 'TRAIN_WINDOW_ONLY'
+          print('TRAIN_WINDOW_OK')
+          PY
+
+      - name: Ingest REAL EURUSD M5
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD --timeframe M5 --start 2022-01-01 --end 2025-01-01 \
+            --output data/real --validate --manifest
+
+      - name: Locate REAL dataset
+        run: |
+          DATA="data/real/normalized/EURUSD_M5_20220101_20241231.csv"
+          test -s "$DATA" || { echo "REAL_DATA_REQUIRED: $DATA"; exit 2; }
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+
+      - name: Run v15.8 repaired optimization
+        run: |
+          python -m research.optimization.sp2l_optimizer_v15_8 \
+            --data "$DATA" \
+            --spread-pips 0.5 \
+            --slippage-pips 0.2 \
+            --stage-a-limit 576 \
+            --seeds 12 \
+            --fine-limit 972 \
+            --output artifacts/sp2l-v15-8-optimization.json
+
+      - name: Validate repaired accounting
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('artifacts/sp2l-v15-8-optimization.json'))
+          assert r['schema_version']=='forexai.sp2l_optimizer.v15.8'
+          assert r['engine_change']=='single_position_forced_expiry_complete_accounting'
+          assert r['real_data_required'] is True
+          assert r['synthetic_fallback'] is False
+          assert r['holdout_2025_2026_excluded'] is True
+          assert r['stage_a_candidates'] > 0 and r['stage_b_candidates'] > 0
+          assert r['top10']
+          for x in r['top10']:
+              q=x['result']
+              assert q['trades'] >= 0
+              assert q['sl_hits'] + q['tp_hits'] + q['expiry_closes'] == q['trades']
+          print('SP2L_V15_8_REPAIR_INTEGRITY=PASS')
+          print(json.dumps(r['top10'][0], indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sp2l-v15-8-real-optimization
+          path: artifacts/
+          if-no-files-found: warn
