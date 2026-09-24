@@ -93,12 +93,12 @@ def test_dukascopy_jetta_m1_decoding(tmp_path: Path):
     # Current JETTA API payload is compact JSON with a base candle plus deltas.
     payload = {
         "timestamp": 1767571200000,
-        "multiplier": 100000,
+        "multiplier": 0.00001,
         "shift": 1000,
-        "open": 110000,
-        "high": 110300,
-        "low": 109900,
-        "close": 110200,
+        "open": 1.10000,
+        "high": 1.10300,
+        "low": 1.09900,
+        "close": 1.10200,
         "times": [0, 60],
         "opens": [0, 10],
         "highs": [0, 5],
@@ -114,10 +114,10 @@ def test_dukascopy_jetta_m1_decoding(tmp_path: Path):
 
     first = decoded.iloc[0]
     assert first["timestamp"] == pd.Timestamp("2026-01-05T00:00:00Z")
-    assert first["open"] == pytest.approx(1.10)
+    assert first["open"] == pytest.approx(1.10000)
     assert first["close"] == pytest.approx(1.10205)
-    assert first["low"] == pytest.approx(1.099)
-    assert first["high"] == pytest.approx(1.103)
+    assert first["low"] == pytest.approx(1.09900)
+    assert first["high"] == pytest.approx(1.10300)
     assert first["volume"] == pytest.approx(12.5)
 
     second = decoded.iloc[1]
