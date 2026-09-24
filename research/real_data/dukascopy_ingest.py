@@ -176,10 +176,26 @@ class DukascopyM1Ingestor:
     @staticmethod
     def decode_m1(path: str | Path, day: date) -> pd.DataFrame:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        required = {"timestamp", "multiplier", "times", "shift", "open", "high", "low", "close", "opens", "highs", "lows", "closes", "volumes"}
+        required = {
+            "timestamp",
+            "multiplier",
+            "times",
+            "shift",
+            "open",
+            "high",
+            "low",
+            "close",
+            "opens",
+            "highs",
+            "lows",
+            "closes",
+            "volumes",
+        }
         missing = required.difference(data)
         if missing:
-            raise DukascopyIngestError(f"Invalid JETTA candle payload for {day}: missing {sorted(missing)}")
+            raise DukascopyIngestError(
+                f"Invalid JETTA candle payload for {day}: missing {sorted(missing)}"
+            )
 
         times = data["times"]
         opens = data["opens"]
@@ -189,34 +205,72 @@ class DukascopyM1Ingestor:
         volumes = data["volumes"]
         n = len(times)
         if not all(len(column) == n for column in (opens, highs, lows, closes, volumes)):
-            raise DukascopyIngestError(f"Invalid JETTA candle payload for {day}: column length mismatch")
+            raise DukascopyIngestError(
+                f"Invalid JETTA candle payload for {day}: column length mismatch"
+            )
         if n == 0:
-            return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume", "spread"])
+            return pd.DataFrame(
+                columns=["timestamp", "open", "high", "low", "close", "volume", "spread"]
+            )
 
-        multiplier = float(data["multiplier"])
-        shift = int(data["shift"])
-        timestamp = int(data["timestamp"])
-        open_units = round(float(data["open"]) / multiplier)
-        high_units = round(float(data["high"]) / multiplier)
-        low_units = round(float(data["low"]) / multiplier)
-        close_units = round(float(data["close"]) / multiplier)
+        try:
+            multiplier = float(data["multiplier"])
+            shift = int(data["shift"])
+            timestamp = int(data["timestamp"])
+            open_price = float(data["open"])
+            high_price = float(data["high"])
+            low_price = float(data["low"])
+            close_price = float(data["close"])
+        except (TypeError, ValueError) as exc:
+            raise DukascopyIngestError(
+                f"Invalid JETTA candle payload for {day}: invalid base numeric fields"
+            ) from exc
+
+        if multiplier <= 0:
+            raise DukascopyIngestError(
+                f"Invalid JETTA candle payload for {day}: multiplier must be positive"
+            )
+        if shift <= 0:
+            raise DukascopyIngestError(
+                f"Invalid JETTA candle payload for {day}: shift must be positive"
+            )
+
         rows: list[tuple[datetime, float, float, float, float, float, float]] = []
+        elapsed_units = 0
 
         for i in range(n):
-            delta = int(times[i])
-            timestamp += delta * shift
-            open_units += int(opens[i])
-            high_units += int(highs[i])
-            low_units += int(lows[i])
-            close_units += int(closes[i])
+            try:
+                delta = int(times[i])
+                open_delta = int(opens[i])
+                high_delta = int(highs[i])
+                low_delta = int(lows[i])
+                close_delta = int(closes[i])
+                volume = float(volumes[i])
+            except (TypeError, ValueError) as exc:
+                raise DukascopyIngestError(
+                    f"Invalid JETTA candle payload for {day}: invalid delta at index {i}"
+                ) from exc
+
+            if delta < 0:
+                raise DukascopyIngestError(
+                    f"Invalid JETTA candle payload for {day}: negative time delta at index {i}"
+                )
+
+            elapsed_units += delta
+            timestamp_ms = timestamp + elapsed_units * shift
+            open_price += open_delta * multiplier
+            high_price += high_delta * multiplier
+            low_price += low_delta * multiplier
+            close_price += close_delta * multiplier
+
             rows.append(
                 (
-                    datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc),
-                    open_units * multiplier,
-                    high_units * multiplier,
-                    low_units * multiplier,
-                    close_units * multiplier,
-                    float(volumes[i]),
+                    datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc),
+                    open_price,
+                    high_price,
+                    low_price,
+                    close_price,
+                    volume,
                     float("nan"),
                 )
             )
@@ -319,10 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         result = ingest_m1(
-            _parse_date(args.start),
-            _parse_date(args.end),
-            args.output,
-            force=args.force,
+            _parse_date(args.start), _parse_date(args.end), args.output, force=args.force
         )
         if args.timeframe != "M1":
             m1 = pd.read_csv(result["dataset"], parse_dates=["timestamp"])
