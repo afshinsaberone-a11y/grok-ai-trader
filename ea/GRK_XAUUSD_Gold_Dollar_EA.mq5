@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 3.90             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 4.00             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "3.90"
+#property version   "4.00"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -67,6 +67,8 @@ input double MondayLondonSpreadAtrMedMult=1.50;
 input int    MondayLondonSpreadAtrLookback=20;
 input double TuesdayLondonSpreadAtrMedMult=1.50;
 input int    TuesdayLondonSpreadAtrLookback=20;
+input double TuesdayLondonThinVolRatio=0.70;
+input int    TuesdayLondonVolLookback=20;
 input int    NyOpenHour=12;
 input int    NyOpenEndHour=13;
 input double NyWideSpreadAtr=0.10;
@@ -122,7 +124,7 @@ int OnInit()
    trade.SetDeviationInPoints(30);
    dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
    lastDay=TimeCurrent();
-   Print("GRK XAUUSD Gold-Dollar EA v3.90 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v4.00 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -273,4 +275,47 @@ bool TuesdayLondonSpreadAtrMedBlock()
    if(med<=0.0)
       return false;
    return (ratio_now >= TuesdayLondonSpreadAtrMedMult * med);
+}
+
+bool TuesdayLondonSpreadAtrMedThinBlock()
+{
+   MqlDateTime gt;
+   TimeToStruct(TimeGMT(), gt);
+   if(gt.day_of_week != 2)
+      return false;
+   if(gt.hour < LondonOpenHour || gt.hour >= LondonOpenEndHour)
+      return false;
+   if(!TuesdayLondonSpreadAtrMedBlock())
+      return false;
+   long vol_now = iVolume(_Symbol,PERIOD_H1,0);
+   if(vol_now<=0)
+      return false;
+   double sample[];
+   ArrayResize(sample, TuesdayLondonVolLookback);
+   int n=0;
+   for(int i=1; i<=TuesdayLondonVolLookback*30 && n<TuesdayLondonVolLookback; i++)
+   {
+      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
+      if(bar_time==0)
+         continue;
+      MqlDateTime bt;
+      TimeToStruct(bar_time, bt);
+      if(bt.day_of_week != 2)
+         continue;
+      if(bt.hour<LondonOpenHour || bt.hour>=LondonOpenEndHour)
+         continue;
+      long v = iVolume(_Symbol,PERIOD_H1,i);
+      if(v<=0)
+         continue;
+      sample[n++] = (double)v;
+   }
+   if(n<5)
+      return false;
+   ArrayResize(sample,n);
+   ArraySort(sample);
+   double med = sample[n/2];
+   if(med<=0.0)
+      return false;
+   bool thin = ((double)vol_now < TuesdayLondonThinVolRatio * med);
+   return thin;
 }
