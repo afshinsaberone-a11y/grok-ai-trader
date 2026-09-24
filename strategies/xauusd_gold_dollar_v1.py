@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v3.7.
+"""XAUUSD Gold-Dollar research strategy v3.8.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v3.7 blocks Monday first London hour (07-08 UTC) when real spread/ATR is elevated vs the 20-day median of the same Monday hour. No fake spread.
+v3.8 blocks Monday first London hour (07-08 UTC) when real spread/ATR is elevated vs the 20-day median of the same Monday hour AND same-hour volume is thin vs its 20-day median. No fake spread/volume.
 """
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ class GoldParams:
     monday_london_vol_lookback: int = 20
     monday_london_spread_atr_med_mult: float = 1.50
     monday_london_spread_atr_lookback: int = 20
-    version: str = "3.7"
+    version: str = "3.8"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -114,3 +114,26 @@ def wilder_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 
     minus_di = 100 * pd.Series(minus_dm, index=high.index).ewm(alpha=1 / period, adjust=False).mean() / atr
     dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
     return dx.ewm(alpha=1 / period, adjust=False).mean()
+
+
+def monday_london_spread_atr_med_thin_block(index: pd.DatetimeIndex, spread_used: pd.Series, atr: pd.Series, volume: pd.Series | None, p: GoldParams) -> pd.Series:
+    """True when Monday 07-08 UTC has elevated spread/ATR vs same-hour median AND thin volume.
+
+    If volume is missing, the AND filter stays off (all False). Never invents spread or volume.
+    """
+    out = pd.Series(False, index=index)
+    if volume is None:
+        return out
+    hour = index.hour
+    wd = index.weekday
+    in_win = (wd == 0) & (hour >= p.london_open_hour) & (hour < p.london_open_end_hour)
+    atr_safe = atr.replace(0, np.nan)
+    ratio = spread_used / atr_safe
+    same_hour_ratio = ratio.where(in_win)
+    med_ratio = same_hour_ratio.rolling(window=max(p.monday_london_spread_atr_lookback * 24, p.monday_london_spread_atr_lookback), min_periods=5).median()
+    vol_win = volume.where(in_win)
+    med_vol = vol_win.rolling(window=max(p.monday_london_vol_lookback * 24, p.monday_london_vol_lookback), min_periods=5).median()
+    high_ratio = ratio >= (p.monday_london_spread_atr_med_mult * med_ratio)
+    thin = volume < (p.monday_london_thin_vol_ratio * med_vol)
+    out = in_win & high_ratio.fillna(False) & thin.fillna(False)
+    return out.astype(bool)
