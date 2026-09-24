@@ -21,13 +21,11 @@ DISCOVERY_START = pd.Timestamp("2022-01-01", tz="UTC")
 DISCOVERY_END = OOS_START
 
 GRID = [
-    Params(adx_min=adx, atr_stop=stop, rr=rr, touch_atr=touch, vol_min=vmin, vol_max=vmax)
-    for adx in (20.0, 22.0, 24.0, 26.0)
-    for stop in (1.4, 1.6, 1.8, 2.0)
-    for rr in (1.8, 2.2, 2.6, 3.0)
-    for touch in (0.10, 0.20, 0.30)
-    for vmin in (0.60, 0.70, 0.80)
-    for vmax in (1.50, 1.80, 2.10)
+    Params(adx_min=adx, atr_stop=stop, rr=rr, touch_atr=touch)
+    for adx in (20.0, 24.0, 28.0)
+    for stop in (1.4, 1.8)
+    for rr in (2.0, 2.6)
+    for touch in (0.10, 0.25)
 ]
 
 
@@ -156,6 +154,7 @@ def discover(df: pd.DataFrame, cost_atr: float, slip_atr: float) -> dict[str, An
         "oos_start": str(OOS_START),
         "oos_loaded": False,
         "grid_size": len(GRID),
+        "grid_scope": "compact_core_grid; volatility gate fixed initially to control dimensionality",
         "nested_protocol": {"inner_train_days": 270, "inner_validation_days": 90, "outer_test_days": 90, "step_days": 90},
         "windows": rows,
         "aggregate": _aggregate(rows),
@@ -187,10 +186,15 @@ def main() -> int:
             Params(**result["frozen_candidate"]),
             cost_atr=args.cost_atr,
             slippage_atr=args.slippage_atr,
+            include_trade_series=True,
         )
-        # Monte Carlo is applied to the blind OOS trade stream only.
-        f = result["blind_oos"]
-        result["blind_oos_mc"] = "trade-sequence bootstrap requires trade returns to be retained; rerun with audit artifact"
+        result["blind_oos_mc"] = _monte_carlo(result["blind_oos"].get("net_R_series", []))
+        result["blind_oos_cost_sensitivity"] = {}
+        frozen = Params(**result["frozen_candidate"])
+        for cst in (0.0, 0.10, 0.20, 0.30):
+            result["blind_oos_cost_sensitivity"][str(cst)] = backtest(
+                oos, frozen, cost_atr=cst, slippage_atr=args.slippage_atr
+            )
         result["oos_loaded"] = True
     else:
         result["blind_oos"] = {"status": "HELD_OUT_NOT_AVAILABLE"}
