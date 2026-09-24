@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Static safety-contract auditor for grok-ai-trader EAs.
+
+Loops over ea/*.mq5 and fails until the champion contract is intact.
 Does not prove live profitability.
 """
 from __future__ import annotations
@@ -24,8 +26,10 @@ REQUIRED_SNIPPETS = (
     "SpreadOk",
     "DailyLossOk",
     "INIT_FAILED",
+    "FlattenAll",
 )
 CHAMPION = "GRK_Hybrid_Regime_EA.mq5"
+HARD_REJECT = "if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED"
 
 
 def _default_is_true(text: str, name: str) -> bool:
@@ -42,6 +46,8 @@ def audit_ea(text: str, path: Path) -> list[str]:
     if path.name != CHAMPION:
         if "martingale" in lower and "inpallowmartingale" not in lower:
             errors.append(f"{path}: martingale mentioned without disable flag")
+        if "grid" in lower and "inpallowgrid" not in lower and "grid" in path.name.lower():
+            errors.append(f"{path}: grid EA without disable flag")
         return errors
     for name in FORBIDDEN_DEFAULT_TRUE:
         if _default_is_true(text, name):
@@ -49,9 +55,7 @@ def audit_ea(text: str, path: Path) -> list[str]:
     for snip in REQUIRED_SNIPPETS:
         if snip not in text:
             errors.append(f"{path}: missing required snippet {snip}")
-    if "FlattenAll" not in text:
-        errors.append(f"{path}: missing FlattenAll for shock/weekend")
-    if "if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED" not in text:
+    if HARD_REJECT not in text:
         errors.append(f"{path}: missing INIT_FAILED hard reject for grid/martingale")
     return errors
 
