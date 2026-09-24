@@ -8,12 +8,9 @@ import argparse
 import sys
 from pathlib import Path
 
-FORBIDDEN = (
-    "martingale",
-    "MartinGale",
-    "averaging_down",
-    "grid_step",
-    "OrderSendMultipleGrid",
+FORBIDDEN_DEFAULT_TRUE = (
+    "InpAllowGrid",
+    "InpAllowMartingale",
 )
 REQUIRED_SNIPPETS = (
     "InpAllowGrid",
@@ -27,30 +24,33 @@ REQUIRED_SNIPPETS = (
     "SpreadOk",
     "DailyLossOk",
     "INIT_FAILED",
+    "FlattenAll",
 )
+
+
+def _default_is_true(text: str, name: str) -> bool:
+    idx = text.find(name)
+    if idx < 0:
+        return False
+    chunk = text[idx : idx + 80]
+    return "= true" in chunk
 
 
 def audit_ea(text: str, path: Path) -> list[str]:
     errors: list[str] = []
     lower = text.lower()
-    for token in FORBIDDEN:
-        if token.lower() in lower and "false" not in text[max(0, lower.find(token.lower()) - 40): lower.find(token.lower()) + 80].lower():
-            # allow explicit disable flags
-            if "inpallow" in lower and token.lower() in ("martingale",):
-                continue
-    if "inpallowgrid" in lower and "true" in text and "InpAllowGrid       = false" not in text and "InpAllowGrid = false" not in text:
-        if "input bool   InpAllowGrid       = false" not in text and "input bool   InpAllowGrid = false" not in text:
-            # default must be false
-            if "InpAllowGrid" in text and "= true" in text.split("InpAllowGrid", 1)[-1][:80]:
-                errors.append(f"{path}: InpAllowGrid default must be false")
-    if "inpallowmartingale" in lower:
-        chunk = text.split("InpAllowMartingale", 1)[-1][:80]
-        if "= true" in chunk:
-            errors.append(f"{path}: InpAllowMartingale default must be false")
+    for name in FORBIDDEN_DEFAULT_TRUE:
+        if _default_is_true(text, name):
+            errors.append(f"{path}: {name} default must be false")
     for snip in REQUIRED_SNIPPETS:
         if snip not in text:
             errors.append(f"{path}: missing required snippet {snip}")
-    if "grid" in lower and "no grid" not in lower and "InpAllowGrid" not in text:
+    if "InpAllowGrid" in text and "if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED" not in text.replace(" ", ""):
+        if "if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED" not in text:
+            errors.append(f"{path}: missing INIT_FAILED hard reject for grid/martingale")
+    if "flattenall" not in lower:
+        errors.append(f"{path}: missing FlattenAll for shock/weekend")
+    if "grid" in lower and "InpAllowGrid" not in text:
         errors.append(f"{path}: grid mentioned without hard disable")
     return errors
 

@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.14                                  |
-//| Safety: no grid, no martingale, hard risk cap                    |
+//| GRK_Hybrid_Regime_EA.mq5  v3.15                                  |
+//| Safety: no grid, no martingale, flatten on shock/weekend         |
 //| Educational research only. Not a profitability guarantee.        |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.14"
+#property version   "3.15"
 
 input double InpRiskPercent     = 0.5;
 input double InpMaxRiskPercent  = 0.5;
@@ -20,7 +20,7 @@ input double InpShockATR        = 1.8;
 input double InpMinRR           = 2.0;
 input double InpRangeMinRR      = 1.5;
 input int    InpMaxPositions    = 2;
-input int    InpMagic           = 2026020;
+input int    InpMagic           = 2026021;
 input bool   InpAllowGrid       = false;
 input bool   InpAllowMartingale = false;
 input int    InpMaxSpreadPoints = 40;
@@ -89,13 +89,21 @@ bool SpreadOk()
    return spreadPts < cap;
 }
 
+bool WeekendFlattenWindow()
+{
+   MqlDateTime t;
+   TimeToStruct(TimeCurrent(), t);
+   if(t.day_of_week==0 || t.day_of_week==6) return true;
+   if(t.day_of_week==5 && t.hour>=16) return true;
+   return false;
+}
+
 bool SessionOk()
 {
    MqlDateTime t;
    TimeToStruct(TimeCurrent(), t);
    int h = t.hour;
-   if(t.day_of_week==0 || t.day_of_week==6) return false;
-   if(t.day_of_week==5 && h>=16) return false;
+   if(WeekendFlattenWindow()) return false;
    return (h>=7 && h<17);
 }
 
@@ -155,6 +163,37 @@ int OurDirection()
    return 0;
 }
 
+void FlattenAll()
+{
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(!PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol || PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
+      long type = PositionGetInteger(POSITION_TYPE);
+      double vol = PositionGetDouble(POSITION_VOLUME);
+      MqlTradeRequest req; MqlTradeResult res;
+      ZeroMemory(req); ZeroMemory(res);
+      req.action = TRADE_ACTION_DEAL;
+      req.symbol = _Symbol;
+      req.magic  = InpMagic;
+      req.volume = vol;
+      req.deviation = 30;
+      req.position = ticket;
+      if(type==POSITION_TYPE_BUY)
+      {
+         req.type = ORDER_TYPE_SELL;
+         req.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      }
+      else
+      {
+         req.type = ORDER_TYPE_BUY;
+         req.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      }
+      OrderSend(req, res);
+   }
+}
+
 double DailyBias()
 {
    double c1 = iClose(_Symbol, PERIOD_D1, 1);
@@ -202,7 +241,7 @@ bool SendDeal(ENUM_ORDER_TYPE type, double sl, double tp)
    req.type = type;
    req.sl = sl;
    req.tp = tp;
-   req.comment = "GRK020";
+   req.comment = "GRK021";
    req.price = (type==ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
                                      : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double sl_dist = MathAbs(req.price - sl);
@@ -216,14 +255,23 @@ bool SendDeal(ENUM_ORDER_TYPE type, double sl, double tp)
 void OnTick()
 {
    if(!SymbolAllowed()) return;
+   if(WeekendFlattenWindow())
+   {
+      FlattenAll();
+      return;
+   }
+   Regime rg = DetectRegime();
+   if(rg==REGIME_SHOCK)
+   {
+      FlattenAll();
+      return;
+   }
    if(!SpreadOk()) return;
    if(!SessionOk()) return;
    if(!DailyLossOk()) return;
    if(!NewH1Bar()) return;
    if(CountOurPositions() >= InpMaxPositions) return;
-
-   Regime rg = DetectRegime();
-   if(rg==REGIME_FLAT || rg==REGIME_SHOCK) return;
+   if(rg==REGIME_FLAT) return;
 
    double emaF[], emaS[], atr[], rsi[], bbU[], bbL[], bbM[];
    if(CopyBuffer(hEF,0,1,3,emaF)<3) return;
@@ -239,22 +287,24 @@ void OnTick()
    double high1  = iHigh(_Symbol, PERIOD_H1, 1);
    double bias   = DailyBias();
    int dir = OurDirection();
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
    if(rg==REGIME_TREND)
    {
       if(dir<=0 && bias>=0 && close1>emaS[0] && low1<=emaF[0] && close1>emaF[0])
       {
          double sl = low1 - atr[0]*0.3;
-         double sl_dist = close1 - sl;
+         double sl_dist = ask - sl;
          if(sl_dist<=0) return;
-         SendDeal(ORDER_TYPE_BUY, sl, close1 + sl_dist * InpMinRR);
+         SendDeal(ORDER_TYPE_BUY, sl, ask + sl_dist * InpMinRR);
       }
       if(dir>=0 && bias<=0 && close1<emaS[0] && high1>=emaF[0] && close1<emaF[0])
       {
          double sl = high1 + atr[0]*0.3;
-         double sl_dist = sl - close1;
+         double sl_dist = sl - bid;
          if(sl_dist<=0) return;
-         SendDeal(ORDER_TYPE_SELL, sl, close1 - sl_dist * InpMinRR);
+         SendDeal(ORDER_TYPE_SELL, sl, bid - sl_dist * InpMinRR);
       }
    }
    else if(rg==REGIME_RANGE)
@@ -262,16 +312,16 @@ void OnTick()
       if(dir<=0 && close1<=bbL[0] && rsi[0]<=30)
       {
          double sl = low1 - atr[0]*0.4;
-         double sl_dist = close1 - sl;
-         double tp_dist = bbM[0] - close1;
+         double sl_dist = ask - sl;
+         double tp_dist = bbM[0] - ask;
          if(sl_dist<=0 || tp_dist/sl_dist < InpRangeMinRR) return;
          SendDeal(ORDER_TYPE_BUY, sl, bbM[0]);
       }
       if(dir>=0 && close1>=bbU[0] && rsi[0]>=70)
       {
          double sl = high1 + atr[0]*0.4;
-         double sl_dist = sl - close1;
-         double tp_dist = close1 - bbM[0];
+         double sl_dist = sl - bid;
+         double tp_dist = bid - bbM[0];
          if(sl_dist<=0 || tp_dist/sl_dist < InpRangeMinRR) return;
          SendDeal(ORDER_TYPE_SELL, sl, bbM[0]);
       }
