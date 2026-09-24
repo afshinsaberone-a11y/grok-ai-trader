@@ -10,6 +10,13 @@
 
 ## Changelog
 
+### v3.0 — 2026-09-24
+- ارتقا: فیلتر حجم نازک ساعت اول نیویورک (12–13 UTC) فقط با ستون حجم واقعی.
+- پایتون: `ny_thin_vol_ratio=0.70`، `ny_vol_lookback=20`. ستون `ny_thin_vol_block`. اگر `volume`/`tick_volume` نباشد فیلتر خاموش است.
+- EA: `NyThinVolRatio=0.70`، `NyVolLookback=20` و `NyThinVolBlock()` با iVolume ساعتی واقعی.
+- ریسک پایه ۰.۵٪. سود تضمین نیست.
+- مورد بعدی: فیلتر همپوشانی نیویورک اسپرد گشاد AND حجم نازک.
+
 ### v2.9 — 2026-09-23
 - ارتقا: فیلتر همپوشانی نیویورک (12–13 UTC) وقتی اسپرد نسبت به ATR بالا بماند.
 - پایتون: `ny_open_hour=12`، `ny_open_end_hour=13`، `ny_wide_spread_atr=0.10`. ستون `ny_wide_spread_block`. بدون ساخت اسپرد جعلی.
