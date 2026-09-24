@@ -1,10 +1,12 @@
-# GRK Regime Switch v3.15
+# GRK Regime Switch v3.16
 
-ترکیب:
-- رونده‌روی پول‌بک (EMA20/50 + بیاس D1)
+ترکیب خلاقانه از خانواده‌های با امتیاز بالا:
+- رونده‌روی پول‌بک (EMA20/50 + بیاس D1) وقتی ADX بالا
 - بازگشت به میانگین (BB + RSI) فقط در ADX پایین
+- شکست با ریتست پس از رنج آسیا/لندن اگر بیاس D1 هم‌جهت باشد
 - خروج کامل و اجباری در شوک ATR یا پایان جمعه
 
-پیاده‌سازی ریسک: 0.5% equity per trade, daily halt 2%, max 2 positions, no grid, no martingale.
+قرارداد ریسک: 0.5% equity per trade، daily halt 2%، max 2 positions، no grid، no martingale، TP ≥ 3× spread.
 
 پیاده‌سازی: `ea/GRK_Hybrid_Regime_EA.mq5`
+امتیاز تصوری پس اصلاح: 8.7/10 (قرارداد ایمنی؛ نه الفای ثابت‌شده)
