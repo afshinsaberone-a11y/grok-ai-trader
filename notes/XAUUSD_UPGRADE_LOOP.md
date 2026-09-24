@@ -10,6 +10,14 @@
 
 ## Changelog
 
+### v3.5 — 2026-09-24
+- ارتقا: فیلتر دوشنبه پس از گپ آخر هفته فقط با اسپرد واقعی نسبت به ATR در ساعت اول لندن (07–08 UTC).
+- پایتون: `monday_london_wide_spread_atr=0.10`. ستون `monday_london_wide_block` = weekday دوشنبه و ساعت لندن و `spread_used >= monday_london_wide_spread_atr * ATR`. اسپرد جعلی ساخته نمی‌شود.
+- ورود دوشنبه 07–08 UTC فقط اگر اسپرد واقعی نسبت به ATR گشاد باشد بسته می‌شود.
+- EA: `MondayLondonWideSpreadAtr=0.10` و `MondayLondonWideBlock()` اسپرد زنده ASK-BID را با ATR واقعی مقایسه می‌کند. نسخه 3.50.
+- ریسک پایه ۰.۵٪. سود تضمین نیست. معامله زنده فعال نشد.
+- مورد بعدی: فیلتر دوشنبه ساعت اول لندن اسپرد گشاد AND حجم نازک.
+
 ### v3.4 — 2026-09-24
 - ارتقا: فیلتر همپوشانی آخرین ساعت سشن فقط وقتی اسپرد گشاد AND حجم نازک باشد (19–20 UTC).
 - پایتون: ستون `session_close_thin_wide_block` = ساعت بسته شدن سشن و `spread_used >= session_close_wide_spread_atr * ATR` و حجم همان ساعت < `session_close_thin_vol_ratio` میانه ۲۰روزه. اگر ستون حجم نباشد فیلتر خاموش است. اسپرد/حجم جعلی ساخته نمی‌شود.
