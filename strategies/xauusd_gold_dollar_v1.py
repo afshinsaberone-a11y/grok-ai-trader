@@ -89,3 +89,28 @@ class GoldParams:
     monday_london_spread_atr_med_mult: float = 1.50
     monday_london_spread_atr_lookback: int = 20
     version: str = "3.7"
+
+
+def _col(df: pd.DataFrame, name: str) -> str:
+    mapping = {c.lower(): c for c in df.columns}
+    if name.lower() not in mapping:
+        raise ValueError(f"REAL_DATA_REQUIRED: missing column {name}")
+    return mapping[name.lower()]
+
+
+def _optional_col(df: pd.DataFrame, name: str) -> str | None:
+    mapping = {c.lower(): c for c in df.columns}
+    return mapping.get(name.lower())
+
+
+def wilder_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    up = high.diff()
+    down = -low.diff()
+    plus_dm = np.where((up > down) & (up > 0), up, 0.0)
+    minus_dm = np.where((down > up) & (down > 0), down, 0.0)
+    tr = pd.concat([(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
+    plus_di = 100 * pd.Series(plus_dm, index=high.index).ewm(alpha=1 / period, adjust=False).mean() / atr
+    minus_di = 100 * pd.Series(minus_dm, index=high.index).ewm(alpha=1 / period, adjust=False).mean() / atr
+    dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
+    return dx.ewm(alpha=1 / period, adjust=False).mean()
