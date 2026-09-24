@@ -1,484 +1,235 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.19                                  |
-//| Safety: no grid, no martingale, flatten on shock/weekend         |
-//| Educational research only. Not a profitability guarantee.        |
+//| GRK_Hybrid_Regime_EA.mq5  v3.20                                  |
+//| Contract-safety hybrid. NOT a profit guarantee.                  |
+//| Banned: grid, martingale, average-down.                          |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.19"
+#property version   "3.20"
+#property strict
 
-input double InpRiskPercent     = 0.5;
-input double InpMaxRiskPercent  = 0.5;
-input double InpMaxDailyLossPct = 2.0;
-input int    InpADXPeriod       = 14;
-input int    InpATRPeriod       = 14;
-input int    InpEMAFast         = 20;
-input int    InpEMASlow         = 50;
-input int    InpRSIPeriod       = 14;
-input double InpTrendADX        = 25.0;
-input double InpRangeADX        = 20.0;
-input double InpShockATR        = 1.8;
-input double InpMinRR           = 2.0;
-input double InpRangeMinRR      = 1.5;
-input int    InpMaxPositions    = 2;
-input int    InpMagic           = 2026025;
-input bool   InpAllowGrid       = false;
-input bool   InpAllowMartingale = false;
-input int    InpMaxSpreadPoints = 40;
-input int    InpAsiaStartHour   = 0;
-input int    InpAsiaEndHour     = 7;
-input int    InpNewsBlackoutStart = -1;
-input int    InpNewsBlackoutEnd   = -1;
-input int    InpMaxConsecutiveLosses = 3;
-input int    InpCooldownBarsAfterFlatten = 2;
-input double InpMinMarginLevel  = 300.0;
-input double InpMinSlAtrMult    = 0.25;
+#include <Trade/Trade.mqh>
 
-int hADX, hATR, hEF, hES, hRSI, hBB;
-double gDayStartEquity = 0.0;
-int    gDayStamp = -1;
-datetime gLastBar = 0;
-datetime gLastFlattenBar = 0;
+input double RiskPercent       = 0.5;
+input double MaxDailyLossPct   = 2.0;
+input int    MaxSpreadPoints   = 25;
+input int    CoolDownBars      = 8;
+input int    MaxTradesDay      = 3;
+input int    MaxConsecutiveLoss= 2;
+input int    Magic             = 20260320;
+input int    SlippagePoints    = 20;
+input double MinMarginLevelPct = 400.0;
+input double CostAtrFraction   = 0.25;
+input int    ADX_Period        = 14;
+input int    ATR_Period        = 14;
+input int    EMA_Fast          = 20;
+input int    EMA_Slow          = 50;
+input double ADX_Trend         = 25.0;
+input double ADX_Range         = 18.0;
+input double ShockAtrMult      = 2.5;
+input double RR                = 2.0;
+input int    RSI_Period        = 14;
+input int    BB_Period         = 20;
+
+CTrade trade;
+datetime day_start = 0;
+double   day_start_eq = 0;
+int      trades_today = 0;
+int      consec_loss = 0;
+int      cooldown_left = 0;
+datetime last_bar = 0;
+
+int h_adx, h_atr, h_ema_f, h_ema_s, h_rsi, h_bb;
 
 int OnInit()
 {
-   if(InpAllowGrid || InpAllowMartingale) return INIT_FAILED;
-   if(InpRiskPercent > InpMaxRiskPercent || InpRiskPercent <= 0) return INIT_FAILED;
-   if(!SymbolAllowed()) return INIT_FAILED;
-   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return INIT_FAILED;
-   hADX = iADX(_Symbol, PERIOD_H4, InpADXPeriod);
-   hATR = iATR(_Symbol, PERIOD_H1, InpATRPeriod);
-   hEF  = iMA(_Symbol, PERIOD_H1, InpEMAFast, 0, MODE_EMA, PRICE_CLOSE);
-   hES  = iMA(_Symbol, PERIOD_H1, InpEMASlow, 0, MODE_EMA, PRICE_CLOSE);
-   hRSI = iRSI(_Symbol, PERIOD_H1, InpRSIPeriod, PRICE_CLOSE);
-   hBB  = iBands(_Symbol, PERIOD_H1, 20, 0, 2.0, PRICE_CLOSE);
-   if(hADX==INVALID_HANDLE || hATR==INVALID_HANDLE || hEF==INVALID_HANDLE ||
-      hES==INVALID_HANDLE || hRSI==INVALID_HANDLE || hBB==INVALID_HANDLE)
+   trade.SetExpertMagicNumber(Magic);
+   trade.SetDeviationInPoints(SlippagePoints);
+   h_adx   = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
+   h_atr   = iATR(_Symbol, PERIOD_CURRENT, ATR_Period);
+   h_ema_f = iMA(_Symbol, PERIOD_CURRENT, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
+   h_ema_s = iMA(_Symbol, PERIOD_CURRENT, EMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
+   h_rsi   = iRSI(_Symbol, PERIOD_CURRENT, RSI_Period, PRICE_CLOSE);
+   h_bb    = iBands(_Symbol, PERIOD_CURRENT, BB_Period, 0, 2.0, PRICE_CLOSE);
+   if(h_adx==INVALID_HANDLE || h_atr==INVALID_HANDLE || h_ema_f==INVALID_HANDLE ||
+      h_ema_s==INVALID_HANDLE || h_rsi==INVALID_HANDLE || h_bb==INVALID_HANDLE)
       return INIT_FAILED;
-   gDayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
    return INIT_SUCCEEDED;
 }
 
 void OnDeinit(const int reason)
 {
-   if(hADX!=INVALID_HANDLE) IndicatorRelease(hADX);
-   if(hATR!=INVALID_HANDLE) IndicatorRelease(hATR);
-   if(hEF!=INVALID_HANDLE)  IndicatorRelease(hEF);
-   if(hES!=INVALID_HANDLE)  IndicatorRelease(hES);
-   if(hRSI!=INVALID_HANDLE) IndicatorRelease(hRSI);
-   if(hBB!=INVALID_HANDLE)  IndicatorRelease(hBB);
+   IndicatorRelease(h_adx); IndicatorRelease(h_atr);
+   IndicatorRelease(h_ema_f); IndicatorRelease(h_ema_s);
+   IndicatorRelease(h_rsi); IndicatorRelease(h_bb);
 }
 
-enum Regime { REGIME_FLAT=0, REGIME_TREND=1, REGIME_RANGE=2, REGIME_SHOCK=3 };
-
-bool SymbolAllowed()
+bool NewBar()
 {
-   string s = _Symbol;
-   return (StringFind(s,"EURUSD")>=0 || StringFind(s,"GBPUSD")>=0 ||
-           StringFind(s,"USDJPY")>=0 || StringFind(s,"XAUUSD")>=0);
-}
-
-bool TradeEnvironmentOk()
-{
-   if(!TerminalInfoInteger(TERMINAL_CONNECTED)) return false;
-   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return false;
-   if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) return false;
-   if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) return false;
-   double ml = AccountInfoDouble(ACCOUNT_MARGIN_LEVEL);
-   if(ml > 0 && ml < InpMinMarginLevel) return false;
+   datetime t = iTime(_Symbol, PERIOD_CURRENT, 0);
+   if(t == last_bar) return false;
+   last_bar = t;
    return true;
 }
 
-Regime DetectRegime()
+void ResetDay()
 {
-   double adx[], atr[];
-   if(CopyBuffer(hADX,0,1,3,adx)<3) return REGIME_FLAT;
-   if(CopyBuffer(hATR,0,1,20,atr)<20) return REGIME_FLAT;
-   double sma=0;
-   for(int i=0;i<20;i++) sma+=atr[i];
-   sma/=20.0;
-   if(sma>0 && atr[0]/sma >= InpShockATR) return REGIME_SHOCK;
-   if(adx[0] >= InpTrendADX) return REGIME_TREND;
-   if(adx[0] < InpRangeADX) return REGIME_RANGE;
-   return REGIME_FLAT;
-}
-
-double PlusDI()
-{
-   double buf[];
-   if(CopyBuffer(hADX,1,1,1,buf)<1) return 0;
-   return buf[0];
-}
-
-double MinusDI()
-{
-   double buf[];
-   if(CopyBuffer(hADX,2,1,1,buf)<1) return 0;
-   return buf[0];
-}
-
-bool SpreadOk()
-{
-   long spreadPts = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
-   int cap = InpMaxSpreadPoints;
-   if(StringFind(_Symbol,"XAU")>=0) cap = InpMaxSpreadPoints * 6;
-   if(StringFind(_Symbol,"JPY")>=0) cap = InpMaxSpreadPoints * 2;
-   return spreadPts < cap;
-}
-
-bool WeekendFlattenWindow()
-{
-   MqlDateTime t;
-   TimeToStruct(TimeCurrent(), t);
-   if(t.day_of_week==0 || t.day_of_week==6) return true;
-   if(t.day_of_week==5 && t.hour>=16) return true;
-   return false;
-}
-
-bool NewsBlackout()
-{
-   if(InpNewsBlackoutStart < 0 || InpNewsBlackoutEnd < 0) return false;
-   MqlDateTime t;
-   TimeToStruct(TimeCurrent(), t);
-   int h = t.hour;
-   if(InpNewsBlackoutStart <= InpNewsBlackoutEnd)
-      return (h >= InpNewsBlackoutStart && h < InpNewsBlackoutEnd);
-   return (h >= InpNewsBlackoutStart || h < InpNewsBlackoutEnd);
-}
-
-bool SessionOk()
-{
-   MqlDateTime t;
-   TimeToStruct(TimeCurrent(), t);
-   int h = t.hour;
-   if(WeekendFlattenWindow()) return false;
-   if(NewsBlackout()) return false;
-   return (h>=7 && h<17);
-}
-
-bool NewH1Bar()
-{
-   datetime bar = iTime(_Symbol, PERIOD_H1, 0);
-   if(bar==0) return false;
-   if(bar==gLastBar) return false;
-   gLastBar = bar;
-   return true;
-}
-
-bool CooldownOk()
-{
-   if(gLastFlattenBar==0) return true;
-   datetime bar = iTime(_Symbol, PERIOD_H1, 0);
-   if(bar==0) return false;
-   int bars = (int)((bar - gLastFlattenBar) / PeriodSeconds(PERIOD_H1));
-   return bars >= InpCooldownBarsAfterFlatten;
-}
-
-void ResetDayIfNeeded()
-{
-   MqlDateTime t;
-   TimeToStruct(TimeCurrent(), t);
-   int stamp = t.year*10000 + t.mon*100 + t.day;
-   if(stamp != gDayStamp)
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   datetime start = StringToTime(StringFormat("%04d.%02d.%02d 00:00", dt.year, dt.mon, dt.day));
+   if(start != day_start)
    {
-      gDayStamp = stamp;
-      gDayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+      day_start = start;
+      day_start_eq = AccountInfoDouble(ACCOUNT_EQUITY);
+      trades_today = 0;
+      consec_loss = 0;
    }
 }
 
-bool DailyLossOk()
+bool SafetyOk()
 {
-   ResetDayIfNeeded();
+   if(consec_loss >= MaxConsecutiveLoss) return false;
+   if(trades_today >= MaxTradesDay) return false;
+   if(cooldown_left > 0) return false;
    double eq = AccountInfoDouble(ACCOUNT_EQUITY);
-   if(gDayStartEquity <= 0) return false;
-   double dd = (gDayStartEquity - eq) / gDayStartEquity * 100.0;
-   return dd < InpMaxDailyLossPct;
-}
-
-bool ConsecutiveLossOk()
-{
-   if(InpMaxConsecutiveLosses <= 0) return true;
-   if(!HistorySelect(TimeCurrent()-86400*14, TimeCurrent())) return true;
-   int losses = 0;
-   int total = HistoryDealsTotal();
-   for(int i=total-1;i>=0;i--)
+   if(day_start_eq > 0.0)
    {
-      ulong ticket = HistoryDealGetTicket(i);
-      if(ticket==0) continue;
-      if(HistoryDealGetString(ticket, DEAL_SYMBOL)!=_Symbol) continue;
-      if((long)HistoryDealGetInteger(ticket, DEAL_MAGIC)!=InpMagic) continue;
-      if((long)HistoryDealGetInteger(ticket, DEAL_ENTRY)!=DEAL_ENTRY_OUT) continue;
-      double pnl = HistoryDealGetDouble(ticket, DEAL_PROFIT)
-                 + HistoryDealGetDouble(ticket, DEAL_SWAP)
-                 + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-      if(pnl < 0) { losses++; if(losses >= InpMaxConsecutiveLosses) return false; }
-      else if(pnl > 0) break;
+      double dd = 100.0 * (day_start_eq - eq) / day_start_eq;
+      if(dd >= MaxDailyLossPct) return false;
    }
+   long spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   if(spread > MaxSpreadPoints) return false;
+   double ml = AccountInfoDouble(ACCOUNT_MARGIN_LEVEL);
+   if(ml > 0.0 && ml < MinMarginLevelPct) return false;
+   if(PositionSelect(_Symbol)) return false;
    return true;
 }
 
-int CountOurPositions()
+double Buf(int handle, int buf, int sh)
 {
-   int n=0;
-   for(int i=PositionsTotal()-1;i>=0;i--)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(!PositionSelectByTicket(ticket)) continue;
-      if(PositionGetString(POSITION_SYMBOL)==_Symbol && PositionGetInteger(POSITION_MAGIC)==InpMagic) n++;
-   }
-   return n;
+   double a[];
+   if(CopyBuffer(handle, buf, sh, 1, a) != 1) return EMPTY_VALUE;
+   return a[0];
 }
 
-int OurDirection()
+enum ENUM_REGIME { REG_TREND=1, REG_RANGE=2, REG_TRANS=3 };
+
+ENUM_REGIME Regime(double adx)
 {
-   for(int i=PositionsTotal()-1;i>=0;i--)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(!PositionSelectByTicket(ticket)) continue;
-      if(PositionGetString(POSITION_SYMBOL)!=_Symbol || PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
-      long type = PositionGetInteger(POSITION_TYPE);
-      if(type==POSITION_TYPE_BUY) return 1;
-      if(type==POSITION_TYPE_SELL) return -1;
-   }
-   return 0;
+   if(adx >= ADX_Trend) return REG_TREND;
+   if(adx <= ADX_Range) return REG_RANGE;
+   return REG_TRANS;
 }
 
-ENUM_ORDER_TYPE_FILLING SelectFilling()
+double LotForStop(double sl_price, bool is_buy)
 {
-   long fm = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
-   if((fm & SYMBOL_FILLING_IOC) == SYMBOL_FILLING_IOC) return ORDER_FILLING_IOC;
-   if((fm & SYMBOL_FILLING_FOK) == SYMBOL_FILLING_FOK) return ORDER_FILLING_FOK;
-   return ORDER_FILLING_RETURN;
-}
-
-void FlattenAll()
-{
-   for(int i=PositionsTotal()-1;i>=0;i--)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(!PositionSelectByTicket(ticket)) continue;
-      if(PositionGetString(POSITION_SYMBOL)!=_Symbol || PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
-      long type = PositionGetInteger(POSITION_TYPE);
-      double vol = PositionGetDouble(POSITION_VOLUME);
-      MqlTradeRequest req; MqlTradeResult res;
-      ZeroMemory(req); ZeroMemory(res);
-      req.action = TRADE_ACTION_DEAL;
-      req.symbol = _Symbol;
-      req.magic  = InpMagic;
-      req.volume = vol;
-      req.deviation = 30;
-      req.position = ticket;
-      req.type_filling = SelectFilling();
-      if(type==POSITION_TYPE_BUY)
-      {
-         req.type = ORDER_TYPE_SELL;
-         req.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      }
-      else
-      {
-         req.type = ORDER_TYPE_BUY;
-         req.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      }
-      OrderSend(req, res);
-   }
-   datetime bar = iTime(_Symbol, PERIOD_H1, 0);
-   if(bar!=0) gLastFlattenBar = bar;
-}
-
-double DailyBias()
-{
-   double c1 = iClose(_Symbol, PERIOD_D1, 1);
-   double c2 = iClose(_Symbol, PERIOD_D1, 2);
-   if(c1>c2) return 1;
-   if(c1<c2) return -1;
-   return 0;
-}
-
-double VolumeByRisk(double sl_dist)
-{
-   if(sl_dist <= 0) return 0;
-   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-   double risk_money = equity * (InpRiskPercent / 100.0);
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   double risk_money = eq * RiskPercent / 100.0;
    double tick_val = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
    double tick_sz  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   if(tick_val<=0 || tick_sz<=0) return 0;
-   double vol = risk_money / (sl_dist / tick_sz * tick_val);
+   double price = is_buy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double dist = MathAbs(price - sl_price);
+   if(dist <= 0 || tick_val <= 0 || tick_sz <= 0) return 0;
+   double loss_per_lot = (dist / tick_sz) * tick_val;
+   if(loss_per_lot <= 0) return 0;
+   double lots = risk_money / loss_per_lot;
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    double vmin = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double vmax = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-   if(step<=0) step = vmin;
-   vol = MathMax(vmin, MathMin(vmax, MathFloor(vol/step)*step));
-   return vol;
+   lots = MathFloor(lots / step) * step;
+   if(lots < vmin) return 0;
+   if(lots > vmax) lots = vmax;
+   return lots;
 }
 
-bool CostOk(double sl_dist, double tp_dist)
+void MaybeFlattenShock(double atr)
 {
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   if(point<=0) return false;
-   double spread = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * point;
-   if(tp_dist < spread * 3.0) return false;
-   if(sl_dist<=0 || tp_dist/sl_dist < 1.0) return false;
-   return true;
-}
-
-bool SlDistanceOk(double sl_dist, double atr)
-{
-   if(atr<=0) return false;
-   return sl_dist >= atr * InpMinSlAtrMult;
-}
-
-bool SendDeal(ENUM_ORDER_TYPE type, double sl, double tp)
-{
-   if(!TradeEnvironmentOk()) return false;
-   MqlTradeRequest req; MqlTradeResult res;
-   ZeroMemory(req); ZeroMemory(res);
-   req.action = TRADE_ACTION_DEAL;
-   req.symbol = _Symbol;
-   req.magic  = InpMagic;
-   req.deviation = 20;
-   req.type = type;
-   req.sl = sl;
-   req.tp = tp;
-   req.comment = "GRK025";
-   req.type_filling = SelectFilling();
-   req.price = (type==ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
-                                     : SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double sl_dist = MathAbs(req.price - sl);
-   double tp_dist = MathAbs(tp - req.price);
-   if(!CostOk(sl_dist, tp_dist)) return false;
-   req.volume = VolumeByRisk(sl_dist);
-   if(req.volume <= 0) return false;
-   if(!OrderSend(req, res)) return false;
-   return (res.retcode==TRADE_RETCODE_DONE || res.retcode==TRADE_RETCODE_PLACED ||
-           res.retcode==TRADE_RETCODE_DONE_PARTIAL);
-}
-
-bool AsiaRange(double &hi, double &lo)
-{
-   hi = -1e100; lo = 1e100;
-   int counted = 0;
-   for(int i=1;i<=24;i++)
+   double high1 = iHigh(_Symbol, PERIOD_CURRENT, 1);
+   double low1  = iLow(_Symbol, PERIOD_CURRENT, 1);
+   if(atr > 0 && (high1 - low1) >= ShockAtrMult * atr)
    {
-      datetime t = iTime(_Symbol, PERIOD_H1, i);
-      if(t==0) break;
-      MqlDateTime dt; TimeToStruct(t, dt);
-      if(dt.hour>=InpAsiaStartHour && dt.hour<InpAsiaEndHour)
-      {
-         double h = iHigh(_Symbol, PERIOD_H1, i);
-         double l = iLow(_Symbol, PERIOD_H1, i);
-         if(h>hi) hi=h;
-         if(l<lo) lo=l;
-         counted++;
-      }
+      if(PositionSelect(_Symbol))
+         trade.PositionClose(_Symbol);
+      cooldown_left = CoolDownBars;
    }
-   return (counted>=3 && hi>lo);
 }
 
-void TryBreakoutRetest(double atr, double bias, int dir)
+void OnTradeTransaction(const MqlTradeTransaction& trans,
+                        const MqlTradeRequest& request,
+                        const MqlTradeResult& result)
 {
-   double hi, lo;
-   if(!AsiaRange(hi, lo)) return;
-   double close1 = iClose(_Symbol, PERIOD_H1, 1);
-   double low1   = iLow(_Symbol, PERIOD_H1, 1);
-   double high1  = iHigh(_Symbol, PERIOD_H1, 1);
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   if(dir<=0 && bias>=0 && PlusDI()>=MinusDI() &&
-      iClose(_Symbol, PERIOD_H1, 2)>hi && low1<=hi && close1>hi)
-   {
-      double sl = MathMin(low1, lo) - atr*0.2;
-      double sl_dist = ask - sl;
-      if(sl_dist>0 && SlDistanceOk(sl_dist, atr)) SendDeal(ORDER_TYPE_BUY, sl, ask + sl_dist * InpMinRR);
-   }
-   if(dir>=0 && bias<=0 && MinusDI()>=PlusDI() &&
-      iClose(_Symbol, PERIOD_H1, 2)<lo && high1>=lo && close1<lo)
-   {
-      double sl = MathMax(high1, hi) + atr*0.2;
-      double sl_dist = sl - bid;
-      if(sl_dist>0 && SlDistanceOk(sl_dist, atr)) SendDeal(ORDER_TYPE_SELL, sl, bid - sl_dist * InpMinRR);
-   }
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+   if(!HistoryDealSelect(trans.deal)) return;
+   if((int)HistoryDealGetInteger(trans.deal, DEAL_MAGIC) != Magic) return;
+   long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+   if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_INOUT) return;
+   double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
+                 + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
+                 + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+   if(profit < 0) consec_loss++;
+   else consec_loss = 0;
 }
 
 void OnTick()
 {
-   if(!SymbolAllowed()) return;
-   if(!TradeEnvironmentOk()) return;
-   if(WeekendFlattenWindow())
-   {
-      FlattenAll();
-      return;
-   }
-   Regime rg = DetectRegime();
-   if(rg==REGIME_SHOCK)
-   {
-      FlattenAll();
-      return;
-   }
-   if(!SpreadOk()) return;
-   if(!SessionOk()) return;
-   if(!DailyLossOk()) return;
-   if(!ConsecutiveLossOk()) return;
-   if(!CooldownOk()) return;
-   if(!NewH1Bar()) return;
-   if(CountOurPositions() >= InpMaxPositions) return;
+   ResetDay();
+   if(!NewBar()) return;
+   if(cooldown_left > 0) cooldown_left--;
 
-   double emaF[], emaS[], atr[], rsi[], bbU[], bbL[], bbM[];
-   if(CopyBuffer(hEF,0,1,3,emaF)<3) return;
-   if(CopyBuffer(hES,0,1,3,emaS)<3) return;
-   if(CopyBuffer(hATR,0,1,3,atr)<3) return;
-   if(CopyBuffer(hRSI,0,1,3,rsi)<3) return;
-   if(CopyBuffer(hBB,1,1,3,bbU)<3) return;
-   if(CopyBuffer(hBB,2,1,3,bbL)<3) return;
-   if(CopyBuffer(hBB,0,1,3,bbM)<3) return;
+   double adx = Buf(h_adx, 0, 1);
+   double pdi = Buf(h_adx, 1, 1);
+   double mdi = Buf(h_adx, 2, 1);
+   double atr = Buf(h_atr, 0, 1);
+   double ema_f = Buf(h_ema_f, 0, 1);
+   double ema_s = Buf(h_ema_s, 0, 1);
+   double rsi = Buf(h_rsi, 0, 1);
+   double bb_u = Buf(h_bb, 1, 1);
+   double bb_l = Buf(h_bb, 2, 1);
+   if(adx==EMPTY_VALUE || atr==EMPTY_VALUE || atr<=0) return;
 
-   double close1 = iClose(_Symbol, PERIOD_H1, 1);
-   double low1   = iLow(_Symbol, PERIOD_H1, 1);
-   double high1  = iHigh(_Symbol, PERIOD_H1, 1);
-   double bias   = DailyBias();
-   int dir = OurDirection();
+   MaybeFlattenShock(atr);
+
+   double spread_price = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point;
+   if(spread_price > CostAtrFraction * atr) return;
+   if(!SafetyOk()) return;
+
+   ENUM_REGIME rg = Regime(adx);
+   if(rg == REG_TRANS) return;
+
+   double close1 = iClose(_Symbol, PERIOD_CURRENT, 1);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-   if(rg==REGIME_FLAT || rg==REGIME_TREND)
-      TryBreakoutRetest(atr[0], bias, dir);
-
-   if(rg==REGIME_TREND)
+   bool buy=false, sell=false;
+   if(rg == REG_TREND)
    {
-      if(dir<=0 && bias>=0 && PlusDI()>=MinusDI() &&
-         close1>emaS[0] && low1<=emaF[0] && close1>emaF[0])
-      {
-         double sl = low1 - atr[0]*0.3;
-         double sl_dist = ask - sl;
-         if(sl_dist<=0 || !SlDistanceOk(sl_dist, atr[0])) return;
-         SendDeal(ORDER_TYPE_BUY, sl, ask + sl_dist * InpMinRR);
-      }
-      if(dir>=0 && bias<=0 && MinusDI()>=PlusDI() &&
-         close1<emaS[0] && high1>=emaF[0] && close1<emaF[0])
-      {
-         double sl = high1 + atr[0]*0.3;
-         double sl_dist = sl - bid;
-         if(sl_dist<=0 || !SlDistanceOk(sl_dist, atr[0])) return;
-         SendDeal(ORDER_TYPE_SELL, sl, bid - sl_dist * InpMinRR);
-      }
+      if(ema_f > ema_s && pdi > mdi && close1 <= ema_f && close1 > ema_s)
+         buy = true;
+      if(ema_f < ema_s && mdi > pdi && close1 >= ema_f && close1 < ema_s)
+         sell = true;
    }
-   else if(rg==REGIME_RANGE)
+   else if(rg == REG_RANGE)
    {
-      if(dir<=0 && close1<=bbL[0] && rsi[0]<=30)
-      {
-         double sl = low1 - atr[0]*0.4;
-         double sl_dist = ask - sl;
-         double tp_dist = bbM[0] - ask;
-         if(sl_dist<=0 || tp_dist/sl_dist < InpRangeMinRR) return;
-         if(!SlDistanceOk(sl_dist, atr[0])) return;
-         SendDeal(ORDER_TYPE_BUY, sl, bbM[0]);
-      }
-      if(dir>=0 && close1>=bbU[0] && rsi[0]>=70)
-      {
-         double sl = high1 + atr[0]*0.4;
-         double sl_dist = sl - bid;
-         double tp_dist = bid - bbM[0];
-         if(sl_dist<=0 || tp_dist/sl_dist < InpRangeMinRR) return;
-         if(!SlDistanceOk(sl_dist, atr[0])) return;
-         SendDeal(ORDER_TYPE_SELL, sl, bbM[0]);
-      }
+      if(close1 <= bb_l && rsi < 30) buy = true;
+      if(close1 >= bb_u && rsi > 70) sell = true;
+   }
+
+   if(!buy && !sell) return;
+
+   double sl, tp, lots;
+   if(buy)
+   {
+      sl = bid - 1.4 * atr;
+      tp = bid + RR * (bid - sl);
+      lots = LotForStop(sl, true);
+      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v320"))
+         trades_today++;
+   }
+   else
+   {
+      sl = ask + 1.4 * atr;
+      tp = ask - RR * (sl - ask);
+      lots = LotForStop(sl, false);
+      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v320"))
+         trades_today++;
    }
 }
+//+------------------------------------------------------------------+
