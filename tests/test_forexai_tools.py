@@ -30,11 +30,32 @@ def test_missing_evidence_is_explicit() -> None:
     assert payload == {"path": "agents/does-not-exist.txt", "exists": False}
 
 
+def test_github_actions_tool_is_present() -> None:
+    assert tools.inspect_github_actions_run is not None
+
+
+def test_github_api_helper_rejects_non_repo_endpoint() -> None:
+    try:
+        tools._github_api_json("user")
+    except ValueError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("non-repository endpoint accepted")
+
+
 def test_search_and_state_tools_are_present() -> None:
     assert tools.search_evidence is not None
     assert tools.repository_state is not None
     assert tools.run_pytest is not None
     assert tools.inspect_discovery_artifact is not None
+
+
+def test_run_git_returns_structured_output() -> None:
+    payload = tools._run_git("status", "--short", "--branch")
+    assert set(payload) == {"returncode", "stdout", "stderr"}
+    assert isinstance(payload["returncode"], int)
+    assert isinstance(payload["stdout"], str)
+    assert isinstance(payload["stderr"], str)
 
 
 def test_repo_root_is_repo_like() -> None:
