@@ -87,3 +87,60 @@ class GoldParams:
     monday_london_thin_vol_ratio: float = 0.70
     monday_london_vol_lookback: int = 20
     version: str = "3.6"
+
+
+def _col(df: pd.DataFrame, name: str) -> str:
+    mapping = {c.lower(): c for c in df.columns}
+    if name.lower() not in mapping:
+        raise ValueError(f"REAL_DATA_REQUIRED: missing column {name}")
+    return mapping[name.lower()]
+
+
+def _optional_col(df: pd.DataFrame, name: str) -> str | None:
+    mapping = {c.lower(): c for c in df.columns}
+    return mapping.get(name.lower())
+
+
+def wilder_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    up = high.diff()
+    down = -low.diff()
+    plus_dm = np.where((up > down) & (up > 0), up, 0.0)
+    minus_dm = np.where((down > up) & (down > 0), down, 0.0)
+    tr = pd.concat([(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
+    plus_di = 100 * pd.Series(plus_dm, index=high.index).ewm(alpha=1 / period, adjust=False).mean() / atr
+    minus_di = 100 * pd.Series(minus_dm, index=high.index).ewm(alpha=1 / period, adjust=False).mean() / atr
+    dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
+    return dx.ewm(alpha=1 / period, adjust=False).mean()
+
+
+class XAUUSDGoldDollarV1:
+    def __init__(self, params: GoldParams | None = None):
+        self.p = params or GoldParams()
+        self.equity = 10_000.0
+        self.peak = 10_000.0
+        self.max_dd = 0.0
+
+    def sl_mult_from_atr(self, atr: float, atr_med: float) -> float:
+        if pd.isna(atr) or pd.isna(atr_med) or atr_med <= 0:
+            return self.p.atr_sl
+        ratio = atr / atr_med
+        if ratio >= self.p.atr_high_ratio:
+            return self.p.atr_sl_high
+        if ratio <= self.p.atr_low_ratio:
+            return self.p.atr_sl_low
+        return self.p.atr_sl
+
+    def trail_mult(self, profit_r: float) -> float | None:
+        if profit_r < self.p.trail_start_r:
+            return None
+        if profit_r >= self.p.trail_tight_r:
+            return self.p.trail_tight_mult
+        return self.p.trail_wide_mult
+
+    def news_window(self, weekday: int, hour: int) -> bool:
+        if weekday == 4 and self.p.news_fri_start <= hour < self.p.news_fri_end:
+            return True
+        if weekday == 2 and self.p.news_wed_start <= hour < self.p.news_wed_end:
+            return True
+        return False
