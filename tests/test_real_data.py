@@ -99,7 +99,7 @@ def test_dukascopy_jetta_m1_decoding(tmp_path: Path):
         "high": 110300,
         "low": 109900,
         "close": 110200,
-        "times": [60, 60],
+        "times": [0, 60],
         "opens": [0, 10],
         "highs": [0, 5],
         "lows": [0, -5],
