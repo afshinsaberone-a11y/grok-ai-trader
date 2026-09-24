@@ -73,3 +73,43 @@ input double TrailTightR=1.8;
 input double TrailWideMult=1.2;
 input double TrailTightMult=0.80;
 input int    MagicNumber=20260922;
+
+input group "=== Session UTC ==="
+input bool UseSession=true;
+input int  SessionStart=7;
+input int  SessionEnd=20;
+input int  CoreSessionStart=12;
+input int  CoreSessionEnd=16;
+input int  MinQuality=2;
+
+input group "=== High-risk news window ==="
+input bool UseNewsBlock=true;
+input int  NewsFriStart=12;
+input int  NewsFriEnd=15;
+input int  NewsWedStart=18;
+input int  NewsWedEnd=20;
+
+int hFast,hMid,hSlow,hADX,hATR,hBB,hRSI;
+double dayStart=0;
+datetime lastDay=0;
+bool partialDone=false;
+
+int OnInit()
+{
+   hFast=iMA(_Symbol,PERIOD_CURRENT,EMA_Fast,0,MODE_EMA,PRICE_CLOSE);
+   hMid =iMA(_Symbol,PERIOD_CURRENT,EMA_Mid,0,MODE_EMA,PRICE_CLOSE);
+   hSlow=iMA(_Symbol,PERIOD_CURRENT,EMA_Slow,0,MODE_EMA,PRICE_CLOSE);
+   hADX =iADX(_Symbol,PERIOD_CURRENT,ADX_Period);
+   hATR =iATR(_Symbol,PERIOD_CURRENT,ATR_Period);
+   hBB  =iBands(_Symbol,PERIOD_CURRENT,BB_Period,0,BB_Dev,PRICE_CLOSE);
+   hRSI =iRSI(_Symbol,PERIOD_CURRENT,RSI_Period,PRICE_CLOSE);
+   if(hFast==INVALID_HANDLE||hMid==INVALID_HANDLE||hSlow==INVALID_HANDLE||
+      hADX==INVALID_HANDLE||hATR==INVALID_HANDLE||hBB==INVALID_HANDLE||hRSI==INVALID_HANDLE)
+      return INIT_FAILED;
+   trade.SetExpertMagicNumber(MagicNumber);
+   trade.SetDeviationInPoints(30);
+   dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
+   lastDay=TimeCurrent();
+   Print("GRK XAUUSD Gold-Dollar EA v3.00 ready");
+   return INIT_SUCCEEDED;
+}
