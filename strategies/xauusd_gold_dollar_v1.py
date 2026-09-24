@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v3.1.
+"""XAUUSD Gold-Dollar research strategy v3.2.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v3.1 blocks first New York hour (12-13 UTC) only when real spread is wide AND real hour volume is thin (AND).
+v3.2 also blocks last session hour (19-20 UTC) when real spread is wide vs ATR. No fake spread.
 """
 from __future__ import annotations
 
@@ -78,7 +78,10 @@ class GoldParams:
     ny_wide_spread_atr: float = 0.10
     ny_thin_vol_ratio: float = 0.70
     ny_vol_lookback: int = 20
-    version: str = "3.1"
+    session_close_hour: int = 19
+    session_close_end_hour: int = 20
+    session_close_wide_spread_atr: float = 0.10
+    version: str = "3.2"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -197,6 +200,7 @@ class XAUUSDGoldDollarV1:
         out["ny_wide_spread_block"] = False
         out["ny_thin_vol_block"] = False
         out["ny_thin_wide_block"] = False
+        out["session_close_wide_block"] = False
         if isinstance(out.index, pd.DatetimeIndex):
             out["hour"] = out.index.hour
             out["weekday"] = out.index.weekday
@@ -227,6 +231,9 @@ class XAUUSDGoldDollarV1:
             ny_hour = (out["hour"] >= self.p.ny_open_hour) & (out["hour"] < self.p.ny_open_end_hour)
             ny_wide = out["spread_used"] >= (self.p.ny_wide_spread_atr * out["atr"])
             out["ny_wide_spread_block"] = ny_hour & ny_wide.fillna(False)
+            close_hour = (out["hour"] >= self.p.session_close_hour) & (out["hour"] < self.p.session_close_end_hour)
+            close_wide = out["spread_used"] >= (self.p.session_close_wide_spread_atr * out["atr"])
+            out["session_close_wide_block"] = close_hour & close_wide.fillna(False)
             event_by_day = flag.groupby(day).max()
             next_is_event = pd.Series(day, index=out.index).map(
                 lambda d: bool(event_by_day.get(d + pd.Timedelta(days=1), False))
@@ -265,6 +272,7 @@ class XAUUSDGoldDollarV1:
                 & (~out["pre_news_vol_block"])
                 & (~out["london_thin_wide_block"])
                 & (~out["ny_thin_wide_block"])
+                & (~out["session_close_wide_block"])
             )
             out["flatten_now"] = (out["hour"] >= flatten_from) | weekend_flat
             out["q_session"] = (
@@ -307,6 +315,7 @@ class XAUUSDGoldDollarV1:
         ny_ok = ~d["ny_wide_spread_block"].fillna(False)
         ny_thin_ok = ~d["ny_thin_vol_block"].fillna(False)
         ny_and_ok = ~d["ny_thin_wide_block"].fillna(False)
+        close_spread_ok = ~d["session_close_wide_block"].fillna(False)
         base = (
             squeeze
             & vol_ok
@@ -320,6 +329,7 @@ class XAUUSDGoldDollarV1:
             & pre_news_vol_ok
             & london_ok
             & ny_and_ok
+            & close_spread_ok
         )
         d.loc[trend_up & base & d["pull_up"] & rsi_l, "signal"] = 1
         d.loc[trend_dn & base & d["pull_dn"] & rsi_s, "signal"] = -1
@@ -330,4 +340,5 @@ class XAUUSDGoldDollarV1:
         d.attrs["ny_wide_spread_blocks"] = int(d["ny_wide_spread_block"].fillna(False).sum())
         d.attrs["ny_thin_vol_blocks"] = int(d["ny_thin_vol_block"].fillna(False).sum())
         d.attrs["ny_thin_wide_blocks"] = int(d["ny_thin_wide_block"].fillna(False).sum())
+        d.attrs["session_close_wide_blocks"] = int(d["session_close_wide_block"].fillna(False).sum())
         return d
