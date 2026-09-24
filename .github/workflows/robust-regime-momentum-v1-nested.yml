@@ -3,10 +3,14 @@ name: Robust Regime-Momentum v1 Nested Discovery
 on:
   workflow_dispatch:
     inputs:
-      data_path:
-        description: "Validated real EURUSD M5 dataset"
+      start:
+        description: "REAL EURUSD M1 start (UTC)"
         required: true
-        default: "data/real/normalized/EURUSD_M5_20220101_20251231.csv"
+        default: "2022-01-01"
+      end:
+        description: "REAL EURUSD M1 end (UTC, exclusive)"
+        required: true
+        default: "2026-01-01"
       cost_atr:
         description: "Round-trip cost stress as ATR fraction"
         required: true
@@ -29,33 +33,65 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
-      - name: Validate real dataset
+      - name: Download REAL EURUSD M1 data
         env:
-          DATA: ${{ inputs.data_path }}
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
         run: |
-          test -f "$DATA"
+          python -m research.real_data.histdata_ingest             --symbol EURUSD --timeframe M1             --start "$START" --end "$END"             --output data/real --validate --manifest
+      - name: Build REAL EURUSD M5 dataset
+        run: |
           python - <<'PY'
-          import os, pandas as pd
-          d=pd.read_csv(os.environ["DATA"])
-          req={"timestamp","open","high","low","close"}
-          cols={c.lower() for c in d.columns}
-          if req-cols:
-              raise SystemExit(f"REAL_DATA_REQUIRED: missing {sorted(req-cols)}")
-          ts=pd.to_datetime(d["timestamp"],utc=True)
-          if len(d)<100000:
-              raise SystemExit("REAL_DATA_REQUIRED: insufficient history")
-          if ts.min()>=pd.Timestamp("2022-01-01",tz="UTC"):
-              raise SystemExit("REAL_DATA_REQUIRED: discovery starts too late")
-          print("rows",len(d),"start",ts.min(),"end",ts.max())
+          from pathlib import Path
+          import pandas as pd
+
+          root=Path("data/real/normalized")
+          candidates=sorted(root.glob("EURUSD_M1_*.csv"))
+          if not candidates:
+              raise SystemExit("REAL_DATA_REQUIRED: normalized EURUSD M1 dataset not found")
+          if len(candidates) != 1:
+              raise SystemExit(f"REAL_DATA_AMBIGUOUS: expected one normalized M1 dataset, found {len(candidates)}")
+          src=candidates[0]
+          d=pd.read_csv(src)
+          d["timestamp"]=pd.to_datetime(d["timestamp"],utc=True)
+          for c in ["open","high","low","close"]:
+              d[c]=pd.to_numeric(d[c],errors="coerce")
+          d=d.dropna(subset=["timestamp","open","high","low","close"]).sort_values("timestamp")
+          work=d.set_index("timestamp")[["open","high","low","close"]]
+          m5=(work.resample("5min",label="left",closed="left")
+                 .agg({"open":"first","high":"max","low":"min","close":"last"})
+                 .dropna())
+          out=root/"EURUSD_M5_RESEARCH.csv"
+          m5.reset_index().to_csv(out,index=False)
+          print("M5_DATA",out,"rows",len(m5),"start",m5.index.min(),"end",m5.index.max())
           PY
-      - name: Run nested discovery
-        env:
-          DATA: ${{ inputs.data_path }}
+      - name: Run nested discovery and blind-OOS stress
         run: |
-          python -m research.optimization.robust_regime_momentum_v1_discovery             --data "$DATA"             --cost-atr "${{ inputs.cost_atr }}"             --slippage-atr "${{ inputs.slippage_atr }}"             --output artifacts/robust-regime-momentum-v1-discovery.json
+          python -m research.optimization.robust_regime_momentum_v1_discovery             --data data/real/normalized/EURUSD_M5_RESEARCH.csv             --cost-atr "${{ inputs.cost_atr }}"             --slippage-atr "${{ inputs.slippage_atr }}"             --output artifacts/robust-regime-momentum-v1-discovery.json
+      - name: Verify artifact contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("artifacts/robust-regime-momentum-v1-discovery.json").read_text())
+          required=["schema","real_data_only","oos_start","grid_size","nested_protocol","aggregate","frozen_candidate"]
+          missing=[x for x in required if x not in d]
+          if missing:
+              raise SystemExit(f"ARTIFACT_INVALID: missing {missing}")
+          assert d["real_data_only"] is True
+          assert d["oos_start"]=="2026-01-01 00:00:00+00:00"
+          assert d["grid_size"]==24
+          print("RRM_V1_NESTED_ARTIFACT_OK")
+          print("aggregate",d["aggregate"])
+          print("frozen_candidate",d["frozen_candidate"])
+          print("blind_oos",d.get("blind_oos",{"status":"not available"}))
+          print("blind_oos_mc",d.get("blind_oos_mc",{"status":"not available"}))
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: robust-regime-momentum-v1-nested-discovery
-          path: artifacts/robust-regime-momentum-v1-discovery.json
+          path: |
+            artifacts/robust-regime-momentum-v1-discovery.json
+            data/real/normalized/*.manifest.json
           if-no-files-found: error
