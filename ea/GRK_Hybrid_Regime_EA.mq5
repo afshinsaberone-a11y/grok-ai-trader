@@ -1,40 +1,42 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.22                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.23                                  |
 //| Contract-safety hybrid. NOT a profit guarantee.                  |
-//| Banned: grid, martingale, average-down.                          |
+//| Banned: grid, martingale, average-down. ممنوع                    |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.22"
+#property version   "3.23"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input double RiskPercent        = 0.5;
-input double MaxDailyLossPct    = 2.0;
-input int    MaxSpreadPoints    = 25;
-input int    CoolDownBars       = 8;
-input int    MaxTradesDay       = 3;
-input int    MaxConsecutiveLoss = 2;
-input int    Magic              = 20260322;
-input int    SlippagePoints     = 20;
-input double MinMarginLevelPct  = 400.0;
-input double CostAtrFraction    = 0.25;
-input int    ADX_Period         = 14;
-input int    ATR_Period         = 14;
-input int    EMA_Fast           = 20;
-input int    EMA_Slow           = 50;
-input int    EMA_Daily          = 50;
-input double ADX_Trend          = 25.0;
-input double ADX_Range          = 18.0;
-input double ShockAtrMult       = 2.5;
-input double RR                 = 2.0;
-input int    RSI_Period         = 14;
-input int    BB_Period          = 20;
-input int    SessLondonStart    = 8;
-input int    SessLondonEnd      = 17;
-input int    SessNYStart        = 13;
-input int    SessNYEnd          = 21;
-input int    FridayFlattenHour  = 20;
+input double RiskPercent         = 0.5;
+input double MaxDailyLossPct     = 2.0;
+input int    MaxSpreadPoints     = 25;
+input int    CoolDownBars        = 8;
+input int    MaxTradesDay        = 3;
+input int    MaxConsecutiveLoss  = 2;
+input int    Magic               = 20260323;
+input int    SlippagePoints      = 20;
+input double MinMarginLevelPct   = 400.0;
+input double CostAtrFraction     = 0.25;
+input int    ADX_Period          = 14;
+input int    ATR_Period          = 14;
+input int    EMA_Fast            = 20;
+input int    EMA_Slow            = 50;
+input int    EMA_Daily           = 50;
+input double ADX_Trend           = 25.0;
+input double ADX_Range           = 18.0;
+input double ShockAtrMult        = 2.5;
+input double RR                  = 2.0;
+input int    RSI_Period          = 14;
+input int    BB_Period           = 20;
+input int    SessLondonStart     = 8;
+input int    SessLondonEnd       = 17;
+input int    SessNYStart         = 13;
+input int    SessNYEnd           = 21;
+input int    FridayFlattenHour   = 20;
+input string NewsBlackoutHours   = "12,13,14"; // broker-server hours to skip (NFP/FOMC window style)
+input bool   MondayOpenBlock     = true;
 
 CTrade trade;
 datetime day_start = 0;
@@ -84,9 +86,33 @@ bool IsFridayLate()
    return (dt.day_of_week == 5 && dt.hour >= FridayFlattenHour);
 }
 
+bool InNewsBlackout()
+{
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   string hours = NewsBlackoutHours;
+   string parts[];
+   int n = StringSplit(hours, ',', parts);
+   for(int i=0;i<n;i++)
+   {
+      string p = parts[i];
+      StringTrimLeft(p); StringTrimRight(p);
+      if(StringToInteger(p) == dt.hour) return true;
+   }
+   return false;
+}
+
+bool MondayOpenBlocked()
+{
+   if(!MondayOpenBlock) return false;
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   return (dt.day_of_week == 1 && dt.hour < 9);
+}
+
 bool SessionAllowed()
 {
    if(IsFridayLate()) return false;
+   if(InNewsBlackout()) return false;
+   if(MondayOpenBlocked()) return false;
    MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
    int h = dt.hour;
    bool london = (h >= SessLondonStart && h < SessLondonEnd);
@@ -280,7 +306,7 @@ void OnTick()
       NormalizeStops(true, sl, tp);
       if(tp <= bid) return;
       lots = LotForStop(sl, true);
-      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v322"))
+      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v323"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;
@@ -294,7 +320,7 @@ void OnTick()
       NormalizeStops(false, sl, tp);
       if(tp >= ask) return;
       lots = LotForStop(sl, false);
-      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v322"))
+      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v323"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;

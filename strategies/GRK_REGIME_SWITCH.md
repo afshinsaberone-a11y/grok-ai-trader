@@ -1,14 +1,12 @@
-# GRK Hybrid Regime Switch v3.22
+# GRK Regime Switch v3.23
 
-ترکیب پس از امتیازدهی GRK-FX-2026-028:
+ترکیب GRK-FX-2026-029:
 
-1. Trend pullback: EMA20 داخل روند EMA50 + ADX≥25 + هم‌جهتی DI + هم‌جهت Daily EMA50
-2. Mean reversion: BB + RSI فقط وقتی ADX≤18 — هدف میانهٔ باند (نه RR ثابت)
-3. Shock flatten + cooldown اگر کندل ≥ 2.5×ATR
-4. Session gate: فقط لندن و نیویورک + بلاک‌اوت جمعه عصر
-5. NormalizeStops و چک نتیجهٔ ارسال سفارش
+- رونده‌روی پول‌بک (EMA20/50 + بیاس D1)
+- بازگشت به میانگین (BB + RSI) فقط در ADX پایین
+- خروج کامل در شوک ناگهانی
+- بلک‌اوت ساعت خبری و ساعت اول دوشنبه
 
-گیت‌ها: ریسک 0.5٪، سقف روزانه 2٪، اسپرد، نسبت هزینه به ATR، باخت متوالی، مارجین، حداکثر 3 معامله در روز.
-رژیم TRANSITION ورود جدید ندارد.
-این سند قوانین است، نه اثبات سود.
-Grid و مارتینگیل ممنوع است.
+ریسک: 0.5% equity per trade, daily halt 2%, max 2 consecutive losses, no grid, no martingale.
+
+پیاده‌سازی: `ea/GRK_Hybrid_Regime_EA.mq5` v3.23

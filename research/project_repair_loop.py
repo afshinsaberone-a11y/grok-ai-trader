@@ -24,6 +24,8 @@ REQUIRED_TOKENS = [
     "MaybeFlattenFriday",
     "NormalizeStops",
     "REG_TRANS",
+    "NewsBlackoutHours",
+    "MondayOpenBlock",
 ]
 
 BANNED_TOKENS = [
@@ -43,13 +45,9 @@ def audit(text: str) -> list[str]:
         if tok not in text:
             issues.append(f"missing required token: {tok}")
     for tok in BANNED_TOKENS:
-        if tok.lower() in lower and "banned" not in lower:
-            # allow mention only in comments that also say banned
-            if "banned" not in text.lower() and "ممنوع" not in text:
+        if tok.lower() in lower:
+            if "banned" not in lower and "ممنوع" not in text:
                 issues.append(f"banned pattern present: {tok}")
-    if "grid, martingale" not in lower and "banned: grid" not in lower:
-        # still ok if comment lists banned
-        pass
     if "NOT a profit guarantee" not in text and "سود تضمین" not in text:
         issues.append("missing no-profit-guarantee disclaimer")
     return issues
