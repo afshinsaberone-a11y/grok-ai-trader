@@ -1,14 +1,11 @@
-# GRK Regime Switch v3.18
+# GRK Hybrid Regime Switch v3.19
 
-ترکیب خلاقانه از خانواده‌های با امتیاز بالا:
-- رونده‌روی پول‌بک (EMA20/50 + بیاس D1) وقتی ADX بالا
-- بازگشت به میانگین (BB + RSI) فقط در ADX پایین
-- شکست با ریتست پس از رنج آسیا/لندن اگر بیاس D1 هم‌جهت باشد
-- خروج کامل و اجباری در شوک ATR یا پایان جمعه
-- بلک‌اوت خبری دستی (ساعت UTC)
-- توقف پس از باخت‌های متوالی
+ترکیب خلاقانه چهار خانواده:
+1. Trend pullback (EMA20 داخل روند EMA50 + ADX + DI)
+2. Mean reversion (BB + RSI فقط وقتی ADX پایین است)
+3. London/Asia breakout retest
+4. Shock flatten + cooldown
 
-قرارداد ریسک: 0.5% equity per trade، daily halt 2%، max 2 positions، no grid، no martingale، TP ≥ 3× spread.
+گیت‌ها: ریسک ۰.۵٪، سقف روزانه ۲٪، اسپرید، هزینه، جلسه، خبر دستی، باخت متوالی، مارجین، فاصله ATR برای SL.
 
-پیاده‌سازی: `ea/GRK_Hybrid_Regime_EA.mq5`
-امتیاز تصوری پس اصلاح: 8.9/10 (قرارداد ایمنی؛ نه الفای ثابت‌شده)
+این سند قوانین است، نه اثبات سود.
