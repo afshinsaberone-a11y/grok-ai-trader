@@ -1,0 +1,78 @@
+name: Robust Regime Momentum v1 Research
+
+on:
+  workflow_dispatch:
+    inputs:
+      data_path:
+        description: "Validated real EURUSD M5 dataset"
+        required: true
+        default: "data/real/normalized/EURUSD_M5_20220101_20251231.csv"
+      cost_atr:
+        description: "Round-trip friction as ATR fraction (research stress only)"
+        required: true
+        default: "0.10"
+      slippage_atr:
+        description: "Entry slippage as ATR fraction"
+        required: true
+        default: "0.02"
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Resolve and validate real data
+        env:
+          DATA: ${{ inputs.data_path }}
+        run: |
+          test -f "$DATA"
+          python - <<'PY'
+          import os, pandas as pd
+          p=os.environ["DATA"]
+          d=pd.read_csv(p)
+          req={"timestamp","open","high","low","close"}
+          missing=req-set(c.lower() for c in d.columns)
+          if missing:
+              raise SystemExit(f"REAL_DATA_REQUIRED: missing {sorted(missing)}")
+          ts=pd.to_datetime(d["timestamp"],utc=True)
+          if len(d)<100000:
+              raise SystemExit("REAL_DATA_REQUIRED: insufficient real history")
+          if ts.min()>=pd.Timestamp("2025-01-01",tz="UTC"):
+              raise SystemExit("REAL_DATA_REQUIRED: missing discovery history")
+          print("rows",len(d),"start",ts.min(),"end",ts.max())
+          PY
+      - name: Run robust regime-momentum candidate
+        env:
+          DATA: ${{ inputs.data_path }}
+          COST_ATR: ${{ inputs.cost_atr }}
+          SLIP_ATR: ${{ inputs.slippage_atr }}
+        run: |
+          python -m research.optimization.robust_regime_momentum_v1             --data "$DATA"             --cost-atr "$COST_ATR"             --slippage-atr "$SLIP_ATR"             --output artifacts/robust-regime-momentum-v1.json
+      - name: Verify artifact contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("artifacts/robust-regime-momentum-v1.json").read_text())
+          assert d["schema"]=="forexai.robust_regime_momentum.v1"
+          assert d["real_data_only"] is True
+          assert d["execution_model"]=="close_signal_next_open_entry"
+          assert d["same_bar_sl_tp_policy"]=="stop_first"
+          print("ROBUST_REGIME_MOMENTUM_V1_ARTIFACT_OK")
+          print("metrics", d["metrics"])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: robust-regime-momentum-v1
+          path: artifacts/robust-regime-momentum-v1.json
+          if-no-files-found: error
