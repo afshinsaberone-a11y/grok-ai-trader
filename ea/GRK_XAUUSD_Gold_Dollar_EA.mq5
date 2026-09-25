@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 5.10             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 5.20             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "5.10"
+#property version   "5.20"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -21,6 +21,8 @@ input double MondaySessionCloseThinVolRatio=0.70;
 input int    MondaySessionCloseVolLookback=20;
 input double TuesdaySessionCloseSpreadAtrMedMult=1.50;
 input int    TuesdaySessionCloseSpreadAtrLookback=20;
+input double TuesdaySessionCloseThinVolRatio=0.70;
+input int    TuesdaySessionCloseVolLookback=20;
 input int    SessionCloseHour=19;
 input int    SessionCloseEndHour=20;
 input int    ATR_Period=14;
@@ -34,7 +36,7 @@ int OnInit()
    if(hATR==INVALID_HANDLE)
       return INIT_FAILED;
    trade.SetExpertMagicNumber(MagicNumber);
-   Print("GRK XAUUSD Gold-Dollar EA v5.10 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v5.20 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -281,4 +283,47 @@ bool TuesdaySessionCloseSpreadAtrMedBlock()
    if(med<=0.0)
       return false;
    return (ratio_now >= TuesdaySessionCloseSpreadAtrMedMult * med);
+}
+
+bool TuesdaySessionCloseSpreadAtrMedThinBlock()
+{
+   MqlDateTime gt;
+   TimeToStruct(TimeGMT(), gt);
+   if(gt.day_of_week != 2)
+      return false;
+   if(gt.hour < SessionCloseHour || gt.hour >= SessionCloseEndHour)
+      return false;
+   if(!TuesdaySessionCloseSpreadAtrMedBlock())
+      return false;
+   long vol_now = iVolume(_Symbol,PERIOD_H1,0);
+   if(vol_now<=0)
+      return false;
+   double sample[];
+   ArrayResize(sample, TuesdaySessionCloseVolLookback);
+   int n=0;
+   for(int i=1; i<=TuesdaySessionCloseVolLookback*30 && n<TuesdaySessionCloseVolLookback; i++)
+   {
+      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
+      if(bar_time==0)
+         continue;
+      MqlDateTime bt;
+      TimeToStruct(bar_time, bt);
+      if(bt.day_of_week != 2)
+         continue;
+      if(bt.hour<SessionCloseHour || bt.hour>=SessionCloseEndHour)
+         continue;
+      long v = iVolume(_Symbol,PERIOD_H1,i);
+      if(v<=0)
+         continue;
+      sample[n++] = (double)v;
+   }
+   if(n<5)
+      return false;
+   ArrayResize(sample,n);
+   ArraySort(sample);
+   double med = sample[n/2];
+   if(med<=0.0)
+      return false;
+   bool thin = ((double)vol_now < TuesdaySessionCloseThinVolRatio * med);
+   return thin;
 }
