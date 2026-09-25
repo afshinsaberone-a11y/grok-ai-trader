@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.33                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.36                                  |
 //| Contract-safety hybrid. NOT a profit guarantee.                  |
 //| Banned: grid, martingale, average-down. ممنوع                    |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.33"
+#property version   "3.36"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -15,7 +15,7 @@ input int    MaxSpreadPoints     = 25;
 input int    CoolDownBars        = 8;
 input int    MaxTradesDay        = 3;
 input int    MaxConsecutiveLoss  = 2;
-input int    Magic               = 20260333;
+input int    Magic               = 20260336;
 input int    SlippagePoints      = 20;
 input double MinMarginLevelPct   = 400.0;
 input double CostAtrFraction     = 0.25;
@@ -28,6 +28,7 @@ input double ADX_Trend           = 25.0;
 input double ADX_Range           = 18.0;
 input double ShockAtrMult        = 2.5;
 input double RR                  = 2.0;
+input double MinRRAfterNormalize = 1.5;
 input int    RSI_Period          = 14;
 input int    BB_Period           = 20;
 input int    DonchianPeriod      = 20;
@@ -53,6 +54,10 @@ int OnInit()
 {
    trade.SetExpertMagicNumber(Magic);
    trade.SetDeviationInPoints(SlippagePoints);
+   trade.SetTypeFillingBySymbol(_Symbol);
+   long mode = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+   if(mode == SYMBOL_TRADE_MODE_DISABLED)
+      return INIT_FAILED;
    h_adx   = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
    h_atr   = iATR(_Symbol, PERIOD_CURRENT, ATR_Period);
    h_ema_f = iMA(_Symbol, PERIOD_CURRENT, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
@@ -140,6 +145,8 @@ bool SafetyOk()
    if(consec_loss >= MaxConsecutiveLoss) return false;
    if(trades_today >= MaxTradesDay) return false;
    if(cooldown_left > 0) return false;
+   long mode = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+   if(mode == SYMBOL_TRADE_MODE_DISABLED) return false;
    double eq = AccountInfoDouble(ACCOUNT_EQUITY);
    if(day_start_eq > 0.0)
    {
@@ -225,6 +232,17 @@ void NormalizeStops(bool is_buy, double &sl, double &tp)
    }
 }
 
+bool RROk(bool is_buy, double sl, double tp)
+{
+   double price = is_buy ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double risk = MathAbs(price - sl);
+   double reward = MathAbs(tp - price);
+   if(risk <= 0.0) return false;
+   double rr_now = reward / risk;
+   if(rr_now < MinRRAfterNormalize) return false;
+   return true;
+}
+
 void MaybeFlattenShock(double atr)
 {
    double high1 = iHigh(_Symbol, PERIOD_CURRENT, 1);
@@ -308,8 +326,10 @@ void OnTick()
    else if(rg == REG_RANGE)
    {
       if(bb_m==EMPTY_VALUE || rsi==EMPTY_VALUE || dlo==EMPTY_VALUE || dhi==EMPTY_VALUE) return;
-      if(close1 <= bb_l && rsi < 30 && close1 <= dlo + 0.15 * atr) buy = true;
-      if(close1 >= bb_u && rsi > 70 && close1 >= dhi - 0.15 * atr) sell = true;
+      bool htf_not_strong_down = close1 >= ema_d * 0.998;
+      bool htf_not_strong_up   = close1 <= ema_d * 1.002;
+      if(htf_not_strong_down && close1 <= bb_l && rsi < 30 && close1 <= dlo + 0.15 * atr) buy = true;
+      if(htf_not_strong_up && close1 >= bb_u && rsi > 70 && close1 >= dhi - 0.15 * atr) sell = true;
    }
 
    if(!buy && !sell) return;
@@ -322,8 +342,9 @@ void OnTick()
       else tp = bid + RR * (bid - sl);
       NormalizeStops(true, sl, tp);
       if(tp <= bid) return;
+      if(!RROk(true, sl, tp)) return;
       lots = LotForStop(sl, true);
-      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v333"))
+      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v336"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;
@@ -336,8 +357,9 @@ void OnTick()
       else tp = ask - RR * (sl - ask);
       NormalizeStops(false, sl, tp);
       if(tp >= ask) return;
+      if(!RROk(false, sl, tp)) return;
       lots = LotForStop(sl, false);
-      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v333"))
+      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v336"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;
