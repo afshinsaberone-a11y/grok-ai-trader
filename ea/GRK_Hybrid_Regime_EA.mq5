@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.23                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.33                                  |
 //| Contract-safety hybrid. NOT a profit guarantee.                  |
 //| Banned: grid, martingale, average-down. ممنوع                    |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.23"
+#property version   "3.33"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -15,7 +15,7 @@ input int    MaxSpreadPoints     = 25;
 input int    CoolDownBars        = 8;
 input int    MaxTradesDay        = 3;
 input int    MaxConsecutiveLoss  = 2;
-input int    Magic               = 20260323;
+input int    Magic               = 20260333;
 input int    SlippagePoints      = 20;
 input double MinMarginLevelPct   = 400.0;
 input double CostAtrFraction     = 0.25;
@@ -30,12 +30,13 @@ input double ShockAtrMult        = 2.5;
 input double RR                  = 2.0;
 input int    RSI_Period          = 14;
 input int    BB_Period           = 20;
+input int    DonchianPeriod      = 20;
 input int    SessLondonStart     = 8;
 input int    SessLondonEnd       = 17;
 input int    SessNYStart         = 13;
 input int    SessNYEnd           = 21;
 input int    FridayFlattenHour   = 20;
-input string NewsBlackoutHours   = "12,13,14"; // broker-server hours to skip (NFP/FOMC window style)
+input string NewsBlackoutHours   = "12,13,14";
 input bool   MondayOpenBlock     = true;
 
 CTrade trade;
@@ -169,6 +170,20 @@ ENUM_REGIME Regime(double adx)
    return REG_TRANS;
 }
 
+double DonchianHigh()
+{
+   int idx = iHighest(_Symbol, PERIOD_CURRENT, MODE_HIGH, DonchianPeriod, 1);
+   if(idx < 0) return EMPTY_VALUE;
+   return iHigh(_Symbol, PERIOD_CURRENT, idx);
+}
+
+double DonchianLow()
+{
+   int idx = iLowest(_Symbol, PERIOD_CURRENT, MODE_LOW, DonchianPeriod, 1);
+   if(idx < 0) return EMPTY_VALUE;
+   return iLow(_Symbol, PERIOD_CURRENT, idx);
+}
+
 double LotForStop(double sl_price, bool is_buy)
 {
    double eq = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -277,6 +292,8 @@ void OnTick()
    double close1 = iClose(_Symbol, PERIOD_CURRENT, 1);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double dhi = DonchianHigh();
+   double dlo = DonchianLow();
 
    bool buy=false, sell=false;
    if(rg == REG_TREND)
@@ -290,9 +307,9 @@ void OnTick()
    }
    else if(rg == REG_RANGE)
    {
-      if(bb_m==EMPTY_VALUE || rsi==EMPTY_VALUE) return;
-      if(close1 <= bb_l && rsi < 30) buy = true;
-      if(close1 >= bb_u && rsi > 70) sell = true;
+      if(bb_m==EMPTY_VALUE || rsi==EMPTY_VALUE || dlo==EMPTY_VALUE || dhi==EMPTY_VALUE) return;
+      if(close1 <= bb_l && rsi < 30 && close1 <= dlo + 0.15 * atr) buy = true;
+      if(close1 >= bb_u && rsi > 70 && close1 >= dhi - 0.15 * atr) sell = true;
    }
 
    if(!buy && !sell) return;
@@ -306,7 +323,7 @@ void OnTick()
       NormalizeStops(true, sl, tp);
       if(tp <= bid) return;
       lots = LotForStop(sl, true);
-      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v323"))
+      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v333"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;
@@ -320,7 +337,7 @@ void OnTick()
       NormalizeStops(false, sl, tp);
       if(tp >= ask) return;
       lots = LotForStop(sl, false);
-      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v323"))
+      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v333"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;
