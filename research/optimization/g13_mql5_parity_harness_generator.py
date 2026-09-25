@@ -314,38 +314,7 @@ bool RunHarness()
    return true;
 }
 
-int OnInit()
-{
-   // Strategy Tester must load the EA first; do not perform the heavy
-   // 93k-row file scan from OnInit. Emit a startup marker, then execute
-   // the deterministic harness on the first tester tick.
-   bool startedFromConfig=(MQLInfoInteger(MQL_STARTED_FROM_CONFIG)!=0);
-   int localStarted=FileOpen("g13_mql5_parity.started.local.txt",FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
-   if(localStarted!=INVALID_HANDLE)
-   {
-      FileWrite(localStarted,"status","STARTED");
-      FileWrite(localStarted,"started_from_config",startedFromConfig ? "true" : "false");
-      FileClose(localStarted);
-   }
-   int started=FileOpen("g13_mql5_parity.started.txt",FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
-   if(started!=INVALID_HANDLE)
-   {
-      FileWrite(started,"status","STARTED");
-      FileWrite(started,"started_from_config",startedFromConfig ? "true" : "false");
-      FileClose(started);
-   }
-   PrintFormat("PARITY_HARNESS_EA_INIT started_from_config=%d",startedFromConfig ? 1 : 0);
-   return(INIT_SUCCEEDED);
-}
-
-void OnTick()
-{
-   static bool executed=false;
-   if(executed) return;
-   executed=true;
-   bool ok=RunHarness();
-   PrintFormat("PARITY_HARNESS_RUN_COMPLETE status=%s",ok ? "PASS" : "FAIL");
-   ExpertRemove();void OnStart()
+void OnStart()
 {
    // Research-only startup: this is deliberately a Script, not Strategy Tester.
    // It reads the REAL EURUSD M15 CSV from FILE_COMMON, computes the frozen
