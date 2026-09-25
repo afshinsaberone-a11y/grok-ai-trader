@@ -378,6 +378,8 @@ jobs:
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
           $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\mql5\\g13_parity_harness.ini'
           @"
+          [Common]
+          Login=123456
           [Experts]
           AllowLiveTrading=0
           AllowDllImport=0
@@ -387,7 +389,6 @@ jobs:
           Expert=ForexAI_G13_Parity_Harness.ex5
           Symbol=EURUSD
           Period=M15
-          # Emulated Strategy Tester account only; no broker authorization.
           Login=123456
           Deposit=10000
           Leverage=1:100
