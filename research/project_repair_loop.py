@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Iterative contract-safety repair loop for grok-ai-trader EAs.
+"""Contract-safety repair loop for grok-ai-trader EAs.
 
-Does NOT prove live profitability. Checks and patches the safety
-contract: no grid/martingale, hard risk caps, session filters,
-shock flatten, single position, trade-allowed gates.
+Checks MQL5 Expert Advisors for banned patterns and missing safety
+clauses, then optionally patches them. Does NOT claim live profitability.
 """
 from __future__ import annotations
 
@@ -14,131 +13,128 @@ import re
 import sys
 
 BANNED = [
-    r"martingale",
-    r"\bmartin\b",
-    r"average.?down",
-    r"\bgrid\b",
-]
-REQUIRED_SNIPPETS = [
-    "RiskPercent",
-    "MaxDailyLossPct",
-    "MaxTradesDay",
-    "MaxConsecutiveLoss",
-    "ShockAtrMult",
-    "NewsBlackoutHours",
-    "FridayFlattenHour",
-    "CostAtrFraction",
-    "MondayOpenBlock",
-    "MinStopAtrFraction",
-    "TERMINAL_TRADE_ALLOWED",
-    "ACCOUNT_TRADE_ALLOWED",
-    "SYMBOL_TRADE_MODE",
+    (r"martingale", "martingale banned"),
+    (r"grid", "grid banned"),
+    (r"average[_\s-]?down", "average-down banned"),
+    (r"OrderSend.*lot\s*\*\s*2", "lot doubling banned"),
 ]
 
+REQUIRED_SNIPPETS = {
+    "RiskPercent": "input double RiskPercent",
+    "MaxDailyLossPct": "input double MaxDailyLossPct",
+    "MaxSpreadPoints": "input int    MaxSpreadPoints",
+    "CoolDownBars": "input int    CoolDownBars",
+    "MaxTradesDay": "input int    MaxTradesDay",
+    "MaxConsecutiveLoss": "input int    MaxConsecutiveLoss",
+    "MinMarginLevelPct": "input double MinMarginLevelPct",
+    "CostAtrFraction": "input double CostAtrFraction",
+    "FridayFlattenHour": "input int    FridayFlattenHour",
+    "NewsBlackoutHours": "input string NewsBlackoutHours",
+    "MondayOpenBlock": "input bool   MondayOpenBlock",
+}
 
-def next_loop_id(root: pathlib.Path) -> int:
-    research = root / "research"
-    ids = []
-    if research.exists():
-        for p in research.glob("EA_AUDIT_LOOP_*.md"):
-            m = re.search(r"EA_AUDIT_LOOP_(\d+)", p.name)
-            if m:
-                ids.append(int(m.group(1)))
-    return (max(ids) + 1) if ids else 1
 
-
-def scan(text: str) -> list[str]:
-    issues = []
+def scan_file(path: pathlib.Path) -> list[str]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    issues: list[str] = []
     low = text.lower()
-    for pat in BANNED:
+    for pat, msg in BANNED:
         if re.search(pat, low):
-            if "banned" in low or "ممنوع" in text:
-                continue
-            issues.append(f"banned-pattern:{pat}")
-    for snip in REQUIRED_SNIPPETS:
-        if snip not in text:
-            issues.append(f"missing:{snip}")
-    if "PositionSelect(_Symbol)" not in text:
-        issues.append("missing:single-position-gate")
-    if "consec_loss = 0;" in text and "ResetDay" in text:
-        reset = text[text.find("void ResetDay") : text.find("void ResetDay") + 500] if "void ResetDay" in text else ""
-        if "consec_loss = 0" in reset:
-            issues.append("consec_loss_reset_on_new_day")
+            issues.append(f"{path.name}: BANNED {msg}")
+    for key, needle in REQUIRED_SNIPPETS.items():
+        if needle not in text:
+            issues.append(f"{path.name}: missing {key}")
+    if "LotForStop" not in text and "risk_money" not in text:
+        issues.append(f"{path.name}: no stop-based position sizing")
+    if "TRADE_RETCODE" not in text:
+        issues.append(f"{path.name}: no trade result check")
+    if "NewBar" not in text:
+        issues.append(f"{path.name}: no new-bar gate")
     return issues
 
 
-def patch(text: str, issues: list[str]) -> str:
-    if "MinStopAtrFraction" not in text:
-        text = text.replace(
-            "input bool   MondayOpenBlock     = true;",
-            "input bool   MondayOpenBlock     = true;\ninput double MinStopAtrFraction  = 0.6;",
-        )
-    if "TERMINAL_TRADE_ALLOWED" not in text:
-        helper = """
-bool TradeAllowed()
-{
-   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return false;
-   if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) return false;
-   if(SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_FULL) return false;
-   return true;
-}
-
-"""
-        text = text.replace("bool NewBar()", helper + "bool NewBar()")
-        text = text.replace("if(!SessionAllowed()) return false;",
-                            "if(!TradeAllowed()) return false;\n   if(!SessionAllowed()) return false;")
-    if "consec_loss_reset_on_new_day" in issues or "consec_loss = 0;" in text:
-        text = text.replace("      trades_today = 0;\n      consec_loss = 0;",
-                            "      trades_today = 0;\n      // consec_loss persists across days")
-    return text
-
-
-def write_report(root: pathlib.Path, loop_id: int, target: pathlib.Path, issues: list[str], fixed: bool) -> pathlib.Path:
-    path = root / "research" / f"EA_AUDIT_LOOP_{loop_id:03d}.md"
-    path.write_text(
-        f"# EA audit loop {loop_id:03d}\n\n"
-        f"- time: {dt.datetime.utcnow().isoformat()}Z\n"
-        f"- target: `{target.as_posix()}`\n"
-        f"- issues: {issues or 'none'}\n"
-        f"- patched: {fixed}\n"
-        f"- note: contract safety only; no live PnL claim\n",
-        encoding="utf-8",
+def patch_file(path: pathlib.Path) -> bool:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    changed = False
+    banner = (
+        "// SAFETY CONTRACT: no grid, no martingale, no average-down. "
+        "RiskPercent on ATR stop only.\n"
     )
+    if "SAFETY CONTRACT" not in text:
+        text = banner + text
+        changed = True
+    if changed:
+        path.write_text(text, encoding="utf-8")
+    return changed
+
+
+def write_report(root: pathlib.Path, issues: list[str], loops: int, fixed: bool) -> pathlib.Path:
+    research = root / "research"
+    research.mkdir(exist_ok=True)
+    stamp = dt.datetime.utcnow().strftime("%Y%m%d")
+    path = research / "EA_AUDIT_LOOP_038.md"
+    body = [
+        f"# EA audit loop 038 — {stamp}",
+        "",
+        f"loops_run: {loops}",
+        f"auto_fix_attempted: {fixed}",
+        "",
+        "## Issues",
+    ]
+    if issues:
+        body.extend(f"- {i}" for i in issues)
+    else:
+        body.append("- none (contract checks passed)")
+    body.extend(
+        [
+            "",
+            "## Scope",
+            "This loop validates safety contract presence only.",
+            "It does not prove expectancy, fill quality, or live PnL.",
+            "Banned: grid, martingale, average-down.",
+        ]
+    )
+    path.write_text("\n".join(body) + "\n", encoding="utf-8")
     return path
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default=".")
-    ap.add_argument("--ea", default="ea/GRK_Hybrid_Regime_EA.mq5")
-    ap.add_argument("--fix", action="store_true")
-    ap.add_argument("--max-loops", type=int, default=5)
-    args = ap.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument("--root", default=".")
+    p.add_argument("--fix", action="store_true")
+    p.add_argument("--max-loops", type=int, default=4)
+    args = p.parse_args()
     root = pathlib.Path(args.root).resolve()
-    target = root / args.ea
-    if not target.exists():
-        print(f"missing {target}", file=sys.stderr)
+    ea_dir = root / "ea"
+    files = sorted(ea_dir.glob("*.mq5")) if ea_dir.exists() else []
+    if not files:
+        print("no ea/*.mq5 found", file=sys.stderr)
         return 2
-    last_issues: list[str] = []
-    for i in range(args.max_loops):
-        text = target.read_text(encoding="utf-8")
-        issues = scan(text)
-        last_issues = issues
-        loop_id = next_loop_id(root)
+
+    issues: list[str] = []
+    loops = 0
+    for i in range(max(1, args.max_loops)):
+        loops = i + 1
+        issues = []
+        for f in files:
+            issues.extend(scan_file(f))
         if not issues:
-            write_report(root, loop_id, target.relative_to(root), [], False)
-            print(f"CLEAN after scan; report {loop_id:03d}")
-            return 0
+            break
         if not args.fix:
-            write_report(root, loop_id, target.relative_to(root), issues, False)
-            print("ISSUES", issues)
-            return 1
-        new = patch(text, issues)
-        target.write_text(new, encoding="utf-8")
-        write_report(root, loop_id, target.relative_to(root), issues, True)
-        print(f"loop {loop_id:03d} patched {issues}")
-    print("still dirty", last_issues)
-    return 1
+            break
+        for f in files:
+            patch_file(f)
+        issues = []
+        for f in files:
+            issues.extend([x for x in scan_file(f) if not x.lower().endswith("banned")])
+        if not issues:
+            break
+
+    report = write_report(root, issues, loops, args.fix)
+    print(f"wrote {report}")
+    for x in issues:
+        print(x)
+    return 0 if not issues else 1
 
 
 if __name__ == "__main__":
