@@ -385,6 +385,8 @@ jobs:
 
           [StartUp]
           Script=ForexAI_G13_Parity_Harness
+          Symbol=EURUSD
+          Period=M15
           ShutdownTerminal=1
           "@ | Set-Content -LiteralPath $config -Encoding ascii
 
