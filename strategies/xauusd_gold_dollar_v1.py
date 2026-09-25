@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v4.6.
+"""XAUUSD Gold-Dollar research strategy v4.7.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v4.6 blocks Friday first London hour (07-08 UTC) when real spread/ATR is elevated vs the 20-day same-hour median AND volume is thin vs same-hour median. No fake spread/volume.
+v4.7 blocks Friday last session hour (19-20 UTC) when real spread/ATR is elevated vs the 20-day same-hour median. No fake spread.
 """
 from __future__ import annotations
 
@@ -104,7 +104,9 @@ class GoldParams:
     friday_london_spread_atr_lookback: int = 20
     friday_london_thin_vol_ratio: float = 0.70
     friday_london_vol_lookback: int = 20
-    version: str = "4.6"
+    friday_session_close_spread_atr_med_mult: float = 1.50
+    friday_session_close_spread_atr_lookback: int = 20
+    version: str = "4.7"
 
 
 def _col(df: pd.DataFrame, name: str) -> str:
@@ -324,4 +326,24 @@ def friday_london_spread_atr_med_thin_block(index: pd.DatetimeIndex, spread_used
     high_ratio = ratio >= (p.friday_london_spread_atr_med_mult * med_ratio)
     thin = volume < (p.friday_london_thin_vol_ratio * med_vol)
     out = in_win & high_ratio.fillna(False) & thin.fillna(False)
+    return out.astype(bool)
+
+
+def friday_session_close_spread_atr_med_block(index: pd.DatetimeIndex, spread_used: pd.Series, atr: pd.Series, p: GoldParams) -> pd.Series:
+    """True when Friday 19-20 UTC has elevated spread/ATR vs same-hour 20-day median.
+
+    Never invents spread. If ATR is zero the ratio is NaN and the bar is not blocked.
+    """
+    hour = index.hour
+    wd = index.weekday
+    in_win = (wd == 4) & (hour >= p.session_close_hour) & (hour < p.session_close_end_hour)
+    atr_safe = atr.replace(0, np.nan)
+    ratio = spread_used / atr_safe
+    same_hour_ratio = ratio.where(in_win)
+    med_ratio = same_hour_ratio.rolling(
+        window=max(p.friday_session_close_spread_atr_lookback * 24, p.friday_session_close_spread_atr_lookback),
+        min_periods=5,
+    ).median()
+    high_ratio = ratio >= (p.friday_session_close_spread_atr_med_mult * med_ratio)
+    out = in_win & high_ratio.fillna(False)
     return out.astype(bool)
