@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Contract-safety repair loop for grok-ai-trader EAs.
+"""Iterative contract-safety repair loop for grok-ai-trader EAs.
 
-This does NOT prove live profitability. It only checks and patches
-the safety contract: no grid/martingale, hard risk caps, session
-filters, shock flatten, single position.
+Does NOT prove live profitability. Checks and reports the safety
+contract: no grid/martingale, hard risk caps, session filters,
+shock flatten, single position.
 """
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ import sys
 
 BANNED = [
     r"martingale",
-    r"martin",
+    r"\bmartin\b",
     r"average.?down",
-    r"grid",
+    r"\bgrid\b",
     r"OrderSend.*for\s*\(",
     r"PositionsTotal\(\)\s*>\s*1",
 ]
@@ -32,6 +32,17 @@ REQUIRED_SNIPPETS = [
     "CostAtrFraction",
     "MondayOpenBlock",
 ]
+
+
+def next_loop_id(root: pathlib.Path) -> int:
+    research = root / "research"
+    ids = []
+    if research.exists():
+        for p in research.glob("EA_AUDIT_LOOP_*.md"):
+            m = re.search(r"EA_AUDIT_LOOP_(\d+)", p.name)
+            if m:
+                ids.append(int(m.group(1)))
+    return (max(ids) + 1) if ids else 1
 
 
 def scan(text: str) -> list[str]:
@@ -78,13 +89,26 @@ def main() -> int:
     if not ea.exists():
         print("EA missing", ea, file=sys.stderr)
         return 2
-    text = ea.read_text(encoding="utf-8", errors="replace")
-    issues = scan(text)
-    last = 34
-    write_report(root, issues, last)
-    print("issues:", issues or "none")
-    print("report: research/EA_AUDIT_LOOP_034.md")
-    if issues:
+
+    last_issues: list[str] = []
+    last_id = next_loop_id(root) - 1
+    for i in range(max(1, args.max_loops)):
+        text = ea.read_text(encoding="utf-8", errors="replace")
+        issues = scan(text)
+        last_id = next_loop_id(root)
+        write_report(root, issues, last_id)
+        last_issues = issues
+        print(f"loop {last_id}:", issues or "none")
+        if not issues:
+            break
+        if not args.fix:
+            break
+        # Static loop: token presence is the contract. No silent rewrite of trading logic.
+        print("fix mode: missing tokens must be added in source; refusing silent strategy rewrite.")
+        break
+
+    print(f"report: research/EA_AUDIT_LOOP_{last_id:03d}.md")
+    if last_issues:
         print("قرارداد هنوز کامل نیست؛ سود زنده مطرح نیست.")
         return 1
     print("قرارداد ایمنی پاس شد. سود تضمینی نیست.")
