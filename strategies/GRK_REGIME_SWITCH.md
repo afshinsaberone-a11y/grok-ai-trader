@@ -1,12 +1,10 @@
-# GRK Regime Switch v3.23 / catalog 030
+# GRK Regime Switch (031)
 
-ترکیب GRK-FX-2026-030:
+ترکیب روند‌پولبک + میانگین‌بازگشت با سوئیچ رژیم ADX.
 
-- رونده‌روی پول‌بک (EMA20/50 + بیاس D1)
-- بازگشت به میانگین (BB + RSI) فقط در ADX پایین
-- خروج کامل در شوک ناگهانی
-- بلک‌اوت ساعت خبری و ساعت اول دوشنبه
+- TREND: ADX≥25 + EMA20/50 + Daily EMA50 → پولبک EMA20
+- RANGE: ADX≤18 + BB + RSI → هدف میانه باند
+- TRANS/SHOCK: وقوف ورود + بستن شوک
 
-ریسک: 0.5% equity per trade, daily halt 2%, max 2 consecutive losses, no grid, no martingale.
-
-پیاده‌سازی: `ea/GRK_Hybrid_Regime_EA.mq5` v3.23
+قرارداد: ریسک 0.5%، ضرر روزانه 2%، ۳ معامله/روز، ۲ باخت متوالی، جلسه، خبر، جمعه، دوشنبه صبح.
+بدون گرید و مارتینگیل. سود تضمینی نیست.
