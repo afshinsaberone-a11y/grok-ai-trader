@@ -1,4 +1,25 @@
-# Catalog GRK-FX-2026-040
+# کاتالوگ استراتژی‌های فارکس — GRK-FX-2026-040
 
-See README. Hybrid regime-switch scored 8.6 after combining trend pullback + mean reversion with cost gates.
-Grid/martingale banned.
+تاریخ: 2026-09-25
+هشدار: هیچ استراتژی خرده‌فروشی تضمین سود ندارد. ESMA: 74-89% حساب‌های خرد زیان‌ده. امتیازها کیفی‌اند.
+
+## افق نگهداری
+- Swing 8.2 — ایراد: دیرکرد. اصلاح: پول‌بک+ADX+HTF
+- Position 7.6 — ایراد: دراودان طول. اصلاح: سایز کوچک
+- Day 6.4 — ایراد: هزینه/بیش‌معامله. اصلاح: سقف روز + سشن
+- Scalping 3.8 — ایراد: هزینه خرده‌فروشی
+
+## منطق
+- Trend 8.0 — زیان در رنج → خاموش با ADX پایین
+- Mean-reversion 6.9 — له‌شدن در روند → فقط ADX<=18
+- Breakout 6.5 — فیک → ریتست + هزینه/ATR
+- News 4.5 — بلک‌اوت
+- Carry 6.0 — ریسک سیاست
+- Grid/Martingale 0.5 — ممنوع
+- SMC ذهنی 5.0 — کمی‌سازی
+- Hybrid cost-aware 8.4
+
+## قهرمان v40: 8.6
+رژیم‌سوئیچ روند-پول‌بک + رنج BB/RSI + دروازه هزینه و قرارداد ایمنی.
+کد: ea/GRK_Hybrid_Regime_EA.mq5
+لوپ: research/project_repair_loop.py
