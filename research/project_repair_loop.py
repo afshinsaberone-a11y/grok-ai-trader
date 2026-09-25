@@ -3,7 +3,7 @@
 
 Does NOT prove live profitability. Checks and reports the safety
 contract: no grid/martingale, hard risk caps, session filters,
-shock flatten, single position.
+shock flatten, single position, minimum RR after normalize.
 """
 from __future__ import annotations
 
@@ -31,6 +31,8 @@ REQUIRED_SNIPPETS = [
     "FridayFlattenHour",
     "CostAtrFraction",
     "MondayOpenBlock",
+    "MinRRAfterNormalize",
+    "SYMBOL_TRADE_MODE",
 ]
 
 
@@ -56,6 +58,11 @@ def scan(text: str) -> list[str]:
             issues.append(f"missing:{snip}")
     if "PositionSelect(_Symbol)" not in text:
         issues.append("missing:single-position-gate")
+    if "MinRRAfterNormalize" in text and "rr_now" not in text and "rr_ok" not in text:
+        # presence of input is not enough; need a usage site
+        if "MinRRAfterNormalize" not in text.split("OnTick", 1)[-1] and "MinRRAfterNormalize" not in text.split("LotForStop", 1)[-1]:
+            if "if(rr_now < MinRRAfterNormalize)" not in text:
+                issues.append("missing:min-rr-enforcement")
     return issues
 
 
@@ -103,7 +110,6 @@ def main() -> int:
             break
         if not args.fix:
             break
-        # Static loop: token presence is the contract. No silent rewrite of trading logic.
         print("fix mode: missing tokens must be added in source; refusing silent strategy rewrite.")
         break
 

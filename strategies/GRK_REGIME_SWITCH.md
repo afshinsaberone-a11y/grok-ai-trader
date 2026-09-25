@@ -1,15 +1,17 @@
-# GRK Regime Switch 035
+# GRK Regime Switch 036
 
 ترکیب خانواده‌های با امتیاز اصلاح‌شده بالا:
-- Trend / swing pullback اصلاح‌شده (8.4)
-- Mean reversion با گیت ADX + Donchian (8.1)
-- Breakout فقط از طریق ریتست/خروج شوک (7.7)
+- Trend / swing pullback اصلاح‌شده (8.5)
+- Mean reversion با گیت ADX + Donchian + فیلتر HTF (8.2)
+- Breakout فقط به‌صورت خروج شوک / عدم تعقیب (7.8)
 
-پیاده‌سازی: `ea/GRK_Hybrid_Regime_EA.mq5`
+پیاده‌سازی: `ea/GRK_Hybrid_Regime_EA.mq5` نسخه 3.36
 
 قوانین ریسک ثابت:
-- ریسک 0.5%
+- ریسک 0.5% هر معامله
 - قفل ضرر روزانه 2%
 - حداکثر 3 معامله در روز
 - حداکثر 2 باخت متوالی
+- حداقل RR پس از نرمال استاپ 1.5
 - بدون گرید و مارتینگیل
+- یک پوزیشن در هر نماد
