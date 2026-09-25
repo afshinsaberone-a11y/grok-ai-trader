@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.33                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.39                                  |
 //| Contract-safety hybrid. NOT a profit guarantee.                  |
 //| Banned: grid, martingale, average-down. ممنوع                    |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.33"
+#property version   "3.39"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -15,7 +15,7 @@ input int    MaxSpreadPoints     = 25;
 input int    CoolDownBars        = 8;
 input int    MaxTradesDay        = 3;
 input int    MaxConsecutiveLoss  = 2;
-input int    Magic               = 20260333;
+input int    Magic               = 20260339;
 input int    SlippagePoints      = 20;
 input double MinMarginLevelPct   = 400.0;
 input double CostAtrFraction     = 0.25;
@@ -42,6 +42,7 @@ input bool   MondayOpenBlock     = true;
 CTrade trade;
 datetime day_start = 0;
 double   day_start_eq = 0;
+double   peak_eq = 0;
 int      trades_today = 0;
 int      consec_loss = 0;
 int      cooldown_left = 0;
@@ -63,6 +64,7 @@ int OnInit()
    if(h_adx==INVALID_HANDLE || h_atr==INVALID_HANDLE || h_ema_f==INVALID_HANDLE ||
       h_ema_s==INVALID_HANDLE || h_ema_d==INVALID_HANDLE || h_rsi==INVALID_HANDLE || h_bb==INVALID_HANDLE)
       return INIT_FAILED;
+   peak_eq = AccountInfoDouble(ACCOUNT_EQUITY);
    return INIT_SUCCEEDED;
 }
 
@@ -79,6 +81,38 @@ bool NewBar()
    if(t == last_bar) return false;
    last_bar = t;
    return true;
+}
+
+bool HasOurPosition()
+{
+   if(PositionSelect(_Symbol))
+   {
+      if((int)PositionGetInteger(POSITION_MAGIC) == Magic)
+         return true;
+   }
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket==0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if((int)PositionGetInteger(POSITION_MAGIC) != Magic) continue;
+      return true;
+   }
+   return false;
+}
+
+bool CloseOurPosition()
+{
+   bool ok = true;
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket==0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if((int)PositionGetInteger(POSITION_MAGIC) != Magic) continue;
+      if(!trade.PositionClose(ticket)) ok = false;
+   }
+   return ok;
 }
 
 bool IsFridayLate()
@@ -130,7 +164,6 @@ void ResetDay()
       day_start = start;
       day_start_eq = AccountInfoDouble(ACCOUNT_EQUITY);
       trades_today = 0;
-      consec_loss = 0;
    }
 }
 
@@ -141,16 +174,22 @@ bool SafetyOk()
    if(trades_today >= MaxTradesDay) return false;
    if(cooldown_left > 0) return false;
    double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   if(eq > peak_eq) peak_eq = eq;
    if(day_start_eq > 0.0)
    {
       double dd = 100.0 * (day_start_eq - eq) / day_start_eq;
       if(dd >= MaxDailyLossPct) return false;
    }
+   if(peak_eq > 0.0)
+   {
+      double dd2 = 100.0 * (peak_eq - eq) / peak_eq;
+      if(dd2 >= MaxDailyLossPct) return false;
+   }
    long spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
    if(spread > MaxSpreadPoints) return false;
    double ml = AccountInfoDouble(ACCOUNT_MARGIN_LEVEL);
    if(ml > 0.0 && ml < MinMarginLevelPct) return false;
-   if(PositionSelect(_Symbol)) return false;
+   if(HasOurPosition()) return false;
    return true;
 }
 
@@ -184,14 +223,13 @@ double DonchianLow()
    return iLow(_Symbol, PERIOD_CURRENT, idx);
 }
 
-double LotForStop(double sl_price, bool is_buy)
+double LotForStop(double entry, double sl_price)
 {
    double eq = AccountInfoDouble(ACCOUNT_EQUITY);
    double risk_money = eq * RiskPercent / 100.0;
    double tick_val = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
    double tick_sz  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   double price = is_buy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double dist = MathAbs(price - sl_price);
+   double dist = MathAbs(entry - sl_price);
    if(dist <= 0 || tick_val <= 0 || tick_sz <= 0) return 0;
    double loss_per_lot = (dist / tick_sz) * tick_val;
    if(loss_per_lot <= 0) return 0;
@@ -205,14 +243,13 @@ double LotForStop(double sl_price, bool is_buy)
    return lots;
 }
 
-void NormalizeStops(bool is_buy, double &sl, double &tp)
+void NormalizeStops(bool is_buy, double price, double &sl, double &tp)
 {
    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    sl = NormalizeDouble(sl, digits);
    tp = NormalizeDouble(tp, digits);
    long stops_level = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
    double min_dist = stops_level * _Point;
-   double price = is_buy ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    if(is_buy)
    {
       if(price - sl < min_dist) sl = NormalizeDouble(price - min_dist, digits);
@@ -231,8 +268,7 @@ void MaybeFlattenShock(double atr)
    double low1  = iLow(_Symbol, PERIOD_CURRENT, 1);
    if(atr > 0 && (high1 - low1) >= ShockAtrMult * atr)
    {
-      if(PositionSelect(_Symbol))
-         trade.PositionClose(_Symbol);
+      CloseOurPosition();
       cooldown_left = CoolDownBars;
    }
 }
@@ -240,8 +276,7 @@ void MaybeFlattenShock(double atr)
 void MaybeFlattenFriday()
 {
    if(!IsFridayLate()) return;
-   if(PositionSelect(_Symbol))
-      trade.PositionClose(_Symbol);
+   CloseOurPosition();
 }
 
 void OnTradeTransaction(const MqlTradeTransaction& trans,
@@ -317,13 +352,13 @@ void OnTick()
    double sl, tp, lots;
    if(buy)
    {
-      sl = bid - 1.4 * atr;
+      sl = ask - 1.4 * atr;
       if(rg == REG_RANGE && bb_m != EMPTY_VALUE) tp = bb_m;
-      else tp = bid + RR * (bid - sl);
-      NormalizeStops(true, sl, tp);
-      if(tp <= bid) return;
-      lots = LotForStop(sl, true);
-      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v333"))
+      else tp = ask + RR * (ask - sl);
+      NormalizeStops(true, ask, sl, tp);
+      if(tp <= ask) return;
+      lots = LotForStop(ask, sl);
+      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v339"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;
@@ -331,13 +366,13 @@ void OnTick()
    }
    else
    {
-      sl = ask + 1.4 * atr;
+      sl = bid + 1.4 * atr;
       if(rg == REG_RANGE && bb_m != EMPTY_VALUE) tp = bb_m;
-      else tp = ask - RR * (sl - ask);
-      NormalizeStops(false, sl, tp);
-      if(tp >= ask) return;
-      lots = LotForStop(sl, false);
-      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v333"))
+      else tp = bid - RR * (sl - bid);
+      NormalizeStops(false, bid, sl, tp);
+      if(tp >= bid) return;
+      lots = LotForStop(bid, sl);
+      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v339"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;
