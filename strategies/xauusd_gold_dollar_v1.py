@@ -109,3 +109,71 @@ class GoldParams:
     friday_session_close_thin_vol_ratio: float = 0.70
     friday_session_close_vol_lookback: int = 20
     version: str = "4.8"
+
+
+def _col(df: pd.DataFrame, name: str) -> str:
+    mapping = {c.lower(): c for c in df.columns}
+    if name.lower() not in mapping:
+        raise ValueError(f"REAL_DATA_REQUIRED: missing column {name}")
+    return mapping[name.lower()]
+
+
+def _optional_col(df: pd.DataFrame, name: str) -> str | None:
+    mapping = {c.lower(): c for c in df.columns}
+    return mapping.get(name.lower())
+
+
+def wilder_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    up = high.diff()
+    down = -low.diff()
+    plus_dm = np.where((up > down) & (up > 0), up, 0.0)
+    minus_dm = np.where((down > up) & (down > 0), down, 0.0)
+    tr = pd.concat([(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
+    plus_di = 100 * pd.Series(plus_dm, index=high.index).ewm(alpha=1 / period, adjust=False).mean() / atr
+    minus_di = 100 * pd.Series(minus_dm, index=high.index).ewm(alpha=1 / period, adjust=False).mean() / atr
+    dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
+    return dx.ewm(alpha=1 / period, adjust=False).mean()
+
+
+def friday_session_close_spread_atr_med_block(index: pd.DatetimeIndex, spread_used: pd.Series, atr: pd.Series, p: GoldParams) -> pd.Series:
+    """True when Friday 19-20 UTC has elevated spread/ATR vs same-hour 20-day median.
+
+    Never invents spread. If ATR is zero the ratio is NaN and the bar is not blocked.
+    """
+    hour = index.hour
+    wd = index.weekday
+    in_win = (wd == 4) & (hour >= p.session_close_hour) & (hour < p.session_close_end_hour)
+    atr_safe = atr.replace(0, np.nan)
+    ratio = spread_used / atr_safe
+    same_hour_ratio = ratio.where(in_win)
+    med_ratio = same_hour_ratio.rolling(
+        window=max(p.friday_session_close_spread_atr_lookback * 24, p.friday_session_close_spread_atr_lookback),
+        min_periods=5,
+    ).median()
+    high_ratio = ratio >= (p.friday_session_close_spread_atr_med_mult * med_ratio)
+    out = in_win & high_ratio.fillna(False)
+    return out.astype(bool)
+
+
+def friday_session_close_spread_atr_med_thin_block(index: pd.DatetimeIndex, spread_used: pd.Series, atr: pd.Series, volume: pd.Series | None, p: GoldParams) -> pd.Series:
+    """True when Friday 19-20 UTC has elevated spread/ATR vs same-hour median AND thin volume.
+
+    If volume is missing, the AND filter stays off (all False). Never invents spread or volume.
+    """
+    out = pd.Series(False, index=index)
+    if volume is None:
+        return out
+    hour = index.hour
+    wd = index.weekday
+    in_win = (wd == 4) & (hour >= p.session_close_hour) & (hour < p.session_close_end_hour)
+    atr_safe = atr.replace(0, np.nan)
+    ratio = spread_used / atr_safe
+    same_hour_ratio = ratio.where(in_win)
+    med_ratio = same_hour_ratio.rolling(window=max(p.friday_session_close_spread_atr_lookback * 24, p.friday_session_close_spread_atr_lookback), min_periods=5).median()
+    vol_win = volume.where(in_win)
+    med_vol = vol_win.rolling(window=max(p.friday_session_close_vol_lookback * 24, p.friday_session_close_vol_lookback), min_periods=5).median()
+    high_ratio = ratio >= (p.friday_session_close_spread_atr_med_mult * med_ratio)
+    thin = volume < (p.friday_session_close_thin_vol_ratio * med_vol)
+    out = in_win & high_ratio.fillna(False) & thin.fillna(False)
+    return out.astype(bool)
