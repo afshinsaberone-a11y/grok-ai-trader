@@ -30,6 +30,9 @@ REQUIRED_TOKENS = [
     "REG_TRANS",
     "NewsBlackoutHours",
     "MondayOpenBlock",
+    "DonchianPeriod",
+    "DonchianHigh",
+    "DonchianLow",
 ]
 
 BANNED_STRATEGY_PATTERNS = [
@@ -93,11 +96,6 @@ def _checks_from_text(text: str) -> list[dict[str, str]]:
 
 
 def audit(root_or_text: Path | str) -> dict[str, Any] | list[str]:
-    """Dual API for backward compatibility.
-
-    - Path: structured report expected by tests
-    - str: list of issue strings (legacy CLI helper)
-    """
     if isinstance(root_or_text, Path):
         ea = root_or_text / DEFAULT_EA
         if not ea.exists():
@@ -124,7 +122,6 @@ def audit(root_or_text: Path | str) -> dict[str, Any] | list[str]:
             "ea": str(ea),
             "checks": checks,
         }
-
     issues = [c["evidence"] for c in _checks_from_text(root_or_text) if c["status"] == "FAIL"]
     return issues
 
@@ -132,11 +129,11 @@ def audit(root_or_text: Path | str) -> dict[str, Any] | list[str]:
 PATCH_SNIPPETS = {
     "NewsBlackoutHours": 'input string NewsBlackoutHours   = "12,13,14";\n',
     "MondayOpenBlock": "input bool   MondayOpenBlock     = true;\n",
+    "DonchianPeriod": "input int    DonchianPeriod      = 20;\n",
 }
 
 
 def try_fix(ea_path: Path) -> bool:
-    """Very conservative auto-fix: only inject missing input tokens if header exists."""
     text = _read(ea_path)
     changed = False
     for tok, snippet in PATCH_SNIPPETS.items():
@@ -159,7 +156,6 @@ def main() -> int:
     p.add_argument("--json", action="store_true")
     args = p.parse_args()
     root = Path(args.root)
-
     last: dict[str, Any] | None = None
     for i in range(max(1, args.max_loops)):
         last = audit(root)
@@ -177,7 +173,6 @@ def main() -> int:
                 try_fix(ea)
                 continue
         break
-
     if args.json and last:
         print(json.dumps(last, indent=2))
     else:
