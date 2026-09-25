@@ -539,22 +539,31 @@ jobs:
             --mt5 "$env:PARITY_CSV_RESOLVED" `
             --output artifacts/g13-mql5-signal-parity.json
 
-      - name: Upload MT5 parity diagnostics
+      - name: Print MT5 parity diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: g13-mt5-parity-diagnostics-${{ github.run_id }}
-          path: artifacts/g13/diagnostics/**
-          if-no-files-found: warn
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\diagnostics'
+          if (Test-Path $diag) {
+            Write-Host "MT5_DIAGNOSTICS_DIR=$diag"
+            Get-ChildItem $diag -Recurse -File |
+              Sort-Object FullName |
+              Select-Object FullName,Length,LastWriteTime |
+              Format-Table -AutoSize |
+              Out-String |
+              Write-Host
+            foreach ($file in @(Get-ChildItem $diag -Recurse -File | Where-Object { $_.Extension -in @('.txt','.log') } | Sort-Object LastWriteTime -Descending | Select-Object -First 5)) {
+              Write-Host "===== MT5_DIAGNOSTIC_FILE=$($file.FullName) ====="
+              Get-Content -LiteralPath $file.FullName -ErrorAction Continue |
+                Select-Object -Last 80 |
+                ForEach-Object { if ($_.Trim()) { Write-Host $_ } }
+            }
+          } else {
+            Write-Host 'MT5_DIAGNOSTICS_DIR_MISSING'
+          }
 
-      - name: Upload compile + parity evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: g13-mt5-compile-parity
-          path: |
-            artifacts/g13/mql5/*.mq5
-            artifacts/g13/mql5/*.ex5
-            artifacts/g13/mql5/g13_parity_harness.ini
-            artifacts/g13-mql5-signal-parity.json
-            artifacts/g13/ci_inputs/*
-          if-no-files-found: error
+          $parityJson = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13-mql5-signal-parity.json'
+          if (Test-Path $parityJson) {
+            Write-Host "===== G13_SIGNAL_PARITY_JSON ====="
+            Get-Content -LiteralPath $parityJson -Raw | Write-Host
+          }
