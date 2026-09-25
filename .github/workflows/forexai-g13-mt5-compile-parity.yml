@@ -186,7 +186,7 @@ jobs:
           }
           Write-Host "MT5_COMPILE_OK=15"
 
-      - name: Compile and deploy MQL5 real-data parity harness
+      - name: Compile and deploy MQL5 real-data parity script
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
@@ -228,11 +228,11 @@ jobs:
           if ($errors -ne 0) { throw "Parity harness compile produced $errors errors" }
           if (!(Test-Path -LiteralPath $ex5 -PathType Leaf)) { throw "Parity harness EX5 was not produced" }
 
-          $experts = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075\\MQL5\\Experts'
-          New-Item -ItemType Directory -Path $experts -Force | Out-Null
-          Copy-Item $src (Join-Path $experts $f.Name) -Force
-          Copy-Item $ex5 (Join-Path $experts ([System.IO.Path]::GetFileName($ex5))) -Force
-          Write-Host "PARITY_HARNESS_DEPLOY_OK=$experts\\ForexAI_G13_Parity_Harness.ex5"
+          $scripts = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075\\MQL5\\Scripts'
+          New-Item -ItemType Directory -Path $scripts -Force | Out-Null
+          Copy-Item $src (Join-Path $scripts $f.Name) -Force
+          Copy-Item $ex5 (Join-Path $scripts ([System.IO.Path]::GetFileName($ex5))) -Force
+          Write-Host "PARITY_HARNESS_DEPLOY_OK=$scripts\\ForexAI_G13_Parity_Harness.ex5"
 
       - name: Deploy fresh EAs to MT5 Experts
         env:
@@ -370,7 +370,7 @@ jobs:
           Write-Host "REAL_DATA_COMMON_INPUT=$inputTarget"
           Write-Host "REAL_INPUT_STAGED_OK"
 
-      - name: Run MQL5 real-data parity harness
+      - name: Run MQL5 real-data parity script
         env:
           MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
@@ -378,31 +378,13 @@ jobs:
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
           $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\mql5\\g13_parity_harness.ini'
           @"
-          [Common]
-          Login=123456
           [Experts]
           AllowLiveTrading=0
           AllowDllImport=0
           Enabled=1
 
-          [Tester]
-          Expert=ForexAI_G13_Parity_Harness.ex5
-          Symbol=EURUSD
-          Period=M15
-          Login=123456
-          Deposit=10000
-          Leverage=1:100
-          Model=2
-          ExecutionMode=0
-          Optimization=0
-          OptimizationCriterion=0
-          ForwardMode=0
-          Visual=0
-          FromDate=2022.01.01
-          ToDate=2026.01.01
-          UseLocal=1
-          UseRemote=0
-          UseCloud=0
+          [StartUp]
+          Script=ForexAI_G13_Parity_Harness
           ShutdownTerminal=1
           "@ | Set-Content -LiteralPath $config -Encoding ascii
 
@@ -412,34 +394,31 @@ jobs:
           $started = Join-Path $serviceCommon 'g13_mql5_parity.started.txt'
           Remove-Item $parity,$done,$started -Force -ErrorAction SilentlyContinue
 
-          Write-Host "Launching MT5 parity harness via Strategy Tester config"
-          $configArg = '/config:"' + $config + '"'
-          Write-Host "MT5_PARITY_CONFIG_CONTENT="
+          Write-Host "Launching MT5 parity script via startup config"
           Get-Content -LiteralPath $config | ForEach-Object { Write-Host "MT5_PARITY_CONFIG_LINE=$($_)" }
+          $configArg = '/config:"' + $config + '"'
           $procInfo = Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
             Where-Object {
               $_.ExecutablePath -and
               ([IO.Path]::GetFullPath($_.ExecutablePath).Equals([IO.Path]::GetFullPath($terminal),[StringComparison]::OrdinalIgnoreCase))
             }
-          foreach ($p in @($procInfo)) {
-            Write-Host "MT5_EXISTING_PROCESS id=$($p.ProcessId) command=$($p.CommandLine)"
-          }
           if (@($procInfo).Count -gt 0) {
-            throw "A MetaTrader terminal instance for $terminal is already running under the runner service account; parity launch aborted to avoid attaching to an unrelated session."
+            foreach ($p in @($procInfo)) {
+              Write-Host "MT5_EXISTING_PROCESS id=$($p.ProcessId) command=$($p.CommandLine)"
+            }
+            throw "A MetaTrader terminal instance for $terminal is already running under the runner service account."
           }
+
           $proc = Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @($configArg,'/skipupdate') -PassThru
 
-          # Prove that the MQL5 EA actually started before waiting on
-          # the terminal process. This distinguishes config/tester issues
-          # from a slow parity calculation.
-          $startDeadline = (Get-Date).AddSeconds(180)
+          $deadline = (Get-Date).AddSeconds(180)
           $startedSeen = $false
-          while (-not $proc.HasExited -and (Get-Date) -lt $startDeadline) {
+          while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
             if (Test-Path -LiteralPath $started -PathType Leaf) {
               $startedSeen = $true
-              Write-Host "MQL5_PARITY_EA_STARTED"
+              Write-Host "MQL5_PARITY_SCRIPT_STARTED"
               Get-Content -LiteralPath $started -ErrorAction SilentlyContinue | ForEach-Object {
-                if ($_.Trim()) { Write-Host "MQL5_PARITY_EA_STARTED_MARKER=$($_.Trim())" }
+                if ($_.Trim()) { Write-Host "MQL5_PARITY_STARTED_MARKER=$($_.Trim())" }
               }
               break
             }
@@ -447,15 +426,13 @@ jobs:
           }
           if (-not $startedSeen) {
             if ($proc.HasExited) {
-              Write-Host "MT5_PARITY_TERMINAL_EXITED_BEFORE_EA_START exit_code=$($proc.ExitCode)"
+              Write-Host "MT5_PARITY_TERMINAL_EXITED_BEFORE_SCRIPT_START exit_code=$($proc.ExitCode)"
             } else {
-              Write-Host "MT5_PARITY_TERMINAL_STILL_RUNNING_BEFORE_EA_START"
+              Write-Host "MT5_PARITY_TERMINAL_STILL_RUNNING_BEFORE_SCRIPT_START"
             }
-            throw "G13 parity EA did not start within 180 seconds; inspect MT5 diagnostics artifact"
+            throw "G13 parity script did not start within 180 seconds; inspect MT5 diagnostics artifact"
           }
 
-          # Allow a bounded 10-minute window for the 93k-row real dataset
-          # across all 15 frozen candidates.
           $deadline = (Get-Date).AddSeconds(600)
           while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
             if (Test-Path -LiteralPath $done -PathType Leaf) {
@@ -465,7 +442,7 @@ jobs:
           }
           if (-not $proc.HasExited) {
             try { $proc.Kill() } catch {}
-            throw "MT5 parity harness timed out after 600 seconds"
+            throw "MT5 parity script timed out after 600 seconds"
           }
           Write-Host "MT5_PARITY_TERMINAL_EXIT_CODE=$($proc.ExitCode)"
           if (!(Test-Path -LiteralPath $parity -PathType Leaf)) {
