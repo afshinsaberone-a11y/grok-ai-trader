@@ -1,15 +1,23 @@
-# GRK Regime Switch 035
+# GRK Regime Switch 036
 
-ترکیب خانواده‌های با امتیاز اصلاح‌شده بالا:
-- Trend / swing pullback اصلاح‌شده (8.4)
-- Mean reversion با گیت ADX + Donchian (8.1)
-- Breakout فقط از طریق ریتست/خروج شوک (7.7)
+ترکیب اصلاح‌شده:
 
-پیاده‌سازی: `ea/GRK_Hybrid_Regime_EA.mq5`
+- خانواده A (روند پولبک) وقتی ADX بالا است
+- خانواده B (میانگین‌بازگشت محدود) وقتی ADX پایین است
+- خانواده C فقط به‌صورت فیلتر شوک (خروج)، نه ورود بریک‌اوت خام
+- خانواده E و F حذف: خبر = بلک‌اوت؛ گرید/مارتینگیل ممنوع
 
-قوانین ریسک ثابت:
-- ریسک 0.5%
-- قفل ضرر روزانه 2%
-- حداکثر 3 معامله در روز
-- حداکثر 2 باخت متوالی
-- بدون گرید و مارتینگیل
+قوانین ایمنی اجباری در EA:
+
+- RiskPercent
+- MaxDailyLossPct
+- MaxTradesDay
+- MaxConsecutiveLoss
+- ShockAtrMult
+- NewsBlackoutHours
+- FridayFlattenHour
+- CostAtrFraction
+- MondayOpenBlock
+- تک‌پوزیشن: `PositionSelect(_Symbol)` قبل از ورود
+
+سود زنده تضمین نمی‌شود.

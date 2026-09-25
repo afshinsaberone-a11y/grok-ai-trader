@@ -60,12 +60,15 @@ def scan(text: str) -> list[str]:
 
 
 def write_report(root: pathlib.Path, issues: list[str], loop: int) -> pathlib.Path:
-    p = root / "research" / f"EA_AUDIT_LOOP_{loop:03d}.md"
+    research = root / "research"
+    research.mkdir(parents=True, exist_ok=True)
+    p = research / f"EA_AUDIT_LOOP_{loop:03d}.md"
     body = [
         f"# EA audit loop {loop:03d}",
         f"time: {dt.datetime.utcnow().isoformat()}Z",
         "",
         "هدف: قرارداد ایمنی، نه تضمین سود.",
+        "شناسه تحقیق: GRK-FX-2026-036",
         "",
     ]
     if issues:
@@ -92,7 +95,7 @@ def main() -> int:
 
     last_issues: list[str] = []
     last_id = next_loop_id(root) - 1
-    for i in range(max(1, args.max_loops)):
+    for _ in range(max(1, args.max_loops)):
         text = ea.read_text(encoding="utf-8", errors="replace")
         issues = scan(text)
         last_id = next_loop_id(root)
@@ -103,7 +106,6 @@ def main() -> int:
             break
         if not args.fix:
             break
-        # Static loop: token presence is the contract. No silent rewrite of trading logic.
         print("fix mode: missing tokens must be added in source; refusing silent strategy rewrite.")
         break
 
