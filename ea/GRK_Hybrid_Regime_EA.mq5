@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5  v3.33                                  |
+//| GRK_Hybrid_Regime_EA.mq5  v3.37                                  |
 //| Contract-safety hybrid. NOT a profit guarantee.                  |
 //| Banned: grid, martingale, average-down. ممنوع                    |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "3.33"
+#property version   "3.37"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -15,7 +15,7 @@ input int    MaxSpreadPoints     = 25;
 input int    CoolDownBars        = 8;
 input int    MaxTradesDay        = 3;
 input int    MaxConsecutiveLoss  = 2;
-input int    Magic               = 20260333;
+input int    Magic               = 20260337;
 input int    SlippagePoints      = 20;
 input double MinMarginLevelPct   = 400.0;
 input double CostAtrFraction     = 0.25;
@@ -38,6 +38,7 @@ input int    SessNYEnd           = 21;
 input int    FridayFlattenHour   = 20;
 input string NewsBlackoutHours   = "12,13,14";
 input bool   MondayOpenBlock     = true;
+input double MinStopAtrFraction  = 0.6;
 
 CTrade trade;
 datetime day_start = 0;
@@ -71,6 +72,14 @@ void OnDeinit(const int reason)
    IndicatorRelease(h_adx); IndicatorRelease(h_atr);
    IndicatorRelease(h_ema_f); IndicatorRelease(h_ema_s); IndicatorRelease(h_ema_d);
    IndicatorRelease(h_rsi); IndicatorRelease(h_bb);
+}
+
+bool TradeAllowed()
+{
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return false;
+   if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) return false;
+   if(SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_FULL) return false;
+   return true;
 }
 
 bool NewBar()
@@ -130,12 +139,12 @@ void ResetDay()
       day_start = start;
       day_start_eq = AccountInfoDouble(ACCOUNT_EQUITY);
       trades_today = 0;
-      consec_loss = 0;
    }
 }
 
 bool SafetyOk()
 {
+   if(!TradeAllowed()) return false;
    if(!SessionAllowed()) return false;
    if(consec_loss >= MaxConsecutiveLoss) return false;
    if(trades_today >= MaxTradesDay) return false;
@@ -322,8 +331,9 @@ void OnTick()
       else tp = bid + RR * (bid - sl);
       NormalizeStops(true, sl, tp);
       if(tp <= bid) return;
+      if(atr > 0 && MathAbs(bid - sl) < MinStopAtrFraction * atr) return;
       lots = LotForStop(sl, true);
-      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v333"))
+      if(lots > 0 && trade.Buy(lots, _Symbol, ask, sl, tp, "GRK-v337"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;
@@ -336,8 +346,9 @@ void OnTick()
       else tp = ask - RR * (sl - ask);
       NormalizeStops(false, sl, tp);
       if(tp >= ask) return;
+      if(atr > 0 && MathAbs(sl - ask) < MinStopAtrFraction * atr) return;
       lots = LotForStop(sl, false);
-      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v333"))
+      if(lots > 0 && trade.Sell(lots, _Symbol, bid, sl, tp, "GRK-v337"))
       {
          if(trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED)
             trades_today++;
