@@ -18,8 +18,8 @@ TEMPLATE = r'''//+--------------------------------------------------------------
 //| Generated from frozen candidate handoff; research-only.          |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.10"
-#property description "ForexAI G13 research-only real-data signal parity harness EA"
+#property version "1.20"
+#property description "ForexAI G13 research-only real-data signal parity script"
 
 input string InputFile = "g13_real_eurusd_m15.csv";
 input string OutputFile = "g13_mql5_parity.csv";
@@ -345,7 +345,29 @@ void OnTick()
    executed=true;
    bool ok=RunHarness();
    PrintFormat("PARITY_HARNESS_RUN_COMPLETE status=%s",ok ? "PASS" : "FAIL");
-   ExpertRemove();
+   ExpertRemove();void OnStart()
+{
+   // Research-only startup: this is deliberately a Script, not Strategy Tester.
+   // It reads the REAL EURUSD M15 CSV from FILE_COMMON, computes the frozen
+   // signal logic once, writes deterministic parity evidence, and exits.
+   int localStarted=FileOpen("g13_mql5_parity.started.local.txt",FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
+   if(localStarted!=INVALID_HANDLE)
+   {
+      FileWrite(localStarted,"status","STARTED");
+      FileWrite(localStarted,"program_type","SCRIPT");
+      FileClose(localStarted);
+   }
+   int started=FileOpen("g13_mql5_parity.started.txt",FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
+   if(started!=INVALID_HANDLE)
+   {
+      FileWrite(started,"status","STARTED");
+      FileWrite(started,"program_type","SCRIPT");
+      FileClose(started);
+   }
+   Print("PARITY_HARNESS_SCRIPT_START");
+
+   bool ok=RunHarness();
+   PrintFormat("PARITY_HARNESS_RUN_COMPLETE status=%s",ok ? "PASS" : "FAIL");
 }
 '''
 
