@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 5.20             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 5.30             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "5.20"
+#property version   "5.30"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -23,6 +23,8 @@ input double TuesdaySessionCloseSpreadAtrMedMult=1.50;
 input int    TuesdaySessionCloseSpreadAtrLookback=20;
 input double TuesdaySessionCloseThinVolRatio=0.70;
 input int    TuesdaySessionCloseVolLookback=20;
+input double WednesdaySessionCloseSpreadAtrMedMult=1.50;
+input int    WednesdaySessionCloseSpreadAtrLookback=20;
 input int    SessionCloseHour=19;
 input int    SessionCloseEndHour=20;
 input int    ATR_Period=14;
@@ -36,7 +38,7 @@ int OnInit()
    if(hATR==INVALID_HANDLE)
       return INIT_FAILED;
    trade.SetExpertMagicNumber(MagicNumber);
-   Print("GRK XAUUSD Gold-Dollar EA v5.20 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v5.30 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -326,4 +328,57 @@ bool TuesdaySessionCloseSpreadAtrMedThinBlock()
       return false;
    bool thin = ((double)vol_now < TuesdaySessionCloseThinVolRatio * med);
    return thin;
+}
+
+bool WednesdaySessionCloseSpreadAtrMedBlock()
+{
+   MqlDateTime gt;
+   TimeToStruct(TimeGMT(), gt);
+   if(gt.day_of_week != 3)
+      return false;
+   if(gt.hour < SessionCloseHour || gt.hour >= SessionCloseEndHour)
+      return false;
+   double atr[1];
+   if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0)
+      return false;
+   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double spread = ask-bid;
+   if(spread<=0.0)
+      return false;
+   double ratio_now = spread / atr[0];
+   double sample[];
+   ArrayResize(sample, WednesdaySessionCloseSpreadAtrLookback);
+   int n=0;
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if(point<=0.0)
+      return false;
+   for(int i=1; i<=WednesdaySessionCloseSpreadAtrLookback*30 && n<WednesdaySessionCloseSpreadAtrLookback; i++)
+   {
+      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
+      if(bar_time==0)
+         continue;
+      MqlDateTime bt;
+      TimeToStruct(bar_time, bt);
+      if(bt.day_of_week != 3)
+         continue;
+      if(bt.hour<SessionCloseHour || bt.hour>=SessionCloseEndHour)
+         continue;
+      int spr_pts = (int)iSpread(_Symbol,PERIOD_H1,i);
+      if(spr_pts<=0)
+         continue;
+      double hist_spread = (double)spr_pts * point;
+      double hist_atr = atr[0];
+      if(hist_atr<=0.0)
+         continue;
+      sample[n++] = hist_spread / hist_atr;
+   }
+   if(n<5)
+      return false;
+   ArrayResize(sample,n);
+   ArraySort(sample);
+   double med = sample[n/2];
+   if(med<=0.0)
+      return false;
+   return (ratio_now >= WednesdaySessionCloseSpreadAtrMedMult * med);
 }
