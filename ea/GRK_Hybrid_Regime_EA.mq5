@@ -1,18 +1,21 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-046                       |
+//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-047                       |
 //| Regime switch: Trend pullback / Squeeze retest / Range fade      |
 //| HTF MA + DI + session + Friday/weekend + ATR floor + halt        |
+//| Regime hysteresis + MaxTradesPerDay                              |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "46.0"
+#property version   "47.0"
 #include <Trade/Trade.mqh>
 
 input double RiskPercent        = 0.5;
 input double DailyLossLimit     = 2.0;
 input int    MaxPositions       = 1;
+input int    MaxTradesPerDay    = 3;
 input int    ADX_Period         = 14;
 input int    ADX_Trend          = 23;
 input int    ADX_Range          = 17;
+input int    RegimeConfirmBars  = 2;
 input int    MA200_Period       = 200;
 input ENUM_TIMEFRAMES HTF       = PERIOD_H4;
 input int    ATR_Period         = 14;
@@ -29,12 +32,16 @@ input int    FridayCutoffHour   = 16;
 input int    MinAtrSpreadMult   = 6;
 input int    NewsBlackoutStart  = -1;
 input int    NewsBlackoutEnd    = -1;
-input long   Magic              = 2026046;
+input long   Magic              = 2026047;
 
 CTrade trade;
 int adx_h, ma_h, htf_ma_h, atr_h, bb_h;
 int consec_losses = 0;
 int halt_bars_left = 0;
+int trades_today = 0;
+int last_regime_raw = 0;
+int last_regime_stable = 0;
+int regime_same_count = 0;
 datetime day_stamp = 0;
 double day_start_equity = 0;
 
@@ -43,6 +50,7 @@ int OnInit()
   if(RiskPercent > 0.6) return INIT_FAILED;
   if(MaxPositions != 1) return INIT_FAILED;
   if(DailyLossLimit <= 0 || ATR_SL_Mult <= 0 || RR_Target < 1.0) return INIT_FAILED;
+  if(MaxTradesPerDay < 1) return INIT_FAILED;
 
   adx_h    = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
   ma_h     = iMA(_Symbol, PERIOD_CURRENT, MA200_Period, 0, MODE_SMA, PRICE_CLOSE);
@@ -134,13 +142,14 @@ bool DailyLossOk()
     day_stamp = TimeCurrent();
     day_start_equity = AccountInfoDouble(ACCOUNT_EQUITY);
     consec_losses = 0;
+    trades_today = 0;
   }
   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
   if(day_start_equity <= 0) return false;
   return 100.0 * (day_start_equity - eq) / day_start_equity < DailyLossLimit;
 }
 
-int Regime()
+int RegimeRaw()
 {
   double adx[];
   ArraySetAsSeries(adx, true);
@@ -148,6 +157,22 @@ int Regime()
   if(adx[1] >= ADX_Trend) return 1;
   if(adx[1] <= ADX_Range) return -1;
   return 2;
+}
+
+int Regime()
+{
+  int raw = RegimeRaw();
+  if(raw == last_regime_raw)
+    regime_same_count++;
+  else
+  {
+    last_regime_raw = raw;
+    regime_same_count = 1;
+  }
+  int need = RegimeConfirmBars < 1 ? 1 : RegimeConfirmBars;
+  if(regime_same_count >= need)
+    last_regime_stable = raw;
+  return last_regime_stable;
 }
 
 bool DiBull()
@@ -225,20 +250,26 @@ bool StopsValid(double sl, double tp, bool is_buy)
 
 bool SendBuy(double sl, double tp, const string cmt)
 {
+  if(trades_today >= MaxTradesPerDay) return false;
   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
   if(!StopsValid(sl, tp, true)) return false;
   double vol = PositionSize(sl, true);
   if(vol <= 0) return false;
-  return trade.Buy(vol, _Symbol, ask, sl, tp, cmt);
+  bool ok = trade.Buy(vol, _Symbol, ask, sl, tp, cmt);
+  if(ok) trades_today++;
+  return ok;
 }
 
 bool SendSell(double sl, double tp, const string cmt)
 {
+  if(trades_today >= MaxTradesPerDay) return false;
   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
   if(!StopsValid(sl, tp, false)) return false;
   double vol = PositionSize(sl, false);
   if(vol <= 0) return false;
-  return trade.Sell(vol, _Symbol, bid, sl, tp, cmt);
+  bool ok = trade.Sell(vol, _Symbol, bid, sl, tp, cmt);
+  if(ok) trades_today++;
+  return ok;
 }
 
 bool SqueezeThenExpand()
@@ -372,6 +403,7 @@ void OnTick()
   if(!NewsBlackoutOk()) return;
   if(!DailyLossOk()) return;
   if(consec_losses >= ConsecutiveHalt) return;
+  if(trades_today >= MaxTradesPerDay) return;
   if(PositionsByMagic() >= MaxPositions) return;
 
   static datetime last_bar = 0;
@@ -389,6 +421,6 @@ void OnTick()
   else if(rg == 2) TrySqueezeBreak();
   else if(rg == -1) TryRangeFade();
 }
-// GRK-SAFETY-CONTRACT-046
+// GRK-SAFETY-CONTRACT-047
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only.
