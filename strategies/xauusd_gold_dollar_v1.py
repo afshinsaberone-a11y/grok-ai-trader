@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v6.0.
+"""XAUUSD Gold-Dollar research strategy v6.1.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v6.0 blocks Friday NY open (12-13 UTC) when real spread/ATR is elevated
-vs the 20-day same-hour median AND same-hour volume is thin vs its median.
-No fake spread or volume.
+v6.1 blocks Monday NY open (12-13 UTC) when real spread/ATR is elevated
+vs the 20-day same-hour median. No fake spread.
 """
 from __future__ import annotations
 
@@ -134,7 +133,9 @@ class GoldParams:
     friday_ny_open_spread_atr_lookback: int = 20
     friday_ny_open_thin_vol_ratio: float = 0.70
     friday_ny_open_vol_lookback: int = 20
-    version: str = "6.0"
+    monday_ny_open_spread_atr_med_mult: float = 1.50
+    monday_ny_open_spread_atr_lookback: int = 20
+    version: str = "6.1"
 
 
 def _same_hour_median(series: pd.Series, lookback: int) -> pd.Series:
@@ -183,3 +184,23 @@ def friday_ny_open_spread_atr_med_thin_block(
     vol_med = _same_hour_median(volume.astype(float), p.friday_ny_open_vol_lookback)
     thin = volume.astype(float) < (p.friday_ny_open_thin_vol_ratio * vol_med)
     return window & elevated & thin.fillna(False)
+
+
+def monday_ny_open_spread_atr_med_block(
+    idx: pd.DatetimeIndex,
+    spread: pd.Series,
+    atr: pd.Series,
+    p: GoldParams,
+) -> pd.Series:
+    """True only Monday 12-13 UTC when real spread/ATR >= mult * 20d same-hour median.
+
+    Fake spread is never synthesized. Zero ATR yields NaN ratio and does not block.
+    """
+    hour = idx.hour
+    weekday = idx.weekday
+    window = (weekday == 0) & (hour >= p.ny_open_hour) & (hour < p.ny_open_end_hour)
+    atr_safe = atr.replace(0, np.nan)
+    ratio = spread / atr_safe
+    med = _same_hour_median(ratio, p.monday_ny_open_spread_atr_lookback)
+    elevated = ratio >= (p.monday_ny_open_spread_atr_med_mult * med)
+    return window & elevated.fillna(False)
