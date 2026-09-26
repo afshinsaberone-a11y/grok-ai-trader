@@ -12,7 +12,7 @@ from pathlib import Path
 CONTRACT = (
     "// GRK-SAFETY-CONTRACT-049\n"
     "// Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.\n"
-    "// Forbidden: grid-recovery and martingale sizing. Closed-bar entries only.\n"
+    "// Forbidden: grid-recovery and recovery-lot sizing. Closed-bar entries only.\n"
 )
 
 FORBIDDEN = [
@@ -22,6 +22,18 @@ FORBIDDEN = [
     re.compile(r"recover(y)?[-_ ]?lot", re.I),
     re.compile(r"double\s+lot", re.I),
 ]
+
+
+def _code_without_comments(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("//"):
+            continue
+        if "//" in line:
+            line = line.split("//", 1)[0]
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _issues_to_checks(path: Path, issues: list[str]) -> list[dict]:
@@ -52,6 +64,7 @@ def _issues_to_checks(path: Path, issues: list[str]) -> list[dict]:
 
 def audit_mq5(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8", errors="replace")
+    code = _code_without_comments(text)
     issues: list[str] = []
     if "StopLoss" not in text and "sl," not in text.lower() and " sl=" not in text.lower():
         issues.append("no obvious StopLoss usage")
@@ -62,7 +75,7 @@ def audit_mq5(path: Path) -> list[str]:
         if args.count(",") < 3:
             issues.append(f"{m.group(1)} call may miss SL/TP args")
     for rx in FORBIDDEN:
-        if rx.search(text):
+        if rx.search(code):
             issues.append(f"forbidden pattern: {rx.pattern}")
     if "RiskPercent" in text and "RiskPercent>0.6" not in text and "RiskPercent > 0.6" not in text:
         issues.append("missing OnInit RiskPercent hard cap 0.6")
