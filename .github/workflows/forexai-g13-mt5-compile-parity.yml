@@ -146,8 +146,26 @@ jobs:
           foreach ($root in $roots) {
             if (!(Test-Path -LiteralPath $root -PathType Container)) { continue }
             foreach ($file in @(Get-ChildItem -LiteralPath $root -Filter '*.ini' -File -ErrorAction SilentlyContinue)) {
+              $fileLogin = ''
+              $fileServer = ''
               foreach ($line in @(Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue)) {
-                if (!$login -and $line -match '^\\s*Login\\s*=\\s*(\\d+)\\s*        run: |
+                if (!$fileLogin -and $line -match '^\\s*Login\\s*=\\s*([1-9]\\d+)\\s*$') { $fileLogin = $Matches[1].Trim() }
+                if (!$fileServer -and $line -match '^\\s*Server\\s*=\\s*(.+?)\\s*$') { $fileServer = $Matches[1].Trim() }
+              }
+              if ($fileLogin -and $fileServer) {
+                $login = $fileLogin
+                $server = $fileServer
+                break
+              }
+            }
+            if ($login -and $server) { break }
+          }
+          if ($login -and -not (($env:MT5_LOGIN | Out-String).Trim())) { 'MT5_LOGIN='+$login | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
+          if ($server -and -not (($env:MT5_SERVER | Out-String).Trim())) { 'MT5_SERVER='+$server | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
+          Write-Host ('MT5_ACCOUNT_CONFIG_DISCOVERED=' + [bool]($login -and $server))
+
+      - name: Verify MT5 startup account configuration
+        run: |
           $ErrorActionPreference = 'Stop'
           $login = ($env:MT5_LOGIN | Out-String).Trim()
           $server = ($env:MT5_SERVER | Out-String).Trim()
