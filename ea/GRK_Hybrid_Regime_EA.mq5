@@ -1,11 +1,12 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-049                       |
+//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-051                       |
 //| Regime switch: Trend pullback / Squeeze retest / Range fade      |
 //| HTF MA + DI + session + Friday/weekend + ATR floor + halt        |
 //| Regime hysteresis + MaxTradesPerDay + MaxHoldBars + ProfitLock   |
+//| Wide-spread half risk                                            |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "49.0"
+#property version   "51.0"
 #include <Trade/Trade.mqh>
 
 input double RiskPercent        = 0.5;
@@ -25,6 +26,7 @@ input double BB_Dev             = 2.0;
 input double ATR_SL_Mult        = 1.45;
 input double RR_Target          = 1.9;
 input double SpreadMultMax      = 1.3;
+input bool   WideSpreadHalfRisk = true;
 input int    ConsecutiveHalt    = 3;
 input int    HaltCooldownBars   = 8;
 input int    SessionStartHour   = 7;
@@ -34,7 +36,7 @@ input int    MinAtrSpreadMult   = 6;
 input int    NewsBlackoutStart  = -1;
 input int    NewsBlackoutEnd    = -1;
 input int    MaxHoldBars        = 48;
-input long   Magic              = 2026049;
+input long   Magic              = 2026051;
 
 CTrade trade;
 int adx_h, ma_h, htf_ma_h, atr_h, bb_h;
@@ -115,6 +117,16 @@ void TimeStopStale()
 double CurrentSpreadPrice()
 {
   return (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+}
+
+bool SpreadIsWide()
+{
+  double atr[];
+  ArraySetAsSeries(atr, true);
+  if(CopyBuffer(atr_h, 0, 1, 5, atr) < 5) return true;
+  if(atr[1] <= 0) return true;
+  double spr = CurrentSpreadPrice();
+  return spr > SpreadMultMax * atr[1] * 0.08;
 }
 
 bool SpreadOk()
@@ -249,12 +261,19 @@ double NormalizeVol(double vol)
   return vol;
 }
 
+double EffectiveRiskPercent()
+{
+  if(WideSpreadHalfRisk && SpreadIsWide())
+    return RiskPercent * 0.5;
+  return RiskPercent;
+}
+
 double PositionSize(double sl_price, bool is_buy)
 {
   double price = is_buy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
                         : SymbolInfoDouble(_Symbol, SYMBOL_BID);
   double sl_points = MathAbs(price - sl_price);
-  double risk_money = AccountInfoDouble(ACCOUNT_EQUITY) * RiskPercent / 100.0;
+  double risk_money = AccountInfoDouble(ACCOUNT_EQUITY) * EffectiveRiskPercent() / 100.0;
   double tick_val = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
   double tick_sz  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
   if(sl_points <= 0 || tick_val <= 0 || tick_sz <= 0) return 0;
@@ -457,6 +476,6 @@ void OnTick()
   else if(rg == 2) TrySqueezeBreak();
   else if(rg == -1) TryRangeFade();
 }
-// GRK-SAFETY-CONTRACT-049
+// GRK-SAFETY-CONTRACT-051
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
-// No grid. No martingale. Closed-bar entries only.
+// No grid. No martingale. Closed-bar entries only. Daily profit/loss halt.
