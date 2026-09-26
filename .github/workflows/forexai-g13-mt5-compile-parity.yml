@@ -2,6 +2,11 @@ name: ForexAI G13 MT5 Compile + Signal Parity
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
     inputs:
       mt5_root:
         description: 'MT5 installation root on the self-hosted Windows runner'
