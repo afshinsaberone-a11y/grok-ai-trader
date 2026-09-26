@@ -3,6 +3,14 @@ name: ForexAI G13 MT5 Compile + Signal Parity
 on:
   workflow_dispatch:
     inputs:
+      mt5_login:
+        description: 'Optional MT5 account number; defaults to repository secret MT5_LOGIN'
+        required: false
+        type: string
+      mt5_server:
+        description: 'Optional MT5 server name; defaults to repository secret MT5_SERVER'
+        required: false
+        type: string
       mt5_root:
         description: 'MT5 installation root on the self-hosted Windows runner'
         required: false
@@ -21,11 +29,6 @@ on:
         required: false
         default: 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv'
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
 
 permissions:
   contents: read
@@ -42,6 +45,9 @@ jobs:
       MT5_ROOT: ${{ inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
       MT5_DATA_ROOT: ${{ inputs.mt5_data_root || 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075' }}
       DATA_CSV_INPUT: ${{ inputs.data_csv || 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv' }}
+      MT5_LOGIN: ${{ inputs.mt5_login || secrets.MT5_LOGIN || '' }}
+      MT5_SERVER: ${{ inputs.mt5_server || secrets.MT5_SERVER || '' }}
+      MT5_PASSWORD: ${{ secrets.MT5_PASSWORD || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -123,6 +129,21 @@ jobs:
           Write-Host "TERMINAL=$terminal"
           Write-Host "MT5_DATA_ROOT=$data"
           Write-Host "MT5_EXPERTS=$experts"
+
+      - name: Verify MT5 startup account configuration
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $login = ($env:MT5_LOGIN | Out-String).Trim()
+          $server = ($env:MT5_SERVER | Out-String).Trim()
+          if (!$login) {
+            throw 'MT5_ACCOUNT_REQUIRED: configure repository secret MT5_LOGIN or supply mt5_login at manual dispatch.'
+          }
+          if (!$server) {
+            throw 'MT5_ACCOUNT_REQUIRED: configure repository secret MT5_SERVER or supply mt5_server at manual dispatch.'
+          }
+          Write-Host 'MT5_LOGIN_CONFIGURED=true'
+          Write-Host 'MT5_SERVER_CONFIGURED=true'
+          Write-Host ('MT5_PASSWORD_CONFIGURED=' + [bool]$env:MT5_PASSWORD)
 
       - name: Stage MT5 include tree for service-account MetaEditor
         run: |
@@ -376,6 +397,11 @@ jobs:
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
           $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\mql5\\g13_parity_harness.ini'
           @"
+          [Common]
+          Login=$env:MT5_LOGIN
+          Server=$env:MT5_SERVER
+          Password=$env:MT5_PASSWORD
+
           [Experts]
           AllowLiveTrading=0
           AllowDllImport=0
@@ -395,7 +421,13 @@ jobs:
           Remove-Item $parity,$done,$started -Force -ErrorAction SilentlyContinue
 
           Write-Host "Launching MT5 parity script via startup config"
-          Get-Content -LiteralPath $config | ForEach-Object { Write-Host "MT5_PARITY_CONFIG_LINE=$($_)" }
+          Get-Content -LiteralPath $config | ForEach-Object {
+            if ($_.TrimStart().StartsWith('Password=')) {
+              Write-Host 'MT5_PARITY_CONFIG_LINE=Password=<redacted>'
+            } else {
+              Write-Host "MT5_PARITY_CONFIG_LINE=$($_)"
+            }
+          }
           $configArg = '/config:"' + $config + '"'
           $procInfo = Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
             Where-Object {
