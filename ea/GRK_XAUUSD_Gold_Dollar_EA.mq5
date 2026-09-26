@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 6.00             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 6.10             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "6.00"
+#property version   "6.10"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -39,6 +39,8 @@ input double FridayNyOpenSpreadAtrMedMult=1.50;
 input int    FridayNyOpenSpreadAtrLookback=20;
 input double FridayNyOpenThinVolRatio=0.70;
 input int    FridayNyOpenVolLookback=20;
+input double MondayNyOpenSpreadAtrMedMult=1.50;
+input int    MondayNyOpenSpreadAtrLookback=20;
 input int    NyOpenHour=12;
 input int    NyOpenEndHour=13;
 input int    SessionCloseHour=19;
@@ -54,7 +56,7 @@ int OnInit()
    if(hATR==INVALID_HANDLE)
       return INIT_FAILED;
    trade.SetExpertMagicNumber(MagicNumber);
-   Print("GRK XAUUSD Gold-Dollar EA v6.00 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v6.10 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -184,4 +186,40 @@ bool FridayNyOpenSpreadAtrMedThinBlock()
    double med = sample[n/2];
    if(med<=0.0) return false;
    return ((double)vol_now < FridayNyOpenThinVolRatio * med);
+}
+
+bool MondayNyOpenSpreadAtrMedBlock()
+{
+   MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
+   if(gt.day_of_week != 1) return false;
+   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
+   double atr[1];
+   if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0) return false;
+   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double spread = ask-bid;
+   if(spread<=0.0) return false;
+   double ratio_now = spread / atr[0];
+   double sample[]; ArrayResize(sample, MondayNyOpenSpreadAtrLookback);
+   int n=0;
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if(point<=0.0) return false;
+   for(int i=1; i<=MondayNyOpenSpreadAtrLookback*30 && n<MondayNyOpenSpreadAtrLookback; i++)
+   {
+      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
+      if(bar_time==0) continue;
+      MqlDateTime bt; TimeToStruct(bar_time, bt);
+      if(bt.day_of_week != 1) continue;
+      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
+      int spr_pts = (int)iSpread(_Symbol,PERIOD_H1,i);
+      if(spr_pts<=0) continue;
+      double hist_spread = (double)spr_pts * point;
+      if(atr[0]<=0.0) continue;
+      sample[n++] = hist_spread / atr[0];
+   }
+   if(n<5) return false;
+   ArrayResize(sample,n); ArraySort(sample);
+   double med = sample[n/2];
+   if(med<=0.0) return false;
+   return (ratio_now >= MondayNyOpenSpreadAtrMedMult * med);
 }
