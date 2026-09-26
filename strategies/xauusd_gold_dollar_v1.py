@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v6.8.
+"""XAUUSD Gold-Dollar research strategy v6.9.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v6.8 adds Asia reopen (00-02 UTC) spread/ATR elevated AND thin same-hour volume.
+v6.9 adds Monday Asia reopen (00-02 UTC) spread/ATR elevated AND thin same-hour volume.
 No fake spread/volume.
 """
 from __future__ import annotations
@@ -150,7 +150,11 @@ class GoldParams:
     wednesday_ny_open_spread_atr_lookback: int = 20
     wednesday_ny_open_thin_vol_ratio: float = 0.70
     wednesday_ny_open_vol_lookback: int = 20
-    version: str = "6.8"
+    monday_asia_reopen_spread_atr_med_mult: float = 1.50
+    monday_asia_reopen_spread_atr_lookback: int = 20
+    monday_asia_reopen_thin_vol_ratio: float = 0.70
+    monday_asia_reopen_vol_lookback: int = 20
+    version: str = "6.9"
 
 
 def _same_hour_median(series: pd.Series, lookback: int) -> pd.Series:
@@ -364,4 +368,54 @@ def asia_reopen_spread_atr_med_thin_block(
     window = (hour >= p.asia_reopen_start_hour) & (hour < p.asia_reopen_end_hour)
     vol_med = _same_hour_median(volume.astype(float), p.asia_reopen_vol_lookback)
     thin = volume.astype(float) < (p.asia_reopen_thin_vol_ratio * vol_med)
+    return window & elevated & thin.fillna(False)
+
+
+def monday_asia_reopen_spread_atr_med_block(
+    idx: pd.DatetimeIndex,
+    spread: pd.Series,
+    atr: pd.Series,
+    p: GoldParams,
+) -> pd.Series:
+    """True only Monday 00-02 UTC when real spread/ATR >= mult * 20d same-hour median.
+
+    Fake spread is never synthesized. Zero ATR yields NaN ratio and does not block.
+    """
+    hour = idx.hour
+    weekday = idx.weekday
+    window = (
+        (weekday == 0)
+        & (hour >= p.asia_reopen_start_hour)
+        & (hour < p.asia_reopen_end_hour)
+    )
+    atr_safe = atr.replace(0, np.nan)
+    ratio = spread / atr_safe
+    med = _same_hour_median(ratio, p.monday_asia_reopen_spread_atr_lookback)
+    elevated = ratio >= (p.monday_asia_reopen_spread_atr_med_mult * med)
+    return window & elevated.fillna(False)
+
+
+def monday_asia_reopen_spread_atr_med_thin_block(
+    idx: pd.DatetimeIndex,
+    spread: pd.Series,
+    atr: pd.Series,
+    volume: pd.Series | None,
+    p: GoldParams,
+) -> pd.Series:
+    """True only Monday 00-02 UTC when spread/ATR is elevated AND volume is thin.
+
+    If volume column is missing the AND filter stays off. No fake volume/spread.
+    """
+    if volume is None:
+        return pd.Series(False, index=idx)
+    elevated = monday_asia_reopen_spread_atr_med_block(idx, spread, atr, p)
+    hour = idx.hour
+    weekday = idx.weekday
+    window = (
+        (weekday == 0)
+        & (hour >= p.asia_reopen_start_hour)
+        & (hour < p.asia_reopen_end_hour)
+    )
+    vol_med = _same_hour_median(volume.astype(float), p.monday_asia_reopen_vol_lookback)
+    thin = volume.astype(float) < (p.monday_asia_reopen_thin_vol_ratio * vol_med)
     return window & elevated & thin.fillna(False)
