@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-044                       |
+//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-045                       |
 //| Regime switch: Trend pullback / Squeeze retest / Range fade      |
-//| HTF MA + DI + session + spread + daily loss + consecutive halt   |
+//| HTF MA + DI + session + Friday cut + ATR floor + spread + halt   |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "44.0"
+#property version   "45.0"
 #include <Trade/Trade.mqh>
 
 input double RiskPercent        = 0.5;
@@ -24,9 +24,11 @@ input double SpreadMultMax      = 1.3;
 input int    ConsecutiveHalt    = 3;
 input int    SessionStartHour   = 7;
 input int    SessionEndHour     = 16;
+input int    FridayCutoffHour   = 16;
+input int    MinAtrSpreadMult   = 6;
 input int    NewsBlackoutStart  = -1;
 input int    NewsBlackoutEnd    = -1;
-input long   Magic              = 2026044;
+input long   Magic              = 2026045;
 
 CTrade trade;
 int adx_h, ma_h, htf_ma_h, atr_h, bb_h;
@@ -63,7 +65,7 @@ void OnDeinit(const int reason)
   if(ma_h!=INVALID_HANDLE)     IndicatorRelease(ma_h);
   if(htf_ma_h!=INVALID_HANDLE) IndicatorRelease(htf_ma_h);
   if(atr_h!=INVALID_HANDLE)    IndicatorRelease(atr_h);
-  if(bb_h!=INVALID_HANDLE)     IndicatorRelease(bb_h);
+  if(bb_h!=INVALID_HANDLE)    IndicatorRelease(bb_h);
 }
 
 int PositionsByMagic()
@@ -80,13 +82,20 @@ int PositionsByMagic()
   return n;
 }
 
+double CurrentSpreadPrice()
+{
+  return (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+}
+
 bool SpreadOk()
 {
   double atr[];
   ArraySetAsSeries(atr, true);
   if(CopyBuffer(atr_h, 0, 1, 5, atr) < 5) return false;
   if(atr[1] <= 0) return false;
-  double spr = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+  double spr = CurrentSpreadPrice();
+  if(spr <= 0) return false;
+  if(atr[1] < MinAtrSpreadMult * spr) return false;
   return spr <= SpreadMultMax * atr[1] * 0.12;
 }
 
@@ -94,6 +103,7 @@ bool SessionOk()
 {
   MqlDateTime t;
   TimeToStruct(TimeCurrent(), t);
+  if(t.day_of_week == 5 && t.hour >= FridayCutoffHour) return false;
   if(SessionStartHour == SessionEndHour) return true;
   if(SessionStartHour < SessionEndHour)
     return (t.hour >= SessionStartHour && t.hour < SessionEndHour);
@@ -145,6 +155,14 @@ bool DiBull()
   if(CopyBuffer(adx_h, 1, 1, 2, pdi) < 2) return false;
   if(CopyBuffer(adx_h, 2, 1, 2, mdi) < 2) return false;
   return pdi[1] > mdi[1];
+}
+
+bool AdxRising()
+{
+  double adx[];
+  ArraySetAsSeries(adx, true);
+  if(CopyBuffer(adx_h, 0, 1, 3, adx) < 3) return false;
+  return adx[1] > adx[2];
 }
 
 bool HtfBull()
@@ -245,19 +263,16 @@ void TryTrendPullback()
   bool long_ok  = close[1] > ma[1] && close[1] <= ma[1] + atr[1] * 0.55 && DiBull() && HtfBull();
   bool short_ok = close[1] < ma[1] && close[1] >= ma[1] - atr[1] * 0.55 && !DiBull() && !HtfBull();
 
-  double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-  double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
   if(long_ok)
   {
-    double sl = bid - ATR_SL_Mult * atr[1];
-    double tp = bid + RR_Target * ATR_SL_Mult * atr[1];
+    double sl = SymbolInfoDouble(_Symbol, SYMBOL_BID) - ATR_SL_Mult * atr[1];
+    double tp = SymbolInfoDouble(_Symbol, SYMBOL_BID) + RR_Target * ATR_SL_Mult * atr[1];
     SendBuy(sl, tp, "A-trend");
   }
   else if(short_ok)
   {
-    double sl = ask + ATR_SL_Mult * atr[1];
-    double tp = ask - RR_Target * ATR_SL_Mult * atr[1];
+    double sl = SymbolInfoDouble(_Symbol, SYMBOL_ASK) + ATR_SL_Mult * atr[1];
+    double tp = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - RR_Target * ATR_SL_Mult * atr[1];
     SendSell(sl, tp, "A-trend");
   }
 }
@@ -265,6 +280,7 @@ void TryTrendPullback()
 void TrySqueezeBreak()
 {
   if(!SqueezeThenExpand()) return;
+  if(!AdxRising()) return;
   double bb_u[], bb_l[], atr[], close[];
   ArraySetAsSeries(bb_u, true);
   ArraySetAsSeries(bb_l, true);
@@ -275,19 +291,16 @@ void TrySqueezeBreak()
   if(CopyBuffer(atr_h, 0, 1, 3, atr) < 3) return;
   if(CopyClose(_Symbol, PERIOD_CURRENT, 1, 4, close) < 4) return;
 
-  double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-  double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
   if(close[2] > bb_u[2] && close[1] <= close[2] && close[1] >= bb_u[1] && DiBull())
   {
-    double sl = bid - ATR_SL_Mult * atr[1];
-    double tp = bid + RR_Target * ATR_SL_Mult * atr[1];
+    double sl = SymbolInfoDouble(_Symbol, SYMBOL_BID) - ATR_SL_Mult * atr[1];
+    double tp = SymbolInfoDouble(_Symbol, SYMBOL_BID) + RR_Target * ATR_SL_Mult * atr[1];
     SendBuy(sl, tp, "B-squeeze");
   }
   else if(close[2] < bb_l[2] && close[1] >= close[2] && close[1] <= bb_l[1] && !DiBull())
   {
-    double sl = ask + ATR_SL_Mult * atr[1];
-    double tp = ask - RR_Target * ATR_SL_Mult * atr[1];
+    double sl = SymbolInfoDouble(_Symbol, SYMBOL_ASK) + ATR_SL_Mult * atr[1];
+    double tp = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - RR_Target * ATR_SL_Mult * atr[1];
     SendSell(sl, tp, "B-squeeze");
   }
 }
@@ -318,14 +331,14 @@ void TryRangeFade()
   if(reject_high && mid < bid)
   {
     double sl = ask + ATR_SL_Mult * atr[1];
-    double tp = mid;
-    SendSell(sl, tp, "C-range");
+    if(ask - mid < (sl - ask)) return;
+    SendSell(sl, mid, "C-range");
   }
   else if(reject_low && mid > ask)
   {
     double sl = bid - ATR_SL_Mult * atr[1];
-    double tp = mid;
-    SendBuy(sl, tp, "C-range");
+    if(mid - bid < (bid - sl)) return;
+    SendBuy(sl, mid, "C-range");
   }
 }
 
@@ -364,6 +377,6 @@ void OnTick()
   else if(rg == 2) TrySqueezeBreak();
   else if(rg == -1) TryRangeFade();
 }
-// GRK-SAFETY-CONTRACT-044
+// GRK-SAFETY-CONTRACT-045
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only.
