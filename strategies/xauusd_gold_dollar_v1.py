@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v6.3.
+"""XAUUSD Gold-Dollar research strategy v6.4.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v6.3 adds Tuesday NY open (12-13 UTC) block when real spread/ATR is elevated
-vs the 20-day same-hour median.
+v6.4 adds Tuesday NY open (12-13 UTC) AND-block when real spread/ATR is elevated
+vs the 20-day same-hour median AND real volume is thin vs the 20-day same-hour median.
 No fake spread or volume.
 """
 from __future__ import annotations
@@ -140,7 +140,9 @@ class GoldParams:
     monday_ny_open_vol_lookback: int = 20
     tuesday_ny_open_spread_atr_med_mult: float = 1.50
     tuesday_ny_open_spread_atr_lookback: int = 20
-    version: str = "6.3"
+    tuesday_ny_open_thin_vol_ratio: float = 0.70
+    tuesday_ny_open_vol_lookback: int = 20
+    version: str = "6.4"
 
 
 def _same_hour_median(series: pd.Series, lookback: int) -> pd.Series:
@@ -251,3 +253,25 @@ def tuesday_ny_open_spread_atr_med_block(
     med = _same_hour_median(ratio, p.tuesday_ny_open_spread_atr_lookback)
     elevated = ratio >= (p.tuesday_ny_open_spread_atr_med_mult * med)
     return window & elevated.fillna(False)
+
+
+def tuesday_ny_open_spread_atr_med_thin_block(
+    idx: pd.DatetimeIndex,
+    spread: pd.Series,
+    atr: pd.Series,
+    volume: pd.Series | None,
+    p: GoldParams,
+) -> pd.Series:
+    """True only Tuesday 12-13 UTC when spread/ATR is elevated AND volume is thin.
+
+    If volume column is missing the AND filter stays off. No fake volume/spread.
+    """
+    if volume is None:
+        return pd.Series(False, index=idx)
+    elevated = tuesday_ny_open_spread_atr_med_block(idx, spread, atr, p)
+    hour = idx.hour
+    weekday = idx.weekday
+    window = (weekday == 1) & (hour >= p.ny_open_hour) & (hour < p.ny_open_end_hour)
+    vol_med = _same_hour_median(volume.astype(float), p.tuesday_ny_open_vol_lookback)
+    thin = volume.astype(float) < (p.tuesday_ny_open_thin_vol_ratio * vol_med)
+    return window & elevated & thin.fillna(False)
