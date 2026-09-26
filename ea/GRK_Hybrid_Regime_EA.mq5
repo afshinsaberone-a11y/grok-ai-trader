@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-047                       |
+//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-048                       |
 //| Regime switch: Trend pullback / Squeeze retest / Range fade      |
 //| HTF MA + DI + session + Friday/weekend + ATR floor + halt        |
-//| Regime hysteresis + MaxTradesPerDay                              |
+//| Regime hysteresis + MaxTradesPerDay + MaxHoldBars                |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "47.0"
+#property version   "48.0"
 #include <Trade/Trade.mqh>
 
 input double RiskPercent        = 0.5;
@@ -32,7 +32,8 @@ input int    FridayCutoffHour   = 16;
 input int    MinAtrSpreadMult   = 6;
 input int    NewsBlackoutStart  = -1;
 input int    NewsBlackoutEnd    = -1;
-input long   Magic              = 2026047;
+input int    MaxHoldBars        = 48;
+input long   Magic              = 2026048;
 
 CTrade trade;
 int adx_h, ma_h, htf_ma_h, atr_h, bb_h;
@@ -51,6 +52,7 @@ int OnInit()
   if(MaxPositions != 1) return INIT_FAILED;
   if(DailyLossLimit <= 0 || ATR_SL_Mult <= 0 || RR_Target < 1.0) return INIT_FAILED;
   if(MaxTradesPerDay < 1) return INIT_FAILED;
+  if(MaxHoldBars < 1) return INIT_FAILED;
 
   adx_h    = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
   ma_h     = iMA(_Symbol, PERIOD_CURRENT, MA200_Period, 0, MODE_SMA, PRICE_CLOSE);
@@ -90,6 +92,23 @@ int PositionsByMagic()
     n++;
   }
   return n;
+}
+
+void TimeStopStale()
+{
+  if(MaxHoldBars <= 0) return;
+  datetime nowbar = iTime(_Symbol, PERIOD_CURRENT, 0);
+  for(int i=PositionsTotal()-1; i>=0; --i)
+  {
+    ulong ticket = PositionGetTicket(i);
+    if(ticket==0) continue;
+    if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+    if((long)PositionGetInteger(POSITION_MAGIC)!=Magic) continue;
+    datetime opened = (datetime)PositionGetInteger(POSITION_TIME);
+    int bars = iBarShift(_Symbol, PERIOD_CURRENT, opened, true);
+    if(bars >= MaxHoldBars)
+      trade.PositionClose(ticket);
+  }
 }
 
 double CurrentSpreadPrice()
@@ -398,6 +417,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 
 void OnTick()
 {
+  TimeStopStale();
   if(!SpreadOk()) return;
   if(!SessionOk()) return;
   if(!NewsBlackoutOk()) return;
@@ -421,6 +441,6 @@ void OnTick()
   else if(rg == 2) TrySqueezeBreak();
   else if(rg == -1) TryRangeFade();
 }
-// GRK-SAFETY-CONTRACT-047
+// GRK-SAFETY-CONTRACT-048
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only.
