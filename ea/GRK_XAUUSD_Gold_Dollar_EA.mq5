@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 6.30             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 6.40             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "6.30"
+#property version   "6.40"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -45,6 +45,8 @@ input double MondayNyOpenThinVolRatio=0.70;
 input int    MondayNyOpenVolLookback=20;
 input double TuesdayNyOpenSpreadAtrMedMult=1.50;
 input int    TuesdayNyOpenSpreadAtrLookback=20;
+input double TuesdayNyOpenThinVolRatio=0.70;
+input int    TuesdayNyOpenVolLookback=20;
 input int    NyOpenHour=12;
 input int    NyOpenEndHour=13;
 input int    SessionCloseHour=19;
@@ -60,7 +62,7 @@ int OnInit()
    if(hATR==INVALID_HANDLE)
       return INIT_FAILED;
    trade.SetExpertMagicNumber(MagicNumber);
-   Print("GRK XAUUSD Gold-Dollar EA v6.30 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v6.40 ready");
    return INIT_SUCCEEDED;
 }
 
@@ -290,4 +292,32 @@ bool TuesdayNyOpenSpreadAtrMedBlock()
    double med = sample[n/2];
    if(med<=0.0) return false;
    return (ratio_now >= TuesdayNyOpenSpreadAtrMedMult * med);
+}
+
+bool TuesdayNyOpenSpreadAtrMedThinBlock()
+{
+   MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
+   if(gt.day_of_week != 2) return false;
+   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
+   if(!TuesdayNyOpenSpreadAtrMedBlock()) return false;
+   long vol_now = iVolume(_Symbol,PERIOD_H1,0);
+   if(vol_now<=0) return false;
+   double sample[]; ArrayResize(sample, TuesdayNyOpenVolLookback);
+   int n=0;
+   for(int i=1; i<=TuesdayNyOpenVolLookback*30 && n<TuesdayNyOpenVolLookback; i++)
+   {
+      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
+      if(bar_time==0) continue;
+      MqlDateTime bt; TimeToStruct(bar_time, bt);
+      if(bt.day_of_week != 2) continue;
+      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
+      long v = iVolume(_Symbol,PERIOD_H1,i);
+      if(v<=0) continue;
+      sample[n++] = (double)v;
+   }
+   if(n<5) return false;
+   ArrayResize(sample,n); ArraySort(sample);
+   double med = sample[n/2];
+   if(med<=0.0) return false;
+   return ((double)vol_now < TuesdayNyOpenThinVolRatio * med);
 }
