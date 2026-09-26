@@ -10,6 +10,13 @@
 
 ## Changelog
 
+### v6.8 — 2026-09-26
+- ارتقا: فیلتر ری‌اوپن آسیا نسبت اسپرد/ATR بالا AND حجم نازک همان ساعت.
+- پایتون: `asia_reopen_thin_vol_ratio=0.70`، `asia_reopen_vol_lookback=20`. تابع `asia_reopen_spread_atr_med_thin_block` فقط وقتی True است که 00–02 UTC و نسبت اسپرد/ATR نسبت به میانه ۲۰روزه همان ساعت بالا باشد و حجم واقعی همان ساعت < 0.70 میانه ۲۰روزه همان ساعت باشد. اگر ستون حجم نباشد فیلتر AND خاموش می‌ماند. اسپرد/حجم جعلی ساخته نمی‌شود.
+- EA: `AsiaReopenThinVolRatio=0.70`، `AsiaReopenVolLookback=20` و `AsiaReopenSpreadAtrMedThinBlock()` روی iVolume ساعتی واقعی ساعات 00–02. نسخه 6.80.
+- ریسک پایه ۰.۵٪. سود تضمین نیست. معامله زنده فعال نشد.
+- مورد بعدی: فیلتر دوشنبه ری‌اوپن آسیا نسبت اسپرد/ATR بالا AND حجم نازک همان ساعت.
+
 ### v6.7 — 2026-09-26
 - ارتقا: فیلتر ری‌اوپن آسیا (00–02 UTC) فقط با نسبت اسپرد به ATR نسبت به میانه ۲۰روزه همان ساعت.
 - پایتون: `asia_reopen_spread_atr_med_mult=1.50`، `asia_reopen_spread_atr_lookback=20`، `asia_reopen_start_hour=0`، `asia_reopen_end_hour=2`. تابع `asia_reopen_spread_atr_med_block` فقط وقتی True است که 00–02 UTC و نسبت اسپرد واقعی به ATR >= 1.50 × میانه ۲۰روزه همان ساعت باشد. اسپرد جعلی ساخته نمی‌شود. اگر ATR صفر باشد نسبت NaN است و بار بسته نمی‌شود.
