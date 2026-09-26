@@ -1,9 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-042                       |
+//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-043                       |
 //| Regime switch: Trend pullback / Squeeze retest / Range fade      |
+//| Session + spread + daily loss + consecutive halt                 |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "42.0"
+#property version   "43.0"
 #include <Trade/Trade.mqh>
 input double RiskPercent=0.5;
 input double DailyLossLimit=2.0;
@@ -19,7 +20,9 @@ input double ATR_SL_Mult=1.4;
 input double RR_Target=1.8;
 input double SpreadMultMax=1.4;
 input int ConsecutiveHalt=3;
-input long Magic=2026042;
+input int SessionStartHour=7;
+input int SessionEndHour=16;
+input long Magic=2026043;
 CTrade trade;
 int adx_h,ma_h,atr_h,bb_h;
 int consec_losses=0;
@@ -61,6 +64,12 @@ bool SpreadOk(){
   double mid=atr[10]; if(mid<=0) return false;
   double spr=(double)SymbolInfoInteger(_Symbol,SYMBOL_SPREAD)*SymbolInfoDouble(_Symbol,SYMBOL_POINT);
   return spr<=SpreadMultMax*mid*0.15;
+}
+bool SessionOk(){
+  MqlDateTime t; TimeToStruct(TimeCurrent(),t);
+  if(SessionStartHour==SessionEndHour) return true;
+  if(SessionStartHour<SessionEndHour) return (t.hour>=SessionStartHour && t.hour<SessionEndHour);
+  return (t.hour>=SessionStartHour || t.hour<SessionEndHour);
 }
 bool DailyLossOk(){
   MqlDateTime now,then; TimeToStruct(TimeCurrent(),now); TimeToStruct(day_stamp,then);
@@ -160,6 +169,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 }
 void OnTick(){
   if(!SpreadOk()) return;
+  if(!SessionOk()) return;
   if(!DailyLossOk()) return;
   if(consec_losses>=ConsecutiveHalt) return;
   if(PositionsByMagic()>=MaxPositions) return;
@@ -171,5 +181,5 @@ void OnTick(){
   else if(rg==2) TrySqueezeBreak();
   else if(rg==-1) TryRangeFade();
 }
-// GRK-SAFETY-CONTRACT-042
-// No averaging-up / recovery sizing. Hard StopLoss required. Risk<=0.6%.
+// GRK-SAFETY-CONTRACT-043
+// Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6%.
