@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 CONTRACT = (
-    "// GRK-SAFETY-CONTRACT-045\n"
+    "// GRK-SAFETY-CONTRACT-046\n"
     "// Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.\n"
     "// No grid. No martingale. Closed-bar entries only.\n"
 )
@@ -124,7 +124,7 @@ def audit(root: Path) -> dict:
 def run(root: Path, do_fix: bool, max_loops: int) -> str:
     ea_dir = root / "ea"
     files = sorted(ea_dir.glob("*.mq5")) if ea_dir.is_dir() else []
-    lines = ["# EA_AUDIT_LOOP_045_REPORT", "", f"root: {root}", f"files: {len(files)}", ""]
+    lines = ["# EA_AUDIT_LOOP_046_REPORT", "", f"root: {root}", f"files: {len(files)}", ""]
     remaining: list = []
     for loop in range(1, max_loops + 1):
         remaining = []
@@ -156,7 +156,7 @@ def main() -> int:
     args = p.parse_args()
     root = Path(args.root).resolve()
     report = run(root, args.fix, args.max_loops)
-    out = root / "research" / "EA_AUDIT_LOOP_045_REPORT.md"
+    out = root / "research" / "EA_AUDIT_LOOP_046_REPORT.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
     print(report)
