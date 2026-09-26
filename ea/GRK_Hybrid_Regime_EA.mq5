@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-045                       |
+//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-046                       |
 //| Regime switch: Trend pullback / Squeeze retest / Range fade      |
-//| HTF MA + DI + session + Friday cut + ATR floor + spread + halt   |
+//| HTF MA + DI + session + Friday/weekend + ATR floor + halt        |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "45.0"
+#property version   "46.0"
 #include <Trade/Trade.mqh>
 
 input double RiskPercent        = 0.5;
@@ -22,17 +22,19 @@ input double ATR_SL_Mult        = 1.45;
 input double RR_Target          = 1.9;
 input double SpreadMultMax      = 1.3;
 input int    ConsecutiveHalt    = 3;
+input int    HaltCooldownBars   = 8;
 input int    SessionStartHour   = 7;
 input int    SessionEndHour     = 16;
 input int    FridayCutoffHour   = 16;
 input int    MinAtrSpreadMult   = 6;
 input int    NewsBlackoutStart  = -1;
 input int    NewsBlackoutEnd    = -1;
-input long   Magic              = 2026045;
+input long   Magic              = 2026046;
 
 CTrade trade;
 int adx_h, ma_h, htf_ma_h, atr_h, bb_h;
 int consec_losses = 0;
+int halt_bars_left = 0;
 datetime day_stamp = 0;
 double day_start_equity = 0;
 
@@ -103,6 +105,7 @@ bool SessionOk()
 {
   MqlDateTime t;
   TimeToStruct(TimeCurrent(), t);
+  if(t.day_of_week == 0 || t.day_of_week == 6) return false;
   if(t.day_of_week == 5 && t.hour >= FridayCutoffHour) return false;
   if(SessionStartHour == SessionEndHour) return true;
   if(SessionStartHour < SessionEndHour)
@@ -354,7 +357,11 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
   double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
                 + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                 + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
-  if(profit < 0) consec_losses++;
+  if(profit < 0)
+  {
+    consec_losses++;
+    if(consec_losses >= ConsecutiveHalt) halt_bars_left = HaltCooldownBars;
+  }
   else consec_losses = 0;
 }
 
@@ -371,12 +378,17 @@ void OnTick()
   datetime t = iTime(_Symbol, PERIOD_CURRENT, 0);
   if(t == last_bar) return;
   last_bar = t;
+  if(halt_bars_left > 0)
+  {
+    halt_bars_left--;
+    return;
+  }
 
   int rg = Regime();
   if(rg == 1) TryTrendPullback();
   else if(rg == 2) TrySqueezeBreak();
   else if(rg == -1) TryRangeFade();
 }
-// GRK-SAFETY-CONTRACT-045
+// GRK-SAFETY-CONTRACT-046
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only.
