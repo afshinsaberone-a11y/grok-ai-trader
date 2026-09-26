@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                    GRK_XAUUSD_Gold_Dollar_EA.mq5                 |
-//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 6.40             |
+//|     شناسه: GRK-XAUUSD-GOLD-DOLLAR-001  |  نسخه: 6.50             |
 //+------------------------------------------------------------------+
 #property copyright "Grok AI Trader - XAUUSD Gold Dollar"
 #property link      "https://github.com/afshinsaberone-a11y/grok-ai-trader"
-#property version   "6.40"
+#property version   "6.50"
 
 #include <Trade\\Trade.mqh>
 CTrade trade;
@@ -47,6 +47,8 @@ input double TuesdayNyOpenSpreadAtrMedMult=1.50;
 input int    TuesdayNyOpenSpreadAtrLookback=20;
 input double TuesdayNyOpenThinVolRatio=0.70;
 input int    TuesdayNyOpenVolLookback=20;
+input double WednesdayNyOpenSpreadAtrMedMult=1.50;
+input int    WednesdayNyOpenSpreadAtrLookback=20;
 input int    NyOpenHour=12;
 input int    NyOpenEndHour=13;
 input int    SessionCloseHour=19;
@@ -62,14 +64,14 @@ int OnInit()
    if(hATR==INVALID_HANDLE)
       return INIT_FAILED;
    trade.SetExpertMagicNumber(MagicNumber);
-   Print("GRK XAUUSD Gold-Dollar EA v6.40 ready");
+   Print("GRK XAUUSD Gold-Dollar EA v6.50 ready");
    return INIT_SUCCEEDED;
 }
 
-bool ThursdayNyOpenSpreadAtrMedBlock()
+bool WednesdayNyOpenSpreadAtrMedBlock()
 {
    MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
-   if(gt.day_of_week != 4) return false;
+   if(gt.day_of_week != 3) return false;
    if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
    double atr[1];
    if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0) return false;
@@ -78,16 +80,16 @@ bool ThursdayNyOpenSpreadAtrMedBlock()
    double spread = ask-bid;
    if(spread<=0.0) return false;
    double ratio_now = spread / atr[0];
-   double sample[]; ArrayResize(sample, ThursdayNyOpenSpreadAtrLookback);
+   double sample[]; ArrayResize(sample, WednesdayNyOpenSpreadAtrLookback);
    int n=0;
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    if(point<=0.0) return false;
-   for(int i=1; i<=ThursdayNyOpenSpreadAtrLookback*30 && n<ThursdayNyOpenSpreadAtrLookback; i++)
+   for(int i=1; i<=WednesdayNyOpenSpreadAtrLookback*30 && n<WednesdayNyOpenSpreadAtrLookback; i++)
    {
       datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
       if(bar_time==0) continue;
       MqlDateTime bt; TimeToStruct(bar_time, bt);
-      if(bt.day_of_week != 4) continue;
+      if(bt.day_of_week != 3) continue;
       if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
       int spr_pts = (int)iSpread(_Symbol,PERIOD_H1,i);
       if(spr_pts<=0) continue;
@@ -99,225 +101,5 @@ bool ThursdayNyOpenSpreadAtrMedBlock()
    ArrayResize(sample,n); ArraySort(sample);
    double med = sample[n/2];
    if(med<=0.0) return false;
-   return (ratio_now >= ThursdayNyOpenSpreadAtrMedMult * med);
-}
-
-bool ThursdayNyOpenSpreadAtrMedThinBlock()
-{
-   MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
-   if(gt.day_of_week != 4) return false;
-   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
-   if(!ThursdayNyOpenSpreadAtrMedBlock()) return false;
-   long vol_now = iVolume(_Symbol,PERIOD_H1,0);
-   if(vol_now<=0) return false;
-   double sample[]; ArrayResize(sample, ThursdayNyOpenVolLookback);
-   int n=0;
-   for(int i=1; i<=ThursdayNyOpenVolLookback*30 && n<ThursdayNyOpenVolLookback; i++)
-   {
-      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
-      if(bar_time==0) continue;
-      MqlDateTime bt; TimeToStruct(bar_time, bt);
-      if(bt.day_of_week != 4) continue;
-      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
-      long v = iVolume(_Symbol,PERIOD_H1,i);
-      if(v<=0) continue;
-      sample[n++] = (double)v;
-   }
-   if(n<5) return false;
-   ArrayResize(sample,n); ArraySort(sample);
-   double med = sample[n/2];
-   if(med<=0.0) return false;
-   return ((double)vol_now < ThursdayNyOpenThinVolRatio * med);
-}
-
-bool FridayNyOpenSpreadAtrMedBlock()
-{
-   MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
-   if(gt.day_of_week != 5) return false;
-   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
-   double atr[1];
-   if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0) return false;
-   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double spread = ask-bid;
-   if(spread<=0.0) return false;
-   double ratio_now = spread / atr[0];
-   double sample[]; ArrayResize(sample, FridayNyOpenSpreadAtrLookback);
-   int n=0;
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   if(point<=0.0) return false;
-   for(int i=1; i<=FridayNyOpenSpreadAtrLookback*30 && n<FridayNyOpenSpreadAtrLookback; i++)
-   {
-      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
-      if(bar_time==0) continue;
-      MqlDateTime bt; TimeToStruct(bar_time, bt);
-      if(bt.day_of_week != 5) continue;
-      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
-      int spr_pts = (int)iSpread(_Symbol,PERIOD_H1,i);
-      if(spr_pts<=0) continue;
-      double hist_spread = (double)spr_pts * point;
-      if(atr[0]<=0.0) continue;
-      sample[n++] = hist_spread / atr[0];
-   }
-   if(n<5) return false;
-   ArrayResize(sample,n); ArraySort(sample);
-   double med = sample[n/2];
-   if(med<=0.0) return false;
-   return (ratio_now >= FridayNyOpenSpreadAtrMedMult * med);
-}
-
-bool FridayNyOpenSpreadAtrMedThinBlock()
-{
-   MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
-   if(gt.day_of_week != 5) return false;
-   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
-   if(!FridayNyOpenSpreadAtrMedBlock()) return false;
-   long vol_now = iVolume(_Symbol,PERIOD_H1,0);
-   if(vol_now<=0) return false;
-   double sample[]; ArrayResize(sample, FridayNyOpenVolLookback);
-   int n=0;
-   for(int i=1; i<=FridayNyOpenVolLookback*30 && n<FridayNyOpenVolLookback; i++)
-   {
-      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
-      if(bar_time==0) continue;
-      MqlDateTime bt; TimeToStruct(bar_time, bt);
-      if(bt.day_of_week != 5) continue;
-      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
-      long v = iVolume(_Symbol,PERIOD_H1,i);
-      if(v<=0) continue;
-      sample[n++] = (double)v;
-   }
-   if(n<5) return false;
-   ArrayResize(sample,n); ArraySort(sample);
-   double med = sample[n/2];
-   if(med<=0.0) return false;
-   return ((double)vol_now < FridayNyOpenThinVolRatio * med);
-}
-
-bool MondayNyOpenSpreadAtrMedBlock()
-{
-   MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
-   if(gt.day_of_week != 1) return false;
-   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
-   double atr[1];
-   if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0) return false;
-   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double spread = ask-bid;
-   if(spread<=0.0) return false;
-   double ratio_now = spread / atr[0];
-   double sample[]; ArrayResize(sample, MondayNyOpenSpreadAtrLookback);
-   int n=0;
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   if(point<=0.0) return false;
-   for(int i=1; i<=MondayNyOpenSpreadAtrLookback*30 && n<MondayNyOpenSpreadAtrLookback; i++)
-   {
-      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
-      if(bar_time==0) continue;
-      MqlDateTime bt; TimeToStruct(bar_time, bt);
-      if(bt.day_of_week != 1) continue;
-      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
-      int spr_pts = (int)iSpread(_Symbol,PERIOD_H1,i);
-      if(spr_pts<=0) continue;
-      double hist_spread = (double)spr_pts * point;
-      if(atr[0]<=0.0) continue;
-      sample[n++] = hist_spread / atr[0];
-   }
-   if(n<5) return false;
-   ArrayResize(sample,n); ArraySort(sample);
-   double med = sample[n/2];
-   if(med<=0.0) return false;
-   return (ratio_now >= MondayNyOpenSpreadAtrMedMult * med);
-}
-
-bool MondayNyOpenSpreadAtrMedThinBlock()
-{
-   MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
-   if(gt.day_of_week != 1) return false;
-   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
-   if(!MondayNyOpenSpreadAtrMedBlock()) return false;
-   long vol_now = iVolume(_Symbol,PERIOD_H1,0);
-   if(vol_now<=0) return false;
-   double sample[]; ArrayResize(sample, MondayNyOpenVolLookback);
-   int n=0;
-   for(int i=1; i<=MondayNyOpenVolLookback*30 && n<MondayNyOpenVolLookback; i++)
-   {
-      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
-      if(bar_time==0) continue;
-      MqlDateTime bt; TimeToStruct(bar_time, bt);
-      if(bt.day_of_week != 1) continue;
-      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
-      long v = iVolume(_Symbol,PERIOD_H1,i);
-      if(v<=0) continue;
-      sample[n++] = (double)v;
-   }
-   if(n<5) return false;
-   ArrayResize(sample,n); ArraySort(sample);
-   double med = sample[n/2];
-   if(med<=0.0) return false;
-   return ((double)vol_now < MondayNyOpenThinVolRatio * med);
-}
-
-bool TuesdayNyOpenSpreadAtrMedBlock()
-{
-   MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
-   if(gt.day_of_week != 2) return false;
-   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
-   double atr[1];
-   if(CopyBuffer(hATR,0,0,1,atr)<1 || atr[0]<=0.0) return false;
-   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double spread = ask-bid;
-   if(spread<=0.0) return false;
-   double ratio_now = spread / atr[0];
-   double sample[]; ArrayResize(sample, TuesdayNyOpenSpreadAtrLookback);
-   int n=0;
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   if(point<=0.0) return false;
-   for(int i=1; i<=TuesdayNyOpenSpreadAtrLookback*30 && n<TuesdayNyOpenSpreadAtrLookback; i++)
-   {
-      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
-      if(bar_time==0) continue;
-      MqlDateTime bt; TimeToStruct(bar_time, bt);
-      if(bt.day_of_week != 2) continue;
-      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
-      int spr_pts = (int)iSpread(_Symbol,PERIOD_H1,i);
-      if(spr_pts<=0) continue;
-      double hist_spread = (double)spr_pts * point;
-      if(atr[0]<=0.0) continue;
-      sample[n++] = hist_spread / atr[0];
-   }
-   if(n<5) return false;
-   ArrayResize(sample,n); ArraySort(sample);
-   double med = sample[n/2];
-   if(med<=0.0) return false;
-   return (ratio_now >= TuesdayNyOpenSpreadAtrMedMult * med);
-}
-
-bool TuesdayNyOpenSpreadAtrMedThinBlock()
-{
-   MqlDateTime gt; TimeToStruct(TimeGMT(), gt);
-   if(gt.day_of_week != 2) return false;
-   if(gt.hour < NyOpenHour || gt.hour >= NyOpenEndHour) return false;
-   if(!TuesdayNyOpenSpreadAtrMedBlock()) return false;
-   long vol_now = iVolume(_Symbol,PERIOD_H1,0);
-   if(vol_now<=0) return false;
-   double sample[]; ArrayResize(sample, TuesdayNyOpenVolLookback);
-   int n=0;
-   for(int i=1; i<=TuesdayNyOpenVolLookback*30 && n<TuesdayNyOpenVolLookback; i++)
-   {
-      datetime bar_time = iTime(_Symbol,PERIOD_H1,i);
-      if(bar_time==0) continue;
-      MqlDateTime bt; TimeToStruct(bar_time, bt);
-      if(bt.day_of_week != 2) continue;
-      if(bt.hour<NyOpenHour || bt.hour>=NyOpenEndHour) continue;
-      long v = iVolume(_Symbol,PERIOD_H1,i);
-      if(v<=0) continue;
-      sample[n++] = (double)v;
-   }
-   if(n<5) return false;
-   ArrayResize(sample,n); ArraySort(sample);
-   double med = sample[n/2];
-   if(med<=0.0) return false;
-   return ((double)vol_now < TuesdayNyOpenThinVolRatio * med);
+   return (ratio_now >= WednesdayNyOpenSpreadAtrMedMult * med);
 }
