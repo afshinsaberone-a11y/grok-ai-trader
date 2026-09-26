@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 CONTRACT = (
-    "// GRK-SAFETY-CONTRACT-044\n"
+    "// GRK-SAFETY-CONTRACT-045\n"
     "// Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.\n"
     "// No grid. No martingale. Closed-bar entries only.\n"
 )
@@ -22,6 +22,32 @@ FORBIDDEN = [
     re.compile(r"recover(y)?[-_ ]?lot", re.I),
     re.compile(r"double\s+lot", re.I),
 ]
+
+
+def _issues_to_checks(path: Path, issues: list[str]) -> list[dict]:
+    checks = []
+    if issues:
+        for issue in issues:
+            checks.append(
+                {
+                    "check": f"{path.name}: {issue}",
+                    "status": "FAIL",
+                    "severity": "high",
+                    "evidence": issue,
+                    "remediation": "Add hard SL, risk cap, single position, closed-bar gate, safety contract.",
+                }
+            )
+    else:
+        checks.append(
+            {
+                "check": f"{path.name}: safety contract",
+                "status": "PASS",
+                "severity": "info",
+                "evidence": "structural rules present",
+                "remediation": "",
+            }
+        )
+    return checks
 
 
 def audit_mq5(path: Path) -> list[str]:
@@ -64,11 +90,42 @@ def maybe_fix(path: Path, issues: list[str]) -> bool:
     return changed
 
 
+def audit(root: Path) -> dict:
+    """Structured fail-closed report used by unit tests."""
+    ea_dir = Path(root) / "ea"
+    files = sorted(ea_dir.glob("*.mq5")) if ea_dir.is_dir() else []
+    checks: list[dict] = []
+    remaining = 0
+    for f in files:
+        issues = audit_mq5(f)
+        checks.extend(_issues_to_checks(f, issues))
+        if issues:
+            remaining += 1
+    if not files:
+        checks.append(
+            {
+                "check": "ea directory present",
+                "status": "FAIL",
+                "severity": "high",
+                "evidence": "no mq5 files",
+                "remediation": "add EA under ea/",
+            }
+        )
+        remaining = 1
+    status = "READY_FOR_TEST_RUN" if remaining == 0 else "BLOCKED"
+    return {
+        "fail_closed": True,
+        "status": status,
+        "checks": checks,
+        "files": [str(f) for f in files],
+    }
+
+
 def run(root: Path, do_fix: bool, max_loops: int) -> str:
     ea_dir = root / "ea"
     files = sorted(ea_dir.glob("*.mq5")) if ea_dir.is_dir() else []
-    lines = ["# EA_AUDIT_LOOP_044_REPORT", "", f"root: {root}", f"files: {len(files)}", ""]
-    remaining = []
+    lines = ["# EA_AUDIT_LOOP_045_REPORT", "", f"root: {root}", f"files: {len(files)}", ""]
+    remaining: list = []
     for loop in range(1, max_loops + 1):
         remaining = []
         lines.append(f"## loop {loop}")
@@ -99,7 +156,7 @@ def main() -> int:
     args = p.parse_args()
     root = Path(args.root).resolve()
     report = run(root, args.fix, args.max_loops)
-    out = root / "research" / "EA_AUDIT_LOOP_044_REPORT.md"
+    out = root / "research" / "EA_AUDIT_LOOP_045_REPORT.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
     print(report)
