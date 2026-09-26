@@ -3,13 +3,13 @@
 ربات‌ها و تحقیقات استراتژی فارکس ساخته‌شده توسط **Grok**.
 
 ## آخرین تحقیق
-**شناسه:** GRK-FX-2026-042 (کاتالوگ امتیازدهی + هیبرید رژیم‌سوئیچ + لوپ قرارداد ایمنی)
+**شناسه:** GRK-FX-2026-043 (کاتالوگ امتیازدهی + هیبرید رژیم‌سوئیچ + فیلتر سشن + لوپ قرارداد ایمنی)
 
 ### فایل‌های کلیدی
-- `research/BEST_STRATEGIES_CATALOG_2026_042.md`
-- `research/EA_AUDIT_LOOP_042.md`
+- `research/BEST_STRATEGIES_CATALOG_2026_043.md`
+- `research/EA_AUDIT_LOOP_043.md`
 - `research/project_repair_loop.py`
-- `strategies/GRK_REGIME_SWITCH_V42.md`
+- `strategies/GRK_REGIME_SWITCH_V43.md`
 - `ea/GRK_Hybrid_Regime_EA.mq5`
 
 ```bash

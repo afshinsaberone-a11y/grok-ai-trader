@@ -3,9 +3,18 @@
 from __future__ import annotations
 import argparse, re
 from pathlib import Path
-CONTRACT_MARK = "GRK-SAFETY-CONTRACT-042"
+CONTRACT_MARK = "GRK-SAFETY-CONTRACT-043"
 BANNED = ("martingale", "averaging down", "double lot")
-REQUIRED_SNIPPETS = ["RiskPercent", "DailyLossLimit", "MaxPositions", "StopLoss", "SpreadOk", "PositionsByMagic", CONTRACT_MARK]
+REQUIRED_SNIPPETS = [
+    "RiskPercent",
+    "DailyLossLimit",
+    "MaxPositions",
+    "StopLoss",
+    "SpreadOk",
+    "PositionsByMagic",
+    "SessionOk",
+    CONTRACT_MARK,
+]
 
 def audit(text: str) -> list[str]:
     issues = []
@@ -36,7 +45,7 @@ def main() -> int:
     if not eas:
         print("no target EA")
         return 1
-    remaining = []
+    remaining: list[str] = []
     for loops in range(1, args.max_loops + 1):
         remaining = []
         for f in eas:
@@ -48,7 +57,7 @@ def main() -> int:
             return 0
         if not args.fix:
             break
-        print("fix mode: use V42 hybrid source as canonical patch")
+        print("fix mode: rewrite from in-repo V43 hybrid source as canonical patch")
         break
     print("remaining issues:", remaining)
     return 0 if not remaining else 2
