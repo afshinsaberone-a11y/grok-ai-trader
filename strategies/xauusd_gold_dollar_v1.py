@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v6.6.
+"""XAUUSD Gold-Dollar research strategy v6.7.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v6.6 adds Wednesday NY open (12-13 UTC) AND-thin-volume block when real spread/ATR is elevated
-AND same-hour volume is thin vs the 20-day same-hour median. No fake spread or volume.
+v6.7 adds Asia reopen (00-02 UTC) spread/ATR block vs the 20-day same-hour median.
+No fake spread.
 """
 from __future__ import annotations
 
@@ -64,7 +64,10 @@ class GoldParams:
     monday_gap_weekday: int = 0
     monday_gap_atr_mult: float = 0.80
     monday_gap_block_hour: int = 10
+    asia_reopen_start_hour: int = 0
     asia_reopen_end_hour: int = 2
+    asia_reopen_spread_atr_med_mult: float = 1.50
+    asia_reopen_spread_atr_lookback: int = 20
     monday_wide_spread_hour: int = 8
     wide_spread_atr_ratio: float = 0.12
     pre_news_vol_ratio: float = 0.65
@@ -145,7 +148,7 @@ class GoldParams:
     wednesday_ny_open_spread_atr_lookback: int = 20
     wednesday_ny_open_thin_vol_ratio: float = 0.70
     wednesday_ny_open_vol_lookback: int = 20
-    version: str = "6.6"
+    version: str = "6.7"
 
 
 def _same_hour_median(series: pd.Series, lookback: int) -> pd.Series:
@@ -320,3 +323,22 @@ def wednesday_ny_open_spread_atr_med_thin_block(
     vol_med = _same_hour_median(volume.astype(float), p.wednesday_ny_open_vol_lookback)
     thin = volume.astype(float) < (p.wednesday_ny_open_thin_vol_ratio * vol_med)
     return window & elevated & thin.fillna(False)
+
+
+def asia_reopen_spread_atr_med_block(
+    idx: pd.DatetimeIndex,
+    spread: pd.Series,
+    atr: pd.Series,
+    p: GoldParams,
+) -> pd.Series:
+    """True only 00-02 UTC when real spread/ATR >= mult * 20d same-hour median.
+
+    Fake spread is never synthesized. Zero ATR yields NaN ratio and does not block.
+    """
+    hour = idx.hour
+    window = (hour >= p.asia_reopen_start_hour) & (hour < p.asia_reopen_end_hour)
+    atr_safe = atr.replace(0, np.nan)
+    ratio = spread / atr_safe
+    med = _same_hour_median(ratio, p.asia_reopen_spread_atr_lookback)
+    elevated = ratio >= (p.asia_reopen_spread_atr_med_mult * med)
+    return window & elevated.fillna(False)
