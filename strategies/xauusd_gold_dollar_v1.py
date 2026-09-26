@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v6.7.
+"""XAUUSD Gold-Dollar research strategy v6.8.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v6.7 adds Asia reopen (00-02 UTC) spread/ATR block vs the 20-day same-hour median.
-No fake spread.
+v6.8 adds Asia reopen (00-02 UTC) spread/ATR elevated AND thin same-hour volume.
+No fake spread/volume.
 """
 from __future__ import annotations
 
@@ -68,6 +68,8 @@ class GoldParams:
     asia_reopen_end_hour: int = 2
     asia_reopen_spread_atr_med_mult: float = 1.50
     asia_reopen_spread_atr_lookback: int = 20
+    asia_reopen_thin_vol_ratio: float = 0.70
+    asia_reopen_vol_lookback: int = 20
     monday_wide_spread_hour: int = 8
     wide_spread_atr_ratio: float = 0.12
     pre_news_vol_ratio: float = 0.65
@@ -148,7 +150,7 @@ class GoldParams:
     wednesday_ny_open_spread_atr_lookback: int = 20
     wednesday_ny_open_thin_vol_ratio: float = 0.70
     wednesday_ny_open_vol_lookback: int = 20
-    version: str = "6.7"
+    version: str = "6.8"
 
 
 def _same_hour_median(series: pd.Series, lookback: int) -> pd.Series:
@@ -342,3 +344,24 @@ def asia_reopen_spread_atr_med_block(
     med = _same_hour_median(ratio, p.asia_reopen_spread_atr_lookback)
     elevated = ratio >= (p.asia_reopen_spread_atr_med_mult * med)
     return window & elevated.fillna(False)
+
+
+def asia_reopen_spread_atr_med_thin_block(
+    idx: pd.DatetimeIndex,
+    spread: pd.Series,
+    atr: pd.Series,
+    volume: pd.Series | None,
+    p: GoldParams,
+) -> pd.Series:
+    """True only 00-02 UTC when spread/ATR is elevated AND volume is thin.
+
+    If volume column is missing the AND filter stays off. No fake volume/spread.
+    """
+    if volume is None:
+        return pd.Series(False, index=idx)
+    elevated = asia_reopen_spread_atr_med_block(idx, spread, atr, p)
+    hour = idx.hour
+    window = (hour >= p.asia_reopen_start_hour) & (hour < p.asia_reopen_end_hour)
+    vol_med = _same_hour_median(volume.astype(float), p.asia_reopen_vol_lookback)
+    thin = volume.astype(float) < (p.asia_reopen_thin_vol_ratio * vol_med)
+    return window & elevated & thin.fillna(False)
