@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""XAUUSD Gold-Dollar research strategy v6.5.
+"""XAUUSD Gold-Dollar research strategy v6.6.
 
 Does not download market data. Feed a real OHLCV dataset.
 Optional real spread/news_high/usd_event/volume columns only. No fake OHLCV.
-v6.5 adds Wednesday NY open (12-13 UTC) block when real spread/ATR is elevated
-vs the 20-day same-hour median. No fake spread or volume.
+v6.6 adds Wednesday NY open (12-13 UTC) AND-thin-volume block when real spread/ATR is elevated
+AND same-hour volume is thin vs the 20-day same-hour median. No fake spread or volume.
 """
 from __future__ import annotations
 
@@ -143,7 +143,9 @@ class GoldParams:
     tuesday_ny_open_vol_lookback: int = 20
     wednesday_ny_open_spread_atr_med_mult: float = 1.50
     wednesday_ny_open_spread_atr_lookback: int = 20
-    version: str = "6.5"
+    wednesday_ny_open_thin_vol_ratio: float = 0.70
+    wednesday_ny_open_vol_lookback: int = 20
+    version: str = "6.6"
 
 
 def _same_hour_median(series: pd.Series, lookback: int) -> pd.Series:
@@ -296,3 +298,25 @@ def wednesday_ny_open_spread_atr_med_block(
     med = _same_hour_median(ratio, p.wednesday_ny_open_spread_atr_lookback)
     elevated = ratio >= (p.wednesday_ny_open_spread_atr_med_mult * med)
     return window & elevated.fillna(False)
+
+
+def wednesday_ny_open_spread_atr_med_thin_block(
+    idx: pd.DatetimeIndex,
+    spread: pd.Series,
+    atr: pd.Series,
+    volume: pd.Series | None,
+    p: GoldParams,
+) -> pd.Series:
+    """True only Wednesday 12-13 UTC when spread/ATR is elevated AND volume is thin.
+
+    If volume column is missing the AND filter stays off. No fake volume/spread.
+    """
+    if volume is None:
+        return pd.Series(False, index=idx)
+    elevated = wednesday_ny_open_spread_atr_med_block(idx, spread, atr, p)
+    hour = idx.hour
+    weekday = idx.weekday
+    window = (weekday == 2) & (hour >= p.ny_open_hour) & (hour < p.ny_open_end_hour)
+    vol_med = _same_hour_median(volume.astype(float), p.wednesday_ny_open_vol_lookback)
+    thin = volume.astype(float) < (p.wednesday_ny_open_thin_vol_ratio * vol_med)
+    return window & elevated & thin.fillna(False)
