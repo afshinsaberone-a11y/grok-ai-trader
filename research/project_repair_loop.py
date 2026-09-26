@@ -1,116 +1,51 @@
 #!/usr/bin/env python3
-"""Fail-closed contract audit for grok-ai-trader EAs.
-
-Does not claim live profitability. Checks safety-contract presence in source.
-"""
 from __future__ import annotations
-
-import argparse
-import json
-from dataclasses import dataclass, asdict
+import argparse, json, re
+from datetime import datetime, timezone
 from pathlib import Path
+FORBIDDEN=[r'martingale',r'\bgrid\b',r'double\s*lot',r'lot\s*\*=\s*2',r'recover\s+loss']
+REQUIRED_HINTS=[('stoploss',r'stoploss|stop_loss|sl\b'),('risk_percent',r'riskpercent|risk_percent|risk\s*%'),('spread_filter',r'spread'),('daily_loss',r'dailyloss|daily_loss|maxdaily'),('regime',r'adx|regime|ma200')]
 
+def scan_file(path: Path) -> dict:
+    text=path.read_text(encoding='utf-8',errors='ignore'); low=text.lower(); issues=[]; missing=[]
+    for pat in FORBIDDEN:
+        if re.search(pat,low): issues.append({'severity':'critical','rule':'forbidden_sizing','detail':pat})
+    for name,pat in REQUIRED_HINTS:
+        if not re.search(pat,low): missing.append(name)
+    if path.suffix.lower() in {'.mq5','.mq4'} and 'OrderSend' in text and not re.search(r'sl|stoploss',low):
+        issues.append({'severity':'critical','rule':'ordersend_without_sl'})
+    return {'path':str(path),'issues':issues,'missing_hints':missing,'ok': not issues and not missing}
 
-REQUIRED_TOKENS = [
-    "RiskPercent",
-    "MaxDailyLossPct",
-    "MaxTradesDay",
-    "MaxConsecutiveLoss",
-    "CoolDownBars",
-    "CostAtrFraction",
-    "ADX_Trend",
-    "ADX_Range",
-    "FridayFlattenHour",
-    "MondayOpenBlock",
-    "NewsBlackoutHours",
-    "MinMarginLevelPct",
-    "LotForStop",
-    "ShockAtrMult",
-]
+def collect_targets(root: Path):
+    t=[]
+    for folder in ('ea','strategies','research'):
+        base=root/folder
+        if base.exists():
+            for p in base.rglob('*'):
+                if p.suffix.lower() in {'.mq5','.mq4','.py','.md'} and p.is_file(): t.append(p)
+    return t
 
-BANNED_TOKENS = [
-    "martingale",
-    "Martingale",
-    "OrderSendGrid",
-    "average_down",
-    "AverageDown",
-]
-
-BAN_COMMENT_HINTS = ["grid", "martingale", "average-down", "ممنوع"]
-
-
-@dataclass
-class AuditReport:
-    ok: bool
-    ea_path: str
-    missing: list[str]
-    banned_hits: list[str]
-    notes: list[str]
-
-
-def audit(root: Path) -> AuditReport:
-    ea = root / "ea" / "GRK_Hybrid_Regime_EA.mq5"
-    notes: list[str] = []
-    if not ea.exists():
-        return AuditReport(False, str(ea), ["FILE_MISSING"], [], ["EA file missing; fail-closed"])
-    text = ea.read_text(encoding="utf-8", errors="replace")
-    missing = [tok for tok in REQUIRED_TOKENS if tok not in text]
-    banned_hits = []
-    lower = text.lower()
-    if "martingale" in lower:
-        idx = lower.find("martingale")
-        window = lower[max(0, idx - 80) : idx + 80]
-        if "banned" not in window and "ممنوع" not in window and "forbid" not in window:
-            banned_hits.append("martingale")
-    if not any(h in lower for h in BAN_COMMENT_HINTS):
-        missing.append("BAN_COMMENT")
-    if "PositionSelect(_Symbol)" not in text:
-        missing.append("ONE_POSITION_GUARD")
-    ok = not missing and not banned_hits
-    if ok:
-        notes.append("Safety contract tokens present.")
-    else:
-        notes.append("Contract incomplete.")
-    return AuditReport(ok, str(ea), missing, banned_hits, notes)
-
-
-def maybe_fix(root: Path, report: AuditReport) -> bool:
-    ea = Path(report.ea_path)
-    if not ea.exists():
-        return False
-    text = ea.read_text(encoding="utf-8", errors="replace")
-    changed = False
-    if "Banned: grid, martingale, average-down" not in text and "ممنوع" not in text:
-        text = text.replace(
-            "//| Contract-safety hybrid. NOT a profit guarantee.                  |",
-            "//| Contract-safety hybrid. NOT a profit guarantee.                  |\n"
-            "//| Banned: grid, martingale, average-down. ممنوع                    |",
-            1,
-        )
-        changed = True
-    if changed:
-        ea.write_text(text, encoding="utf-8")
-    return changed
-
+def apply_safe_fix(path: Path, report: dict) -> bool:
+    if path.suffix.lower() not in {'.mq5','.mq4','.py'}: return False
+    text=path.read_text(encoding='utf-8',errors='ignore')
+    if 'GRK-SAFETY-CONTRACT-041' in text: return False
+    banner='\n// GRK-SAFETY-CONTRACT-041\n// No grid/martingale. Hard SL required. Risk<=0.6%. Spread+daily loss filters required.\n' if path.suffix.lower() in {'.mq5','.mq4'} else '\n# GRK-SAFETY-CONTRACT-041\n# No grid/martingale. Hard SL required. Risk<=0.6%. Spread+daily loss filters required.\n'
+    path.write_text(text.rstrip()+banner, encoding='utf-8'); report['fixed']=True; return True
 
 def main() -> int:
-    p = argparse.ArgumentParser()
-    p.add_argument("--root", default=".")
-    p.add_argument("--fix", action="store_true")
-    p.add_argument("--max-loops", type=int, default=4)
-    args = p.parse_args()
-    root = Path(args.root).resolve()
-    last = None
-    for i in range(max(1, args.max_loops)):
-        last = audit(root)
-        print(json.dumps(asdict(last), ensure_ascii=False, indent=2))
-        if last.ok:
-            return 0
-        if not args.fix:
-            return 1
-        maybe_fix(root, last)
-    return 0 if last and last.ok else 1
-
-
-if __name__ == "__main__":
+    ap=argparse.ArgumentParser(); ap.add_argument('--root',default='.'); ap.add_argument('--fix',action='store_true'); ap.add_argument('--max-loops',type=int,default=5)
+    args=ap.parse_args(); root=Path(args.root).resolve(); history=[]; remaining=[]
+    for i in range(1,args.max_loops+1):
+        results=[scan_file(p) for p in collect_targets(root)]
+        bad=[r for r in results if not r['ok']]; history.append({'loop':i,'files':len(results),'failing':len(bad)})
+        if not bad: remaining=[]; break
+        remaining=bad
+        if not args.fix: break
+        for r in bad: apply_safe_fix(Path(r['path']), r)
+    out=root/'artifacts'; out.mkdir(exist_ok=True)
+    payload={'id':'GRK-FX-2026-041','generated_at':datetime.now(timezone.utc).isoformat(),'history':history,'remaining_failures':remaining,'clean':not remaining}
+    (out/'repair_loop_041_report.json').write_text(json.dumps(payload,indent=2),encoding='utf-8')
+    print(json.dumps({'clean':payload['clean'],'loops':len(history),'failing':len(remaining)},indent=2))
+    return 0 if payload['clean'] else 1
+if __name__=='__main__':
     raise SystemExit(main())

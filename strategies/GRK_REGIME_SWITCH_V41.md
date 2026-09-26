@@ -1,15 +1,10 @@
-# GRK Regime Switch v41
+# GRK Regime Switch V41
 
-Hybrid cost-aware, fail-closed.
+شناسه: GRK-FX-2026-041
+نوع: هیبرید رژیم‌سوئیچ (Trend + Squeeze-Breakout + Range)
 
-- TREND: ADX>=25 + EMA20 pullback + daily EMA50 + DI confirmation
-- RANGE: ADX<=18 + BB/RSI extreme + Donchian proximity; TP = mid band
-- TRANSITION: no new entries
-- Cost gate: spread <= 0.25 * ATR
-- Shock: bar range >= 2.5 ATR → flatten + cooldown
-- Safety: 0.5% risk, 2% daily loss cap, 3 trades/day, 2 consecutive losses halt,
-  margin level >= 400%, one position per symbol, Friday flatten, Monday open block, news blackout
-- Banned: grid, martingale, average-down
+موتور A: ADX>=22 + MA200 pullback
+موتور B: squeeze then retest breakout
+موتور C: ADX<18 fade with hard SL
 
-Code: ea/GRK_Hybrid_Regime_EA.mq5
-Audit: python research/project_repair_loop.py --root .
+قرارداد: Risk<=0.6%, MaxPositions=1, no grid/martingale, spread filter, daily loss 2%, consecutive loss halt.
