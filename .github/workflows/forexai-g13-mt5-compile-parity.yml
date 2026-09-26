@@ -106,9 +106,6 @@ jobs:
           & $env:PYTHON_EXE -m pip install -r requirements.txt
 
       - name: Verify MT5 toolchain and data folder
-        env:
-          MT5_ROOT: ${{ inputs.mt5_root }}
-          MT5_DATA_ROOT: ${{ inputs.mt5_data_root }}
         run: |
           $ErrorActionPreference = 'Stop'
           $root = $env:MT5_ROOT
@@ -126,8 +123,6 @@ jobs:
           Write-Host "MT5_EXPERTS=$experts"
 
       - name: Stage MT5 include tree for service-account MetaEditor
-        env:
-          MT5_DATA_ROOT: ${{ inputs.mt5_data_root }}
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:MT5_DATA_ROOT 'MQL5\\Include'
@@ -158,8 +153,6 @@ jobs:
             --output artifacts/g13/mql5/ForexAI_G13_Parity_Harness.mq5
 
       - name: Compile all 15 EAs with MetaEditor
-        env:
-          MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
@@ -198,8 +191,6 @@ jobs:
           Write-Host "MT5_COMPILE_OK=15"
 
       - name: Compile and deploy MQL5 real-data parity script
-        env:
-          MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
@@ -246,8 +237,6 @@ jobs:
           Write-Host "PARITY_HARNESS_DEPLOY_OK=$scripts\\ForexAI_G13_Parity_Harness.ex5"
 
       - name: Deploy fresh EAs to MT5 Experts
-        env:
-          MT5_DATA_ROOT: ${{ inputs.mt5_data_root }}
         run: |
           $ErrorActionPreference = 'Stop'
           $experts = Join-Path $env:MT5_DATA_ROOT 'MQL5\\Experts'
@@ -268,8 +257,6 @@ jobs:
           Write-Host "MT5_EXPERTS_DEPLOY_OK=15"
 
       - name: Resolve REAL EURUSD M15 dataset
-        env:
-          DATA_CSV_INPUT: ${{ inputs.data_csv }}
         run: |
           $ErrorActionPreference = 'Stop'
           function Try-ReadableFile([string]$p) {
@@ -382,8 +369,6 @@ jobs:
           Write-Host "REAL_INPUT_STAGED_OK"
 
       - name: Run MQL5 real-data parity script
-        env:
-          MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
           $ErrorActionPreference = 'Stop'
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
@@ -487,8 +472,6 @@ jobs:
 
       - name: Collect MT5 parity diagnostics
         if: always()
-        env:
-          MT5_ROOT: ${{ inputs.mt5_root }}
         run: |
           $ErrorActionPreference = 'Continue'
           $diag = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\diagnostics'
