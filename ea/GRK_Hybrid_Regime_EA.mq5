@@ -1,15 +1,16 @@
 //+------------------------------------------------------------------+
-//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-048                       |
+//| GRK_Hybrid_Regime_EA.mq5   GRK-FX-2026-049                       |
 //| Regime switch: Trend pullback / Squeeze retest / Range fade      |
 //| HTF MA + DI + session + Friday/weekend + ATR floor + halt        |
-//| Regime hysteresis + MaxTradesPerDay + MaxHoldBars                |
+//| Regime hysteresis + MaxTradesPerDay + MaxHoldBars + ProfitLock   |
 //+------------------------------------------------------------------+
 #property copyright "grok-ai-trader"
-#property version   "48.0"
+#property version   "49.0"
 #include <Trade/Trade.mqh>
 
 input double RiskPercent        = 0.5;
 input double DailyLossLimit     = 2.0;
+input double DailyProfitLock    = 2.0;
 input int    MaxPositions       = 1;
 input int    MaxTradesPerDay    = 3;
 input int    ADX_Period         = 14;
@@ -33,7 +34,7 @@ input int    MinAtrSpreadMult   = 6;
 input int    NewsBlackoutStart  = -1;
 input int    NewsBlackoutEnd    = -1;
 input int    MaxHoldBars        = 48;
-input long   Magic              = 2026048;
+input long   Magic              = 2026049;
 
 CTrade trade;
 int adx_h, ma_h, htf_ma_h, atr_h, bb_h;
@@ -53,6 +54,7 @@ int OnInit()
   if(DailyLossLimit <= 0 || ATR_SL_Mult <= 0 || RR_Target < 1.0) return INIT_FAILED;
   if(MaxTradesPerDay < 1) return INIT_FAILED;
   if(MaxHoldBars < 1) return INIT_FAILED;
+  if(DailyProfitLock < 0) return INIT_FAILED;
 
   adx_h    = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
   ma_h     = iMA(_Symbol, PERIOD_CURRENT, MA200_Period, 0, MODE_SMA, PRICE_CLOSE);
@@ -97,7 +99,6 @@ int PositionsByMagic()
 void TimeStopStale()
 {
   if(MaxHoldBars <= 0) return;
-  datetime nowbar = iTime(_Symbol, PERIOD_CURRENT, 0);
   for(int i=PositionsTotal()-1; i>=0; --i)
   {
     ulong ticket = PositionGetTicket(i);
@@ -151,7 +152,7 @@ bool NewsBlackoutOk()
   return !(t.hour >= NewsBlackoutStart || t.hour < NewsBlackoutEnd);
 }
 
-bool DailyLossOk()
+void RollDayIfNeeded()
 {
   MqlDateTime nowt, then;
   TimeToStruct(TimeCurrent(), nowt);
@@ -163,9 +164,23 @@ bool DailyLossOk()
     consec_losses = 0;
     trades_today = 0;
   }
+}
+
+bool DailyLossOk()
+{
+  RollDayIfNeeded();
   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
   if(day_start_equity <= 0) return false;
   return 100.0 * (day_start_equity - eq) / day_start_equity < DailyLossLimit;
+}
+
+bool DailyProfitLockOk()
+{
+  RollDayIfNeeded();
+  if(DailyProfitLock <= 0) return true;
+  double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+  if(day_start_equity <= 0) return false;
+  return 100.0 * (eq - day_start_equity) / day_start_equity < DailyProfitLock;
 }
 
 int RegimeRaw()
@@ -422,6 +437,7 @@ void OnTick()
   if(!SessionOk()) return;
   if(!NewsBlackoutOk()) return;
   if(!DailyLossOk()) return;
+  if(!DailyProfitLockOk()) return;
   if(consec_losses >= ConsecutiveHalt) return;
   if(trades_today >= MaxTradesPerDay) return;
   if(PositionsByMagic() >= MaxPositions) return;
@@ -441,6 +457,6 @@ void OnTick()
   else if(rg == 2) TrySqueezeBreak();
   else if(rg == -1) TryRangeFade();
 }
-// GRK-SAFETY-CONTRACT-048
+// GRK-SAFETY-CONTRACT-049
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only.
