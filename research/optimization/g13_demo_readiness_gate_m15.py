@@ -14,9 +14,27 @@ from typing import Any
 
 PROMOTED_IDS = [2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48]
 GENERATOR_FILE = "research/optimization/g13_mql5_generator_v2.py"
+PROMOTION_FILE = "artifacts/g13/g13-promotion-manifest-m15.json"
+HANDOFF_FILE = "artifacts/g13/frozen/g13-candidate-handoff-m15.json"
+PARITY_CODE_FILES = [
+    GENERATOR_FILE,
+    PROMOTION_FILE,
+    HANDOFF_FILE,
+    "research/optimization/g13_mql5_parity.py",
+    "research/optimization/g13_mql5_parity_harness_generator.py",
+    ".github/workflows/forexai-g13-mt5-compile-parity.yml",
+]
+SAFETY_CODE_FILES = [
+    GENERATOR_FILE,
+    PROMOTION_FILE,
+    HANDOFF_FILE,
+    "research/optimization/g13_execution_safety_audit_m15.py",
+    ".github/workflows/forexai-g13-execution-safety-audit-m15.yml",
+]
 RUNTIME_CRITICAL_FILES = [
     "research/optimization/G13_Safety_Probe_AuthOff.mq5",
     "research/optimization/G13_Safety_Probe_AuthOn.mq5",
+    ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml",
 ]
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -76,15 +94,15 @@ def gate(
     assert allowed["other_g13_position"] is False
 
     assert git_diff_clean(runtime_head_sha, RUNTIME_CRITICAL_FILES), (
-        "Critical trading/probe files changed since runtime evidence run "
+        "Runtime-critical files changed since runtime evidence run "
         f"{runtime_head_sha}"
     )
-    assert git_diff_clean(safety_head_sha, [GENERATOR_FILE]), (
-        "Generator changed since safety-audit evidence run "
+    assert git_diff_clean(safety_head_sha, SAFETY_CODE_FILES), (
+        "Safety evidence contract files changed since safety-audit run "
         f"{safety_head_sha}"
     )
-    assert git_diff_clean(parity_head_sha, [GENERATOR_FILE]), (
-        "Generator changed since compile/parity evidence run "
+    assert git_diff_clean(parity_head_sha, PARITY_CODE_FILES), (
+        "Parity evidence contract files changed since compile/parity run "
         f"{parity_head_sha}"
     )
 
@@ -131,9 +149,9 @@ def gate(
         "schema": "forexai.g13.demo_readiness_gate_m15.v1",
         "status": "READY_FOR_CONTROLLED_DEMO_AUDIT",
         "current_code": {
-            "critical_files_unchanged_since_runtime": True,
-            "generator_unchanged_since_safety": True,
-            "generator_unchanged_since_parity": True,
+            "runtime_contract_files_unchanged_since_runtime": True,
+            "safety_contract_files_unchanged_since_safety": True,
+            "parity_contract_files_unchanged_since_parity": True,
         },
         "promotion": {
             "status": p["status"],
