@@ -42,6 +42,7 @@ REQUIRED_TOKENS = (
     'SYMBOL_ORDER_MARKET',
     'SYMBOL_ORDER_SL',
     'SYMBOL_ORDER_TP',
+    'SYMBOL_TRADE_STOPS_LEVEL',
 )
 FORBIDDEN_TOKENS = (
     'input bool   DemoTradingAuthorized = true;',
