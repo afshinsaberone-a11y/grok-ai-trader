@@ -30,6 +30,7 @@ on:
       - "ForexAI G13 Final Promotion M15"
     types: [completed]
   push:
+    branches: [main]
     paths:
       - research/optimization/g13_mql5_generator_v2.py
       - research/optimization/g13_mql5_parity.py
