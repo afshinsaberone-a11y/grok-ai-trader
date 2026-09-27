@@ -36,6 +36,9 @@ on:
       - 'research/optimization/g13_mql5_parity_harness_generator.py'
       - 'research/optimization/g13_mql5_parity.py'
       - 'research/optimization/g13_demo_readiness_gate_m15.py'
+      - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
+      - 'research/optimization/g13_demo_package_preflight_m15.py'
+      - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
   workflow_dispatch:
