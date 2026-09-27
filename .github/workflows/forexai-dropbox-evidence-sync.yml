@@ -69,6 +69,7 @@ jobs:
           with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as f:
               f.write(f"RUN_ID={int(p['id'])}\n")
               f.write(f"WORKFLOW_NAME={p['name']}\n")
+              f.write(f"RUN_ATTEMPT={int(p.get('run_attempt') or 1)}\n")
               f.write(f"HEAD_SHA={p['head_sha']}\n")
               f.write(f"CONCLUSION={p.get('conclusion') or 'unknown'}\n")
           print("SOURCE_RUN",p["id"],p["name"],p["head_sha"],p.get("conclusion"))
@@ -147,19 +148,20 @@ jobs:
           echo "DROPBOX_DEST_ROOT=${DEST_ROOT}" >> "$GITHUB_ENV"
           python tools/dropbox_evidence_sync_v2.py \
             --source-dir incoming/github-artifacts \
-            --dropbox-root "${DEST_ROOT}/${WORKFLOW_SLUG}/${RUN_ID}" \
+            --dropbox-root "${DEST_ROOT}/${WORKFLOW_SLUG}/${RUN_ID}/attempt-${RUN_ATTEMPT}" \
             --workflow-name "${WORKFLOW_NAME}" \
             --run-id "${RUN_ID}" \
+            --run-attempt "${RUN_ATTEMPT}" \
             --head-sha "${HEAD_SHA}" \
             --conclusion "${CONCLUSION}" \
             --run-metadata "run-metadata.json" \
-            --ledger-out "reports/dropbox/run-${RUN_ID}.json" \
+            --ledger-out "reports/dropbox/run-${RUN_ID}-attempt-${RUN_ATTEMPT}.json" \
             --ledger-remote-root "/ForexAI/09_EVIDENCE_LEDGER/Run_Index" \
             --manifest-out "reports/dropbox/sync-${RUN_ID}.json" \
             --policy "config/dropbox_free_tier_policy.json"
       - name: Publish sync receipt
         uses: actions/upload-artifact@v4
         with:
-          name: dropbox-evidence-sync-${{ env.RUN_ID }}
-          path: reports/dropbox/run-${{ env.RUN_ID }}.json
+          name: dropbox-evidence-sync-${{ env.RUN_ID }}-attempt-${{ env.RUN_ATTEMPT }}
+          path: reports/dropbox/run-${{ env.RUN_ID }}-attempt-${{ env.RUN_ATTEMPT }}.json
           if-no-files-found: error
