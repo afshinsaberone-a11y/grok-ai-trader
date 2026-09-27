@@ -99,6 +99,7 @@ def gate(
     p = load_json(promotion)
     prov = load_json(provenance)
     attest = load_json(attestation)
+    pf = load_json(preflight)
     s = load_json(safety)
     par = load_json(parity)
 
@@ -114,6 +115,15 @@ def gate(
     assert p["decision_policy"]["demo_trading_allowed"] is False
     assert p["decision_policy"]["live_trading_allowed"] is False
     assert p["promoted_candidate_ids"] == PROMOTED_IDS
+    assert pf["schema_version"] == "forexai.g13.controlled_demo_package_preflight.m15.v1"
+    assert pf["status"] == "PASS"
+    assert pf["candidate_count"] == 15
+    assert pf["binary_hashes_verified"] == 15
+    assert pf["source_safety_contracts_verified"] == 15
+    assert pf["real_data_only"] is True
+    assert pf["synthetic_data"] is False
+    assert pf["demo_trading_allowed_by_source"] is False
+    assert pf["live_trading_allowed"] is False
 
     assert s["status"] == "PASS"
     assert s["scope"]["candidate_count"] == 15
@@ -213,6 +223,13 @@ def gate(
             "demo_trading_allowed": p["decision_policy"]["demo_trading_allowed"],
             "live_trading_allowed": p["decision_policy"]["live_trading_allowed"],
         },
+        "preflight": {
+            "status": pf["status"],
+            "compile_parity_run_id": pf["compile_parity_run_id"],
+            "candidate_count": pf["candidate_count"],
+            "binary_hashes_verified": pf["binary_hashes_verified"],
+            "source_safety_contracts_verified": pf["source_safety_contracts_verified"],
+        },
         "safety": {
             "status": s["status"],
             "matrix_cases": len(s["matrix"]),
@@ -244,6 +261,7 @@ def main() -> int:
     ap.add_argument("--promotion", type=Path, required=True)
     ap.add_argument("--provenance", type=Path, required=True)
     ap.add_argument("--promotion-attestation", type=Path, required=True)
+    ap.add_argument("--preflight", type=Path, required=True)
     ap.add_argument("--promotion-run-id", type=int, required=True)
     ap.add_argument("--main-head-sha", required=True)
     ap.add_argument("--safety", type=Path, required=True)
@@ -258,6 +276,7 @@ def main() -> int:
         promotion=a.promotion,
         provenance=a.provenance,
         attestation=a.promotion_attestation,
+        preflight=a.preflight,
         promotion_run_id=a.promotion_run_id,
         main_head_sha=a.main_head_sha,
         safety=a.safety,
