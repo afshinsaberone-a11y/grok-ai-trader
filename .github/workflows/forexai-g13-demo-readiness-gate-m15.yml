@@ -7,15 +7,12 @@ on:
       runtime_run_id:
         description: "Successful G13 MT5 Runtime Safety Probe v2 run"
         required: true
-        default: "36335046005"
       safety_run_id:
         description: "Successful G13 Execution Safety Audit run"
         required: true
-        default: "36334972883"
       parity_run_id:
         description: "Successful G13 MT5 Compile + Signal Parity run"
         required: true
-        default: "36332467481"
 
 permissions:
   contents: read
@@ -91,12 +88,12 @@ jobs:
           assert p['promotion']['demo_trading_allowed'] is False
           assert p['promotion']['live_trading_allowed'] is False
           assert p['safety']['status']=='PASS'
-          assert p['safety']['matrix_cases']==48
+          assert p['safety']['matrix_cases']==1536
+          assert p['safety']['matrix_allowed_states']==769
           assert p['safety']['non_tester_allowed_states']==1
           assert p['evidence']['parity_status']=='PASS'
           assert p['evidence']['parity_passed_count']==15
           assert p['runtime']['demo_account'] is True
-          assert p['runtime']['authorization_off_blocks'] is True
           assert p['runtime']['authorization_off_blocks'] is True
           assert p['runtime']['orders_submitted'] is False
           assert p['live_remains_disabled'] is True
