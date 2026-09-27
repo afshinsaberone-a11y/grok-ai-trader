@@ -72,10 +72,14 @@ def audit(
     package_root: Path,
     compile_parity_run_id: int,
     compile_parity_head_sha: str,
+    compile_parity_artifact_id: int,
+    compile_parity_artifact_digest: str,
+    downloaded_zip_sha256: str,
 ) -> dict:
     manifest = load_manifest(manifest_path)
     assert int(manifest["compile_parity_run_id"]) == compile_parity_run_id
     assert manifest["ea_source_commit"] == compile_parity_head_sha
+    assert compile_parity_artifact_digest == "sha256:" + downloaded_zip_sha256
     package = find_package(package_root)
 
     rows = {x["candidate_id"]: x for x in manifest["candidates"]}
@@ -111,6 +115,9 @@ def audit(
         "status": "PASS",
         "compile_parity_run_id": manifest["compile_parity_run_id"],
         "compile_parity_head_sha": compile_parity_head_sha,
+        "compile_parity_artifact_id": compile_parity_artifact_id,
+        "compile_parity_artifact_digest": compile_parity_artifact_digest,
+        "downloaded_zip_sha256": downloaded_zip_sha256,
         "ea_source_commit": manifest["ea_source_commit"],
         "symbol": manifest["symbol"],
         "timeframe": manifest["timeframe"],
@@ -137,6 +144,9 @@ def main() -> int:
     ap.add_argument("--package-root", type=Path, required=True)
     ap.add_argument("--compile-parity-run-id", type=int, required=True)
     ap.add_argument("--compile-parity-head-sha", required=True)
+    ap.add_argument("--compile-parity-artifact-id", type=int, required=True)
+    ap.add_argument("--compile-parity-artifact-digest", required=True)
+    ap.add_argument("--downloaded-zip-sha256", required=True)
     ap.add_argument("--report", type=Path, required=True)
     args = ap.parse_args()
 
@@ -145,6 +155,9 @@ def main() -> int:
         args.package_root,
         args.compile_parity_run_id,
         args.compile_parity_head_sha,
+        args.compile_parity_artifact_id,
+        args.compile_parity_artifact_digest,
+        args.downloaded_zip_sha256,
     )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
