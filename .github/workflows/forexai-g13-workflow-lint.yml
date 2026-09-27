@@ -30,6 +30,8 @@ on:
       - 'research/optimization/g13_promotion_gate_m15.py'
   pull_request:
     paths:
+      - '.github/workflows/forexai-g13-promotion-m15.yml'
+      - 'research/optimization/g13_promotion_gate_m15.py'
       - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
       - '.github/workflows/forexai-g13-workflow-lint.yml'
       - 'research/optimization/g13_mql5_parity_harness_generator.py'
