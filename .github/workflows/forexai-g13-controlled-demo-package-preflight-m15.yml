@@ -38,15 +38,7 @@ jobs:
           MAIN_SHA="$(git rev-parse HEAD)"
           echo "MAIN_HEAD_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
           json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$COMPILE_PARITY_RUN_ID")"
-          python - "$MAIN_SHA" <<'PY' <<< "$json"
-          import json,sys
-          p=json.load(sys.stdin)
-          assert p["name"]=="ForexAI G13 MT5 Compile + Signal Parity", p["name"]
-          assert p["head_branch"]=="main", p["head_branch"]
-          assert p["conclusion"]=="success", (p["id"],p["conclusion"])
-          assert p["head_sha"]==sys.argv[1], (p["id"],p["head_sha"],sys.argv[1])
-          print("COMPILE_PARITY_RUN_OK",p["id"],p["head_sha"])
-          PY
+          python -c 'import json,sys; p=json.load(sys.stdin); assert p["name"]=="ForexAI G13 MT5 Compile + Signal Parity", p["name"]; assert p["head_branch"]=="main", p["head_branch"]; assert p["conclusion"]=="success", (p["id"],p["conclusion"]); assert p["head_sha"]==sys.argv[1], (p["id"],p["head_sha"],sys.argv[1]); print("COMPILE_PARITY_RUN_OK",p["id"],p["head_sha"])' "$MAIN_SHA" <<< "$json"
           echo "COMPILE_PARITY_HEAD_SHA=$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")" >> "$GITHUB_ENV"
 
       - name: Download and verify exact compiled package artifact
