@@ -106,14 +106,35 @@ def main() -> int:
         raise RuntimeError("repository map root must be /ForexAI")
 
     account = call("users/get_current_account", {})
+    space = call("users/get_space_usage", {})
+    used_bytes = space.get("used")
+    allocation = space.get("allocation") or {}
+    allocated_bytes = allocation.get("allocated")
+    if not isinstance(used_bytes, int) or not isinstance(allocated_bytes, int):
+        raise RuntimeError("Dropbox space usage response is missing used/allocated bytes")
+    policy = json.loads(
+        Path("config/dropbox_free_tier_policy.json").read_text(encoding="utf-8")
+    )
+    reserve_bytes = int(policy.get("reserve_bytes", 0))
+    available_bytes = allocated_bytes - used_bytes
     actual = list_all_folders(ROOT)
     expected = configured_paths(mapping)
     missing = sorted(expected - actual)
+    quota_hold = available_bytes < reserve_bytes
 
     result = {
         "schema_version": "forexai.dropbox_healthcheck.v2",
-        "status": "PASS" if not missing else "HOLD",
+        "status": "PASS" if not missing and not quota_hold else "HOLD",
         "account_id_present": bool(account.get("account_id")),
+        "storage": {
+            "used_bytes": used_bytes,
+            "allocated_bytes": allocated_bytes,
+            "available_bytes": available_bytes,
+            "reserve_bytes": reserve_bytes,
+            "reserve_ok": not quota_hold,
+            "usage_pct": round((used_bytes / allocated_bytes) * 100, 2)
+            if allocated_bytes else None,
+        },
         "root": ROOT,
         "configured_paths_checked": len(expected),
         "missing_paths": missing,
