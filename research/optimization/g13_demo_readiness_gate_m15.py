@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 PROMOTED_IDS = [2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48]
-CRITICAL_FILES = [
-    "research/optimization/g13_mql5_generator_v2.py",
+GENERATOR_FILE = "research/optimization/g13_mql5_generator_v2.py"
+RUNTIME_CRITICAL_FILES = [
     "research/optimization/G13_Safety_Probe_AuthOff.mq5",
     "research/optimization/G13_Safety_Probe_AuthOn.mq5",
 ]
@@ -75,15 +75,15 @@ def gate(
     assert allowed["kill_switch"] == "ALLOW"
     assert allowed["other_g13_position"] is False
 
-    assert git_diff_clean(runtime_head_sha, CRITICAL_FILES), (
+    assert git_diff_clean(runtime_head_sha, RUNTIME_CRITICAL_FILES), (
         "Critical trading/probe files changed since runtime evidence run "
         f"{runtime_head_sha}"
     )
-    assert git_diff_clean(safety_head_sha, [CRITICAL_FILES[0]]), (
+    assert git_diff_clean(safety_head_sha, [GENERATOR_FILE]), (
         "Generator changed since safety-audit evidence run "
         f"{safety_head_sha}"
     )
-    assert git_diff_clean(parity_head_sha, [CRITICAL_FILES[0]]), (
+    assert git_diff_clean(parity_head_sha, [GENERATOR_FILE]), (
         "Generator changed since compile/parity evidence run "
         f"{parity_head_sha}"
     )
