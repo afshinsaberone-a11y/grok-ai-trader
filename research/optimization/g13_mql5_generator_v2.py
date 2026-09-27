@@ -170,21 +170,28 @@ bool BearishDivergence()
    return newerHigh > olderHigh + MinDelta && newerRsi < olderRsi && newerRsi >= RSIHigh;
 }}
 
-double LotSize(double stopDistance)
+double LotSize(double stopDistance,const double entry)
 {{
-   if(stopDistance<=0.0) return 0.0;
+   if(stopDistance<=0.0 || entry<=0.0) return 0.0;
    double balance=AccountInfoDouble(ACCOUNT_BALANCE);
    double riskMoney=balance*RiskPercent/100.0;
-   double tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
-   double tickValue=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
+   if(riskMoney<=0.0) return 0.0;
+
+   // Use the platform's account-currency profit model for a 1-lot SELL
+   // from the expected entry to the planned stop. This avoids hard-coding
+   // contract/tick-value assumptions for different symbol configurations.
+   double oneLotLoss=0.0;
+   if(!OrderCalcProfit(ORDER_TYPE_SELL,_Symbol,1.0,entry,entry+stopDistance,oneLotLoss))
+      return 0.0;
+   oneLotLoss=MathAbs(oneLotLoss);
+   if(oneLotLoss<=0.0) return 0.0;
+
    double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
-   if(tickSize<=0.0 || tickValue<=0.0 || step<=0.0) return 0.0;
-   double lossPerLot=(stopDistance/tickSize)*tickValue;
-   if(lossPerLot<=0.0) return 0.0;
-   double lots=riskMoney/lossPerLot;
    double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
    double maxLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
-   if(minLot<=0.0 || maxLot<minLot) return 0.0;
+   if(step<=0.0 || minLot<=0.0 || maxLot<minLot) return 0.0;
+
+   double lots=riskMoney/oneLotLoss;
    // Fail closed when the risk-derived size is below broker minimum.
    // Never round upward to minLot because that could exceed RiskPercent.
    if(lots<minLot) return 0.0;
@@ -203,7 +210,16 @@ void ManageExpiry()
       if(PositionGetString(POSITION_SYMBOL)!=_Symbol || PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
       datetime openTime=(datetime)PositionGetInteger(POSITION_TIME);
       int age=iBarShift(_Symbol,PERIOD_M15,openTime,false);
-      if(age>=ExpiryBars) trade.PositionClose(ticket);
+      if(age>=ExpiryBars)
+      {{
+         ulong started=GetTickCount64();
+         bool closed=trade.PositionClose(ticket);
+         ulong elapsed=GetTickCount64()-started;
+         ExecutionAuditLog("CLOSE_ATTEMPT",trade.ResultOrder(),trade.ResultDeal(),
+                           0.0,trade.ResultPrice(),trade.ResultRetcode(),
+                           trade.ResultRetcodeDescription(),elapsed,
+                           closed ? trade.ResultComment() : "PositionClose returned false");
+      }}
    }}
 }}
 
@@ -342,7 +358,11 @@ void OnTick()
    if(entry<=0.0) return;
    double sl=entry+risk;
    double tp=entry-RR*risk;
-   double lots=LotSize(risk);
+   long stopsLevel=(long)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   if(stopsLevel<0) return;
+   if(risk < (double)stopsLevel*_Point) return;
+   if(RR<=0.0) return;
+   double lots=LotSize(risk,entry);
    if(lots<=0.0) return;
    ulong started=GetTickCount64();
    bool accepted=trade.Sell(lots,_Symbol,0.0,sl,tp,"ForexAI-G13-{cid:02d}");
