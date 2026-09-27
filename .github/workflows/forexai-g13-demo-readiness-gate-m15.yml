@@ -61,45 +61,53 @@ jobs:
         run: |
           set -euo pipefail
 
+          MAIN_SHA="$(git rev-parse HEAD)"
+          echo "MAIN_HEAD_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
+
+          latest_success() {
+            local workflow_file="$1"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
+              python -c 'import json,sys,os; rs=json.load(sys.stdin)["workflow_runs"]; sha=os.environ["MAIN_SHA"]; m=[r for r in rs if r.get("head_sha")==sha]; assert m, "no successful run for current main " + sys.argv[1] + " @ " + sha; print(max(m,key=lambda x:x["id"])["id"])' "$workflow_file"
+          }
+
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             runtime_id="${MANUAL_RUNTIME_RUN_ID}"
             safety_id="${MANUAL_SAFETY_RUN_ID}"
             parity_id="${MANUAL_PARITY_RUN_ID}"
+            promotion_id="${MANUAL_PROMOTION_RUN_ID}"
           else
-            latest_success() {
-              local workflow_file="$1"
-              gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=20" |
-                python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful run"; print(max(rs,key=lambda x:x["id"])["id"])'
-            }
-
-            runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")"
+            runtime_id="${EVENT_RUN_ID}"
             safety_id="$(latest_success "forexai-g13-execution-safety-audit-m15.yml")"
             parity_id="$(latest_success "forexai-g13-mt5-compile-parity.yml")"
-
+            promotion_id="$(latest_success "forexai-g13-promotion-m15.yml")"
             case "${EVENT_WORKFLOW}" in
               "ForexAI G13 MT5 Runtime Safety Probe M15 v2") runtime_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 Execution Safety Audit M15") safety_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 MT5 Compile + Signal Parity") parity_id="${EVENT_RUN_ID}" ;;
+              "ForexAI G13 Final Promotion M15") promotion_id="${EVENT_RUN_ID}" ;;
+              *) runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")" ;;
             esac
           fi
 
-          for pair in "RUNTIME=$runtime_id" "SAFETY=$safety_id" "PARITY=$parity_id"; do
+          for pair in "RUNTIME=$runtime_id" "SAFETY=$safety_id" "PARITY=$parity_id" "PROMOTION=$promotion_id"; do
             key="${pair%%=*}"
             id="${pair#*=}"
             [ -n "$id" ] || { echo "Missing $key run id"; exit 1; }
             json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")"
-            python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); print(x["id"],x["head_sha"])' <<< "$json"
+            python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); assert x["head_branch"]=="main", (x["id"],x["head_branch"]); print(x["id"],x["head_sha"])' <<< "$json"
             sha="$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")"
+            if [ "$key" = "PROMOTION" ]; then
+              [ "$sha" = "$MAIN_SHA" ] || { echo "Promotion run head SHA mismatch: $sha != $MAIN_SHA"; exit 1; }
+            fi
             echo "${key}_HEAD_SHA=$sha" >> "$GITHUB_ENV"
             echo "${key}_RUN_ID=$id" >> "$GITHUB_ENV"
           done
 
-          lint_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-workflow-lint.yml/runs?branch=main&status=success&per_page=20")"
-          lint_id="$(python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful static-validation run"; print(max(rs,key=lambda x:x["id"])["id"])' <<< "$lint_runs")"
+          lint_id="$(latest_success "forexai-g13-workflow-lint.yml")"
           echo "LINT_RUN_ID=$lint_id" >> "$GITHUB_ENV"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$lint_id" |
-            python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); print(x["id"],x["head_sha"])'
-          echo "LINT_HEAD_SHA=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$lint_id" | python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])')" >> "$GITHUB_ENV"
+          lint_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$lint_id")"
+          python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success"; assert x["head_sha"]==sys.argv[1], (x["id"],x["head_sha"],sys.argv[1]); print("STATIC_VALIDATION_SUCCESS",x["id"],x["head_sha"])' "$MAIN_SHA" <<< "$lint_json"
+          echo "LINT_HEAD_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
 
       - name: Download evidence
         env:
