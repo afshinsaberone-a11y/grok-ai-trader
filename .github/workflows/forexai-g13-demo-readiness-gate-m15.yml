@@ -152,14 +152,28 @@ jobs:
             .github/workflows/forexai-g13-mt5-compile-parity.yml \
             .github/workflows/forexai-g13-execution-safety-audit-m15.yml \
             .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml \
-            research/optimization/g13_demo_readiness_gate_m15.py
+            .github/workflows/forexai-g13-promotion-m15.yml \
+            research/optimization/g13_demo_readiness_gate_m15.py \
+            research/optimization/g13_promotion_gate_m15.py
           echo "STATIC_VALIDATION_COVERS_CURRENT_G13_CONFIG=true"
 
       - name: Run readiness gate
         run: |
           set -euo pipefail
           python -m py_compile research/optimization/g13_demo_readiness_gate_m15.py
-          python -m research.optimization.g13_demo_readiness_gate_m15             --promotion artifacts/g13/g13-promotion-manifest-m15.json             --safety "$SAFETY_JSON"             --runtime-dir "$RUNTIME_DIR"             --parity "$PARITY_JSON"             --runtime-head-sha "$RUNTIME_HEAD_SHA"             --parity-head-sha "$PARITY_HEAD_SHA"             --safety-head-sha "$SAFETY_HEAD_SHA"             --report artifacts/g13/g13-demo-readiness-gate-m15.json
+          python -m research.optimization.g13_demo_readiness_gate_m15 \
+            --promotion "$PROMOTION_JSON" \
+            --provenance "$PROMOTION_PROVENANCE" \
+            --promotion-attestation "$PROMOTION_ATTESTATION" \
+            --promotion-run-id "$PROMOTION_RUN_ID" \
+            --main-head-sha "$MAIN_HEAD_SHA" \
+            --safety "$SAFETY_JSON" \
+            --runtime-dir "$RUNTIME_DIR" \
+            --parity "$PARITY_JSON" \
+            --runtime-head-sha "$RUNTIME_HEAD_SHA" \
+            --parity-head-sha "$PARITY_HEAD_SHA" \
+            --safety-head-sha "$SAFETY_HEAD_SHA" \
+            --report artifacts/g13/g13-demo-readiness-gate-m15.json
 
       - name: Fail closed assertions
         run: |
@@ -170,6 +184,7 @@ jobs:
           assert p['status']=='READY_FOR_CONTROLLED_DEMO_AUDIT'
           assert p['promotion']['demo_trading_allowed'] is False
           assert p['promotion']['live_trading_allowed'] is False
+          assert p['promotion']['run_id'] == int("$PROMOTION_RUN_ID")
           assert p['safety']['status']=='PASS'
           assert p['safety']['matrix_cases']==1536
           assert p['safety']['matrix_allowed_states']==769
