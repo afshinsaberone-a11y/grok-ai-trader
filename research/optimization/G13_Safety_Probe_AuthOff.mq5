@@ -26,7 +26,9 @@ bool HasOtherG13Position(long current_magic)
    return false;
 }
 
-void WriteProbe(const string label,const long mode,const bool auth,const bool kill_switch,const bool other,const bool allowed)
+void WriteProbe(const string label,const long mode,const bool auth,const bool kill_switch,const bool other,
+               const bool terminal_connected,const bool terminal_trade_allowed,const bool mql_trade_allowed,
+               const bool account_trade_allowed,const bool account_trade_expert,const bool allowed)
 {
    string file="g13_safety_probe_"+label+".done.txt";
    int h=FileOpen(file,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
@@ -39,6 +41,11 @@ void WriteProbe(const string label,const long mode,const bool auth,const bool ki
    FileWrite(h,"authorization,"+(string)(auth ? "true" : "false"));
    FileWrite(h,"kill_switch_allow,"+(string)(kill_switch ? "true" : "false"));
    FileWrite(h,"other_g13_position,"+(string)(other ? "true" : "false"));
+   FileWrite(h,"terminal_connected,"+(string)(terminal_connected ? "true" : "false"));
+   FileWrite(h,"terminal_trade_allowed,"+(string)(terminal_trade_allowed ? "true" : "false"));
+   FileWrite(h,"mql_trade_allowed,"+(string)(mql_trade_allowed ? "true" : "false"));
+   FileWrite(h,"account_trade_allowed,"+(string)(account_trade_allowed ? "true" : "false"));
+   FileWrite(h,"account_trade_expert,"+(string)(account_trade_expert ? "true" : "false"));
    FileWrite(h,"execution_allowed,"+(string)(allowed ? "true" : "false"));
    FileWrite(h,"orders_submitted,false");
    FileWrite(h,"probe_only,true");
@@ -51,11 +58,23 @@ void OnStart()
    const bool authorized=false;
    const bool kill_switch=DemoKillSwitchAllowed();
    const bool other=HasOtherG13Position(0);
+   const bool terminal_connected=(bool)TerminalInfoInteger(TERMINAL_CONNECTED);
+   const bool terminal_trade_allowed=(bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED);
+   const bool mql_trade_allowed=(bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
+   const bool account_trade_allowed=(bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED);
+   const bool account_trade_expert=(bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);
    const bool allowed=authorized &&
                       mode==ACCOUNT_TRADE_MODE_DEMO &&
+                      terminal_connected &&
+                      terminal_trade_allowed &&
+                      mql_trade_allowed &&
+                      account_trade_allowed &&
+                      account_trade_expert &&
                       kill_switch &&
                       !other;
 
-   WriteProbe("auth_off",mode,authorized,kill_switch,other,allowed);
+   WriteProbe("auth_off",mode,authorized,kill_switch,other,
+              terminal_connected,terminal_trade_allowed,mql_trade_allowed,
+              account_trade_allowed,account_trade_expert,allowed);
 }
 //+------------------------------------------------------------------+
