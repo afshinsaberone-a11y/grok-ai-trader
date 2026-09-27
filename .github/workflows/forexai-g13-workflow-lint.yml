@@ -144,14 +144,6 @@ jobs:
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
 
-          for token in [
-              "promotion_run_id",
-              "preflight_run_id",
-              "g13-controlled-demo-package-preflight-m15",
-              "latest_success_exact",
-          ]:
-              assert token in readiness_workflow, f"readiness workflow binding token missing: {token}"
-
           preflight = Path("research/optimization/g13_demo_package_preflight_m15.py").read_text(encoding="utf-8")
           for token in [
               "compile_parity_run_id",
@@ -182,6 +174,13 @@ jobs:
 
           readiness = Path("research/optimization/g13_demo_readiness_gate_m15.py").read_text(encoding="utf-8")
           readiness_workflow = Path(".github/workflows/forexai-g13-demo-readiness-gate-m15.yml").read_text(encoding="utf-8")
+          for token in [
+              "promotion_run_id",
+              "preflight_run_id",
+              "g13-controlled-demo-package-preflight-m15",
+              "latest_success_exact",
+          ]:
+              assert token in readiness_workflow, f"readiness workflow binding token missing: {token}"
           for token in [
               'PROMOTION_FILE = "artifacts/g13/g13-promotion-manifest-m15.json"',
               'HANDOFF_FILE = "artifacts/g13/frozen/g13-candidate-handoff-m15.json"',
