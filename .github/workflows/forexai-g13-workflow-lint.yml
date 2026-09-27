@@ -145,6 +145,7 @@ jobs:
               "symbol_sl_allowed",
               "symbol_tp_allowed",
               "stops_level_points",
+              "real_account_detected",
           ]
           for probe_name in [
               "research/optimization/G13_Safety_Probe_AuthOff.mq5",
