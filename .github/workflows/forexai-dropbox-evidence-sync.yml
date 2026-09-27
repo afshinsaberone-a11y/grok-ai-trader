@@ -117,11 +117,12 @@ jobs:
           test -n "$(find incoming/github-artifacts -type f -print -quit)" \
             || { echo "DROPBOX_SYNC_FAIL_CLOSED: source run has no downloadable artifacts"; exit 2; }
 
-      - name: Compile and test sync utility
+      - name: Validate repository contract and sync utility
         run: |
           set -euo pipefail
-          python -m py_compile tools/dropbox_evidence_sync_v2.py
-          python -m pytest -q tests/test_dropbox_evidence_sync.py
+          python -m py_compile tools/dropbox_evidence_sync_v2.py tools/validate_dropbox_contract.py
+          python tools/validate_dropbox_contract.py
+          python -m pytest -q tests/test_dropbox_contract.py tests/test_dropbox_evidence_sync.py
 
       - name: Sync evidence into Dropbox
         run: |
@@ -134,9 +135,14 @@ jobs:
           )
           echo "WORKFLOW_SLUG=${WORKFLOW_SLUG}" >> "$GITHUB_ENV"
           mkdir -p reports/dropbox
+          DEST_ROOT="/ForexAI/11_GITHUB_ACTIONS/Artifacts"
+          if [ "${CONCLUSION}" != "success" ]; then
+            DEST_ROOT="/ForexAI/11_GITHUB_ACTIONS/Failure_Analysis"
+          fi
+          echo "DROPBOX_DEST_ROOT=${DEST_ROOT}" >> "$GITHUB_ENV"
           python tools/dropbox_evidence_sync_v2.py \
             --source-dir incoming/github-artifacts \
-            --dropbox-root "/ForexAI/11_GITHUB_ACTIONS/Artifacts/${WORKFLOW_SLUG}/${RUN_ID}" \
+            --dropbox-root "${DEST_ROOT}/${WORKFLOW_SLUG}/${RUN_ID}" \
             --workflow-name "${WORKFLOW_NAME}" \
             --run-id "${RUN_ID}" \
             --head-sha "${HEAD_SHA}" \
