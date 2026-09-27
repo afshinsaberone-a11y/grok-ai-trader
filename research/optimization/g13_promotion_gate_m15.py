@@ -42,6 +42,7 @@ def validate_provenance(provenance: dict[str, Any]) -> None:
     for key, (run_id, artifact_id) in expected.items():
         row = provenance["sources"][key]
         assert row["run_id"] == run_id
+        assert isinstance(row.get("job_id"), int) and row["job_id"] > 0
         assert row["conclusion"] == "success"
         artifact = row["artifact"]
         assert artifact["artifact_id"] == artifact_id
