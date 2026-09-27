@@ -1,0 +1,89 @@
+name: ForexAI G13 Controlled Demo Package Preflight M15
+
+# Manual, offline/read-only package integrity gate.
+# This workflow never connects to MT5 and never submits orders.
+on:
+  workflow_dispatch:
+    inputs:
+      compile_parity_run_id:
+        description: "Successful ForexAI G13 MT5 Compile + Signal Parity run containing the frozen EX5 package"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: g13-controlled-demo-package-preflight
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COMPILE_PARITY_RUN_ID: ${{ inputs.compile_parity_run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Verify compile + parity source run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$COMPILE_PARITY_RUN_ID")"
+          python - <<'PY' <<< "$json"
+          import json,sys
+          p=json.load(sys.stdin)
+          assert p["name"]=="ForexAI G13 MT5 Compile + Signal Parity", p["name"]
+          assert p["head_branch"]=="main", p["head_branch"]
+          assert p["conclusion"]=="success", (p["id"],p["conclusion"])
+          print("COMPILE_PARITY_RUN_OK",p["id"],p["head_sha"])
+          PY
+
+      - name: Download exact compiled package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf package
+          mkdir -p package
+          artifact_name="g13-mt5-compile-parity-$COMPILE_PARITY_RUN_ID"
+          gh run download "$COMPILE_PARITY_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --name "$artifact_name"             --dir package
+          test "$(find package -name 'ForexAI_G13_Candidate_*.ex5' | wc -l)" -eq 15
+          test "$(find package -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
+          echo "EXACT_COMPILED_PACKAGE_DOWNLOADED=15_EX5_15_MQ5"
+
+      - name: Run offline Demo package preflight
+        run: |
+          set -euo pipefail
+          python -m py_compile research/optimization/g13_demo_package_preflight_m15.py
+          python -m research.optimization.g13_demo_package_preflight_m15             --manifest docs/G13_DEMO_PACKAGE_MANIFEST_M15.json             --package-root package             --report artifacts/g13/g13-demo-package-preflight-m15.json
+
+      - name: Fail-closed assertions
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p=json.load(open("artifacts/g13/g13-demo-package-preflight-m15.json",encoding="utf-8"))
+          assert p["status"]=="PASS"
+          assert p["candidate_count"]==15
+          assert p["binary_hashes_verified"]==15
+          assert p["source_safety_contracts_verified"]==15
+          assert p["real_data_only"] is True
+          assert p["synthetic_data"] is False
+          assert p["demo_trading_allowed_by_source"] is False
+          assert p["live_trading_allowed"] is False
+          print("G13_CONTROLLED_DEMO_PACKAGE_PREFLIGHT_OK")
+          PY
+
+      - name: Upload preflight evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-controlled-demo-package-preflight-m15
+          path: artifacts/g13/g13-demo-package-preflight-m15.json
+          if-no-files-found: error
