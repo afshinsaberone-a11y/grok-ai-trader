@@ -1,5 +1,7 @@
 name: ForexAI G13 Workflow Static Validation
 
+# Static GitHub-hosted validation for the self-hosted MT5 parity workflow.
+
 on:
   push:
     paths:
