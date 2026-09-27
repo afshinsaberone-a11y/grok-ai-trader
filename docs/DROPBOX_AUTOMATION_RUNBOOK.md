@@ -52,6 +52,9 @@ evidence workflows:
 - ForexAI G13 Agent Evidence Consumer
 - ForexAI G13 Controlled Demo Package Preflight M15
 - Dukascopy Cross-Feed Check
+- ForexAI v29.1 Robustness Validation (M5/manual timeframe)
+- ForexAI v29.1 Robustness Validation — M1
+- ForexAI v29.1 Robustness Validation — M15
 
 It can also be run manually with any source run ID.
 
