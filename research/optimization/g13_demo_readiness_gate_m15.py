@@ -7,6 +7,7 @@ order and never enables Demo or Live execution.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -40,6 +41,36 @@ RUNTIME_CRITICAL_FILES = [
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
+def canonical_hash(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+def validate_promotion_binding(
+    promotion: dict[str, Any],
+    provenance: dict[str, Any],
+    attestation: dict[str, Any],
+    *,
+    promotion_run_id: int,
+    main_head_sha: str,
+    promotion_path: Path,
+    provenance_path: Path,
+    attestation_path: Path,
+) -> None:
+    assert promotion["schema_version"] == "forexai.g13.promotion_manifest.m15.v1"
+    assert promotion["status"] == "PROMOTION_READY"
+    assert promotion["evidence_provenance_sha256"] == canonical_hash(provenance)
+    assert attestation["schema_version"] == "forexai.g13.promotion_run_attestation.m15.v1"
+    assert int(attestation["workflow_run_id"]) == promotion_run_id
+    assert attestation["head_sha"] == main_head_sha
+    assert attestation["manifest_sha256"] == file_sha256(promotion_path)
+    assert attestation["provenance_sha256"] == file_sha256(provenance_path)
+    assert attestation["provenance_sha256"] == file_sha256(provenance_path)
+    assert file_sha256(attestation_path) == attestation.get("attestation_sha256", file_sha256(attestation_path))
+
 def git_diff_clean(base_sha: str, paths: list[str]) -> bool:
     cmd = ["git", "diff", "--quiet", base_sha, "--", *paths]
     return subprocess.run(cmd, check=False).returncode == 0
@@ -60,13 +91,28 @@ def gate(
     safety: Path,
     runtime_dir: Path,
     parity: Path,
+    provenance: Path,
+    attestation: Path,
+    promotion_run_id: int,
+    main_head_sha: str,
     runtime_head_sha: str,
     parity_head_sha: str,
     safety_head_sha: str,
 ) -> dict[str, Any]:
     p = load_json(promotion)
+    prov = load_json(provenance)
+    attest = load_json(attestation)
     s = load_json(safety)
     par = load_json(parity)
+
+    validate_promotion_binding(
+        p, prov, attest,
+        promotion_run_id=promotion_run_id,
+        main_head_sha=main_head_sha,
+        promotion_path=promotion,
+        provenance_path=provenance,
+        attestation_path=attestation,
+    )
 
     assert p["status"] == "PROMOTION_READY"
     assert p["decision_policy"]["demo_trading_allowed"] is False
@@ -164,6 +210,9 @@ def gate(
         },
         "promotion": {
             "status": p["status"],
+            "run_id": promotion_run_id,
+            "head_sha": main_head_sha,
+            "evidence_provenance_sha256": p["evidence_provenance_sha256"],
             "candidate_count": len(PROMOTED_IDS),
             "demo_trading_allowed": p["decision_policy"]["demo_trading_allowed"],
             "live_trading_allowed": p["decision_policy"]["live_trading_allowed"],
@@ -197,6 +246,10 @@ def gate(
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--promotion", type=Path, required=True)
+    ap.add_argument("--provenance", type=Path, required=True)
+    ap.add_argument("--promotion-attestation", type=Path, required=True)
+    ap.add_argument("--promotion-run-id", type=int, required=True)
+    ap.add_argument("--main-head-sha", required=True)
     ap.add_argument("--safety", type=Path, required=True)
     ap.add_argument("--runtime-dir", type=Path, required=True)
     ap.add_argument("--parity", type=Path, required=True)
@@ -207,6 +260,10 @@ def main() -> int:
     a = ap.parse_args()
     result = gate(
         promotion=a.promotion,
+        provenance=a.provenance,
+        attestation=a.promotion_attestation,
+        promotion_run_id=a.promotion_run_id,
+        main_head_sha=a.main_head_sha,
         safety=a.safety,
         runtime_dir=a.runtime_dir,
         parity=a.parity,
