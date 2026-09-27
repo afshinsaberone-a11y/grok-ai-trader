@@ -184,9 +184,14 @@ double LotSize(double stopDistance)
    double lots=riskMoney/lossPerLot;
    double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
    double maxLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
+   if(minLot<=0.0 || maxLot<minLot) return 0.0;
+   // Fail closed when the risk-derived size is below broker minimum.
+   // Never round upward to minLot because that could exceed RiskPercent.
+   if(lots<minLot) return 0.0;
+   lots=MathMin(maxLot,lots);
    lots=MathFloor(lots/step)*step;
-   lots=MathMax(minLot,MathMin(maxLot,lots));
-   return NormalizeDouble(lots,2);
+   if(lots<minLot) return 0.0;
+   return NormalizeDouble(lots,8);
 }}
 
 void ManageExpiry()
