@@ -2,7 +2,7 @@ import hashlib
 import json
 
 from tools.dropbox_evidence_sync_v2 import DropboxSyncError, safe_slug, collect_and_upload
-from tools.dropbox_free_tier_policy import classify, load_policy, select_files
+from tools.dropbox_free_tier_policy_v2 import classify, load_policy, priority, select_files
 
 
 def test_safe_slug_is_stable():
@@ -45,6 +45,16 @@ def test_free_policy_excludes_market_data_and_zip(tmp_path):
 
     assert classify(raw, policy) == (False, "denied_path")
     assert classify(zip_file, policy) == (False, "denied_extension")
+
+
+def test_priority_prefers_critical_evidence(tmp_path):
+    policy = load_policy(__import__("pathlib").Path("config/dropbox_free_tier_policy.json"))
+    critical = tmp_path / "promotion-manifest.json"
+    standard = tmp_path / "research-summary.md"
+    critical.write_text("x", encoding="utf-8")
+    standard.write_text("x", encoding="utf-8")
+    assert priority(critical, policy) == 0
+    assert priority(standard, policy) == 1
 
 
 def test_free_policy_allows_manifest(tmp_path):
