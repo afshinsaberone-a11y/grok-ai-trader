@@ -40,7 +40,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p evidence/robustness evidence/oos
+          mkdir -p evidence/validation evidence/robustness evidence/oos
           python - <<'PY'
           import json, os, subprocess
           repo=os.environ['GITHUB_REPOSITORY']
@@ -78,7 +78,9 @@ jobs:
               print('SOURCE_ARTIFACT_OK',artifact_id,artifact.get('name'),digest)
           json.dump(provenance,open('evidence/source-provenance.json','w',encoding='utf-8'),indent=2,sort_keys=True)
           PY
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$VALIDATION_ARTIFACT_ID/zip" > evidence/validation/source.zip
           gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ROBUSTNESS_ARTIFACT_ID/zip" > evidence/robustness/source.zip
+          unzip -o evidence/validation/source.zip -d evidence/validation
           unzip -o evidence/robustness/source.zip -d evidence/robustness
           gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$OOS_ARTIFACT_ID/zip" > evidence/oos/source.zip
           unzip -o evidence/oos/source.zip -d evidence/oos
@@ -91,6 +93,7 @@ jobs:
           p=Path('evidence/source-provenance.json')
           d=json.loads(p.read_text(encoding='utf-8'))
           for key, path in {
+              'validation':Path('evidence/validation/source.zip'),
               'robustness':Path('evidence/robustness/source.zip'),
               'oos':Path('evidence/oos/source.zip'),
           }.items():
@@ -99,7 +102,6 @@ jobs:
               assert actual==expected,(key,actual,expected)
               d['sources'][key]['local_zip_sha256']=actual
               print('ARTIFACT_BYTES_OK',key,actual)
-          d['sources']['validation']['local_zip_sha256']=d['sources']['validation']['artifact']['digest'].split(':',1)[1]
           p.write_text(json.dumps(d,indent=2,sort_keys=True)+'
 ',encoding='utf-8')
           PY
