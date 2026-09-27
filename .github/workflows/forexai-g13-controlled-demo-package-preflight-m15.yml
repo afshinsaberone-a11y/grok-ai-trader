@@ -45,24 +45,32 @@ jobs:
           print("COMPILE_PARITY_RUN_OK",p["id"],p["head_sha"])
           PY
 
-      - name: Download exact compiled package
+      - name: Download and verify exact compiled package artifact
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           rm -rf package
           mkdir -p package
-          artifact_name="g13-mt5-compile-parity-$COMPILE_PARITY_RUN_ID"
-          gh run download "$COMPILE_PARITY_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --name "$artifact_name"             --dir package
-          test "$(find package -name 'ForexAI_G13_Candidate_*.ex5' | wc -l)" -eq 15
-          test "$(find package -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
-          echo "EXACT_COMPILED_PACKAGE_DOWNLOADED=15_EX5_15_MQ5"
+          artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$COMPILE_PARITY_RUN_ID/artifacts")"
+          artifact_id="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]=="g13-mt5-compile-parity-"+sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["id"])' "$COMPILE_PARITY_RUN_ID" <<< "$artifact_json")"
+          artifact_digest="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]=="g13-mt5-compile-parity-"+sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["digest"])' "$COMPILE_PARITY_RUN_ID" <<< "$artifact_json")"
+          test "$artifact_digest" = sha256:* 
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > package/source.zip
+          actual_digest="sha256:$(sha256sum package/source.zip | awk '{print $1}')"
+          test "$actual_digest" = "$artifact_digest" || { echo "artifact digest mismatch: $actual_digest != $artifact_digest"; exit 1; }
+          unzip -q -o package/source.zip -d package/extracted
+          test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.ex5' | wc -l)" -eq 15
+          test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
+          echo "EXACT_COMPILED_PACKAGE_DOWNLOADED_AND_DIGEST_VERIFIED=15_EX5_15_MQ5"
 
       - name: Run offline Demo package preflight
         run: |
           set -euo pipefail
           python -m py_compile research/optimization/g13_demo_package_preflight_m15.py
-          python -m research.optimization.g13_demo_package_preflight_m15             --manifest docs/G13_DEMO_PACKAGE_MANIFEST_M15.json             --package-root package             --report artifacts/g13/g13-demo-package-preflight-m15.json
+          python -m research.optimization.g13_demo_package_preflight_m15             --manifest docs/G13_DEMO_PACKAGE_MANIFEST_M15.json \
+            --package-root package/extracted \
+            --report artifacts/g13/g13-demo-package-preflight-m15.json
 
       - name: Fail-closed assertions
         run: |
