@@ -15,12 +15,16 @@ on:
       parity_run_id:
         description: "Successful G13 MT5 Compile + Signal Parity run"
         required: true
+      promotion_run_id:
+        description: "Successful G13 Final Promotion M15 run for the current main commit"
+        required: true
   workflow_run:
     workflows:
       - "ForexAI G13 MT5 Compile + Signal Parity"
       - "ForexAI G13 Execution Safety Audit M15"
       - "ForexAI G13 MT5 Runtime Safety Probe M15 v2"
       - "ForexAI G13 Workflow Static Validation"
+      - "ForexAI G13 Final Promotion M15"
     types: [completed]
 
 permissions:
@@ -51,6 +55,7 @@ jobs:
           MANUAL_RUNTIME_RUN_ID: ${{ inputs.runtime_run_id }}
           MANUAL_SAFETY_RUN_ID: ${{ inputs.safety_run_id }}
           MANUAL_PARITY_RUN_ID: ${{ inputs.parity_run_id }}
+          MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
           EVENT_WORKFLOW: ${{ github.event.workflow_run.name }}
           EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
