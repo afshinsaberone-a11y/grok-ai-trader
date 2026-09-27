@@ -35,6 +35,7 @@ on:
       - research/optimization/g13_mql5_generator_v2.py
       - research/optimization/g13_mql5_parity.py
       - research/optimization/g13_mql5_parity_harness_generator.py
+      - research/optimization/g13_demo_package_manifest_builder_m15.py
       - research/optimization/g13_mql5_parity_harness.mq5
       - artifacts/g13/g13-promotion-manifest-m15.json
       - artifacts/g13/frozen/g13-candidate-handoff-m15.json
