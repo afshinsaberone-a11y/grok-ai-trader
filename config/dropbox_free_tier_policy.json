@@ -49,5 +49,38 @@
     "Promotion, OOS, validation, robustness and parity manifests are high-priority evidence.",
     "When projected upload would violate quota or reserve, synchronization must fail closed.",
     "No automatic deletion is permitted by this policy."
+  ],
+  "allowed_filename_tokens": [
+    "manifest",
+    "validation",
+    "robustness",
+    "oos",
+    "promotion",
+    "candidate",
+    "evidence",
+    "audit",
+    "parity",
+    "compile",
+    "preflight",
+    "decision",
+    "summary",
+    "handoff",
+    "integrity",
+    "capacity",
+    "milestone",
+    "report"
+  ],
+  "denied_filename_tokens": [
+    "eurusd_m1",
+    "eurusd_m5",
+    "eurusd_m15",
+    "xauusd_m1",
+    "xauusd_m5",
+    "xauusd_m15",
+    "ohlc",
+    "ticks",
+    "market_data",
+    "normalized",
+    "historical"
   ]
 }
