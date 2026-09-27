@@ -115,7 +115,8 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf evidence
-          mkdir -p evidence/runtime evidence/safety evidence/parity
+          mkdir -p evidence/runtime evidence/safety evidence/parity evidence/promotion
+          gh run download "$PROMOTION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-promotion-manifest-m15 --dir evidence/promotion
           gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-mt5-runtime-safety-probe-m15-v2 --dir evidence/runtime
           gh run download "$SAFETY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-execution-safety-audit-m15 --dir evidence/safety
           artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARITY_RUN_ID/artifacts" | python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"].startswith("g13-mt5-compile-parity-") and not x["expired"]]; assert m, "compile/parity artifact missing"; print(max(m,key=lambda x:x["id"])["name"])')"
@@ -127,10 +128,16 @@ jobs:
           runtime_file="$(find evidence/runtime -name g13_safety_probe_auth_off.done.txt -type f | head -n1)"
           safety_file="$(find evidence/safety -name g13-execution-safety-audit-m15.json -type f | head -n1)"
           parity_file="$(find evidence/parity -name g13-mql5-signal-parity.json -type f | head -n1)"
-          [ -n "$runtime_file" ] && [ -n "$safety_file" ] && [ -n "$parity_file" ] || exit 1
+          promotion_file="$(find evidence/promotion -name g13-promotion-manifest-m15.json -type f | head -n1)"
+          promotion_provenance="$(find evidence/promotion -name source-provenance.json -type f | head -n1)"
+          promotion_attestation="$(find evidence/promotion -name promotion-run-attestation.json -type f | head -n1)"
+          [ -n "$runtime_file" ] && [ -n "$safety_file" ] && [ -n "$parity_file" ] && [ -n "$promotion_file" ] && [ -n "$promotion_provenance" ] && [ -n "$promotion_attestation" ] || exit 1
           echo "RUNTIME_DIR=$(dirname "$runtime_file")" >> "$GITHUB_ENV"
           echo "SAFETY_JSON=$safety_file" >> "$GITHUB_ENV"
           echo "PARITY_JSON=$parity_file" >> "$GITHUB_ENV"
+          echo "PROMOTION_JSON=$promotion_file" >> "$GITHUB_ENV"
+          echo "PROMOTION_PROVENANCE=$promotion_provenance" >> "$GITHUB_ENV"
+          echo "PROMOTION_ATTESTATION=$promotion_attestation" >> "$GITHUB_ENV"
 
       - name: Verify static validation freshness
         env:
