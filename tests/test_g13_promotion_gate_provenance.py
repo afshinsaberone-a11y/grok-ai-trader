@@ -1,4 +1,6 @@
+import hashlib
 import json
+from pathlib import Path
 
 from research.optimization import g13_promotion_gate_m15 as gate
 
@@ -102,19 +104,23 @@ def test_expired_artifact_is_rejected():
     raise AssertionError("expired artifact was accepted")
 
 
-def test_validation_artifact_matching_handoff_is_accepted():
+def test_validation_artifact_matching_handoff_is_accepted(tmp_path: Path):
     handoff = {
+        "source_validation_sha256": "",
         "candidates": [
             {"candidate_id": 1, "config_hash": "a", "params": {"x": 1}},
             {"candidate_id": 2, "config_hash": "b", "params": {"x": 2}},
-        ]
+        ],
     }
     validation = _validation_artifact()
     validation["candidates"] = list(handoff["candidates"])
-    gate.validate_validation_artifact(validation, handoff)
+    path = tmp_path / "validation.json"
+    path.write_text(json.dumps(validation, sort_keys=True), encoding="utf-8")
+    handoff["source_validation_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    gate.validate_validation_artifact(validation, handoff, path)
 
 
-def test_validation_artifact_candidate_mismatch_is_rejected():
+def test_validation_artifact_candidate_mismatch_is_rejected(tmp_path: Path):
     handoff = {
         "candidates": [
             {"candidate_id": 1, "config_hash": "a", "params": {"x": 1}},
@@ -124,8 +130,11 @@ def test_validation_artifact_candidate_mismatch_is_rejected():
     validation["candidates"] = [
         {"candidate_id": 1, "config_hash": "wrong", "params": {"x": 1}},
     ]
+    path = tmp_path / "validation.json"
+    path.write_text(json.dumps(validation, sort_keys=True), encoding="utf-8")
+    handoff["source_validation_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     try:
-        gate.validate_validation_artifact(validation, handoff)
+        gate.validate_validation_artifact(validation, handoff, path)
     except AssertionError:
         return
     raise AssertionError("validation artifact candidate mismatch was accepted")
