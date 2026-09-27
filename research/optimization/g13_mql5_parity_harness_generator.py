@@ -72,6 +72,11 @@ bool ReadRealM15(Bar &bars[])
    string h3=FileReadString(h);
    string h4=FileReadString(h);
    string h5=FileReadString(h);
+   // Canonical normalized CSVs may include optional columns after Volume
+   // (for example, Spread). Consume the rest of the header line so the first
+   // data timestamp is not misaligned with an extra header field.
+   while(!FileIsLineEnding(h) && !FileIsEnding(h))
+      FileReadString(h);
    StringToLower(h0);
    if(h0!="timestamp")
    {
@@ -93,7 +98,11 @@ bool ReadRealM15(Bar &bars[])
       string sh=FileReadString(h);
       string sl=FileReadString(h);
       string sc=FileReadString(h);
-      string sv=FileReadString(h);
+      // Read the remaining fields on this CSV row (Volume plus any future
+      // optional columns) without allowing an extra field to become the next
+      // row's timestamp.
+      while(!FileIsLineEnding(h) && !FileIsEnding(h))
+         FileReadString(h);
       if(ts=="" || so=="" || sh=="" || sl=="" || sc=="")
          break;
 
