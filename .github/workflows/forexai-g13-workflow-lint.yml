@@ -89,6 +89,11 @@ jobs:
               "DemoKillSwitchAllowed()",
               "HasOtherG13Position()",
               "ACCOUNT_TRADE_MODE_DEMO",
+              "ExecutionAuditFile",
+              "ExecutionAuditLog(",
+              "OnTradeTransaction(",
+              "GetTickCount64()",
+              "trade.ResultRetcode()",
           ]:
               assert token in generator, f"missing G13 Demo safety token: {token}"
 
