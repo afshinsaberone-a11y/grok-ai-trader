@@ -109,10 +109,13 @@ jobs:
         run: |
           set -euo pipefail
           ROB=$(find evidence/robustness -name 'g13-robustness-m15.json' -type f | head -n1)
+          VAL=$(find evidence/validation -name 'g13-validation-m15.json' -type f | head -n1)
           OOS=$(find evidence/oos -name 'g13-oos-m15-2026.json' -type f | head -n1)
+          test -n "$VAL"
           test -n "$ROB"
           test -n "$OOS"
           test -f artifacts/g13/frozen/g13-candidate-handoff-m15.json
+          echo "VALIDATION=$VAL" >> "$GITHUB_ENV"
           echo "ROBUSTNESS=$ROB" >> "$GITHUB_ENV"
           echo "OOS=$OOS" >> "$GITHUB_ENV"
       - name: Compile and unit smoke test
@@ -123,9 +126,11 @@ jobs:
         run: |
           python -m research.optimization.g13_promotion_gate_m15 \
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
+            --validation "$VALIDATION" \
             --robustness "$ROBUSTNESS" \
             --oos "$OOS" \
             --provenance evidence/source-provenance.json \
+\
             --output artifacts/g13/g13-promotion-manifest-m15.json
       - name: Fail closed
         run: |
