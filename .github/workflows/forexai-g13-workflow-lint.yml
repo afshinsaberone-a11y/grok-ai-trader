@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
       - '.github/workflows/forexai-g13-workflow-lint.yml'
+      - '.github/actionlint.yaml'
       - 'research/optimization/g13_mql5_parity_harness_generator.py'
       - 'research/optimization/g13_mql5_parity.py'
   pull_request:
