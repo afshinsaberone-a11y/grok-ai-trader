@@ -59,8 +59,10 @@ jobs:
           test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.ex5' | wc -l)" -eq 15
           test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
           manifest_file="$(find package/extracted -name 'g13-demo-package-manifest-m15.json' -type f | head -n1)"
-          test -n "$manifest_file"
+          parity_file="$(find package/extracted -name 'g13-mql5-signal-parity.json' -type f | head -n1)"
+          test -n "$manifest_file" && test -n "$parity_file"
           echo "DEMO_PACKAGE_MANIFEST=$manifest_file" >> "$GITHUB_ENV"
+          echo "PARITY_EVIDENCE=$parity_file" >> "$GITHUB_ENV"
           echo "COMPILE_PARITY_ARTIFACT_ID=$artifact_id" >> "$GITHUB_ENV"
           echo "COMPILE_PARITY_ARTIFACT_DIGEST=$artifact_digest" >> "$GITHUB_ENV"
           echo "COMPILE_PARITY_ZIP_SHA256=${actual_digest#sha256:}" >> "$GITHUB_ENV"
@@ -78,6 +80,7 @@ jobs:
             --compile-parity-artifact-id "$COMPILE_PARITY_ARTIFACT_ID" \
             --compile-parity-artifact-digest "$COMPILE_PARITY_ARTIFACT_DIGEST" \
             --downloaded-zip-sha256 "$COMPILE_PARITY_ZIP_SHA256" \
+            --parity-evidence "$PARITY_EVIDENCE" \
             --report artifacts/g13/g13-demo-package-preflight-m15.json
 
       - name: Fail-closed assertions
