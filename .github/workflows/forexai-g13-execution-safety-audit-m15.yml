@@ -1,0 +1,94 @@
+name: ForexAI G13 Execution Safety Audit M15
+
+# Static/source-level safety gate for the promoted M15 candidates.
+# This workflow never connects to a broker and never enables Demo/Live trading.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/g13_execution_safety_audit_m15.py
+      - research/optimization/g13_mql5_generator_v2.py
+      - artifacts/g13/g13-promotion-manifest-m15.json
+      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
+      - .github/workflows/forexai-g13-execution-safety-audit-m15.yml
+  pull_request:
+    paths:
+      - research/optimization/g13_execution_safety_audit_m15.py
+      - research/optimization/g13_mql5_generator_v2.py
+      - artifacts/g13/g13-promotion-manifest-m15.json
+      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
+      - .github/workflows/forexai-g13-execution-safety-audit-m15.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile audit and generator
+        run: |
+          python -m py_compile \
+            research/optimization/g13_execution_safety_audit_m15.py \
+            research/optimization/g13_mql5_generator_v2.py
+
+      - name: Generate fresh frozen EAs
+        run: |
+          set -euo pipefail
+          rm -rf artifacts/g13/safety-audit-generated
+          python -m research.optimization.g13_mql5_generator_v2 \
+            --manifest artifacts/g13/g13-promotion-manifest-m15.json \
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
+            --output-dir artifacts/g13/safety-audit-generated
+
+      - name: Run independent fail-closed safety audit
+        run: |
+          set -euo pipefail
+          python -m research.optimization.g13_execution_safety_audit_m15 \
+            --generator research/optimization/g13_mql5_generator_v2.py \
+            --output-dir artifacts/g13/safety-audit-generated \
+            --report artifacts/g13/g13-execution-safety-audit-m15.json
+
+      - name: Fail closed policy verification
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('artifacts/g13/g13-execution-safety-audit-m15.json',encoding='utf-8'))
+          assert p['schema']=='forexai.g13.execution_safety_audit_m15.v1'
+          assert p['status']=='PASS'
+          assert p['scope']['candidate_count']==15
+          assert p['scope']['candidate_ids']==[2,6,10,12,14,22,26,28,30,32,34,38,42,46,48]
+          assert p['policy']['live_trading_allowed'] is False
+          assert p['policy']['demo_trading_default_authorized'] is False
+          assert p['policy']['demo_requires_account_mode']=='DEMO'
+          assert p['policy']['demo_requires_kill_switch']=='ALLOW'
+          assert p['policy']['demo_requires_single_position'] is True
+          assert p['policy']['tester_mode_is_research_only'] is True
+          assert p['policy']['broker_fill_testing_performed'] is False
+          assert len(p['matrix'])==7
+          assert all(row['pass'] for row in p['matrix'])
+          assert len(p['sources'])==15
+          assert all(row['pass'] for row in p['sources'])
+          print('G13_EXECUTION_SAFETY_AUDIT_OK')
+          print('LIVE_TRADING_ALLOWED',p['policy']['live_trading_allowed'])
+          print('DEMO_DEFAULT_AUTHORIZED',p['policy']['demo_trading_default_authorized'])
+          print('CANDIDATES',p['scope']['candidate_count'])
+          PY
+
+      - name: Upload execution safety evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-execution-safety-audit-m15
+          path: |
+            artifacts/g13/g13-execution-safety-audit-m15.json
+            artifacts/g13/safety-audit-generated/*.mq5
+          if-no-files-found: error
