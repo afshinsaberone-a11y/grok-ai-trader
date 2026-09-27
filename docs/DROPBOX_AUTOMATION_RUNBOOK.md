@@ -7,7 +7,7 @@ Actions artifacts into:
 
 `/ForexAI/11_GITHUB_ACTIONS/Artifacts/<workflow-slug>/<run-id>/`
 
-Each run receives a `_SYNC_MANIFEST.json` containing:
+Each run receives an immutable `_SYNC_MANIFEST.json` containing:
 
 - workflow name and run ID
 - source commit SHA
@@ -17,6 +17,7 @@ Each run receives a `_SYNC_MANIFEST.json` containing:
 - local byte size
 - local SHA-256
 - Dropbox file ID/revision when returned
+- upstream artifact IDs, digests, sizes, and expiry metadata when available from GitHub
 - policy flags for real-data-only and no synthetic generation
 
 The original GitHub artifacts are not modified.
@@ -82,7 +83,9 @@ GitHub Actions run
 -> retain a GitHub Actions sync receipt
 
 The remote manifest is the final checkpoint. Its presence means the payload
-upload loop completed before the manifest itself was committed.
+upload loop completed before the manifest itself was committed. The same manifest
+is also written to `/ForexAI/09_EVIDENCE_LEDGER/Run_Index` as a central Run Index.
+The manifest is never edited after its first remote write.
 
 ## Canonical storage rules
 
@@ -101,3 +104,5 @@ Dropbox is the durable Data + Evidence Plane.
 The GitHub connector cannot create or rotate GitHub Actions Secrets. The
 automation code and workflow are committed, but the `DROPBOX_ACCESS_TOKEN`
 secret still has to be configured in the repository's GitHub Actions settings.
+
+The active utility is `tools/dropbox_evidence_sync_v2.py`; v1 is retained only as historical code until a later cleanup decision.
