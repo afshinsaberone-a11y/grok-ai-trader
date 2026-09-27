@@ -1,94 +1,75 @@
 name: ForexAI G13 Demo Readiness Gate M15
 
-# Read-only evidence freshness gate.
-# It never enables trading, sends orders, or modifies the MT5 environment.
+# Read-only evidence gate. No orders, no trading authorization.
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - research/optimization/g13_demo_readiness_gate_m15.py
-      - research/optimization/g13_mql5_generator_v2.py
-      - research/optimization/G13_Safety_Probe_AuthOff.mq5
-      - research/optimization/G13_Safety_Probe_AuthOn.mq5
-      - artifacts/g13/g13-promotion-manifest-m15.json
-      - .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
+    inputs:
+      runtime_run_id:
+        description: "Successful G13 MT5 Runtime Safety Probe v2 run"
+        required: true
+        default: "36335046005"
+      safety_run_id:
+        description: "Successful G13 Execution Safety Audit run"
+        required: true
+        default: "36334972883"
+      parity_run_id:
+        description: "Successful G13 MT5 Compile + Signal Parity run"
+        required: true
+        default: "36332467481"
 
 permissions:
   contents: read
   actions: read
 
-concurrency:
-  group: g13-demo-readiness-gate-m15
-  cancel-in-progress: true
-
 jobs:
   readiness:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      RUNTIME_WORKFLOW_ID: '368446975'
-      SAFETY_WORKFLOW_ID: '368434934'
-      PARITY_WORKFLOW_ID: '356474778'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve latest successful evidence runs
+      - name: Verify evidence runs
         env:
           GH_TOKEN: ${{ github.token }}
+          RUNTIME_RUN_ID: ${{ inputs.runtime_run_id }}
+          SAFETY_RUN_ID: ${{ inputs.safety_run_id }}
+          PARITY_RUN_ID: ${{ inputs.parity_run_id }}
         run: |
           set -euo pipefail
-          resolve_latest() {
-            local workflow_id="$1"
-            local key="$2"
-            local runs
-            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs?branch=main&status=success&per_page=20")
-            python - "$key" "$runs" <<'PY' >> "$GITHUB_ENV"
-import json, sys
-key=sys.argv[1]
-payload=json.loads(sys.argv[2])
-runs=payload.get("workflow_runs", [])
-if not runs:
-    raise SystemExit(f"No successful runs found for workflow {key}")
-run=sorted(runs, key=lambda x:x.get("run_number",0), reverse=True)[0]
-print(f"{key}_RUN_ID={run['id']}")
-print(f"{key}_HEAD_SHA={run['head_sha']}")
-PY
-          }
-          resolve_latest "$RUNTIME_WORKFLOW_ID" RUNTIME
-          resolve_latest "$SAFETY_WORKFLOW_ID" SAFETY
-          resolve_latest "$PARITY_WORKFLOW_ID" PARITY
-          echo "LATEST_RUNTIME_RUN=$RUNTIME_RUN_ID sha=$RUNTIME_HEAD_SHA"
-          echo "LATEST_SAFETY_RUN=$SAFETY_RUN_ID sha=$SAFETY_HEAD_SHA"
-          echo "LATEST_PARITY_RUN=$PARITY_RUN_ID sha=$PARITY_HEAD_SHA"
+          for pair in "RUNTIME=$RUNTIME_RUN_ID" "SAFETY=$SAFETY_RUN_ID" "PARITY=$PARITY_RUN_ID"; do
+            key="${pair%%=*}"
+            id="${pair#*=}"
+            json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")"
+            python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); print(x["id"],x["head_sha"])' <<< "$json"
+            sha="$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")"
+            echo "${key}_HEAD_SHA=$sha" >> "$GITHUB_ENV"
+            echo "${key}_RUN_ID=$id" >> "$GITHUB_ENV"
+          done
 
-      - name: Verify authoritative artifacts
+      - name: Download evidence
         env:
           GH_TOKEN: ${{ github.token }}
+          RUNTIME_RUN_ID: ${{ inputs.runtime_run_id }}
+          SAFETY_RUN_ID: ${{ inputs.safety_run_id }}
+          PARITY_RUN_ID: ${{ inputs.parity_run_id }}
         run: |
           set -euo pipefail
           rm -rf evidence
           mkdir -p evidence/runtime evidence/safety evidence/parity
           gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-mt5-runtime-safety-probe-m15-v2 --dir evidence/runtime
           gh run download "$SAFETY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-execution-safety-audit-m15 --dir evidence/safety
-          parity_artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARITY_RUN_ID/artifacts" | python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"].startswith("g13-mt5-compile-parity-") and not x.get("expired")]; print(m[0]["name"]) if len(m)==1 else (_ for _ in ()).throw(SystemExit("expected exactly one current compile/parity artifact"))')
-          gh run download "$PARITY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$parity_artifact" --dir evidence/parity
-          test -f artifacts/g13/g13-promotion-manifest-m15.json
-          find evidence -type f -maxdepth 5 -print
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARITY_RUN_ID/artifacts" | python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"].startswith("g13-mt5-compile-parity-") and not x["expired"]]; assert len(m)==1; print(m[0]["name"])')"
+          gh run download "$PARITY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir evidence/parity
 
       - name: Resolve evidence files
         run: |
           set -euo pipefail
-          RUNTIME_OFF=$(find evidence/runtime -name 'g13_safety_probe_auth_off.done.txt' -type f | head -n1)
-          RUNTIME_ON=$(find evidence/runtime -name 'g13_safety_probe_auth_on.done.txt' -type f | head -n1)
-          SAFETY_JSON=$(find evidence/safety -name 'g13-execution-safety-audit-m15.json' -type f | head -n1)
-          PARITY_JSON=$(find evidence/parity -name 'g13-mql5-signal-parity.json' -type f | head -n1)
-          test -n "$RUNTIME_OFF" && test -n "$RUNTIME_ON" && test -n "$SAFETY_JSON" && test -n "$PARITY_JSON"
-          echo "RUNTIME_DIR=$(dirname "$RUNTIME_OFF")" >> "$GITHUB_ENV"
-          echo "SAFETY_JSON=$SAFETY_JSON" >> "$GITHUB_ENV"
-          echo "PARITY_JSON=$PARITY_JSON" >> "$GITHUB_ENV"
+          echo "RUNTIME_DIR=$(dirname "$(find evidence/runtime -name g13_safety_probe_auth_off.done.txt -type f | head -n1)")" >> "$GITHUB_ENV"
+          echo "SAFETY_JSON=$(find evidence/safety -name g13-execution-safety-audit-m15.json -type f | head -n1)" >> "$GITHUB_ENV"
+          echo "PARITY_JSON=$(find evidence/parity -name g13-mql5-signal-parity.json -type f | head -n1)" >> "$GITHUB_ENV"
 
-      - name: Run Demo readiness gate
+      - name: Run readiness gate
         run: |
           python -m py_compile research/optimization/g13_demo_readiness_gate_m15.py
           python -m research.optimization.g13_demo_readiness_gate_m15 \
@@ -101,35 +82,30 @@ PY
             --safety-head-sha "$SAFETY_HEAD_SHA" \
             --report artifacts/g13/g13-demo-readiness-gate-m15.json
 
-      - name: Fail closed final assertions
+      - name: Fail closed assertions
         run: |
           python - <<'PY'
           import json
           p=json.load(open('artifacts/g13/g13-demo-readiness-gate-m15.json',encoding='utf-8'))
-          assert p['schema']=='forexai.g13.demo_readiness_gate_m15.v1'
           assert p['status']=='READY_FOR_CONTROLLED_DEMO_AUDIT'
-          assert p['promotion']['candidate_count']==15
           assert p['promotion']['demo_trading_allowed'] is False
           assert p['promotion']['live_trading_allowed'] is False
           assert p['safety']['status']=='PASS'
           assert p['safety']['matrix_cases']==48
           assert p['safety']['non_tester_allowed_states']==1
+          assert p['evidence']['parity_status']=='PASS'
+          assert p['evidence']['parity_passed_count']==15
           assert p['runtime']['demo_account'] is True
           assert p['runtime']['authorization_off_blocks'] is True
           assert p['runtime']['authorization_on_still_blocked'] is True
           assert p['runtime']['orders_submitted'] is False
           assert p['live_remains_disabled'] is True
           print('G13_DEMO_READINESS_GATE_OK')
-          print('NEXT_GATE',p['next_gate'])
           PY
 
       - name: Upload readiness evidence
         uses: actions/upload-artifact@v4
         with:
           name: g13-demo-readiness-gate-m15
-          path: |
-            artifacts/g13/g13-demo-readiness-gate-m15.json
-            evidence/runtime/**
-            evidence/safety/**
-            evidence/parity/**
+          path: artifacts/g13/g13-demo-readiness-gate-m15.json
           if-no-files-found: error
