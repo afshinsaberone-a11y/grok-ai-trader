@@ -15,6 +15,11 @@ on:
       - 'research/optimization/g13_mql5_parity.py'
       - 'research/optimization/g13_mql5_generator_v2.py'
       - 'research/optimization/g13_demo_readiness_gate_m15.py'
+      - 'research/optimization/g13_execution_safety_audit_m15.py'
+      - 'research/optimization/G13_Safety_Probe_AuthOff.mq5'
+      - 'research/optimization/G13_Safety_Probe_AuthOn.mq5'
+      - '.github/workflows/forexai-g13-execution-safety-audit-m15.yml'
+      - '.github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml'
   pull_request:
     paths:
       - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
@@ -129,5 +134,26 @@ jobs:
           ]:
               assert token in generator, f"missing G13 Demo safety token: {token}"
 
+          probe_tokens = [
+              "SYMBOL_TRADE_MODE_FULL",
+              "SYMBOL_TRADE_MODE_SHORTONLY",
+              "SYMBOL_ORDER_MARKET",
+              "SYMBOL_ORDER_SL",
+              "SYMBOL_ORDER_TP",
+              "SYMBOL_TRADE_STOPS_LEVEL",
+              "symbol_market_order_allowed",
+              "symbol_sl_allowed",
+              "symbol_tp_allowed",
+              "stops_level_points",
+          ]
+          for probe_name in [
+              "research/optimization/G13_Safety_Probe_AuthOff.mq5",
+              "research/optimization/G13_Safety_Probe_AuthOn.mq5",
+          ]:
+              probe = Path(probe_name).read_text(encoding="utf-8")
+              for token in probe_tokens:
+                  assert token in probe, f"runtime probe token missing: {probe_name}: {token}"
+
+          print("G13_RUNTIME_SYMBOL_PERMISSION_CONTRACT_OK")
           print("G13_WORKFLOW_STATIC_CONTRACT_OK")
           PY
