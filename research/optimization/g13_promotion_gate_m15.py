@@ -20,6 +20,17 @@ EXPECTED_ROBUST_RUN = 34679210600
 EXPECTED_ROBUST_ARTIFACT = 10293181701
 EXPECTED_OOS_RUN = 34679937623
 EXPECTED_OOS_ARTIFACT = 10293797420
+
+EXPECTED_SOURCE_JOB_NAMES = {
+    "validation": "g13-validation",
+    "robustness": "g13-robustness",
+    "oos": "G13 2026 OOS M15 Current",
+}
+EXPECTED_SOURCE_ARTIFACT_NAMES = {
+    "validation": "g13-validation-m15",
+    "robustness": "g13-robustness-m15",
+    "oos": "g13-oos-m15-2026-current",
+}
 PROMOTED_IDS = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 REJECTED_IDS = (44,)
 
@@ -43,9 +54,11 @@ def validate_provenance(provenance: dict[str, Any]) -> None:
         row = provenance["sources"][key]
         assert row["run_id"] == run_id
         assert isinstance(row.get("job_id"), int) and row["job_id"] > 0
+        assert row.get("job_name") == EXPECTED_SOURCE_JOB_NAMES[key]
         assert row["conclusion"] == "success"
         artifact = row["artifact"]
         assert artifact["artifact_id"] == artifact_id
+        assert artifact["name"] == EXPECTED_SOURCE_ARTIFACT_NAMES[key]
         assert artifact["expired"] is False
         digest = str(artifact["digest"])
         assert digest.startswith("sha256:") and len(digest) == 71
@@ -149,21 +162,30 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
         "source_artifacts": {
             "validation": {
                 "run_id": provenance["sources"]["validation"]["run_id"],
+                "job_id": provenance["sources"]["validation"].get("job_id"),
+                "job_name": provenance["sources"]["validation"].get("job_name"),
                 "artifact_id": provenance["sources"]["validation"]["artifact"]["artifact_id"],
+                "artifact_name": provenance["sources"]["validation"]["artifact"].get("name"),
                 "artifact_digest": provenance["sources"]["validation"]["artifact"]["digest"],
                 "run_head_sha": provenance["sources"]["validation"]["head_sha"],
             },
             "robustness": {
                 "run_id": provenance["sources"]["robustness"]["run_id"],
                 "job_id": provenance["sources"]["robustness"].get("job_id"),
+                "job_id": provenance["sources"]["robustness"].get("job_id"),
+                "job_name": provenance["sources"]["robustness"].get("job_name"),
                 "artifact_id": provenance["sources"]["robustness"]["artifact"]["artifact_id"],
+                "artifact_name": provenance["sources"]["robustness"]["artifact"].get("name"),
                 "artifact_digest": provenance["sources"]["robustness"]["artifact"]["digest"],
                 "run_head_sha": provenance["sources"]["robustness"]["head_sha"],
             },
             "oos": {
                 "run_id": provenance["sources"]["oos"]["run_id"],
                 "job_id": provenance["sources"]["oos"].get("job_id"),
+                "job_id": provenance["sources"]["oos"].get("job_id"),
+                "job_name": provenance["sources"]["oos"].get("job_name"),
                 "artifact_id": provenance["sources"]["oos"]["artifact"]["artifact_id"],
+                "artifact_name": provenance["sources"]["oos"]["artifact"].get("name"),
                 "artifact_digest": provenance["sources"]["oos"]["artifact"]["digest"],
                 "run_head_sha": provenance["sources"]["oos"]["head_sha"],
             },
