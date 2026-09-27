@@ -32,7 +32,7 @@ def render(candidate: dict[str, Any]) -> str:
 //| Live trading is NOT authorized by this source.                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.24"
+#property version "1.25"
 #include <Trade/Trade.mqh>
 CTrade trade;
 
@@ -227,6 +227,7 @@ void ManageExpiry()
 int OnInit()
 {{
    trade.SetExpertMagicNumber(MagicNumber);
+   if(!trade.SetTypeFillingBySymbol(_Symbol)) return INIT_FAILED;
    return INIT_SUCCEEDED;
 }}
 
@@ -374,7 +375,13 @@ void OnTick()
    double atr=ATRAtShift(1);
    if(atr==EMPTY_VALUE || atr<=0.0) return;
    double risk=ATRMult*atr;
-   double entry=iOpen(_Symbol,PERIOD_M15,0);
+   MqlTick tick={{}};
+   if(!SymbolInfoTick(_Symbol,tick)) return;
+   // In the real Demo execution path, SELL uses the current Bid snapshot as
+   // the planned/requested execution price. Risk, SL/TP, and slippage are
+   // therefore tied to the same observable quote rather than a historical
+   // bar-open proxy used only by the deterministic research path.
+   double entry=tick.bid;
    if(entry<=0.0) return;
    double sl=entry+risk;
    double tp=entry-RR*risk;
@@ -384,19 +391,18 @@ void OnTick()
    if(RR<=0.0) return;
    double lots=LotSize(risk,entry);
    if(lots<=0.0) return;
-   MqlTick tick={{}};
-   if(!SymbolInfoTick(_Symbol,tick)) return;
    double spreadPoints=(tick.ask-tick.bid)/_Point;
    ulong started=GetTickCount64();
-   bool accepted=trade.Sell(lots,_Symbol,0.0,sl,tp,"ForexAI-G13-{cid:02d}");
+   bool accepted=trade.Sell(lots,_Symbol,entry,sl,tp,"ForexAI-G13-{cid:02d}");
    ulong elapsed=GetTickCount64()-started;
    double executedPrice=trade.ResultPrice();
    double slippagePoints=(executedPrice>0.0 ? (executedPrice-entry)/_Point : 0.0);
+   string executionComment=(accepted ? trade.ResultComment() : "CTrade Sell returned false");
    ExecutionAuditLog("ORDER_ATTEMPT","SELL",trade.ResultOrder(),trade.ResultDeal(),
                      lots,trade.ResultVolume(),entry,executedPrice,sl,tp,
                      spreadPoints,slippagePoints,
                      trade.ResultRetcode(),trade.ResultRetcodeDescription(),
-                     elapsed,trade.ResultComment());
+                     elapsed,executionComment);
 }}
 //+------------------------------------------------------------------+
 '''
