@@ -97,15 +97,17 @@ jobs:
           )
           echo "WORKFLOW_SLUG=\${WORKFLOW_SLUG}" >> "\$GITHUB_ENV"
           mkdir -p reports/dropbox
-          python tools/dropbox_evidence_sync.py \
+          python tools/dropbox_evidence_sync_v2.py \
             --source-dir incoming/github-artifacts \
-            --dropbox-root "/ForexAI/11_GITHUB_ACTIONS/Artifacts/\${WORKFLOW_SLUG}/\${RUN_ID}" \
-            --workflow-name "\${WORKFLOW_NAME}" \
-            --run-id "\${RUN_ID}" \
-            --head-sha "\${HEAD_SHA}" \
-            --conclusion "\${CONCLUSION}" \
-            --manifest-out "reports/dropbox/run-\${RUN_ID}.json"
-
+            --dropbox-root "/ForexAI/11_GITHUB_ACTIONS/Artifacts/${WORKFLOW_SLUG}/${RUN_ID}" \
+            --workflow-name "${WORKFLOW_NAME}" \
+            --run-id "${RUN_ID}" \
+            --head-sha "${HEAD_SHA}" \
+            --conclusion "${CONCLUSION}" \
+            --run-metadata "run-metadata.json" \
+            --ledger-out "reports/dropbox/run-${RUN_ID}.json" \
+            --ledger-remote-root "/ForexAI/09_EVIDENCE_LEDGER/Run_Index" \
+            --manifest-out "reports/dropbox/sync-${RUN_ID}.json"
       - name: Publish sync receipt
         uses: actions/upload-artifact@v4
         with:
