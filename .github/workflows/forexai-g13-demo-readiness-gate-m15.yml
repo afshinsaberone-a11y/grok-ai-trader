@@ -18,6 +18,9 @@ on:
       promotion_run_id:
         description: "Successful G13 Final Promotion M15 run for the current main commit"
         required: true
+      preflight_run_id:
+        description: "Successful G13 Controlled Demo Package Preflight run for the current main commit"
+        required: true
   workflow_run:
     workflows:
       - "ForexAI G13 MT5 Compile + Signal Parity"
@@ -25,6 +28,7 @@ on:
       - "ForexAI G13 MT5 Runtime Safety Probe M15 v2"
       - "ForexAI G13 Workflow Static Validation"
       - "ForexAI G13 Final Promotion M15"
+      - "ForexAI G13 Controlled Demo Package Preflight M15"
     types: [completed]
 
 permissions:
@@ -56,6 +60,7 @@ jobs:
           MANUAL_SAFETY_RUN_ID: ${{ inputs.safety_run_id }}
           MANUAL_PARITY_RUN_ID: ${{ inputs.parity_run_id }}
           MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
+          MANUAL_PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
           EVENT_WORKFLOW: ${{ github.event.workflow_run.name }}
           EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
@@ -81,20 +86,23 @@ jobs:
             safety_id="${MANUAL_SAFETY_RUN_ID}"
             parity_id="${MANUAL_PARITY_RUN_ID}"
             promotion_id="${MANUAL_PROMOTION_RUN_ID}"
+            preflight_id="${MANUAL_PREFLIGHT_RUN_ID}"
           else
             runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")"
             safety_id="$(latest_success "forexai-g13-execution-safety-audit-m15.yml")"
             parity_id="$(latest_success "forexai-g13-mt5-compile-parity.yml")"
             promotion_id="$(latest_success_exact "forexai-g13-promotion-m15.yml")"
+            preflight_id="$(latest_success_exact "forexai-g13-controlled-demo-package-preflight-m15.yml")"
             case "${EVENT_WORKFLOW}" in
               "ForexAI G13 MT5 Runtime Safety Probe M15 v2") runtime_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 Execution Safety Audit M15") safety_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 MT5 Compile + Signal Parity") parity_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 Final Promotion M15") promotion_id="${EVENT_RUN_ID}" ;;
+              "ForexAI G13 Controlled Demo Package Preflight M15") preflight_id="${EVENT_RUN_ID}" ;;
             esac
           fi
 
-          for pair in "RUNTIME=$runtime_id" "SAFETY=$safety_id" "PARITY=$parity_id" "PROMOTION=$promotion_id"; do
+          for pair in "RUNTIME=$runtime_id" "SAFETY=$safety_id" "PARITY=$parity_id" "PROMOTION=$promotion_id" "PREFLIGHT=$preflight_id"; do
             key="${pair%%=*}"
             id="${pair#*=}"
             [ -n "$id" ] || { echo "Missing $key run id"; exit 1; }
@@ -120,8 +128,9 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf evidence
-          mkdir -p evidence/runtime evidence/safety evidence/parity evidence/promotion
+          mkdir -p evidence/runtime evidence/safety evidence/parity evidence/promotion evidence/preflight
           gh run download "$PROMOTION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-promotion-manifest-m15 --dir evidence/promotion
+          gh run download "$PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-controlled-demo-package-preflight-m15 --dir evidence/preflight
           gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-mt5-runtime-safety-probe-m15-v2 --dir evidence/runtime
           gh run download "$SAFETY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-execution-safety-audit-m15 --dir evidence/safety
           artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARITY_RUN_ID/artifacts" | python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"].startswith("g13-mt5-compile-parity-") and not x["expired"]]; assert m, "compile/parity artifact missing"; print(max(m,key=lambda x:x["id"])["name"])')"
@@ -136,13 +145,16 @@ jobs:
           promotion_file="$(find evidence/promotion -name g13-promotion-manifest-m15.json -type f | head -n1)"
           promotion_provenance="$(find evidence/promotion -name source-provenance.json -type f | head -n1)"
           promotion_attestation="$(find evidence/promotion -name promotion-run-attestation.json -type f | head -n1)"
-          [ -n "$runtime_file" ] && [ -n "$safety_file" ] && [ -n "$parity_file" ] && [ -n "$promotion_file" ] && [ -n "$promotion_provenance" ] && [ -n "$promotion_attestation" ] || exit 1
+          preflight_file="$(find evidence/preflight -name g13-demo-package-preflight-m15.json -type f | head -n1)"
+          [ -n "$runtime_file" ] && [ -n "$safety_file" ] && [ -n "$parity_file" ] && [ -n "$promotion_file" ] && [ -n "$promotion_provenance" ] && [ -n "$promotion_attestation" ] && [ -n "$preflight_file" ] || exit 1
           echo "RUNTIME_DIR=$(dirname "$runtime_file")" >> "$GITHUB_ENV"
           echo "SAFETY_JSON=$safety_file" >> "$GITHUB_ENV"
           echo "PARITY_JSON=$parity_file" >> "$GITHUB_ENV"
           echo "PROMOTION_JSON=$promotion_file" >> "$GITHUB_ENV"
           echo "PROMOTION_PROVENANCE=$promotion_provenance" >> "$GITHUB_ENV"
           echo "PROMOTION_ATTESTATION=$promotion_attestation" >> "$GITHUB_ENV"
+          echo "PREFLIGHT_JSON=$preflight_file" >> "$GITHUB_ENV"
+          echo "PREFLIGHT_RUN_ID=$PREFLIGHT_RUN_ID" >> "$GITHUB_ENV"
 
       - name: Verify static validation freshness
         env:
@@ -158,8 +170,10 @@ jobs:
             .github/workflows/forexai-g13-execution-safety-audit-m15.yml \
             .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml \
             .github/workflows/forexai-g13-promotion-m15.yml \
+            .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml \
             research/optimization/g13_demo_readiness_gate_m15.py \
-            research/optimization/g13_promotion_gate_m15.py
+            research/optimization/g13_promotion_gate_m15.py \
+            research/optimization/g13_demo_package_preflight_m15.py
           echo "STATIC_VALIDATION_COVERS_CURRENT_G13_CONFIG=true"
 
       - name: Run readiness gate
@@ -170,6 +184,7 @@ jobs:
             --promotion "$PROMOTION_JSON" \
             --provenance "$PROMOTION_PROVENANCE" \
             --promotion-attestation "$PROMOTION_ATTESTATION" \
+            --preflight "$PREFLIGHT_JSON" \
             --promotion-run-id "$PROMOTION_RUN_ID" \
             --main-head-sha "$MAIN_HEAD_SHA" \
             --safety "$SAFETY_JSON" \
@@ -190,6 +205,8 @@ jobs:
           assert p['promotion']['demo_trading_allowed'] is False
           assert p['promotion']['live_trading_allowed'] is False
           assert p['promotion']['run_id'] == int("$PROMOTION_RUN_ID")
+          assert p['preflight']['status'] == "PASS"
+          assert p['preflight']['candidate_count'] == 15
           assert p['safety']['status']=='PASS'
           assert p['safety']['matrix_cases']==1536
           assert p['safety']['matrix_allowed_states']==769
