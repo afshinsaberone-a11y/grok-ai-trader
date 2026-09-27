@@ -46,11 +46,16 @@ jobs:
           repo=os.environ['GITHUB_REPOSITORY']
           provenance={"schema_version":"forexai.g13.promotion_evidence_provenance.m15.v1","sources":{}}
           checks={
-            "validation": ('VALIDATION_RUN_ID', 'VALIDATION_ARTIFACT_ID'),
-            "robustness": ('ROBUSTNESS_RUN_ID', 'ROBUSTNESS_ARTIFACT_ID'),
-            "oos": ('OOS_RUN_ID', 'OOS_ARTIFACT_ID'),
+            "validation": ('VALIDATION_RUN_ID', 'VALIDATION_ARTIFACT_ID', 'g13-validation-m15'),
+            "robustness": ('ROBUSTNESS_RUN_ID', 'ROBUSTNESS_ARTIFACT_ID', 'g13-robustness-m15'),
+            "oos": ('OOS_RUN_ID', 'OOS_ARTIFACT_ID', 'g13-oos-m15-2026-current'),
           }
-          for key, (run_key, art_key) in checks.items():
+          expected_jobs={
+            "validation": "g13-validation",
+            "robustness": "g13-robustness",
+            "oos": "G13 2026 OOS M15 Current",
+          }
+          for key, (run_key, art_key, expected_artifact_name) in checks.items():
               run_id=int(os.environ[run_key]); artifact_id=int(os.environ[art_key])
               run=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}'],text=True))
               assert run.get('conclusion')=='success', (run_id,run.get('conclusion'))
@@ -58,16 +63,18 @@ jobs:
               match=[a for a in arts if int(a['id'])==artifact_id]
               assert len(match)==1, (run_id,artifact_id)
               artifact=match[0]
+              assert artifact.get('name') == expected_artifact_name, (artifact.get('name'), expected_artifact_name)
               assert artifact.get('expired') is False
               jobs=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}/jobs'],text=True))['jobs']
-              success_jobs=[j for j in jobs if j.get('conclusion')=='success']
-              assert success_jobs, (run_id,'no successful job')
+              success_jobs=[j for j in jobs if j.get('name')==expected_jobs[key] and j.get('conclusion')=='success']
+              assert len(success_jobs)==1, (run_id, key, expected_jobs[key], [(j.get('name'),j.get('conclusion')) for j in jobs])
               job_id=int(success_jobs[0]['id'])
               digest=artifact.get('digest')
               assert isinstance(digest,str) and digest.startswith('sha256:')
               provenance['sources'][key]={
                   'run_id':run_id,
                   'job_id':job_id,
+                  'job_name':expected_jobs[key],
                   'head_sha':run.get('head_sha'),
                   'conclusion':run.get('conclusion'),
                   'artifact':{
