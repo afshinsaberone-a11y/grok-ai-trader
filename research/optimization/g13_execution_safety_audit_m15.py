@@ -25,6 +25,13 @@ REQUIRED_TOKENS = (
     'if(HasOtherG13Position()) return false;',
     'if(!DemoTradingExecutionAllowed()) return;',
     'trade.SetExpertMagicNumber(MagicNumber);',
+    'ExecutionAuditFile',
+    'ExecutionAuditLog(',
+    'OnTradeTransaction(',
+    'GetTickCount64()',
+    'trade.ResultRetcode()',
+    'HistoryDealSelect(',
+    'HistoryOrderSelect(',
 )
 FORBIDDEN_TOKENS = (
     'input bool   DemoTradingAuthorized = true;',
