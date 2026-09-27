@@ -59,11 +59,15 @@ jobs:
               assert len(match)==1, (run_id,artifact_id)
               artifact=match[0]
               assert artifact.get('expired') is False
+              jobs=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}/jobs'],text=True))['jobs']
+              success_jobs=[j for j in jobs if j.get('conclusion')=='success']
+              assert success_jobs, (run_id,'no successful job')
+              job_id=int(success_jobs[0]['id'])
               digest=artifact.get('digest')
               assert isinstance(digest,str) and digest.startswith('sha256:')
               provenance['sources'][key]={
                   'run_id':run_id,
-                  'job_id':None,
+                  'job_id':job_id,
                   'head_sha':run.get('head_sha'),
                   'conclusion':run.get('conclusion'),
                   'artifact':{
