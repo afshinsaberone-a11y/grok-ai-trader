@@ -40,7 +40,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: g13-workflow-static-validation
+  group: g13-workflow-static-validation-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
