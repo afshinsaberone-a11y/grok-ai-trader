@@ -1,0 +1,53 @@
+{
+  "schema_version": "forexai.dropbox_free_tier_policy.v1",
+  "plan": "Dropbox Basic",
+  "quota_bytes": 2147483648,
+  "reserve_bytes": 268435456,
+  "max_run_upload_bytes": 15728640,
+  "max_file_upload_bytes": 5242880,
+  "max_csv_upload_bytes": 2097152,
+  "allowed_extensions": [
+    ".json",
+    ".md",
+    ".txt",
+    ".csv",
+    ".html",
+    ".mq5",
+    ".ex5"
+  ],
+  "denied_extensions": [
+    ".zip",
+    ".parquet",
+    ".feather",
+    ".bi5",
+    ".gz",
+    ".7z",
+    ".tar",
+    ".db",
+    ".sqlite"
+  ],
+  "denied_path_tokens": [
+    "/data/real/",
+    "/normalized/",
+    "/download/",
+    "/dukascopy/",
+    "/histdata/",
+    "/raw_market_data/",
+    "/raw/"
+  ],
+  "binary_allow_tokens": [
+    "compile-parity",
+    "demo-package",
+    "mql5-release"
+  ],
+  "store_full_market_datasets": false,
+  "store_full_workflow_archives": false,
+  "store_release_binaries": true,
+  "policy_notes": [
+    "Dropbox is the durable evidence plane, not the primary market-data lake.",
+    "Raw and normalized historical datasets must remain outside Dropbox Basic unless explicitly approved for a small sample.",
+    "Promotion, OOS, validation, robustness and parity manifests are high-priority evidence.",
+    "When projected upload would violate quota or reserve, synchronization must fail closed.",
+    "No automatic deletion is permitted by this policy."
+  ]
+}
