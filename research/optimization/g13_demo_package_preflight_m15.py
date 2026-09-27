@@ -67,6 +67,19 @@ def find_package(root: Path) -> Path:
     raise AssertionError(f"no G13 EX5 package found under {root}")
 
 
+def validate_compile_artifact_binding(
+    manifest: dict,
+    *,
+    compile_parity_run_id: int,
+    compile_parity_head_sha: str,
+    compile_parity_artifact_digest: str,
+    downloaded_zip_sha256: str,
+) -> None:
+    assert int(manifest["compile_parity_run_id"]) == compile_parity_run_id
+    assert manifest["ea_source_commit"] == compile_parity_head_sha
+    assert compile_parity_artifact_digest == "sha256:" + downloaded_zip_sha256
+
+
 def audit(
     manifest_path: Path,
     package_root: Path,
@@ -77,9 +90,13 @@ def audit(
     downloaded_zip_sha256: str,
 ) -> dict:
     manifest = load_manifest(manifest_path)
-    assert int(manifest["compile_parity_run_id"]) == compile_parity_run_id
-    assert manifest["ea_source_commit"] == compile_parity_head_sha
-    assert compile_parity_artifact_digest == "sha256:" + downloaded_zip_sha256
+    validate_compile_artifact_binding(
+        manifest,
+        compile_parity_run_id=compile_parity_run_id,
+        compile_parity_head_sha=compile_parity_head_sha,
+        compile_parity_artifact_digest=compile_parity_artifact_digest,
+        downloaded_zip_sha256=downloaded_zip_sha256,
+    )
     package = find_package(package_root)
 
     rows = {x["candidate_id"]: x for x in manifest["candidates"]}
