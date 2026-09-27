@@ -116,7 +116,7 @@ def gate(
     assert on["orders_submitted"] == "false"
     assert on["demo_account"] == "true"
     assert on["account_mode"] == "0"
-    assert on["live_blocked"] == "false"
+    assert on["real_account_detected"] == "false"
 
     required_permission_keys = (
         "terminal_connected",
@@ -179,7 +179,7 @@ def gate(
             "runtime_head_sha": runtime_head_sha,
             "account_mode": int(on["account_mode"]),
             "demo_account": on["demo_account"] == "true",
-            "live_blocked": on["live_blocked"] == "false",
+            "real_account_detected": on["real_account_detected"] == "true",
             "authorization_off_blocks": off["execution_allowed"] == "false",
             "authorization_on_permission_chain_match": on["execution_allowed"] == ("true" if expected_allowed else "false"),
             "orders_submitted": False,
