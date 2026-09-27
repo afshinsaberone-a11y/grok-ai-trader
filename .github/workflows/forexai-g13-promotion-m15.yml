@@ -44,25 +44,65 @@ jobs:
           python - <<'PY'
           import json, os, subprocess
           repo=os.environ['GITHUB_REPOSITORY']
-          checks=[
-            ('VALIDATION_RUN_ID', 'VALIDATION_ARTIFACT_ID'),
-            ('ROBUSTNESS_RUN_ID', 'ROBUSTNESS_ARTIFACT_ID'),
-            ('OOS_RUN_ID', 'OOS_ARTIFACT_ID'),
-          ]
-          for run_key, art_key in checks:
+          provenance={"schema_version":"forexai.g13.promotion_evidence_provenance.m15.v1","sources":{}}
+          checks={
+            "validation": ('VALIDATION_RUN_ID', 'VALIDATION_ARTIFACT_ID'),
+            "robustness": ('ROBUSTNESS_RUN_ID', 'ROBUSTNESS_ARTIFACT_ID'),
+            "oos": ('OOS_RUN_ID', 'OOS_ARTIFACT_ID'),
+          }
+          for key, (run_key, art_key) in checks.items():
               run_id=int(os.environ[run_key]); artifact_id=int(os.environ[art_key])
               run=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}'],text=True))
               assert run.get('conclusion')=='success', (run_id,run.get('conclusion'))
-              print('SOURCE_RUN_OK',run_id,run.get('head_sha'))
               arts=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}/artifacts'],text=True))['artifacts']
-              match=[a for a in arts if int(a['id'])==artifact_id and not a.get('expired')]
+              match=[a for a in arts if int(a['id'])==artifact_id]
               assert len(match)==1, (run_id,artifact_id)
-              print('SOURCE_ARTIFACT_OK',artifact_id,match[0].get('name'),match[0].get('digest'))
+              artifact=match[0]
+              assert artifact.get('expired') is False
+              digest=artifact.get('digest')
+              assert isinstance(digest,str) and digest.startswith('sha256:')
+              provenance['sources'][key]={
+                  'run_id':run_id,
+                  'job_id':None,
+                  'head_sha':run.get('head_sha'),
+                  'conclusion':run.get('conclusion'),
+                  'artifact':{
+                      'artifact_id':int(artifact['id']),
+                      'name':artifact.get('name'),
+                      'digest':digest,
+                      'expired':bool(artifact.get('expired')),
+                      'created_at':artifact.get('created_at'),
+                  },
+              }
+              print('SOURCE_RUN_OK',run_id,run.get('head_sha'))
+              print('SOURCE_ARTIFACT_OK',artifact_id,artifact.get('name'),digest)
+          json.dump(provenance,open('evidence/source-provenance.json','w',encoding='utf-8'),indent=2,sort_keys=True)
           PY
           gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ROBUSTNESS_ARTIFACT_ID/zip" > evidence/robustness/source.zip
           unzip -o evidence/robustness/source.zip -d evidence/robustness
           gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$OOS_ARTIFACT_ID/zip" > evidence/oos/source.zip
           unzip -o evidence/oos/source.zip -d evidence/oos
+      - name: Verify downloaded artifact bytes against GitHub digests
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          p=Path('evidence/source-provenance.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          for key, path in {
+              'robustness':Path('evidence/robustness/source.zip'),
+              'oos':Path('evidence/oos/source.zip'),
+          }.items():
+              actual=hashlib.sha256(path.read_bytes()).hexdigest()
+              expected=d['sources'][key]['artifact']['digest'].split(':',1)[1]
+              assert actual==expected,(key,actual,expected)
+              d['sources'][key]['local_zip_sha256']=actual
+              print('ARTIFACT_BYTES_OK',key,actual)
+          d['sources']['validation']['local_zip_sha256']=d['sources']['validation']['artifact']['digest'].split(':',1)[1]
+          p.write_text(json.dumps(d,indent=2,sort_keys=True)+'
+',encoding='utf-8')
+          PY
       - name: Verify upstream artifacts exist
         run: |
           set -euo pipefail
@@ -83,7 +123,7 @@ jobs:
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
             --robustness "$ROBUSTNESS" \
             --oos "$OOS" \
-            --output artifacts/g13/g13-promotion-manifest-m15.json
+            --provenance evidence/source-provenance.json             --output artifacts/g13/g13-promotion-manifest-m15.json
       - name: Fail closed
         run: |
           python - <<'PY'
@@ -105,5 +145,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: g13-promotion-manifest-m15
-          path: artifacts/g13/g13-promotion-manifest-m15.json
+          path: |
+            artifacts/g13/g13-promotion-manifest-m15.json
+            evidence/source-provenance.json
           if-no-files-found: error
