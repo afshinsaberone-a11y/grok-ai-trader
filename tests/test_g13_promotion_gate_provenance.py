@@ -13,6 +13,7 @@ def _good() -> dict:
                 "run_id": gate.EXPECTED_VALIDATION_RUN,
                 "conclusion": "success",
                 "head_sha": "validation-sha",
+                "job_id": 103140078741,
                 "local_zip_sha256": "a" * 64,
                 "artifact": {
                     "artifact_id": gate.EXPECTED_VALIDATION_ARTIFACT,
@@ -24,6 +25,7 @@ def _good() -> dict:
                 "run_id": gate.EXPECTED_ROBUST_RUN,
                 "conclusion": "success",
                 "head_sha": "robust-sha",
+                "job_id": 103514547206,
                 "local_zip_sha256": "b" * 64,
                 "artifact": {
                     "artifact_id": gate.EXPECTED_ROBUST_ARTIFACT,
@@ -35,6 +37,7 @@ def _good() -> dict:
                 "run_id": gate.EXPECTED_OOS_RUN,
                 "conclusion": "success",
                 "head_sha": "oos-sha",
+                "job_id": 103516577859,
                 "local_zip_sha256": "c" * 64,
                 "artifact": {
                     "artifact_id": gate.EXPECTED_OOS_ARTIFACT,
