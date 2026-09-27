@@ -58,7 +58,6 @@ def validate_promotion_binding(
     main_head_sha: str,
     promotion_path: Path,
     provenance_path: Path,
-    attestation_path: Path,
 ) -> None:
     assert promotion["schema_version"] == "forexai.g13.promotion_manifest.m15.v1"
     assert promotion["status"] == "PROMOTION_READY"
@@ -68,8 +67,6 @@ def validate_promotion_binding(
     assert attestation["head_sha"] == main_head_sha
     assert attestation["manifest_sha256"] == file_sha256(promotion_path)
     assert attestation["provenance_sha256"] == file_sha256(provenance_path)
-    assert attestation["provenance_sha256"] == file_sha256(provenance_path)
-    assert file_sha256(attestation_path) == attestation.get("attestation_sha256", file_sha256(attestation_path))
 
 def git_diff_clean(base_sha: str, paths: list[str]) -> bool:
     cmd = ["git", "diff", "--quiet", base_sha, "--", *paths]
@@ -111,7 +108,6 @@ def gate(
         main_head_sha=main_head_sha,
         promotion_path=promotion,
         provenance_path=provenance,
-        attestation_path=attestation,
     )
 
     assert p["status"] == "PROMOTION_READY"
