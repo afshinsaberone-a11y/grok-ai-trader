@@ -85,6 +85,10 @@ jobs:
               "ACCOUNT_TRADE_MODE_DEMO",
               "MQLInfoInteger(MQL_TESTER)",
               "if(!DemoTradingExecutionAllowed()) return;",
+              "g13_demo_kill_switch.txt",
+              "DemoKillSwitchAllowed()",
+              "HasOtherG13Position()",
+              "ACCOUNT_TRADE_MODE_DEMO",
           ]:
               assert token in generator, f"missing G13 Demo safety token: {token}"
 

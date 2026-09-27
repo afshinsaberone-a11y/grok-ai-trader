@@ -211,13 +211,39 @@ void OnDeinit(const int reason)
    if(parityHandle!=INVALID_HANDLE) FileClose(parityHandle);
 }}
 
+bool DemoKillSwitchAllowed()
+{{
+   int h=FileOpen("g13_demo_kill_switch.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
+   if(h==INVALID_HANDLE) return false;
+   string state=FileReadString(h);
+   FileClose(h);
+   return state=="ALLOW";
+}}
+
+bool HasOtherG13Position()
+{{
+   for(int i=PositionsTotal()-1;i>=0;--i)
+   {{
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0) continue;
+      long magic=PositionGetInteger(POSITION_MAGIC);
+      if(magic>=130000+2 && magic<=130000+48 && magic!=MagicNumber) return true;
+   }}
+   return false;
+}}
+
 bool DemoTradingExecutionAllowed()
 {{
    // Strategy Tester remains available for research/backtest simulation.
    if((bool)MQLInfoInteger(MQL_TESTER)) return true;
    // Outside Tester, order submission is strictly Demo-only and opt-in.
    if(!DemoTradingAuthorized) return false;
-   return AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO;
+   if(AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO) return false;
+   // Shared kill-switch file must explicitly contain ALLOW; missing file fails closed.
+   if(!DemoKillSwitchAllowed()) return false;
+   // Demo cluster uses one position at a time across all G13 candidate EAs.
+   if(HasOtherG13Position()) return false;
+   return true;
 }}
 
 void OnTick()
