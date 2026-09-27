@@ -1,0 +1,203 @@
+name: ForexAI G13 MT5 Runtime Safety Probe M15
+
+# Runtime environment probe only. It never submits an order.
+# The probe must observe a DEMO account before Demo execution is considered.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/G13_Safety_Probe_AuthOff.mq5
+      - research/optimization/G13_Safety_Probe_AuthOn.mq5
+      - .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15.yml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+
+jobs:
+  runtime-safety-probe:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 20
+    env:
+      MT5_ROOT: 'C:\Program Files\MetaTrader 5'
+      MT5_SERVICE_DATA_ROOT: 'C:\Users\Star\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify MT5 runtime and Common Files
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
+          $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
+          $scripts = Join-Path $env:MT5_SERVICE_DATA_ROOT 'MQL5\Scripts'
+          $common = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files'
+          foreach ($p in @($meta,$terminal,$scripts,$common)) {
+            if (!(Test-Path -LiteralPath $p)) { throw "Required MT5 path missing: $p" }
+          }
+          Write-Host "MT5_RUNTIME_PREREQS_OK"
+
+      - name: Compile safety probes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\safety_probe_build'
+          New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+          Remove-Item (Join-Path $buildDir '*') -Recurse -Force -ErrorAction SilentlyContinue
+          foreach ($name in @('G13_Safety_Probe_AuthOff','G13_Safety_Probe_AuthOn')) {
+            $src = Join-Path $buildDir ($name + '.mq5')
+            $ex5 = Join-Path $buildDir ($name + '.ex5')
+            $log = Join-Path $buildDir ($name + '.log')
+            Copy-Item (Join-Path $env:GITHUB_WORKSPACE ('research\optimization\' + $name + '.mq5')) $src -Force
+            Remove-Item $ex5,$log -Force -ErrorAction SilentlyContinue
+            $proc = Start-Process -FilePath $meta -WorkingDirectory $buildDir -ArgumentList @("/compile:$src",'/log') -Wait -PassThru
+            if (!(Test-Path -LiteralPath $log)) { throw "MetaEditor log missing for $name" }
+            $logText = Get-Content -LiteralPath $log -Raw
+            $m=[regex]::Match($logText,'Result:\s*(\d+) errors,\s*(\d+) warnings')
+            if (!$m.Success) { throw "Unable to parse MetaEditor result for $name" }
+            $errors=[int]$m.Groups[1].Value
+            $warnings=[int]$m.Groups[2].Value
+            Write-Host "PROBE=$name METAEDITOR_EXIT=$($proc.ExitCode) ERRORS=$errors WARNINGS=$warnings"
+            if ($errors -ne 0) { throw "Probe $name failed to compile" }
+            if (!(Test-Path -LiteralPath $ex5)) { throw "Probe $name produced no EX5" }
+          }
+          Write-Host "MT5_SAFETY_PROBE_COMPILE_OK"
+
+      - name: Deploy non-trading probes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scripts = Join-Path $env:MT5_SERVICE_DATA_ROOT 'MQL5\Scripts'
+          foreach ($name in @('G13_Safety_Probe_AuthOff','G13_Safety_Probe_AuthOn')) {
+            Copy-Item (Join-Path $env:GITHUB_WORKSPACE ('artifacts\g13\safety_probe_build\' + $name + '.ex5')) (Join-Path $scripts ($name + '.ex5')) -Force
+          }
+          Write-Host "MT5_SAFETY_PROBE_DEPLOY_OK"
+
+      - name: Snapshot kill switch before probes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $common = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files'
+          $switch = Join-Path $common 'g13_demo_kill_switch.txt'
+          $snapshot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_demo_kill_switch.before.txt'
+          New-Item -ItemType Directory -Path (Split-Path $snapshot) -Force | Out-Null
+          if (Test-Path -LiteralPath $switch) {
+            Copy-Item $switch $snapshot -Force
+          } else {
+            Set-Content -LiteralPath $snapshot -Value '__MISSING__' -Encoding ascii
+          }
+          Write-Host "KILL_SWITCH_SNAPSHOT_CREATED"
+
+      - name: Run Auth OFF probe
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
+          $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\probe-auth-off.ini'
+          $common = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files'
+          $done = Join-Path $common 'g13_safety_probe_auth_off.done.txt'
+          $started = Join-Path $common 'g13_safety_probe_auth_off.started.txt'
+          Remove-Item $done,$started -Force -ErrorAction SilentlyContinue
+          @"
+          [Experts]
+          AllowLiveTrading=0
+          AllowDllImport=0
+          Enabled=1
+
+          [StartUp]
+          Script=G13_Safety_Probe_AuthOff.ex5
+          ShutdownTerminal=1
+          "@ | Set-Content -LiteralPath $config -Encoding ascii
+          $proc=Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @('/config:"' + $config + '"','/skipupdate') -PassThru
+          $deadline=(Get-Date).AddSeconds(180)
+          while(-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+            if(Test-Path $done){break}
+            Start-Sleep -Seconds 2
+          }
+          if(!(Test-Path $done)){throw 'Auth OFF probe did not produce completion marker'}
+          if(!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)){throw 'Auth OFF probe status not PASS'}
+          if(!(Select-String -LiteralPath $done -Pattern '^authorization,false$' -Quiet)){throw 'Auth OFF probe authorization flag mismatch'}
+          if(!(Select-String -LiteralPath $done -Pattern '^execution_allowed,false$' -Quiet)){throw 'Auth OFF must never allow execution'}
+          if(!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)){throw 'Probe must not submit orders'}
+          Copy-Item $done (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_off.done.txt') -Force
+          if(-not $proc.HasExited){try{$proc.Kill()}catch{}}
+          Write-Host "MT5_AUTH_OFF_PROBE_OK"
+
+      - name: Run Auth ON probe
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
+          $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\probe-auth-on.ini'
+          $common = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files'
+          $done = Join-Path $common 'g13_safety_probe_auth_on.done.txt'
+          $started = Join-Path $common 'g13_safety_probe_auth_on.started.txt'
+          Remove-Item $done,$started -Force -ErrorAction SilentlyContinue
+          @"
+          [Experts]
+          AllowLiveTrading=0
+          AllowDllImport=0
+          Enabled=1
+
+          [StartUp]
+          Script=G13_Safety_Probe_AuthOn.ex5
+          ShutdownTerminal=1
+          "@ | Set-Content -LiteralPath $config -Encoding ascii
+          $proc=Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @('/config:"' + $config + '"','/skipupdate') -PassThru
+          $deadline=(Get-Date).AddSeconds(180)
+          while(-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+            if(Test-Path $done){break}
+            Start-Sleep -Seconds 2
+          }
+          if(!(Test-Path $done)){throw 'Auth ON probe did not produce completion marker'}
+          if(!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)){throw 'Auth ON probe status not PASS'}
+          if(!(Select-String -LiteralPath $done -Pattern '^authorization,true$' -Quiet)){throw 'Auth ON probe authorization flag mismatch'}
+          if(!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)){throw 'Probe must not submit orders'}
+          Copy-Item $done (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_on.done.txt') -Force
+          if(-not $proc.HasExited){try{$proc.Kill()}catch{}}
+          Write-Host "MT5_AUTH_ON_PROBE_OK"
+
+      - name: Evaluate live/Demo runtime evidence
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $off = Get-Content (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_off.done.txt')
+          $on = Get-Content (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_on.done.txt')
+          function Value([string[]]$lines,[string]$key) {
+            $line=$lines | Where-Object { $_ -like ($key + ',*') } | Select-Object -First 1
+            if(!$line){throw "Missing key $key"}
+            return $line.Substring($key.Length+1)
+          }
+          $mode=Value $on 'account_mode'
+          $demo=Value $on 'demo_account'
+          $liveBlocked=Value $on 'live_blocked'
+          $authOnAllowed=Value $on 'execution_allowed'
+          $authOffAllowed=Value $off 'execution_allowed'
+          if($demo -ne 'true'){throw "Runtime probe is not on a DEMO account; Demo execution remains blocked."}
+          if($liveBlocked -ne 'false'){throw "DEMO account must report live_blocked=false"}
+          if($authOffAllowed -ne 'false'){throw "Auth OFF must be blocked"}
+          if($authOnAllowed -eq 'true'){
+            Write-Host "DEMO_RUNTIME_GATE=READY_WHEN_KILL_SWITCH_AND_POSITION_CONTROLS_MATCH"
+          } else {
+            Write-Host "DEMO_RUNTIME_GATE=BLOCKED_BY_RUNTIME_CONTROL"
+          }
+          Write-Host "ACCOUNT_MODE=$mode"
+          Write-Host "LIVE_BLOCKED=$liveBlocked"
+          Write-Host "AUTH_OFF_ALLOWED=$authOffAllowed"
+          Write-Host "AUTH_ON_ALLOWED=$authOnAllowed"
+
+      - name: Verify kill switch unchanged
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $common = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files'
+          $switch = Join-Path $common 'g13_demo_kill_switch.txt'
+          $before = (Get-Content (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_demo_kill_switch.before.txt') -Raw).Trim()
+          if(Test-Path -LiteralPath $switch){$after=(Get-Content $switch -Raw).Trim()}else{$after='__MISSING__'}
+          if($before -ne $after){throw 'Safety probes modified the shared kill switch'}
+          Write-Host "KILL_SWITCH_UNCHANGED=true"
+
+      - name: Upload runtime safety evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-mt5-runtime-safety-probe-m15
+          path: artifacts/g13/**
+          if-no-files-found: warn
