@@ -1,0 +1,57 @@
+name: ForexAI Dropbox Contract Validation
+
+on:
+  push:
+    paths:
+      - "config/dropbox_repository_map.json"
+      - "config/dropbox_free_tier_policy.json"
+      - "tools/dropbox_*.py"
+      - "tools/validate_dropbox_contract.py"
+      - "tests/test_dropbox_*.py"
+      - ".github/workflows/forexai-dropbox-*.yml"
+  pull_request:
+    paths:
+      - "config/dropbox_repository_map.json"
+      - "config/dropbox_free_tier_policy.json"
+      - "tools/dropbox_*.py"
+      - "tools/validate_dropbox_contract.py"
+      - "tests/test_dropbox_*.py"
+      - ".github/workflows/forexai-dropbox-*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate repository contract
+        run: |
+          set -euo pipefail
+          python tools/validate_dropbox_contract.py
+
+      - name: Validate Python modules
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            tools/dropbox_evidence_sync_v2.py \
+            tools/dropbox_free_tier_policy.py \
+            tools/dropbox_free_tier_policy_v2.py \
+            tools/dropbox_healthcheck.py \
+            tools/validate_dropbox_contract.py
+
+      - name: Run Dropbox contract tests
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_dropbox_contract.py \
+            tests/test_dropbox_evidence_sync.py
