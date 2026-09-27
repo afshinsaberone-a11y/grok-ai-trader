@@ -35,7 +35,8 @@ jobs:
   readiness:
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
-          github.event.workflow_run.conclusion == 'success' }}
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -98,9 +99,6 @@ jobs:
       - name: Download evidence
         env:
           GH_TOKEN: ${{ github.token }}
-          RUNTIME_RUN_ID: ${{ env.RUNTIME_RUN_ID }}
-          SAFETY_RUN_ID: ${{ env.SAFETY_RUN_ID }}
-          PARITY_RUN_ID: ${{ env.PARITY_RUN_ID }}
         run: |
           set -euo pipefail
           rm -rf evidence
@@ -121,13 +119,21 @@ jobs:
           echo "SAFETY_JSON=$safety_file" >> "$GITHUB_ENV"
           echo "PARITY_JSON=$parity_file" >> "$GITHUB_ENV"
 
-      - name: Verify static validation evidence
+      - name: Verify static validation freshness
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$LINT_RUN_ID" |
             python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success"; print("STATIC_VALIDATION_SUCCESS",x["id"],x["head_sha"])'
+          git diff --quiet "$LINT_HEAD_SHA" -- \
+            .github/workflows/forexai-g13-demo-readiness-gate-m15.yml \
+            .github/workflows/forexai-g13-workflow-lint.yml \
+            .github/workflows/forexai-g13-mt5-compile-parity.yml \
+            .github/workflows/forexai-g13-execution-safety-audit-m15.yml \
+            .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml \
+            research/optimization/g13_demo_readiness_gate_m15.py
+          echo "STATIC_VALIDATION_COVERS_CURRENT_G13_CONFIG=true"
 
       - name: Run readiness gate
         run: |
