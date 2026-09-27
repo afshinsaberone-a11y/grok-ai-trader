@@ -2,6 +2,11 @@ name: ForexAI G13 MT5 Compile + Signal Parity
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows:
+      - 'ForexAI G13 Workflow Static Validation'
+    types:
+      - completed
     inputs:
       mt5_root:
         description: 'MT5 installation root on the self-hosted Windows runner'
@@ -31,6 +36,7 @@ defaults:
 
 jobs:
   compile-and-parity:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 240
     env:
@@ -41,7 +47,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Verify local Python runtime
         run: |
