@@ -24,10 +24,9 @@ on:
       - '.github/workflows/forexai-g13-execution-safety-audit-m15.yml'
       - '.github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml'
       - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
-      - '.github/workflows/forexai-g13-promotion-m15.yml'
       - 'research/optimization/g13_demo_package_preflight_m15.py'
-      - 'research/optimization/g13_promotion_gate_m15.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
+      - 'tests/test_g13_demo_package_preflight_binding.py'
   pull_request:
     paths:
       - '.github/workflows/forexai-g13-promotion-m15.yml'
@@ -37,6 +36,8 @@ on:
       - 'research/optimization/g13_mql5_parity_harness_generator.py'
       - 'research/optimization/g13_mql5_parity.py'
       - 'research/optimization/g13_demo_readiness_gate_m15.py'
+      - 'tests/test_g13_demo_readiness_promotion_binding.py'
+      - 'tests/test_g13_demo_package_preflight_binding.py'
   workflow_dispatch:
 
 concurrency:
