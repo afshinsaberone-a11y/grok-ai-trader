@@ -264,6 +264,8 @@ def gate(
             "candidate_count": pf["candidate_count"],
             "binary_hashes_verified": pf["binary_hashes_verified"],
             "source_safety_contracts_verified": pf["source_safety_contracts_verified"],
+            "promotion_manifest_sha256": pf["promotion_manifest_sha256"],
+            "parity_evidence_sha256": pf["parity_evidence_sha256"],
         },
         "safety": {
             "status": s["status"],
