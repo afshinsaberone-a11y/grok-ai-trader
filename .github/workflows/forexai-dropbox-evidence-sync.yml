@@ -155,7 +155,8 @@ jobs:
             --run-metadata "run-metadata.json" \
             --ledger-out "reports/dropbox/run-${RUN_ID}.json" \
             --ledger-remote-root "/ForexAI/09_EVIDENCE_LEDGER/Run_Index" \
-            --manifest-out "reports/dropbox/sync-${RUN_ID}.json"
+            --manifest-out "reports/dropbox/sync-${RUN_ID}.json" \
+            --policy "config/dropbox_free_tier_policy.json"
       - name: Publish sync receipt
         uses: actions/upload-artifact@v4
         with:
