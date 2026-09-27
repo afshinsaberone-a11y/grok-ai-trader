@@ -225,6 +225,7 @@ def gate(
         },
         "preflight": {
             "status": pf["status"],
+            "run_id": preflight_run_id,
             "compile_parity_run_id": pf["compile_parity_run_id"],
             "candidate_count": pf["candidate_count"],
             "binary_hashes_verified": pf["binary_hashes_verified"],
@@ -263,6 +264,7 @@ def main() -> int:
     ap.add_argument("--promotion-attestation", type=Path, required=True)
     ap.add_argument("--preflight", type=Path, required=True)
     ap.add_argument("--promotion-run-id", type=int, required=True)
+    ap.add_argument("--preflight-run-id", type=int, required=True)
     ap.add_argument("--main-head-sha", required=True)
     ap.add_argument("--safety", type=Path, required=True)
     ap.add_argument("--runtime-dir", type=Path, required=True)
@@ -278,6 +280,7 @@ def main() -> int:
         attestation=a.promotion_attestation,
         preflight=a.preflight,
         promotion_run_id=a.promotion_run_id,
+        preflight_run_id=a.preflight_run_id,
         main_head_sha=a.main_head_sha,
         safety=a.safety,
         runtime_dir=a.runtime_dir,
