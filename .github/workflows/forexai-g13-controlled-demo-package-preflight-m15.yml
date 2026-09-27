@@ -44,6 +44,9 @@ jobs:
           assert p["conclusion"]=="success", (p["id"],p["conclusion"])
           print("COMPILE_PARITY_RUN_OK",p["id"],p["head_sha"])
           PY
+          echo "COMPILE_PARITY_HEAD_SHA=$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")" >> "$GITHUB_ENV"
+
+          PY
 
       - name: Download and verify exact compiled package artifact
         env:
@@ -68,8 +71,11 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile research/optimization/g13_demo_package_preflight_m15.py
-          python -m research.optimization.g13_demo_package_preflight_m15             --manifest docs/G13_DEMO_PACKAGE_MANIFEST_M15.json \
+          python -m research.optimization.g13_demo_package_preflight_m15 \
+            --manifest docs/G13_DEMO_PACKAGE_MANIFEST_M15.json \
             --package-root package/extracted \
+            --compile-parity-run-id "$COMPILE_PARITY_RUN_ID" \
+            --compile-parity-head-sha "$COMPILE_PARITY_HEAD_SHA" \
             --report artifacts/g13/g13-demo-package-preflight-m15.json
 
       - name: Fail-closed assertions
