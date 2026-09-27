@@ -163,6 +163,16 @@ def upload(path: Path, remote: str) -> dict[str, Any]:
     return upload_large(path, remote)
 
 
+def get_space_usage() -> tuple[int, int]:
+    usage = api_json("users/get_space_usage", {})
+    used = usage.get("used")
+    allocation = usage.get("allocation") or {}
+    allocated = allocation.get("allocated")
+    if not isinstance(used, int) or not isinstance(allocated, int):
+        raise DropboxSyncError("Dropbox space usage response is missing used/allocated bytes")
+    return used, allocated
+
+
 def collect_and_upload(
     source_dir: Path, remote_root: str, policy: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -172,6 +182,19 @@ def collect_and_upload(
         files, excluded = select_files(source_dir, policy)
     except ValueError as exc:
         raise DropboxSyncError(str(exc)) from exc
+
+    selected_bytes = sum(path.stat().st_size for path in files)
+    used_bytes, allocated_bytes = get_space_usage()
+    reserve_bytes = int(policy.get("reserve_bytes", 0))
+    available_bytes = allocated_bytes - used_bytes
+    if available_bytes - selected_bytes < reserve_bytes:
+        raise DropboxSyncError(
+            "Dropbox quota guard: required="
+            + str(selected_bytes + reserve_bytes)
+            + " available="
+            + str(available_bytes)
+        )
+
     ensure_folder(remote_root)
     records: list[dict[str, Any]] = []
     for local in files:
