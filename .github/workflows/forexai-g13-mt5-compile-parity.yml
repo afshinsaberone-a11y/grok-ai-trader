@@ -570,6 +570,16 @@ jobs:
             --mt5 "$env:PARITY_CSV_RESOLVED" `
             --output artifacts/g13-mql5-signal-parity.json
 
+      - name: Build immutable Demo package manifest
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:PYTHON_EXE -m research.optimization.g13_demo_package_manifest_builder_m15 `
+            --promotion artifacts/g13/g13-promotion-manifest-m15.json `
+            --parity artifacts/g13-mql5-signal-parity.json `
+            --package-root artifacts/g13/mql5 `
+            --output artifacts/g13/g13-demo-package-manifest-m15.json `
+            --source-commit "$env:GITHUB_SHA" `
+            --compile-parity-run-id ([int]$env:GITHUB_RUN_ID)
       - name: Print MT5 parity diagnostics
         if: always()
         run: |
@@ -616,6 +626,7 @@ jobs:
             artifacts/g13/mql5/*.mq5
             artifacts/g13/mql5/*.ex5
             artifacts/g13/mql5/g13_parity_harness.ini
+            artifacts/g13/g13-demo-package-manifest-m15.json
             artifacts/g13-mql5-signal-parity.json
             artifacts/g13/ci_inputs/*
           if-no-files-found: warn
