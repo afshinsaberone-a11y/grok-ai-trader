@@ -1,0 +1,40 @@
+name: ForexAI Dropbox Health Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  healthcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DROPBOX_ACCESS_TOKEN: \${{ secrets.DROPBOX_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify credential
+        run: |
+          set -euo pipefail
+          if [ -z "\${DROPBOX_ACCESS_TOKEN}" ]; then
+            echo "DROPBOX_HEALTHCHECK_NOT_CONFIGURED: add repository secret DROPBOX_ACCESS_TOKEN"
+            exit 78
+          fi
+
+      - name: Run read-only Dropbox health check
+        run: |
+          set -euo pipefail
+          python tools/dropbox_healthcheck.py > dropbox-healthcheck.json
+          cat dropbox-healthcheck.json
+
+      - name: Publish health receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: dropbox-healthcheck
+          path: dropbox-healthcheck.json
+          if-no-files-found: error
