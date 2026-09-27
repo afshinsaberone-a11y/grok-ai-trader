@@ -30,12 +30,6 @@ on:
         required: false
         default: 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv'
         type: string
-  workflow_run:
-    workflows:
-      - 'ForexAI G13 Workflow Static Validation'
-    types:
-      - completed
-
 concurrency:
   group: g13-mt5-compile-parity
   cancel-in-progress: true
@@ -49,7 +43,7 @@ defaults:
 
 jobs:
   compile-and-parity:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 240
     env:
@@ -60,7 +54,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Verify local Python runtime
         run: |
