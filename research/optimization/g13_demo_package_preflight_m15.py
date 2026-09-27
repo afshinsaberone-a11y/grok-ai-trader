@@ -141,6 +141,7 @@ def audit(
         "candidate_count": 15,
         "candidate_ids": list(PROMOTED),
         "candidate_config_hashes": {str(cid): rows[cid]["config_hash"] for cid in PROMOTED},
+        "candidate_ex5_hashes": {str(cid): rows[cid]["ex5_sha256"] for cid in PROMOTED},
         "binary_hashes_verified": 15,
         "source_safety_contracts_verified": 15,
         "real_data_only": True,
