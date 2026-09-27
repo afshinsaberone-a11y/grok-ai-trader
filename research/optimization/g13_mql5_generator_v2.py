@@ -252,8 +252,13 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    else
       magic=(long)request.magic;
    if(magic!=MagicNumber) return;
+   string transactionComment=result.comment;
+   if(trans.deal>0 && HistoryDealSelect(trans.deal))
+      transactionComment=HistoryDealGetString(trans.deal,DEAL_COMMENT);
+   else if(trans.order>0 && HistoryOrderSelect(trans.order))
+      transactionComment=HistoryOrderGetString(trans.order,ORDER_COMMENT);
    ExecutionAuditLog("TRADE_TRANSACTION",trans.order,trans.deal,trans.volume,trans.price,
-                     result.retcode,result.comment,0,trans.comment);
+                     result.retcode,result.comment,0,transactionComment);
 }}
 
 bool DemoKillSwitchAllowed()
