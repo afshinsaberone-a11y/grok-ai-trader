@@ -106,3 +106,19 @@ automation code and workflow are committed, but the `DROPBOX_ACCESS_TOKEN`
 secret still has to be configured in the repository's GitHub Actions settings.
 
 The active utility is `tools/dropbox_evidence_sync_v2.py`; v1 is retained only as historical code until a later cleanup decision.
+
+
+## Operational sequence
+
+1. Run `.github/workflows/forexai-dropbox-healthcheck.yml` after configuring the secret.
+2. Allow a covered GitHub Actions workflow to complete.
+3. The sync workflow captures the source run commit, status, conclusion, and live artifact
+   IDs/digests before downloading artifacts.
+4. Exact artifact files are hashed locally and uploaded to their run-specific Dropbox path.
+5. The immutable `_SYNC_MANIFEST.json` is written last.
+6. The same run manifest is registered under
+   `/ForexAI/09_EVIDENCE_LEDGER/Run_Index`.
+7. The GitHub Actions sync receipt remains available as an independent audit pointer.
+
+Health Check sequence: connection -> canonical root -> required control/data/evidence/release
+folders. It is read-only and creates no Dropbox files.
