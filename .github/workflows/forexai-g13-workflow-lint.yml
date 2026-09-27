@@ -1,0 +1,77 @@
+name: ForexAI G13 Workflow Static Validation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
+      - '.github/workflows/forexai-g13-workflow-lint.yml'
+      - 'research/optimization/g13_mql5_parity_harness_generator.py'
+      - 'research/optimization/g13_mql5_parity.py'
+  pull_request:
+    paths:
+      - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
+      - '.github/workflows/forexai-g13-workflow-lint.yml'
+      - 'research/optimization/g13_mql5_parity_harness_generator.py'
+      - 'research/optimization/g13_mql5_parity.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+          ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+        run: |
+          set -euo pipefail
+          curl -fsSLo actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256} actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          chmod +x actionlint
+
+      - name: Validate G13 workflow
+        run: ./actionlint .github/workflows/forexai-g13-mt5-compile-parity.yml
+
+      - name: Validate G13 parity contract wiring
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path(".github/workflows/forexai-g13-mt5-compile-parity.yml").read_text(encoding="utf-8")
+          harness = Path("research/optimization/g13_mql5_parity_harness_generator.py").read_text(encoding="utf-8")
+
+          required_workflow_tokens = [
+              "Compile and deploy MQL5 real-data parity script",
+              "Run MQL5 real-data parity script",
+              "Script=ForexAI_G13_Parity_Harness.ex5",
+              "AllowLiveTrading=0",
+              "DATA_CSV_INPUT:",
+              "UseLocal",
+          ]
+          for token in required_workflow_tokens:
+              assert token in workflow, f"missing workflow token: {token}"
+
+          forbidden_workflow_tokens = [
+              "[Common]",
+              "Login=${env:MT5_LOGIN}",
+              "Server=${env:MT5_SERVER}",
+              "Password=${env:MT5_PASSWORD}",
+              "[Tester]",
+          ]
+          for token in forbidden_workflow_tokens:
+              assert token not in workflow, f"forbidden legacy token still present: {token}"
+
+          assert "void OnStart()" in harness, "parity harness must be a Script with OnStart()"
+          assert "bool RunHarness()" in harness, "parity harness RunHarness() missing"
+          assert "FILE_COMMON" in harness, "parity harness must use FILE_COMMON"
+          assert "synthetic_data" in harness and 'false' in harness, "synthetic-data contract missing"
+
+          print("G13_WORKFLOW_STATIC_CONTRACT_OK")
+          PY
