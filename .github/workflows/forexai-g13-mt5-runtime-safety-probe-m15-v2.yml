@@ -218,9 +218,25 @@ jobs:
           $authOffAllowed=Value $off 'execution_allowed'
           $ordersOn=Value $on 'orders_submitted'
           $ordersOff=Value $off 'orders_submitted'
+          foreach($key in @('terminal_connected','terminal_trade_allowed','mql_trade_allowed','account_trade_allowed','account_trade_expert')){
+            $null=Value $on $key
+            $null=Value $off $key
+          }
           if($demo -ne 'true'){throw "Runtime probe is not on DEMO account"}
           if($liveBlocked -ne 'false'){throw "Unexpected live-block state on DEMO probe"}
           if($authOffAllowed -ne 'false'){throw "Auth OFF allowed execution"}
+          $expectedOnAllowed = (
+            (Value $on 'authorization') -eq 'true' -and
+            $demo -eq 'true' -and
+            (Value $on 'terminal_connected') -eq 'true' -and
+            (Value $on 'terminal_trade_allowed') -eq 'true' -and
+            (Value $on 'mql_trade_allowed') -eq 'true' -and
+            (Value $on 'account_trade_allowed') -eq 'true' -and
+            (Value $on 'account_trade_expert') -eq 'true' -and
+            (Value $on 'kill_switch_allow') -eq 'true' -and
+            (Value $on 'other_g13_position') -eq 'false'
+          )
+          if((($authOnAllowed -eq 'true')) -ne $expectedOnAllowed){throw "Auth ON execution_allowed is inconsistent with permission/kill-switch/position evidence"}
           if($authOnAllowed -eq 'true'){
             Write-Host "DEMO_RUNTIME_GATE=ALL_POLICY_CONTROLS_CLEAR"
           } else {
