@@ -279,6 +279,12 @@ bool DemoTradingExecutionAllowed()
    // Outside Tester, order submission is strictly Demo-only and opt-in.
    if(!DemoTradingAuthorized) return false;
    if(AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO) return false;
+   // Broker/terminal/program/account permissions must all allow trading.
+   if(!TerminalInfoInteger(TERMINAL_CONNECTED)) return false;
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return false;
+   if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) return false;
+   if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) return false;
+   if(!AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) return false;
    // Shared kill-switch file must explicitly contain ALLOW; missing file fails closed.
    if(!DemoKillSwitchAllowed()) return false;
    // Demo cluster uses one position at a time across all G13 candidate EAs.
