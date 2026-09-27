@@ -32,10 +32,31 @@ def load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: Path) -> dict[str, Any]:
+def validate_provenance(provenance: dict[str, Any]) -> None:
+    assert provenance["schema_version"] == "forexai.g13.promotion_evidence_provenance.m15.v1"
+    expected = {
+        "validation": (EXPECTED_VALIDATION_RUN, EXPECTED_VALIDATION_ARTIFACT),
+        "robustness": (EXPECTED_ROBUST_RUN, EXPECTED_ROBUST_ARTIFACT),
+        "oos": (EXPECTED_OOS_RUN, EXPECTED_OOS_ARTIFACT),
+    }
+    for key, (run_id, artifact_id) in expected.items():
+        row = provenance["sources"][key]
+        assert row["run_id"] == run_id
+        assert row["conclusion"] == "success"
+        artifact = row["artifact"]
+        assert artifact["artifact_id"] == artifact_id
+        assert artifact["expired"] is False
+        digest = str(artifact["digest"])
+        assert digest.startswith("sha256:") and len(digest) == 71
+        assert row.get("local_zip_sha256") == digest.split(":", 1)[1]
+
+
+def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: Path, provenance_path: Path) -> dict[str, Any]:
     h = load(handoff_path)
     r = load(robustness_path)
     o = load(oos_path)
+    provenance = load(provenance_path)
+    validate_provenance(provenance)
 
     assert h["schema_version"] == "forexai.g13.candidate_handoff.frozen.v1"
     assert h["source_validation_run_id"] == EXPECTED_VALIDATION_RUN
@@ -92,10 +113,28 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
             "live_trading_allowed": False,
         },
         "source_artifacts": {
-            "validation": {"run_id": EXPECTED_VALIDATION_RUN, "artifact_id": EXPECTED_VALIDATION_ARTIFACT},
-            "robustness": {"run_id": EXPECTED_ROBUST_RUN, "artifact_id": EXPECTED_ROBUST_ARTIFACT},
-            "oos": {"run_id": EXPECTED_OOS_RUN, "artifact_id": EXPECTED_OOS_ARTIFACT},
+            "validation": {
+                "run_id": provenance["sources"]["validation"]["run_id"],
+                "artifact_id": provenance["sources"]["validation"]["artifact"]["artifact_id"],
+                "artifact_digest": provenance["sources"]["validation"]["artifact"]["digest"],
+                "run_head_sha": provenance["sources"]["validation"]["head_sha"],
+            },
+            "robustness": {
+                "run_id": provenance["sources"]["robustness"]["run_id"],
+                "job_id": provenance["sources"]["robustness"].get("job_id"),
+                "artifact_id": provenance["sources"]["robustness"]["artifact"]["artifact_id"],
+                "artifact_digest": provenance["sources"]["robustness"]["artifact"]["digest"],
+                "run_head_sha": provenance["sources"]["robustness"]["head_sha"],
+            },
+            "oos": {
+                "run_id": provenance["sources"]["oos"]["run_id"],
+                "job_id": provenance["sources"]["oos"].get("job_id"),
+                "artifact_id": provenance["sources"]["oos"]["artifact"]["artifact_id"],
+                "artifact_digest": provenance["sources"]["oos"]["artifact"]["digest"],
+                "run_head_sha": provenance["sources"]["oos"]["head_sha"],
+            },
         },
+        "evidence_provenance_sha256": canonical_hash(provenance),
         "counts": {"validation": 16, "robustness": 16, "oos_pass": 15, "promoted": 15, "rejected_at_oos": 1},
         "promoted_candidate_ids": list(PROMOTED_IDS),
         "rejected_candidate_ids": list(REJECTED_IDS),
@@ -113,8 +152,9 @@ def main() -> int:
     ap.add_argument("--robustness", required=True, type=Path)
     ap.add_argument("--oos", required=True, type=Path)
     ap.add_argument("--output", required=True, type=Path)
+    ap.add_argument("--provenance", required=True, type=Path)
     a = ap.parse_args()
-    m = run(a.handoff, a.robustness, a.oos, a.output)
+    m = run(a.handoff, a.robustness, a.oos, a.output, a.provenance)
     print(json.dumps({"status": m["status"], "promoted_count": m["counts"]["promoted"], "promoted_candidate_ids": m["promoted_candidate_ids"], "ea_generation_allowed": m["decision_policy"]["ea_generation_allowed"]}, sort_keys=True))
     return 0
 
