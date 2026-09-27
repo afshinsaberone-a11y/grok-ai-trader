@@ -58,7 +58,6 @@ jobs:
               "Script=ForexAI_G13_Parity_Harness.ex5",
               "AllowLiveTrading=0",
               "DATA_CSV_INPUT:",
-              "UseLocal",
           ]
           for token in required_workflow_tokens:
               assert token in workflow, f"missing workflow token: {token}"
