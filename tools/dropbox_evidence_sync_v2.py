@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from tools.dropbox_free_tier_policy import load_policy, select_files
+from tools.dropbox_free_tier_policy_v2 import load_policy, select_files
 
 API_URL = "https://api.dropboxapi.com/2"
 CONTENT_URL = "https://content.dropboxapi.com/2"
