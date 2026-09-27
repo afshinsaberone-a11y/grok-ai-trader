@@ -290,6 +290,13 @@ bool DemoTradingExecutionAllowed()
    if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) return false;
    if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) return false;
    if(!AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) return false;
+   // G13 submits only market SELL orders with SL/TP.
+   int trade_mode=(int)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_MODE);
+   if(trade_mode!=SYMBOL_TRADE_MODE_FULL && trade_mode!=SYMBOL_TRADE_MODE_SHORTONLY) return false;
+   long order_mode=SymbolInfoInteger(_Symbol,SYMBOL_ORDER_MODE);
+   if((order_mode & SYMBOL_ORDER_MARKET)==0) return false;
+   if((order_mode & SYMBOL_ORDER_SL)==0) return false;
+   if((order_mode & SYMBOL_ORDER_TP)==0) return false;
    // Shared kill-switch file must explicitly contain ALLOW; missing file fails closed.
    if(!DemoKillSwitchAllowed()) return false;
    // Demo cluster uses one position at a time across all G13 candidate EAs.
