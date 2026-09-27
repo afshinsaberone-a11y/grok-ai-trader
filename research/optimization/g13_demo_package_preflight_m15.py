@@ -149,6 +149,8 @@ def audit(
         "compile_parity_artifact_id": compile_parity_artifact_id,
         "compile_parity_artifact_digest": compile_parity_artifact_digest,
         "downloaded_zip_sha256": downloaded_zip_sha256,
+        "parity_evidence_sha256": manifest["parity_evidence_sha256"],
+        "promotion_manifest_sha256": manifest["promotion_manifest_sha256"],
         "ea_source_commit": manifest["ea_source_commit"],
         "symbol": manifest["symbol"],
         "timeframe": manifest["timeframe"],
