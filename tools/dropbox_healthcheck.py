@@ -7,24 +7,11 @@ import os
 import sys
 import urllib.error
 import urllib.request
-
+from pathlib import Path
+from typing import Any
 
 API_URL = "https://api.dropboxapi.com/2"
-
-REQUIRED_PATHS = (
-    "/ForexAI",
-    "/ForexAI/00_CONTROL",
-    "/ForexAI/01_RAW_MARKET_DATA",
-    "/ForexAI/03_DATA_QUALITY",
-    "/ForexAI/04_RESEARCH",
-    "/ForexAI/06_BACKTESTS",
-    "/ForexAI/07_CANDIDATES",
-    "/ForexAI/08_OOS_LOCKED",
-    "/ForexAI/09_EVIDENCE_LEDGER",
-    "/ForexAI/10_MQL5_RELEASES",
-    "/ForexAI/11_GITHUB_ACTIONS",
-    "/ForexAI/12_PROJECT_REPORTS",
-)
+ROOT = "/ForexAI"
 
 
 def token() -> str:
@@ -34,10 +21,10 @@ def token() -> str:
     return value
 
 
-def call(endpoint: str, payload: dict) -> dict:
+def call(endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(
         API_URL + "/" + endpoint,
-        data=json.dumps(payload).encode("utf-8"),
+        data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
         method="POST",
         headers={
             "Authorization": "Bearer " + token(),
@@ -54,45 +41,97 @@ def call(endpoint: str, payload: dict) -> dict:
         ) from exc
 
 
+def configured_paths(mapping: dict[str, Any]) -> set[str]:
+    paths: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str) and value.startswith(ROOT + "/"):
+            paths.add(value)
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(mapping)
+    return paths
+
+
+def list_all_folders(start: str) -> set[str]:
+    result = call(
+        "files/list_folder",
+        {"path": start, "recursive": True, "include_deleted": False},
+    )
+    folders: set[str] = {start}
+    for entry in result.get("entries", []):
+        if entry.get(".tag") == "folder":
+            path = entry.get("path_display")
+            if isinstance(path, str):
+                folders.add(path)
+
+    while result.get("has_more"):
+        cursor = result.get("cursor")
+        if not cursor:
+            raise RuntimeError("Dropbox returned has_more=true without cursor")
+        result = call("files/list_folder/continue", {"cursor": cursor})
+        for entry in result.get("entries", []):
+            if entry.get(".tag") == "folder":
+                path = entry.get("path_display")
+                if isinstance(path, str):
+                    folders.add(path)
+    return folders
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", default="/ForexAI")
+    parser.add_argument("--root", default=ROOT)
+    parser.add_argument(
+        "--map",
+        default="config/dropbox_repository_map.json",
+        help="Machine-readable Dropbox repository map",
+    )
     args = parser.parse_args()
 
-    root = args.root.rstrip("/")
-    if root != "/ForexAI":
+    if args.root != ROOT:
         raise RuntimeError("health check is pinned to the canonical /ForexAI root")
 
-    failures = []
+    map_path = Path(args.map)
+    if not map_path.is_file():
+        raise RuntimeError("repository map does not exist: " + str(map_path))
+    mapping = json.loads(map_path.read_text(encoding="utf-8"))
+    if not isinstance(mapping, dict):
+        raise RuntimeError("repository map must be a JSON object")
+    if mapping.get("dropbox_root") != ROOT:
+        raise RuntimeError("repository map root must be /ForexAI")
+
     account = call("users/get_current_account", {})
-    for path in REQUIRED_PATHS:
-        try:
-            meta = call("files/get_metadata", {"path": path})
-            if meta.get(".tag") != "folder" and meta.get("name") != path.rsplit("/", 1)[-1]:
-                failures.append({"path": path, "reason": "not_a_folder"})
-        except RuntimeError as exc:
-            failures.append({"path": path, "reason": str(exc)})
+    actual = list_all_folders(ROOT)
+    expected = configured_paths(mapping)
+    missing = sorted(expected - actual)
 
     result = {
-        "schema_version": "forexai.dropbox_healthcheck.v1",
-        "status": "PASS" if not failures else "HOLD",
+        "schema_version": "forexai.dropbox_healthcheck.v2",
+        "status": "PASS" if not missing else "HOLD",
         "account_id_present": bool(account.get("account_id")),
-        "root": root,
-        "required_paths_checked": len(REQUIRED_PATHS),
-        "failures": failures,
+        "root": ROOT,
+        "configured_paths_checked": len(expected),
+        "missing_paths": missing,
+        "actual_folder_count": len(actual),
         "write_capability": "not_tested",
         "policy": {
             "read_only": True,
             "no_files_created": True,
+            "source_of_truth": "config/dropbox_repository_map.json",
         },
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if not failures else 2
+    return 0 if not missing else 2
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (RuntimeError, OSError, ValueError, KeyError) as exc:
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError) as exc:
         print("DROPBOX_HEALTHCHECK_FAIL_CLOSED: " + str(exc), file=sys.stderr)
         raise SystemExit(2)
