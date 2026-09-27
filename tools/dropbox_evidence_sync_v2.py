@@ -237,6 +237,7 @@ def main() -> int:
     parser.add_argument("--dropbox-root", required=True)
     parser.add_argument("--workflow-name", required=True)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--run-attempt", required=True)
     parser.add_argument("--head-sha", required=True)
     parser.add_argument("--conclusion", required=True)
     parser.add_argument("--manifest-out", required=True)
@@ -265,6 +266,7 @@ def main() -> int:
         "workflow": {
             "name": args.workflow_name,
             "run_id": int(args.run_id),
+            "run_attempt": int(args.run_attempt),
             "head_sha": args.head_sha,
             "conclusion": args.conclusion,
         },
@@ -308,6 +310,8 @@ def main() -> int:
             args.ledger_remote_root.rstrip("/")
             + "/run-manifest__"
             + str(int(args.run_id))
+            + "__attempt-"
+            + str(int(args.run_attempt))
             + "__v2.json"
         )
         upload(ledger_path, ledger_remote)
