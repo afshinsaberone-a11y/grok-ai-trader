@@ -119,9 +119,9 @@ No parity pass is valid unless **all 15 candidates pass**.
 
 The generated EA keeps the signal logic deterministic, but its live-Demo execution layer is broker-aware and fail-closed.
 
-Risk sizing uses MQL5 `OrderCalcProfit()` for a 1-lot SELL from the expected entry to the planned stop, then floors to the broker volume step. When the risk-derived size is below the broker minimum, the EA returns zero rather than rounding upward. The EA also checks `SYMBOL_TRADE_STOPS_LEVEL` before submitting the order. `OrderCalcProfit()` is the platform function for pre-evaluating profit/loss in the current account and market environment. citeturn312009search0turn312009search2
+Risk sizing uses MQL5 `OrderCalcProfit()` for a 1-lot SELL from the expected entry to the planned stop, then floors to the broker volume step. When the risk-derived size is below the broker minimum, the EA returns zero rather than rounding upward. The EA also checks `SYMBOL_TRADE_STOPS_LEVEL` before submitting the order. `OrderCalcProfit()` is the platform function for pre-evaluating profit/loss in the current account and market environment. Official reference: https://www.mql5.com/en/docs/trading/ordercalcprofit
 
-Execution telemetry now records the frozen `ConfigHash`, event type, UTC timestamp, symbol/timeframe, side, order/deal tickets, requested and broker-confirmed volume/price, SL/TP, spread, slippage, retcode/description and elapsed time. MQL5 `CTrade` exposes broker-confirmed result volume/price plus order/deal tickets for this evidence chain. citeturn295896search0turn295896search1turn295896search2turn295896search4turn295896search7
+Execution telemetry now records the frozen `ConfigHash`, event type, UTC timestamp, symbol/timeframe, side, order/deal tickets, requested and broker-confirmed volume/price, SL/TP, spread, slippage, retcode/description and elapsed time. MQL5 `CTrade` exposes broker-confirmed result volume/price plus order/deal tickets for this evidence chain. Official reference: https://www.mql5.com/en/docs/standardlibrary/tradeclasses/ctrade
 
 A read-only validator is available at:
 `research/optimization/g13_controlled_demo_execution_audit.py`
