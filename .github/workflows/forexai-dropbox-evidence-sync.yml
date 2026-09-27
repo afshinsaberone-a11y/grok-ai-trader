@@ -9,6 +9,9 @@ on:
       - "ForexAI G13 Agent Evidence Consumer"
       - "ForexAI G13 Controlled Demo Package Preflight M15"
       - "Dukascopy Cross-Feed Check"
+      - "ForexAI v29.1 Robustness Validation"
+      - "ForexAI v29.1 Robustness Validation — M1"
+      - "ForexAI v29.1 Robustness Validation — M15"
     types: [completed]
   workflow_dispatch:
     inputs:
