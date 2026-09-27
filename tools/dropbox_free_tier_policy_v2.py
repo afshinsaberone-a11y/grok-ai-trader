@@ -15,7 +15,7 @@ def load_policy(path: Path) -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PolicyError("invalid Dropbox policy: " + str(path)) from exc
-    if data.get("schema_version") != "forexai.dropbox_free_tier_policy.v1":
+    if data.get("schema_version") != "forexai.dropbox_free_tier_policy.v2":
         raise PolicyError("unexpected Dropbox free-tier policy schema")
     return data
 
