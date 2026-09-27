@@ -219,7 +219,12 @@ jobs:
           $authOffAllowed=Value $off 'execution_allowed'
           $ordersOn=Value $on 'orders_submitted'
           $ordersOff=Value $off 'orders_submitted'
-          foreach($key in @('terminal_connected','terminal_trade_allowed','mql_trade_allowed','account_trade_allowed','account_trade_expert')){
+          foreach($key in @(
+            'terminal_connected','terminal_trade_allowed','mql_trade_allowed',
+            'account_trade_allowed','account_trade_expert',
+            'symbol_market_order_allowed','symbol_sl_allowed','symbol_tp_allowed',
+            'symbol_trade_mode','stops_level_points'
+          )){
             $null=Value $on $key
             $null=Value $off $key
           }
@@ -234,6 +239,10 @@ jobs:
             (Value $on 'mql_trade_allowed') -eq 'true' -and
             (Value $on 'account_trade_allowed') -eq 'true' -and
             (Value $on 'account_trade_expert') -eq 'true' -and
+            (Value $on 'symbol_market_order_allowed') -eq 'true' -and
+            (Value $on 'symbol_sl_allowed') -eq 'true' -and
+            (Value $on 'symbol_tp_allowed') -eq 'true' -and
+            ([int](Value $on 'stops_level_points')) -ge 0 -and
             (Value $on 'kill_switch_allow') -eq 'true' -and
             (Value $on 'other_g13_position') -eq 'false'
           )
