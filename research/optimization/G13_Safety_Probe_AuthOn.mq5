@@ -28,7 +28,9 @@ bool HasOtherG13Position(long current_magic)
 
 void WriteProbe(const string label,const long mode,const bool auth,const bool kill_switch,const bool other,
                const bool terminal_connected,const bool terminal_trade_allowed,const bool mql_trade_allowed,
-               const bool account_trade_allowed,const bool account_trade_expert,const bool allowed)
+               const bool account_trade_allowed,const bool account_trade_expert,
+               const int symbol_trade_mode,const bool symbol_market,const bool symbol_sl,const bool symbol_tp,
+               const long stops_level,const bool allowed)
 {
    string file="g13_safety_probe_"+label+".done.txt";
    int h=FileOpen(file,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
@@ -46,6 +48,11 @@ void WriteProbe(const string label,const long mode,const bool auth,const bool ki
    FileWrite(h,"mql_trade_allowed,"+(string)(mql_trade_allowed ? "true" : "false"));
    FileWrite(h,"account_trade_allowed,"+(string)(account_trade_allowed ? "true" : "false"));
    FileWrite(h,"account_trade_expert,"+(string)(account_trade_expert ? "true" : "false"));
+   FileWrite(h,"symbol_trade_mode,"+IntegerToString(symbol_trade_mode));
+   FileWrite(h,"symbol_market_order_allowed,"+(string)(symbol_market ? "true" : "false"));
+   FileWrite(h,"symbol_sl_allowed,"+(string)(symbol_sl ? "true" : "false"));
+   FileWrite(h,"symbol_tp_allowed,"+(string)(symbol_tp ? "true" : "false"));
+   FileWrite(h,"stops_level_points,"+IntegerToString((int)stops_level));
    FileWrite(h,"execution_allowed,"+(string)(allowed ? "true" : "false"));
    FileWrite(h,"orders_submitted,false");
    FileWrite(h,"probe_only,true");
@@ -63,6 +70,13 @@ void OnStart()
    const bool mql_trade_allowed=(bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
    const bool account_trade_allowed=(bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED);
    const bool account_trade_expert=(bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);
+   const int symbol_trade_mode=(int)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_MODE);
+   const long symbol_order_mode=SymbolInfoInteger(_Symbol,SYMBOL_ORDER_MODE);
+   const bool symbol_market=(symbol_order_mode & SYMBOL_ORDER_MARKET)!=0;
+   const bool symbol_sl=(symbol_order_mode & SYMBOL_ORDER_SL)!=0;
+   const bool symbol_tp=(symbol_order_mode & SYMBOL_ORDER_TP)!=0;
+   const long stops_level=(long)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   const bool symbol_sell=(symbol_trade_mode==SYMBOL_TRADE_MODE_FULL || symbol_trade_mode==SYMBOL_TRADE_MODE_SHORTONLY);
    const bool allowed=authorized &&
                       mode==ACCOUNT_TRADE_MODE_DEMO &&
                       terminal_connected &&
@@ -70,11 +84,17 @@ void OnStart()
                       mql_trade_allowed &&
                       account_trade_allowed &&
                       account_trade_expert &&
+                      symbol_sell &&
+                      symbol_market &&
+                      symbol_sl &&
+                      symbol_tp &&
+                      stops_level>=0 &&
                       kill_switch &&
                       !other;
 
    WriteProbe("auth_on",mode,authorized,kill_switch,other,
               terminal_connected,terminal_trade_allowed,mql_trade_allowed,
-              account_trade_allowed,account_trade_expert,allowed);
+              account_trade_allowed,account_trade_expert,
+              symbol_trade_mode,symbol_market,symbol_sl,symbol_tp,stops_level,allowed);
 }
 //+------------------------------------------------------------------+
