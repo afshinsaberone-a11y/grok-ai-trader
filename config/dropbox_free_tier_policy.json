@@ -1,5 +1,5 @@
 {
-  "schema_version": "forexai.dropbox_free_tier_policy.v1",
+  "schema_version": "forexai.dropbox_free_tier_policy.v2",
   "plan": "Dropbox Basic",
   "quota_bytes": 2000000000,
   "reserve_bytes": 268435456,
