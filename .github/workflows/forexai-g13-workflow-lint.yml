@@ -74,6 +74,7 @@ jobs:
 
           generator = Path("research/optimization/g13_mql5_generator_v2.py").read_text(encoding="utf-8")
           assert "trans.magic" not in generator, "MQL5 MqlTradeTransaction has no magic field; use history/request resolution"
+          assert "trans.comment" not in generator, "MQL5 MqlTradeTransaction has no comment field; resolve deal/order comment from history"
           forbidden_workflow_tokens = [
               "[Common]",
               "Login=${env:MT5_LOGIN}",
