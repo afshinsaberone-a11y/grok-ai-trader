@@ -88,8 +88,22 @@ def audit(
     compile_parity_artifact_id: int,
     compile_parity_artifact_digest: str,
     downloaded_zip_sha256: str,
+    parity_evidence_path: Path,
 ) -> dict:
     manifest = load_manifest(manifest_path)
+    parity = json.loads(parity_evidence_path.read_text(encoding="utf-8"))
+    assert manifest["parity_evidence_sha256"] == sha256(parity_evidence_path)
+    assert parity["schema_version"] == "forexai.g13.mql5_signal_parity.v1"
+    assert parity["status"] == "PASS"
+    assert parity["real_data_only"] is True
+    assert parity["synthetic_data"] is False
+    assert parity["candidate_count"] == 15
+    assert parity["passed_count"] == 15
+    assert parity["scope"] == {
+        "symbol": "EURUSD",
+        "timeframe": "M15",
+        "data_end_exclusive": manifest["research_data_end_exclusive"],
+    }
     validate_compile_artifact_binding(
         manifest,
         compile_parity_run_id=compile_parity_run_id,
@@ -166,6 +180,7 @@ def main() -> int:
     ap.add_argument("--compile-parity-artifact-id", type=int, required=True)
     ap.add_argument("--compile-parity-artifact-digest", required=True)
     ap.add_argument("--downloaded-zip-sha256", required=True)
+    ap.add_argument("--parity-evidence", type=Path, required=True)
     ap.add_argument("--report", type=Path, required=True)
     args = ap.parse_args()
 
@@ -177,6 +192,7 @@ def main() -> int:
         args.compile_parity_artifact_id,
         args.compile_parity_artifact_digest,
         args.downloaded_zip_sha256,
+        args.parity_evidence,
     )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
