@@ -12,6 +12,7 @@ on:
       - '.github/actionlint.yaml'
       - 'research/optimization/g13_mql5_parity_harness_generator.py'
       - 'research/optimization/g13_mql5_parity.py'
+      - 'research/optimization/g13_mql5_generator_v2.py'
   pull_request:
     paths:
       - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
@@ -76,6 +77,16 @@ jobs:
           assert "bool RunHarness()" in harness, "parity harness RunHarness() missing"
           assert "FILE_COMMON" in harness, "parity harness must use FILE_COMMON"
           assert "synthetic_data" in harness and 'false' in harness, "synthetic-data contract missing"
+
+          generator = Path("research/optimization/g13_mql5_generator_v2.py").read_text(encoding="utf-8")
+          for token in [
+              "input bool   DemoTradingAuthorized = false;",
+              "bool DemoTradingExecutionAllowed()",
+              "ACCOUNT_TRADE_MODE_DEMO",
+              "MQLInfoInteger(MQL_TESTER)",
+              "if(!DemoTradingExecutionAllowed()) return;",
+          ]:
+              assert token in generator, f"missing G13 Demo safety token: {token}"
 
           print("G13_WORKFLOW_STATIC_CONTRACT_OK")
           PY

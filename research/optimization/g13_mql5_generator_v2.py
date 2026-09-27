@@ -49,6 +49,7 @@ input int    ExpiryBars = 30;
 // ParityMode is a deterministic signal-telemetry mode. When true, the EA
 // must not filter on open positions and must not submit broker orders.
 input bool   ParityMode = false;
+input bool   DemoTradingAuthorized = false;
 input string ParityFile = "g13_mql5_parity.csv";
 
 datetime lastBar=0;
@@ -210,6 +211,15 @@ void OnDeinit(const int reason)
    if(parityHandle!=INVALID_HANDLE) FileClose(parityHandle);
 }}
 
+bool DemoTradingExecutionAllowed()
+{{
+   // Strategy Tester remains available for research/backtest simulation.
+   if((bool)MQLInfoInteger(MQL_TESTER)) return true;
+   // Outside Tester, order submission is strictly Demo-only and opt-in.
+   if(!DemoTradingAuthorized) return false;
+   return AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO;
+}}
+
 void OnTick()
 {{
    if(!IsNewBar()) return;
@@ -230,7 +240,8 @@ void OnTick()
       return;
    }}
 
-   // Normal research/backtest execution path.
+   // Normal research/backtest execution path. Outside Tester this is Demo-only.
+   if(!DemoTradingExecutionAllowed()) return;
    ManageExpiry();
    if(CountOwnPositions()>0) return;
    if(!BearishDivergence()) return;
