@@ -2,6 +2,15 @@ name: ForexAI G13 MT5 Compile + Signal Parity
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/g13_mql5_generator_v2.py
+      - research/optimization/g13_mql5_parity.py
+      - research/optimization/g13_mql5_parity_harness_generator.py
+      - research/optimization/g13_mql5_parity_harness.mq5
+      - artifacts/g13/g13-promotion-manifest-m15.json
+      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
+      - .github/workflows/forexai-g13-mt5-compile-parity.yml
     inputs:
       mt5_root:
         description: 'MT5 installation root on the self-hosted Windows runner'
@@ -36,7 +45,7 @@ defaults:
 
 jobs:
   compile-and-parity:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 240
     env:
