@@ -2,11 +2,6 @@ name: ForexAI G13 MT5 Compile + Signal Parity
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows:
-      - 'ForexAI G13 Workflow Static Validation'
-    types:
-      - completed
     inputs:
       mt5_root:
         description: 'MT5 installation root on the self-hosted Windows runner'
@@ -26,6 +21,11 @@ on:
         required: false
         default: 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv'
         type: string
+  workflow_run:
+    workflows:
+      - 'ForexAI G13 Workflow Static Validation'
+    types:
+      - completed
 
 permissions:
   contents: read
@@ -40,9 +40,9 @@ jobs:
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 240
     env:
-      MT5_ROOT: ${{ inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
-      MT5_DATA_ROOT: ${{ inputs.mt5_data_root || 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075' }}
-      DATA_CSV_INPUT: ${{ inputs.data_csv || 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv' }}
+      MT5_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
+      MT5_DATA_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_data_root || 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075' }}
+      DATA_CSV_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.data_csv || 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
