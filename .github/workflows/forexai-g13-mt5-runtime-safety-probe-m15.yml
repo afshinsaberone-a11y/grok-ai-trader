@@ -23,7 +23,6 @@ jobs:
     timeout-minutes: 20
     env:
       MT5_ROOT: 'C:\Program Files\MetaTrader 5'
-      MT5_SERVICE_DATA_ROOT: 'C:\Users\Star\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,7 +32,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
-          $scripts = Join-Path $env:MT5_SERVICE_DATA_ROOT 'MQL5\Scripts'
+          $serviceData = Join-Path $env:APPDATA 'MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
+          $scripts = Join-Path $serviceData 'MQL5\Scripts'
           $common = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files'
           foreach ($p in @($meta,$terminal,$scripts,$common)) {
             if (!(Test-Path -LiteralPath $p)) { throw "Required MT5 path missing: $p" }
