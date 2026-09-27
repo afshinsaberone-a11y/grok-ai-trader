@@ -26,31 +26,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      RUNTIME_RUN_ID: '36335005192'
-      SAFETY_RUN_ID: '36334972883'
-      PARITY_RUN_ID: '36332467481'
+      RUNTIME_WORKFLOW_ID: '368446975'
+      SAFETY_WORKFLOW_ID: '368434934'
+      PARITY_WORKFLOW_ID: '356474778'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify source runs and capture evidence SHAs
+      - name: Resolve latest successful evidence runs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for pair in "RUNTIME_RUN_ID=$RUNTIME_RUN_ID" "SAFETY_RUN_ID=$SAFETY_RUN_ID" "PARITY_RUN_ID=$PARITY_RUN_ID"; do
-            key="${pair%%=*}"
-            id="${pair#*=}"
-            run_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")
-            conclusion=$(printf '%s' "$run_json" | python -c 'import json,sys; print(json.load(sys.stdin)["conclusion"])')
-            sha=$(printf '%s' "$run_json" | python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])')
-            if [ "$conclusion" != "success" ]; then
-              echo "Evidence run $id is not successful: $conclusion"
-              exit 1
-            fi
-            echo "$key=$sha" >> "$GITHUB_ENV"
-            echo "EVIDENCE_RUN_OK key=$key id=$id sha=$sha"
-          done
+          resolve_latest() {
+            local workflow_id="$1"
+            local key="$2"
+            local runs
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs?branch=main&status=success&per_page=20")
+            python - "$key" "$runs" <<'PY' >> "$GITHUB_ENV"
+import json, sys
+key=sys.argv[1]
+payload=json.loads(sys.argv[2])
+runs=payload.get("workflow_runs", [])
+if not runs:
+    raise SystemExit(f"No successful runs found for workflow {key}")
+run=sorted(runs, key=lambda x:x.get("run_number",0), reverse=True)[0]
+print(f"{key}_RUN_ID={run['id']}")
+print(f"{key}_HEAD_SHA={run['head_sha']}")
+PY
+          }
+          resolve_latest "$RUNTIME_WORKFLOW_ID" RUNTIME
+          resolve_latest "$SAFETY_WORKFLOW_ID" SAFETY
+          resolve_latest "$PARITY_WORKFLOW_ID" PARITY
+          echo "LATEST_RUNTIME_RUN=$RUNTIME_RUN_ID sha=$RUNTIME_HEAD_SHA"
+          echo "LATEST_SAFETY_RUN=$SAFETY_RUN_ID sha=$SAFETY_HEAD_SHA"
+          echo "LATEST_PARITY_RUN=$PARITY_RUN_ID sha=$PARITY_HEAD_SHA"
 
       - name: Verify authoritative artifacts
         env:
@@ -61,7 +71,8 @@ jobs:
           mkdir -p evidence/runtime evidence/safety evidence/parity
           gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-mt5-runtime-safety-probe-m15-v2 --dir evidence/runtime
           gh run download "$SAFETY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-execution-safety-audit-m15 --dir evidence/safety
-          gh run download "$PARITY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-mt5-compile-parity-36332467481 --dir evidence/parity
+          parity_artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARITY_RUN_ID/artifacts" | python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"].startswith("g13-mt5-compile-parity-") and not x.get("expired")]; print(m[0]["name"]) if len(m)==1 else (_ for _ in ()).throw(SystemExit("expected exactly one current compile/parity artifact"))')
+          gh run download "$PARITY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$parity_artifact" --dir evidence/parity
           test -f artifacts/g13/g13-promotion-manifest-m15.json
           find evidence -type f -maxdepth 5 -print
 
