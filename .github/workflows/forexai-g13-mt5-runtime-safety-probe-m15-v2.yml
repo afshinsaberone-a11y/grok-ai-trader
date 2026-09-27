@@ -14,6 +14,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: g13-g13-mt5-runtime-safety-probe-m15-v2
+  cancel-in-progress: true
+
 defaults:
   run:
     shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -44,16 +48,15 @@ jobs:
           foreach ($p in @($meta,$terminal,$serviceData,$scriptsRoot,$common)) {
             if (!(Test-Path -LiteralPath $p)) { throw "Required MT5 path missing: $p" }
           }
-          $runScripts = Join-Path $scriptsRoot ('G13_CI_' + $env:GITHUB_RUN_ID)
-          New-Item -ItemType Directory -Path $runScripts -Force | Out-Null
           "MT5_APPDATA=$appData" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "MT5_SERVICE_DATA_ROOT=$serviceData" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "MT5_COMMON_FILES=$common" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "MT5_SCRIPTS_ROOT=$scriptsRoot" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "MT5_RUN_SCRIPTS=$runScripts" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "G13_AUTH_OFF_SCRIPT=G13_Safety_Probe_AuthOff_$($env:GITHUB_RUN_ID).ex5" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "G13_AUTH_ON_SCRIPT=G13_Safety_Probe_AuthOn_$($env:GITHUB_RUN_ID).ex5" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "MT5_PATH_RESOLUTION_OK"
           Write-Host "MT5_SERVICE_DATA_ROOT=$serviceData"
-          Write-Host "MT5_RUN_SCRIPTS=$runScripts"
+          Write-Host "MT5_SCRIPTS_ROOT=$scriptsRoot"
 
       - name: Static no-order preflight
         run: |
@@ -102,20 +105,24 @@ jobs:
       - name: Deploy run-unique non-trading probes
         run: |
           $ErrorActionPreference = 'Stop'
-          if (!(Test-Path -LiteralPath $env:MT5_RUN_SCRIPTS -PathType Container)) {
-            throw "Run-unique Scripts destination missing: $env:MT5_RUN_SCRIPTS"
+          if (!(Test-Path -LiteralPath $env:MT5_SCRIPTS_ROOT -PathType Container)) {
+            throw "MT5 Scripts destination missing: $env:MT5_SCRIPTS_ROOT"
           }
-          foreach ($name in @('G13_Safety_Probe_AuthOff','G13_Safety_Probe_AuthOn')) {
-            $src = Join-Path $env:GITHUB_WORKSPACE ('artifacts\g13\safety_probe_build\' + $name + '.ex5')
-            $dst = Join-Path $env:MT5_RUN_SCRIPTS ($name + '.ex5')
+          $pairs = @(
+            @{ Source='G13_Safety_Probe_AuthOff'; Dest=$env:G13_AUTH_OFF_SCRIPT },
+            @{ Source='G13_Safety_Probe_AuthOn'; Dest=$env:G13_AUTH_ON_SCRIPT }
+          )
+          foreach ($pair in $pairs) {
+            $src = Join-Path $env:GITHUB_WORKSPACE ('artifacts\g13\safety_probe_build\' + $pair.Source + '.ex5')
+            $dst = Join-Path $env:MT5_SCRIPTS_ROOT $pair.Dest
             if (!(Test-Path -LiteralPath $src -PathType Leaf)) { throw "Probe EX5 missing: $src" }
             Copy-Item -LiteralPath $src -Destination $dst -Force
             $srcHash=(Get-FileHash $src -Algorithm SHA256).Hash
             $dstHash=(Get-FileHash $dst -Algorithm SHA256).Hash
-            if($srcHash -ne $dstHash){throw "Probe deploy hash mismatch: $name"}
-            Write-Host "DEPLOYED_PROBE=$name SHA256=$dstHash"
+            if($srcHash -ne $dstHash){throw "Probe deploy hash mismatch: $($pair.Source)"}
+            Write-Host "DEPLOYED_PROBE=$($pair.Source) DEST=$dst SHA256=$dstHash"
           }
-          Write-Host "MT5_SAFETY_PROBE_DEPLOY_OK=$env:MT5_RUN_SCRIPTS"
+          Write-Host "MT5_SAFETY_PROBE_DEPLOY_OK=$env:MT5_SCRIPTS_ROOT"
 
       - name: Snapshot shared kill switch
         run: |
@@ -136,7 +143,7 @@ jobs:
           $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\probe-auth-off.ini'
           $done = Join-Path $env:MT5_COMMON_FILES 'g13_safety_probe_auth_off.done.txt'
           Remove-Item $done -Force -ErrorAction SilentlyContinue
-          $scriptRel = 'G13_CI_' + $env:GITHUB_RUN_ID + '\G13_Safety_Probe_AuthOff.ex5'
+          $scriptRel = $env:G13_AUTH_OFF_SCRIPT
           @"
           [Experts]
           AllowLiveTrading=0
@@ -169,7 +176,7 @@ jobs:
           $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\probe-auth-on.ini'
           $done = Join-Path $env:MT5_COMMON_FILES 'g13_safety_probe_auth_on.done.txt'
           Remove-Item $done -Force -ErrorAction SilentlyContinue
-          $scriptRel = 'G13_CI_' + $env:GITHUB_RUN_ID + '\G13_Safety_Probe_AuthOn.ex5'
+          $scriptRel = $env:G13_AUTH_ON_SCRIPT
           @"
           [Experts]
           AllowLiveTrading=0
