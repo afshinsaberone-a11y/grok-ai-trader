@@ -67,6 +67,12 @@ jobs:
           latest_success() {
             local workflow_file="$1"
             gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
+              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful run for " + sys.argv[1]; print(max(rs,key=lambda x:x["id"])["id"])' "$workflow_file"
+          }
+
+          latest_success_exact() {
+            local workflow_file="$1"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
               python -c 'import json,sys,os; rs=json.load(sys.stdin)["workflow_runs"]; sha=os.environ["MAIN_SHA"]; m=[r for r in rs if r.get("head_sha")==sha]; assert m, "no successful run for current main " + sys.argv[1] + " @ " + sha; print(max(m,key=lambda x:x["id"])["id"])' "$workflow_file"
           }
 
@@ -76,16 +82,15 @@ jobs:
             parity_id="${MANUAL_PARITY_RUN_ID}"
             promotion_id="${MANUAL_PROMOTION_RUN_ID}"
           else
-            runtime_id="${EVENT_RUN_ID}"
+            runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")"
             safety_id="$(latest_success "forexai-g13-execution-safety-audit-m15.yml")"
             parity_id="$(latest_success "forexai-g13-mt5-compile-parity.yml")"
-            promotion_id="$(latest_success "forexai-g13-promotion-m15.yml")"
+            promotion_id="$(latest_success_exact "forexai-g13-promotion-m15.yml")"
             case "${EVENT_WORKFLOW}" in
               "ForexAI G13 MT5 Runtime Safety Probe M15 v2") runtime_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 Execution Safety Audit M15") safety_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 MT5 Compile + Signal Parity") parity_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 Final Promotion M15") promotion_id="${EVENT_RUN_ID}" ;;
-              *) runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")" ;;
             esac
           fi
 
@@ -103,7 +108,7 @@ jobs:
             echo "${key}_RUN_ID=$id" >> "$GITHUB_ENV"
           done
 
-          lint_id="$(latest_success "forexai-g13-workflow-lint.yml")"
+          lint_id="$(latest_success_exact "forexai-g13-workflow-lint.yml")"
           echo "LINT_RUN_ID=$lint_id" >> "$GITHUB_ENV"
           lint_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$lint_id")"
           python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success"; assert x["head_sha"]==sys.argv[1], (x["id"],x["head_sha"],sys.argv[1]); print("STATIC_VALIDATION_SUCCESS",x["id"],x["head_sha"])' "$MAIN_SHA" <<< "$lint_json"
