@@ -26,10 +26,15 @@ jobs:
             exit 78
           fi
 
+      - name: Validate local Dropbox repository contract
+        run: |
+          set -euo pipefail
+          python tools/validate_dropbox_contract.py
+
       - name: Run read-only Dropbox health check
         run: |
           set -euo pipefail
-          python tools/dropbox_healthcheck.py > dropbox-healthcheck.json
+          python tools/dropbox_healthcheck.py --map config/dropbox_repository_map.json > dropbox-healthcheck.json
           cat dropbox-healthcheck.json
 
       - name: Publish health receipt
