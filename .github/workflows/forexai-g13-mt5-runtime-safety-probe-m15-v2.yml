@@ -214,7 +214,7 @@ jobs:
           }
           $mode=Value $on 'account_mode'
           $demo=Value $on 'demo_account'
-          $liveBlocked=Value $on 'live_blocked'
+          $realAccount=Value $on 'real_account_detected'
           $authOnAllowed=Value $on 'execution_allowed'
           $authOffAllowed=Value $off 'execution_allowed'
           $ordersOn=Value $on 'orders_submitted'
@@ -229,7 +229,7 @@ jobs:
             $null=Value $off $key
           }
           if($demo -ne 'true'){throw "Runtime probe is not on DEMO account"}
-          if($liveBlocked -ne 'false'){throw "Unexpected live-block state on DEMO probe"}
+          if($realAccount -ne 'false'){throw "Runtime probe is not on a DEMO-only account state"}
           if($authOffAllowed -ne 'false'){throw "Auth OFF allowed execution"}
           $expectedOnAllowed = (
             (Value $on 'authorization') -eq 'true' -and
@@ -255,7 +255,7 @@ jobs:
           if($ordersOn -ne 'false' -or $ordersOff -ne 'false'){throw "Probe order-submission invariant violated"}
           Write-Host "ACCOUNT_MODE=$mode"
           Write-Host "DEMO_ACCOUNT=$demo"
-          Write-Host "LIVE_BLOCKED=$liveBlocked"
+          Write-Host "REAL_ACCOUNT_DETECTED=$realAccount"
           Write-Host "AUTH_OFF_ALLOWED=$authOffAllowed"
           Write-Host "AUTH_ON_ALLOWED=$authOnAllowed"
           Write-Host "ORDERS_OFF=$ordersOff"
