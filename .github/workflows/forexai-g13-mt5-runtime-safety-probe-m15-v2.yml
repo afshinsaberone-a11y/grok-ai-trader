@@ -55,6 +55,24 @@ jobs:
           Write-Host "MT5_SERVICE_DATA_ROOT=$serviceData"
           Write-Host "MT5_RUN_SCRIPTS=$runScripts"
 
+      - name: Static no-order preflight
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $probeFiles = @(
+            'research\optimization\G13_Safety_Probe_AuthOff.mq5',
+            'research\optimization\G13_Safety_Probe_AuthOn.mq5'
+          )
+          $forbidden = @('CTrade','trade.Sell(','trade.Buy(','OrderSend(','PositionOpen(','BuyLimit(','BuyStop(','SellLimit(','SellStop(')
+          foreach ($file in $probeFiles) {
+            $text = Get-Content -LiteralPath $file -Raw
+            foreach ($token in $forbidden) {
+              if ($text.Contains($token)) { throw "Order API token found in non-trading probe: $file :: $token" }
+            }
+            if (-not $text.Contains('orders_submitted,false')) { throw "Probe lacks explicit no-order invariant: $file" }
+            if (-not $text.Contains('probe_only,true')) { throw "Probe lacks probe_only invariant: $file" }
+          }
+          Write-Host "MT5_PROBE_NO_ORDER_PREFLIGHT_OK"
+
       - name: Compile safety probes
         run: |
           $ErrorActionPreference = 'Stop'
