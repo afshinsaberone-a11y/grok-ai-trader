@@ -1,0 +1,111 @@
+name: ForexAI Dropbox Evidence Sync
+
+on:
+  workflow_run:
+    workflows:
+      - "ForexAI G13 Final Promotion M15"
+      - "ForexAI G13 MT5 Compile + Signal Parity"
+      - "ForexAI G13 OOS M15 Current"
+      - "ForexAI G13 Agent Evidence Consumer"
+      - "ForexAI G13 Controlled Demo Package Preflight M15"
+      - "Dukascopy Cross-Feed Check"
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "GitHub Actions run ID to mirror"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DROPBOX_ACCESS_TOKEN: \${{ secrets.DROPBOX_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Dropbox credential is configured
+        run: |
+          set -euo pipefail
+          if [ -z "\${DROPBOX_ACCESS_TOKEN}" ]; then
+            echo "DROPBOX_SYNC_NOT_CONFIGURED: add GitHub Actions secret DROPBOX_ACCESS_TOKEN"
+            exit 78
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve source run
+        env:
+          GH_TOKEN: \${{ github.token }}
+          MANUAL_RUN_ID: \${{ inputs.source_run_id }}
+          TRIGGER_RUN_ID: \${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          RUN_ID="\${MANUAL_RUN_ID}"
+          if [ -z "\${RUN_ID}" ]; then RUN_ID="\${TRIGGER_RUN_ID}"; fi
+          test -n "\${RUN_ID}"
+          gh api "repos/\$GITHUB_REPOSITORY/actions/runs/\${RUN_ID}" > run.json
+          python - <<'PY'
+          import json, os
+          p=json.load(open("run.json",encoding="utf-8"))
+          with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as f:
+              f.write(f"RUN_ID={int(p['id'])}\n")
+              f.write(f"WORKFLOW_NAME={p['name']}\n")
+              f.write(f"HEAD_SHA={p['head_sha']}\n")
+              f.write(f"CONCLUSION={p.get('conclusion') or 'unknown'}\n")
+          print("SOURCE_RUN",p["id"],p["name"],p["head_sha"],p.get("conclusion"))
+          PY
+
+      - name: Download source run artifacts
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf incoming/github-artifacts
+          mkdir -p incoming/github-artifacts
+          gh run download "\${RUN_ID}" --repo "\$GITHUB_REPOSITORY" --dir incoming/github-artifacts || true
+          test -n "\$(find incoming/github-artifacts -type f -print -quit)" \
+            || { echo "DROPBOX_SYNC_FAIL_CLOSED: source run has no downloadable artifacts"; exit 2; }
+
+      - name: Compile and test sync utility
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/dropbox_evidence_sync.py
+          python -m pytest -q tests/test_dropbox_evidence_sync.py
+
+      - name: Sync evidence into Dropbox
+        run: |
+          set -euo pipefail
+          WORKFLOW_SLUG=\$(python - <<'PY'
+          from tools.dropbox_evidence_sync import _safe_slug
+          import os
+          print(_safe_slug(os.environ["WORKFLOW_NAME"]))
+          PY
+          )
+          echo "WORKFLOW_SLUG=\${WORKFLOW_SLUG}" >> "\$GITHUB_ENV"
+          mkdir -p reports/dropbox
+          python tools/dropbox_evidence_sync.py \
+            --source-dir incoming/github-artifacts \
+            --dropbox-root "/ForexAI/11_GITHUB_ACTIONS/Artifacts/\${WORKFLOW_SLUG}/\${RUN_ID}" \
+            --workflow-name "\${WORKFLOW_NAME}" \
+            --run-id "\${RUN_ID}" \
+            --head-sha "\${HEAD_SHA}" \
+            --conclusion "\${CONCLUSION}" \
+            --manifest-out "reports/dropbox/run-\${RUN_ID}.json"
+
+      - name: Publish sync receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: dropbox-evidence-sync-\${{ env.RUN_ID }}
+          path: reports/dropbox/run-\${{ env.RUN_ID }}.json
+          if-no-files-found: error
