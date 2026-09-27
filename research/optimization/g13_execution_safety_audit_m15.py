@@ -10,6 +10,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+from itertools import product
 
 CANDIDATE_IDS = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 REQUIRED_TOKENS = (
@@ -82,17 +83,27 @@ def audit_source(path: Path, candidate_id: int) -> dict[str, Any]:
     }
 
 def test_matrix() -> list[dict[str, Any]]:
-    cases = [
-        ("tester_research", True, False, "REAL", "DENY", True, True),
-        ("demo_unauthorized", False, False, "DEMO", "ALLOW", False, False),
-        ("real_account", False, True, "REAL", "ALLOW", False, False),
-        ("unknown_account_mode", False, True, "UNKNOWN", "ALLOW", False, False),
-        ("kill_switch_missing_or_deny", False, True, "DEMO", "DENY", False, False),
-        ("other_g13_position", False, True, "DEMO", "ALLOW", True, False),
-        ("demo_authorized_all_clear", False, True, "DEMO", "ALLOW", False, True),
-    ]
-    rows = []
-    for name, is_tester, authorized, account_mode, kill_switch, other, expected in cases:
+    rows: list[dict[str, Any]] = []
+    for idx, (is_tester, authorized, account_mode, kill_switch, other) in enumerate(
+        product(
+            (False, True),
+            (False, True),
+            ("DEMO", "REAL", "UNKNOWN"),
+            ("DENY", "ALLOW"),
+            (False, True),
+        ),
+        start=1,
+    ):
+        expected = (
+            True
+            if is_tester
+            else (
+                authorized
+                and account_mode == "DEMO"
+                and kill_switch == "ALLOW"
+                and not other
+            )
+        )
         actual = runtime_contract(
             is_tester=is_tester,
             authorized=authorized,
@@ -100,15 +111,39 @@ def test_matrix() -> list[dict[str, Any]]:
             kill_switch=kill_switch,
             other_g13_position=other,
         )
-        assert actual is expected, f"{name}: expected {expected}, got {actual}"
+        assert actual is expected, (
+            f"case-{idx}: expected {expected}, got {actual}; "
+            f"tester={is_tester}, auth={authorized}, mode={account_mode}, "
+            f"kill={kill_switch}, other={other}"
+        )
         rows.append(
             {
-                "case": name,
+                "case": f"case-{idx:02d}",
+                "is_tester": is_tester,
+                "authorization": authorized,
+                "account_mode": account_mode,
+                "kill_switch": kill_switch,
+                "other_g13_position": other,
                 "expected_allowed": expected,
                 "actual_allowed": actual,
                 "pass": actual is expected,
             }
         )
+
+    # Explicit semantic anchors: only the one non-tester state below is allowed.
+    allowed_non_tester = [
+        row for row in rows
+        if not row["is_tester"] and row["actual_allowed"]
+    ]
+    assert len(allowed_non_tester) == 1, (
+        f"unexpected non-tester allowed states: {allowed_non_tester}"
+    )
+    anchor = allowed_non_tester[0]
+    assert anchor["authorization"] is True
+    assert anchor["account_mode"] == "DEMO"
+    assert anchor["kill_switch"] == "ALLOW"
+    assert anchor["other_g13_position"] is False
+
     return rows
 
 def audit(generator: Path, output_dir: Path) -> dict[str, Any]:
@@ -180,6 +215,8 @@ def main() -> int:
                 "status": result["status"],
                 "candidate_count": result["scope"]["candidate_count"],
                 "matrix_cases": len(result["matrix"]),
+                "matrix_allowed_states": sum(1 for row in result["matrix"] if row["actual_allowed"]),
+                "matrix_non_tester_allowed_states": sum(1 for row in result["matrix"] if not row["is_tester"] and row["actual_allowed"]),
                 "live_trading_allowed": result["policy"]["live_trading_allowed"],
             },
             sort_keys=True,
