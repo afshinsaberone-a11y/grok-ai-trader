@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      DROPBOX_ACCESS_TOKEN: \${{ secrets.DROPBOX_ACCESS_TOKEN }}
+      DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
       - name: Verify Dropbox credential is configured
         run: |
           set -euo pipefail
-          if [ -z "\${DROPBOX_ACCESS_TOKEN}" ]; then
+          if [ -z "${DROPBOX_ACCESS_TOKEN}" ]; then
             echo "DROPBOX_SYNC_NOT_CONFIGURED: add GitHub Actions secret DROPBOX_ACCESS_TOKEN"
             exit 78
           fi
@@ -49,15 +49,15 @@ jobs:
 
       - name: Resolve source run
         env:
-          GH_TOKEN: \${{ github.token }}
-          MANUAL_RUN_ID: \${{ inputs.source_run_id }}
-          TRIGGER_RUN_ID: \${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_RUN_ID: ${{ inputs.source_run_id }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
-          RUN_ID="\${MANUAL_RUN_ID}"
-          if [ -z "\${RUN_ID}" ]; then RUN_ID="\${TRIGGER_RUN_ID}"; fi
-          test -n "\${RUN_ID}"
-          gh api "repos/\$GITHUB_REPOSITORY/actions/runs/\${RUN_ID}" > run.json
+          RUN_ID="${MANUAL_RUN_ID}"
+          if [ -z "${RUN_ID}" ]; then RUN_ID="${TRIGGER_RUN_ID}"; fi
+          test -n "${RUN_ID}"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/${RUN_ID}" > run.json
           python - <<'PY'
           import json, os
           p=json.load(open("run.json",encoding="utf-8"))
@@ -69,15 +69,52 @@ jobs:
           print("SOURCE_RUN",p["id"],p["name"],p["head_sha"],p.get("conclusion"))
           PY
 
+      - name: Capture source run and artifact provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" > artifacts.json
+          python - <<'PY'
+          import json
+          run=json.load(open("run.json",encoding="utf-8"))
+          page=json.load(open("artifacts.json",encoding="utf-8"))
+          artifacts=[]
+          for a in page.get("artifacts",[]):
+              if a.get("expired"):
+                  continue
+              artifacts.append({
+                  "id": int(a["id"]),
+                  "name": str(a["name"]),
+                  "digest": str(a.get("digest") or ""),
+                  "size_in_bytes": int(a.get("size_in_bytes") or 0),
+                  "created_at": a.get("created_at"),
+                  "expires_at": a.get("expires_at")
+              })
+          metadata={
+              "run_id": int(run["id"]),
+              "workflow_name": str(run["name"]),
+              "event": run.get("event"),
+              "status": run.get("status"),
+              "conclusion": run.get("conclusion"),
+              "head_sha": str(run["head_sha"]),
+              "head_branch": run.get("head_branch"),
+              "run_attempt": int(run.get("run_attempt") or 1),
+              "artifacts": artifacts
+          }
+          json.dump(metadata,open("run-metadata.json","w",encoding="utf-8"),indent=2,sort_keys=True)
+          print(json.dumps(metadata,indent=2,ensure_ascii=False))
+          PY
       - name: Download source run artifacts
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           rm -rf incoming/github-artifacts
           mkdir -p incoming/github-artifacts
-          gh run download "\${RUN_ID}" --repo "\$GITHUB_REPOSITORY" --dir incoming/github-artifacts || true
-          test -n "\$(find incoming/github-artifacts -type f -print -quit)" \
+          gh run download "${RUN_ID}" --repo "$GITHUB_REPOSITORY" --dir incoming/github-artifacts || true
+          test -n "$(find incoming/github-artifacts -type f -print -quit)" \
             || { echo "DROPBOX_SYNC_FAIL_CLOSED: source run has no downloadable artifacts"; exit 2; }
 
       - name: Compile and test sync utility
@@ -89,13 +126,13 @@ jobs:
       - name: Sync evidence into Dropbox
         run: |
           set -euo pipefail
-          WORKFLOW_SLUG=\$(python - <<'PY'
-          from tools.dropbox_evidence_sync import _safe_slug
+          WORKFLOW_SLUG=$(python - <<'PY'
+          from tools.dropbox_evidence_sync_v2 import safe_slug
           import os
-          print(_safe_slug(os.environ["WORKFLOW_NAME"]))
+          print(safe_slug(os.environ["WORKFLOW_NAME"]))
           PY
           )
-          echo "WORKFLOW_SLUG=\${WORKFLOW_SLUG}" >> "\$GITHUB_ENV"
+          echo "WORKFLOW_SLUG=${WORKFLOW_SLUG}" >> "$GITHUB_ENV"
           mkdir -p reports/dropbox
           python tools/dropbox_evidence_sync_v2.py \
             --source-dir incoming/github-artifacts \
@@ -111,6 +148,6 @@ jobs:
       - name: Publish sync receipt
         uses: actions/upload-artifact@v4
         with:
-          name: dropbox-evidence-sync-\${{ env.RUN_ID }}
-          path: reports/dropbox/run-\${{ env.RUN_ID }}.json
+          name: dropbox-evidence-sync-${{ env.RUN_ID }}
+          path: reports/dropbox/run-${{ env.RUN_ID }}.json
           if-no-files-found: error
