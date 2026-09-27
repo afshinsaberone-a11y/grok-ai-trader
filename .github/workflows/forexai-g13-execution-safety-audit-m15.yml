@@ -75,7 +75,8 @@ jobs:
           assert p['policy']['tester_mode_is_research_only'] is True
           assert p['policy']['broker_fill_testing_performed'] is False
           assert len(p['matrix'])==48
-          assert sum(1 for row in p['matrix'] if row['actual_allowed'])==13
+          assert sum(1 for row in p['matrix'] if row['actual_allowed'])==25
+          assert sum(1 for row in p['matrix'] if row['is_tester'] and row['actual_allowed'])==24
           assert sum(1 for row in p['matrix'] if not row['is_tester'] and row['actual_allowed'])==1
           allowed=[row for row in p['matrix'] if not row['is_tester'] and row['actual_allowed']][0]
           assert allowed['authorization'] is True
