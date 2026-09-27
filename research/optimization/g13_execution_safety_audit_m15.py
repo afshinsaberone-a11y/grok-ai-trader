@@ -47,12 +47,27 @@ def runtime_contract(
     account_mode: str,
     kill_switch: str,
     other_g13_position: bool,
+    terminal_connected: bool,
+    terminal_trade_allowed: bool,
+    mql_trade_allowed: bool,
+    account_trade_allowed: bool,
+    account_trade_expert: bool,
 ) -> bool:
     if is_tester:
         return True
     if not authorized:
         return False
     if account_mode != "DEMO":
+        return False
+    if not terminal_connected:
+        return False
+    if not terminal_trade_allowed:
+        return False
+    if not mql_trade_allowed:
+        return False
+    if not account_trade_allowed:
+        return False
+    if not account_trade_expert:
         return False
     if kill_switch != "ALLOW":
         return False
@@ -91,13 +106,29 @@ def audit_source(path: Path, candidate_id: int) -> dict[str, Any]:
 
 def test_matrix() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for idx, (is_tester, authorized, account_mode, kill_switch, other) in enumerate(
+    for idx, (
+        is_tester,
+        authorized,
+        account_mode,
+        kill_switch,
+        other,
+        terminal_connected,
+        terminal_trade_allowed,
+        mql_trade_allowed,
+        account_trade_allowed,
+        account_trade_expert,
+    ) in enumerate(
         product(
             (False, True),
             (False, True),
             ("DEMO", "REAL", "UNKNOWN"),
             ("DENY", "ALLOW"),
             (False, True),
+            (False, True),  # terminal_connected
+            (False, True),  # terminal_trade_allowed
+            (False, True),  # mql_trade_allowed
+            (False, True),  # account_trade_allowed
+            (False, True),  # account_trade_expert
         ),
         start=1,
     ):
@@ -117,6 +148,11 @@ def test_matrix() -> list[dict[str, Any]]:
             account_mode=account_mode,
             kill_switch=kill_switch,
             other_g13_position=other,
+            terminal_connected=terminal_connected,
+            terminal_trade_allowed=terminal_trade_allowed,
+            mql_trade_allowed=mql_trade_allowed,
+            account_trade_allowed=account_trade_allowed,
+            account_trade_expert=account_trade_expert,
         )
         assert actual is expected, (
             f"case-{idx}: expected {expected}, got {actual}; "
@@ -131,6 +167,11 @@ def test_matrix() -> list[dict[str, Any]]:
                 "account_mode": account_mode,
                 "kill_switch": kill_switch,
                 "other_g13_position": other,
+                "terminal_connected": terminal_connected,
+                "terminal_trade_allowed": terminal_trade_allowed,
+                "mql_trade_allowed": mql_trade_allowed,
+                "account_trade_allowed": account_trade_allowed,
+                "account_trade_expert": account_trade_expert,
                 "expected_allowed": expected,
                 "actual_allowed": actual,
                 "pass": actual is expected,
@@ -150,6 +191,11 @@ def test_matrix() -> list[dict[str, Any]]:
     assert anchor["account_mode"] == "DEMO"
     assert anchor["kill_switch"] == "ALLOW"
     assert anchor["other_g13_position"] is False
+    assert anchor["terminal_connected"] is True
+    assert anchor["terminal_trade_allowed"] is True
+    assert anchor["mql_trade_allowed"] is True
+    assert anchor["account_trade_allowed"] is True
+    assert anchor["account_trade_expert"] is True
 
     return rows
 
@@ -188,6 +234,11 @@ def audit(generator: Path, output_dir: Path) -> dict[str, Any]:
             "demo_requires_account_mode": "DEMO",
             "demo_requires_kill_switch": "ALLOW",
             "demo_requires_single_position": True,
+        "demo_requires_terminal_connection": True,
+        "demo_requires_terminal_trade_permission": True,
+        "demo_requires_program_trade_permission": True,
+        "demo_requires_account_trade_permission": True,
+        "demo_requires_account_expert_permission": True,
             "tester_mode_is_research_only": True,
             "broker_fill_testing_performed": False,
         },
