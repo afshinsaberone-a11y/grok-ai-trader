@@ -384,7 +384,7 @@ void OnTick()
    if(RR<=0.0) return;
    double lots=LotSize(risk,entry);
    if(lots<=0.0) return;
-   MqlTick tick={};
+   MqlTick tick={{}};
    if(!SymbolInfoTick(_Symbol,tick)) return;
    double spreadPoints=(tick.ask-tick.bid)/_Point;
    ulong started=GetTickCount64();
