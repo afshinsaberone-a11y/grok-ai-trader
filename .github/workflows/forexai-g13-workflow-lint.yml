@@ -21,6 +21,8 @@ on:
       - 'research/optimization/G13_Safety_Probe_AuthOn.mq5'
       - '.github/workflows/forexai-g13-execution-safety-audit-m15.yml'
       - '.github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml'
+      - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
+      - 'research/optimization/g13_demo_package_preflight_m15.py'
   pull_request:
     paths:
       - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
@@ -61,6 +63,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-execution-safety-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
+          ./actionlint .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml
 
       - name: Compile all G13 Python gates
         run: |
@@ -70,7 +73,8 @@ jobs:
             research/optimization/g13_mql5_parity.py \
             research/optimization/g13_demo_readiness_gate_m15.py \
             research/optimization/g13_execution_safety_audit_m15.py \
-            research/optimization/g13_controlled_demo_execution_audit.py
+            research/optimization/g13_controlled_demo_execution_audit.py \\
+            research/optimization/g13_demo_package_preflight_m15.py
 
       - name: Smoke-test deterministic G13 EA rendering
         run: |
