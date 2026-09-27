@@ -47,6 +47,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verify Dropbox repository health before writes
+        run: |
+          set -euo pipefail
+          python tools/dropbox_healthcheck.py --map config/dropbox_repository_map.json
+
       - name: Resolve source run
         env:
           GH_TOKEN: ${{ github.token }}
