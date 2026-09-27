@@ -1,0 +1,94 @@
+{
+  "schema_version": "forexai.g13.demo_package_manifest.m15.v1",
+  "generated_at": "2026-09-27T17:54:59Z",
+  "repository": "afshinsaberone-a11y/grok-ai-trader",
+  "repository_ledger_commit": "dd7d46e5918a91e1af7e15c7099aec16e198606a",
+  "ea_source_commit": "80eeca25e439cab9b2c0def21d7874415c644a59",
+  "compile_parity_run_id": 36338267189,
+  "compile_parity_status": "PASS",
+  "symbol": "EURUSD",
+  "timeframe": "M15",
+  "research_data_end_exclusive": "2026-01-01T00:00:00+00:00",
+  "real_data_only": true,
+  "synthetic_data": false,
+  "demo_trading_allowed_by_source": false,
+  "live_trading_allowed": false,
+  "candidate_count": 15,
+  "candidates": [
+    {
+      "candidate_id": 2,
+      "config_hash": "bb2d9b2c967dc99bffb010335b544716d97b915767aa5a221027f5146b69dfbd",
+      "ex5_sha256": "f1ec61d052c7c05d6ff1dd1ceb4a5f977dd2a5be24e8ca3cba204b5a787508fa"
+    },
+    {
+      "candidate_id": 6,
+      "config_hash": "99bf607cd4d4f2f76d25ea83b818a5843463abc95a2d56461d57d6f5542228a8",
+      "ex5_sha256": "060d5065b301ebe3760a3c1a91e31386d6e232017dbec06401e3784c3d02226d"
+    },
+    {
+      "candidate_id": 10,
+      "config_hash": "e515df40514b555cc903d4eb5ad15b77b34d4fb205102f2577a224654075b9b1",
+      "ex5_sha256": "5aec18fab2f6984588a33d1490765367a5b0f110740892d27556ee6b854fb565"
+    },
+    {
+      "candidate_id": 12,
+      "config_hash": "2a1c1883a7239c00e9b0210a48723e3c7e68291fdaa2725524d07a833e4f4b52",
+      "ex5_sha256": "543adda4eaff0fe1a613aef1a9882061401bca0e90943f01b6489033f14a7cc7"
+    },
+    {
+      "candidate_id": 14,
+      "config_hash": "484b0ab42d9f1f683ba435edc53099b5ee7f3e2e643e127892a7059d2ac5f00d",
+      "ex5_sha256": "7891f40a0a54097bfa8e1b5eea564a9fddee4f464c815560b58a0de2597424bf"
+    },
+    {
+      "candidate_id": 22,
+      "config_hash": "d3b8772cc3d7450121d23cf5358b6d4301532f41cc688115f5b32b0ca3eef48a",
+      "ex5_sha256": "37d336ed30ce7cf237aa6e74e8bc1fa036e46e618538b96d1703d6270e94d348"
+    },
+    {
+      "candidate_id": 26,
+      "config_hash": "ad466d8c67c3ee35ad3dee5cf9cbdeca6817c36c3c673e515604ef00e333412a",
+      "ex5_sha256": "0ed52108f723c99a4a7b7b4f8ecaff1e6dd97430ef13d5874bc772d0eaea4f8d"
+    },
+    {
+      "candidate_id": 28,
+      "config_hash": "33db5c214e87e6516354e6614736ce299445925fc6964d5e91f715d12f68382a",
+      "ex5_sha256": "74e104a17071cc349dcc891e23a28a90c91eb7c582eee155bc0505e0347cf0d2"
+    },
+    {
+      "candidate_id": 30,
+      "config_hash": "d8298e96f816ff0ddb36ae397d22f8c85b2190afc0709a353f60d0b7881de3ee",
+      "ex5_sha256": "094f97e34e2ee267339d56470eaeebc3683703aa95960561c2d0a248669cf8b7"
+    },
+    {
+      "candidate_id": 32,
+      "config_hash": "9174b72c1e7e0a8882d64766de619889ef918a881972eedb4584d0286f6f16dd",
+      "ex5_sha256": "e8b9a99c56a925cf8bef09e1f4a90564471b1fd6831c1d5bc8e4e6c4a3f57208"
+    },
+    {
+      "candidate_id": 34,
+      "config_hash": "1f5347929ee6b400595b1ec675e408c4a328e7d5804315c4676cc9c627d9f5a8",
+      "ex5_sha256": "8c0b6fcfe58e4ccb982f1f02c8681d867766a7e3c5dc79a8b04ca8bb3eb9f89d"
+    },
+    {
+      "candidate_id": 38,
+      "config_hash": "f2818253f3d272b45b53da7a1317e71c1a26412c915fb70529a99c80fe9f46d3",
+      "ex5_sha256": "c1627a6c49dc0fe46d384f7719192aece2276d6384f486aed42314f055914def"
+    },
+    {
+      "candidate_id": 42,
+      "config_hash": "ed36da53e559fc5bf56f892bad86080c3f48c5b7965e479538b176ba1b41376e",
+      "ex5_sha256": "712dc69115b08fb7e29cda8b4f47286b7522fc34951af7d9468609db06652e6c"
+    },
+    {
+      "candidate_id": 46,
+      "config_hash": "c970fa452f7977ff900db0df7d9412f81df97f3058cd192aa932fc65ec53b6ae",
+      "ex5_sha256": "fa596a667d94a55f1d34a507626f1b510f85e395be41f5d17b9db7a9d4e5affb"
+    },
+    {
+      "candidate_id": 48,
+      "config_hash": "7c91cd5b4f16d68fc4f6e6509c920d7048401a1d16cc09b5c2f62ff3e2323ed4",
+      "ex5_sha256": "a445ee0b030cb55e01d932889b58bd5fd8d5196e2246ebb95703f9ea7ea0356b"
+    }
+  ]
+}
