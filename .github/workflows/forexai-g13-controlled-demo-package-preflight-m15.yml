@@ -46,8 +46,6 @@ jobs:
           PY
           echo "COMPILE_PARITY_HEAD_SHA=$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")" >> "$GITHUB_ENV"
 
-          PY
-
       - name: Download and verify exact compiled package artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -65,6 +63,9 @@ jobs:
           unzip -q -o package/source.zip -d package/extracted
           test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.ex5' | wc -l)" -eq 15
           test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
+          echo "COMPILE_PARITY_ARTIFACT_ID=$artifact_id" >> "$GITHUB_ENV"
+          echo "COMPILE_PARITY_ARTIFACT_DIGEST=$artifact_digest" >> "$GITHUB_ENV"
+          echo "COMPILE_PARITY_ZIP_SHA256=${actual_digest#sha256:}" >> "$GITHUB_ENV"
           echo "EXACT_COMPILED_PACKAGE_DOWNLOADED_AND_DIGEST_VERIFIED=15_EX5_15_MQ5"
 
       - name: Run offline Demo package preflight
@@ -76,6 +77,9 @@ jobs:
             --package-root package/extracted \
             --compile-parity-run-id "$COMPILE_PARITY_RUN_ID" \
             --compile-parity-head-sha "$COMPILE_PARITY_HEAD_SHA" \
+            --compile-parity-artifact-id "$COMPILE_PARITY_ARTIFACT_ID" \
+            --compile-parity-artifact-digest "$COMPILE_PARITY_ARTIFACT_DIGEST" \
+            --downloaded-zip-sha256 "$COMPILE_PARITY_ZIP_SHA256" \
             --report artifacts/g13/g13-demo-package-preflight-m15.json
 
       - name: Fail-closed assertions
