@@ -39,7 +39,7 @@ void WriteProbe(const string label,const long mode,const bool auth,const bool ki
    FileWrite(h,"probe,"+label);
    FileWrite(h,"account_mode,"+IntegerToString((int)mode));
    FileWrite(h,"demo_account,"+(string)(mode==ACCOUNT_TRADE_MODE_DEMO ? "true" : "false"));
-   FileWrite(h,"live_blocked,"+(string)(mode!=ACCOUNT_TRADE_MODE_DEMO ? "true" : "false"));
+   FileWrite(h,"real_account_detected,"+(string)(mode==ACCOUNT_TRADE_MODE_REAL ? "true" : "false"));
    FileWrite(h,"authorization,"+(string)(auth ? "true" : "false"));
    FileWrite(h,"kill_switch_allow,"+(string)(kill_switch ? "true" : "false"));
    FileWrite(h,"other_g13_position,"+(string)(other ? "true" : "false"));
