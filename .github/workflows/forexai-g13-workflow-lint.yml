@@ -123,6 +123,9 @@ jobs:
               "trade.ResultRetcode()",
               "HistoryDealSelect(",
               "HistoryOrderSelect(",
+              "OrderCalcProfit(ORDER_TYPE_SELL",
+              "SYMBOL_TRADE_STOPS_LEVEL",
+              "CLOSE_ATTEMPT",
           ]:
               assert token in generator, f"missing G13 Demo safety token: {token}"
 
