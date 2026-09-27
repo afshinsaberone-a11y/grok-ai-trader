@@ -16,6 +16,8 @@ on:
       - 'research/optimization/g13_mql5_generator_v2.py'
       - 'research/optimization/g13_demo_readiness_gate_m15.py'
       - '.github/workflows/forexai-g13-promotion-m15.yml'
+      - 'research/optimization/g13_promotion_gate_m15.py'
+      - '.github/workflows/forexai-g13-promotion-m15.yml'
       - 'research/optimization/g13_controlled_demo_execution_audit.py'
       - 'research/optimization/g13_execution_safety_audit_m15.py'
       - 'research/optimization/G13_Safety_Probe_AuthOff.mq5'
