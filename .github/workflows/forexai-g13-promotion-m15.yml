@@ -106,8 +106,7 @@ jobs:
               assert actual==expected,(key,actual,expected)
               d['sources'][key]['local_zip_sha256']=actual
               print('ARTIFACT_BYTES_OK',key,actual)
-          p.write_text(json.dumps(d,indent=2,sort_keys=True)+'
-',encoding='utf-8')
+          p.write_text(json.dumps(d,indent=2,sort_keys=True) + "\n", encoding='utf-8')
           PY
       - name: Verify upstream artifacts exist
         run: |
@@ -153,6 +152,29 @@ jobs:
           assert p['decision_policy']['live_trading_allowed'] is False
           print('G13_FINAL_PROMOTION_GATE_OK')
           print('PROMOTED',p['promoted_candidate_ids'])
+      - name: Write promotion run attestation
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          manifest = Path("artifacts/g13/g13-promotion-manifest-m15.json")
+          provenance = Path("evidence/source-provenance.json")
+          sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+          payload = {
+              "schema_version": "forexai.g13.promotion_run_attestation.m15.v1",
+              "workflow_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "head_sha": os.environ["GITHUB_SHA"],
+              "manifest_sha256": sha(manifest),
+              "provenance_sha256": sha(provenance),
+          }
+          Path("evidence/promotion-run-attestation.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print("PROMOTION_RUN_ATTESTATION_OK", payload)
+          PY
       - name: Upload promotion manifest
         uses: actions/upload-artifact@v4
         with:
@@ -160,4 +182,5 @@ jobs:
           path: |
             artifacts/g13/g13-promotion-manifest-m15.json
             evidence/source-provenance.json
+            evidence/promotion-run-attestation.json
           if-no-files-found: error
