@@ -1,0 +1,102 @@
+{
+  "schema_version": "forexai.dropbox_repository_map.v1",
+  "dropbox_root": "/ForexAI",
+  "planes": {
+    "control": {
+      "root": "/ForexAI/00_CONTROL",
+      "canonical_indexes": "/ForexAI/00_CONTROL/Canonical_Indexes",
+      "templates": "/ForexAI/00_CONTROL/Templates",
+      "protocols": "/ForexAI/00_CONTROL/Protocols",
+      "acceptance_criteria": "/ForexAI/00_CONTROL/Acceptance_Criteria",
+      "promotion_gates": "/ForexAI/00_CONTROL/Promotion_Gates",
+      "runbooks": "/ForexAI/00_CONTROL/Runbooks"
+    },
+    "raw_data": {
+      "root": "/ForexAI/01_RAW_MARKET_DATA",
+      "intake": "/ForexAI/01_RAW_MARKET_DATA/INTAKE",
+      "quarantine": "/ForexAI/01_RAW_MARKET_DATA/QUARANTINE",
+      "rejected": "/ForexAI/01_RAW_MARKET_DATA/REJECTED",
+      "manifests": "/ForexAI/01_RAW_MARKET_DATA/Manifests",
+      "sources": {
+        "Dukascopy": "/ForexAI/01_RAW_MARKET_DATA/Dukascopy",
+        "HistData": "/ForexAI/01_RAW_MARKET_DATA/HistData"
+      }
+    },
+    "normalized_data": {
+      "root": "/ForexAI/02_NORMALIZED_DATA",
+      "manifests": "/ForexAI/02_NORMALIZED_DATA/Manifests"
+    },
+    "quality": "/ForexAI/03_DATA_QUALITY",
+    "research": {
+      "root": "/ForexAI/04_RESEARCH",
+      "run_registry": "/ForexAI/04_RESEARCH/Run_Registry",
+      "run_inputs": "/ForexAI/04_RESEARCH/Run_Inputs",
+      "run_outputs": "/ForexAI/04_RESEARCH/Run_Outputs"
+    },
+    "strategies": "/ForexAI/05_STRATEGIES",
+    "backtests": "/ForexAI/06_BACKTESTS",
+    "candidates": {
+      "root": "/ForexAI/07_CANDIDATES",
+      "manifests": "/ForexAI/07_CANDIDATES/Manifests",
+      "lineage": "/ForexAI/07_CANDIDATES/Lineage",
+      "comparison": "/ForexAI/07_CANDIDATES/Comparison",
+      "frozen": "/ForexAI/07_CANDIDATES/Frozen"
+    },
+    "oos_locked": {
+      "root": "/ForexAI/08_OOS_LOCKED",
+      "configurations": "/ForexAI/08_OOS_LOCKED/Configurations",
+      "reports": "/ForexAI/08_OOS_LOCKED/OOS_Reports",
+      "evidence": "/ForexAI/08_OOS_LOCKED/OOS_Evidence"
+    },
+    "evidence_ledger": {
+      "root": "/ForexAI/09_EVIDENCE_LEDGER",
+      "run_index": "/ForexAI/09_EVIDENCE_LEDGER/Run_Index",
+      "run_manifests": "/ForexAI/09_EVIDENCE_LEDGER/Run_Manifests",
+      "candidate_manifests": "/ForexAI/09_EVIDENCE_LEDGER/Candidate_Manifests",
+      "dataset_manifests": "/ForexAI/09_EVIDENCE_LEDGER/Dataset_Manifests",
+      "config_hashes": "/ForexAI/09_EVIDENCE_LEDGER/Config_Hashes",
+      "artifact_hashes": "/ForexAI/09_EVIDENCE_LEDGER/Artifact_Hashes",
+      "integrity_checks": "/ForexAI/09_EVIDENCE_LEDGER/Integrity_Checks",
+      "release_manifests": "/ForexAI/09_EVIDENCE_LEDGER/Release_Manifests",
+      "audits": "/ForexAI/09_EVIDENCE_LEDGER/Audit_Reports",
+      "promotion_decisions": "/ForexAI/09_EVIDENCE_LEDGER/Promotion_Decisions"
+    },
+    "mql5_releases": {
+      "root": "/ForexAI/10_MQL5_RELEASES",
+      "source_references": "/ForexAI/10_MQL5_RELEASES/Source_References",
+      "ex5": "/ForexAI/10_MQL5_RELEASES/EX5",
+      "compile_reports": "/ForexAI/10_MQL5_RELEASES/Compile_Reports",
+      "parity": "/ForexAI/10_MQL5_RELEASES/Python_MQL5_Parity",
+      "demo_packages": "/ForexAI/10_MQL5_RELEASES/Demo_Packages"
+    },
+    "github_actions": {
+      "root": "/ForexAI/11_GITHUB_ACTIONS",
+      "run_registry": "/ForexAI/11_GITHUB_ACTIONS/Run_Registry",
+      "run_reports": "/ForexAI/11_GITHUB_ACTIONS/Run_Reports",
+      "logs": "/ForexAI/11_GITHUB_ACTIONS/Logs",
+      "artifacts": "/ForexAI/11_GITHUB_ACTIONS/Artifacts",
+      "artifact_manifests": "/ForexAI/11_GITHUB_ACTIONS/Artifact_Manifests",
+      "failure_analysis": "/ForexAI/11_GITHUB_ACTIONS/Failure_Analysis"
+    },
+    "project_reports": {
+      "root": "/ForexAI/12_PROJECT_REPORTS",
+      "stage_reports": "/ForexAI/12_PROJECT_REPORTS/Stage_Reports",
+      "progress": "/ForexAI/12_PROJECT_REPORTS/Progress",
+      "research_summaries": "/ForexAI/12_PROJECT_REPORTS/Research_Summaries",
+      "ai_handoffs": "/ForexAI/12_PROJECT_REPORTS/AI_Handoffs",
+      "decision_log": "/ForexAI/12_PROJECT_REPORTS/Decision_Log",
+      "milestones": "/ForexAI/12_PROJECT_REPORTS/Milestones"
+    },
+    "archive": {
+      "root": "/ForexAI/99_ARCHIVE",
+      "historical": "/ForexAI/99_ARCHIVE/Historical",
+      "deprecated": "/ForexAI/99_ARCHIVE/Deprecated",
+      "superseded": "/ForexAI/99_ARCHIVE/Superseded"
+    }
+  },
+  "naming": {
+    "entity_file_pattern": "<entity>__<id>__<symbol>__<timeframe>__<version>.<ext>",
+    "utc_required": true,
+    "hash_algorithm": "SHA-256"
+  }
+}
