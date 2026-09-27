@@ -51,12 +51,43 @@ def validate_provenance(provenance: dict[str, Any]) -> None:
         assert row.get("local_zip_sha256") == digest.split(":", 1)[1]
 
 
-def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: Path, provenance_path: Path) -> dict[str, Any]:
+def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, Any]) -> None:
+    assert validation["schema"] == "forexai.g13.validation_m15.v1"
+    assert validation["symbol"] == "EURUSD"
+    assert validation["timeframe"] == "M15"
+    assert validation["discovery_years"] == [2022, 2023, 2024]
+    assert validation["selection_years"] == [2022, 2023, 2024]
+    assert validation["validation_year"] == 2025
+    assert validation["oos_year"] == 2026
+    assert validation["oos_evaluated"] is False
+    assert validation["selection_used_2025"] is False
+    assert validation["pre_oos_qualified_count"] == 16
+    assert validation["validation_qualified_count"] == 16
+    assert validation["real_data_only"] is True
+    assert validation["promotion"]["validation_pass"] is True
+    assert validation["promotion"]["robustness_required"] is True
+    assert validation["promotion"]["oos_required"] is True
+    assert validation["promotion"]["ea_generation_allowed"] is False
+
+    handoff_candidates = {
+        int(c["candidate_id"]): (c["config_hash"], c["params"])
+        for c in handoff["candidates"]
+    }
+    artifact_candidates = {
+        int(c["candidate_id"]): (c["config_hash"], c["params"])
+        for c in validation["candidates"]
+    }
+    assert artifact_candidates == handoff_candidates
+
+
+def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: Path, provenance_path: Path, validation_path: Path) -> dict[str, Any]:
     h = load(handoff_path)
     r = load(robustness_path)
     o = load(oos_path)
     provenance = load(provenance_path)
+    validation = load(validation_path)
     validate_provenance(provenance)
+    validate_validation_artifact(validation, h)
 
     assert h["schema_version"] == "forexai.g13.candidate_handoff.frozen.v1"
     assert h["source_validation_run_id"] == EXPECTED_VALIDATION_RUN
@@ -153,8 +184,9 @@ def main() -> int:
     ap.add_argument("--oos", required=True, type=Path)
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--provenance", required=True, type=Path)
+    ap.add_argument("--validation", required=True, type=Path)
     a = ap.parse_args()
-    m = run(a.handoff, a.robustness, a.oos, a.output, a.provenance)
+    m = run(a.handoff, a.robustness, a.oos, a.output, a.provenance, a.validation)
     print(json.dumps({"status": m["status"], "promoted_count": m["counts"]["promoted"], "promoted_candidate_ids": m["promoted_candidate_ids"], "ea_generation_allowed": m["decision_policy"]["ea_generation_allowed"]}, sort_keys=True))
     return 0
 
