@@ -9,7 +9,9 @@
       "protocols": "/ForexAI/00_CONTROL/Protocols",
       "acceptance_criteria": "/ForexAI/00_CONTROL/Acceptance_Criteria",
       "promotion_gates": "/ForexAI/00_CONTROL/Promotion_Gates",
-      "runbooks": "/ForexAI/00_CONTROL/Runbooks"
+      "runbooks": "/ForexAI/00_CONTROL/Runbooks",
+      "storage_policy": "/ForexAI/00_CONTROL/Storage_Policy",
+      "capacity_reports": "/ForexAI/00_CONTROL/Capacity_Reports"
     },
     "raw_data": {
       "root": "/ForexAI/01_RAW_MARKET_DATA",
