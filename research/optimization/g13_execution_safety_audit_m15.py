@@ -32,12 +32,15 @@ REQUIRED_TOKENS = (
     'trade.ResultRetcode()',
     'HistoryDealSelect(',
     'HistoryOrderSelect(',
+    'if(lots<minLot) return 0.0;',
+    'return NormalizeDouble(lots,8);',
 )
 FORBIDDEN_TOKENS = (
     'input bool   DemoTradingAuthorized = true;',
     'AllowLiveTrading=1',
     'ACCOUNT_TRADE_MODE_REAL &&',
     'ACCOUNT_TRADE_MODE_REAL ||',
+    'MathMax(minLot,MathMin(maxLot,lots))',
 )
 
 def runtime_contract(
