@@ -58,6 +58,9 @@ jobs:
           unzip -q -o package/source.zip -d package/extracted
           test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.ex5' | wc -l)" -eq 15
           test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
+          manifest_file="$(find package/extracted -name 'g13-demo-package-manifest-m15.json' -type f | head -n1)"
+          test -n "$manifest_file"
+          echo "DEMO_PACKAGE_MANIFEST=$manifest_file" >> "$GITHUB_ENV"
           echo "COMPILE_PARITY_ARTIFACT_ID=$artifact_id" >> "$GITHUB_ENV"
           echo "COMPILE_PARITY_ARTIFACT_DIGEST=$artifact_digest" >> "$GITHUB_ENV"
           echo "COMPILE_PARITY_ZIP_SHA256=${actual_digest#sha256:}" >> "$GITHUB_ENV"
@@ -68,7 +71,7 @@ jobs:
           set -euo pipefail
           python -m py_compile research/optimization/g13_demo_package_preflight_m15.py
           python -m research.optimization.g13_demo_package_preflight_m15 \
-            --manifest docs/G13_DEMO_PACKAGE_MANIFEST_M15.json \
+            --manifest "$DEMO_PACKAGE_MANIFEST" \
             --package-root package/extracted \
             --compile-parity-run-id "$COMPILE_PARITY_RUN_ID" \
             --compile-parity-head-sha "$COMPILE_PARITY_HEAD_SHA" \
