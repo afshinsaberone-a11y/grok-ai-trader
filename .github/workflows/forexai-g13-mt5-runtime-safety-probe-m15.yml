@@ -69,7 +69,8 @@ jobs:
       - name: Deploy non-trading probes
         run: |
           $ErrorActionPreference = 'Stop'
-          $scripts = Join-Path $env:MT5_SERVICE_DATA_ROOT 'MQL5\Scripts'
+          $serviceData = Join-Path $env:APPDATA 'MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
+          $scripts = Join-Path $serviceData 'MQL5\Scripts'
           foreach ($name in @('G13_Safety_Probe_AuthOff','G13_Safety_Probe_AuthOn')) {
             Copy-Item (Join-Path $env:GITHUB_WORKSPACE ('artifacts\g13\safety_probe_build\' + $name + '.ex5')) (Join-Path $scripts ($name + '.ex5')) -Force
           }
