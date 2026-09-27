@@ -22,6 +22,10 @@ on:
       - 'research/optimization/g13_mql5_parity.py'
   workflow_dispatch:
 
+concurrency:
+  group: g13-workflow-static-validation
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
