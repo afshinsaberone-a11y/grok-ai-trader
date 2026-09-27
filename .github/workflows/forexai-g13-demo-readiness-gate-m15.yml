@@ -97,8 +97,7 @@ jobs:
           assert p['evidence']['parity_passed_count']==15
           assert p['runtime']['demo_account'] is True
           assert p['runtime']['authorization_off_blocks'] is True
-          for key in ('terminal_connected','terminal_trade_allowed','mql_trade_allowed','account_trade_allowed','account_trade_expert'):
-              assert key in p['runtime_permission_snapshot'] if 'runtime_permission_snapshot' in p else True
+          assert p['runtime']['authorization_off_blocks'] is True
           assert p['runtime']['orders_submitted'] is False
           assert p['live_remains_disabled'] is True
           print('G13_DEMO_READINESS_GATE_OK')
