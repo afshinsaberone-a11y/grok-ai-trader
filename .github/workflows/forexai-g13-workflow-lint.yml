@@ -21,6 +21,7 @@ on:
       - '.github/workflows/forexai-g13-workflow-lint.yml'
       - 'research/optimization/g13_mql5_parity_harness_generator.py'
       - 'research/optimization/g13_mql5_parity.py'
+      - 'research/optimization/g13_demo_readiness_gate_m15.py'
   workflow_dispatch:
 
 concurrency:
@@ -92,9 +93,17 @@ jobs:
           assert "synthetic_data" in harness and 'false' in harness, "synthetic-data contract missing"
 
           readiness = Path("research/optimization/g13_demo_readiness_gate_m15.py").read_text(encoding="utf-8")
-          assert 'len(s["matrix"]) == 1536' in readiness
-          assert 'sum(1 for row in s["matrix"] if row["actual_allowed"]) == 769' in readiness
-          assert '"status": "READY_FOR_CONTROLLED_DEMO_AUDIT"' in readiness
+          for token in [
+              'PROMOTION_FILE = "artifacts/g13/g13-promotion-manifest-m15.json"',
+              'HANDOFF_FILE = "artifacts/g13/frozen/g13-candidate-handoff-m15.json"',
+              'PARITY_CODE_FILES',
+              'SAFETY_CODE_FILES',
+              'RUNTIME_CRITICAL_FILES',
+              'len(s["matrix"]) == 1536',
+              'sum(1 for row in s["matrix"] if row["actual_allowed"]) == 769',
+              '"status": "READY_FOR_CONTROLLED_DEMO_AUDIT"',
+          ]:
+              assert token in readiness, f"readiness contract token missing: {token}"
 
           generator = Path("research/optimization/g13_mql5_generator_v2.py").read_text(encoding="utf-8")
           for token in [
