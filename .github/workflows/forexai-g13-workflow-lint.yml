@@ -131,6 +131,14 @@ jobs:
               "OrderCalcProfit(ORDER_TYPE_SELL",
               "SYMBOL_TRADE_STOPS_LEVEL",
               "CLOSE_ATTEMPT",
+              "ConfigHash",
+              "ResultVolume()",
+              "ResultPrice()",
+              "requested_price",
+              "executed_price",
+              "spread_points",
+              "slippage_points",
+              "SymbolInfoTick(",
           ]:
               assert token in generator, f"missing G13 Demo safety token: {token}"
 
