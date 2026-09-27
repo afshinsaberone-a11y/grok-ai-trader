@@ -25,6 +25,7 @@ on:
       - '.github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml'
       - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
       - 'research/optimization/g13_demo_package_preflight_m15.py'
+      - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
   pull_request:
@@ -41,6 +42,7 @@ on:
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
+      - 'tests/test_g13_demo_package_manifest_builder.py'
   workflow_dispatch:
 
 concurrency:
@@ -87,6 +89,7 @@ jobs:
             research/optimization/g13_execution_safety_audit_m15.py \
             research/optimization/g13_controlled_demo_execution_audit.py \
             research/optimization/g13_demo_package_preflight_m15.py \
+            research/optimization/g13_demo_package_manifest_builder_m15.py \
             research/optimization/g13_promotion_gate_m15.py
 
       - name: Smoke-test deterministic G13 EA rendering
@@ -108,7 +111,7 @@ jobs:
       - name: Compile final promotion gate
         run: |
           python -m py_compile research/optimization/g13_promotion_gate_m15.py
-          python -m pytest -q tests/test_g13_promotion_gate_provenance.py tests/test_g13_demo_readiness_promotion_binding.py tests/test_g13_demo_package_preflight_binding.py
+          python -m pytest -q tests/test_g13_promotion_gate_provenance.py tests/test_g13_demo_readiness_promotion_binding.py tests/test_g13_demo_package_preflight_binding.py tests/test_g13_demo_package_manifest_builder.py
 
       - name: Validate G13 parity contract wiring
         run: |
@@ -147,6 +150,15 @@ jobs:
               "promotion_run_attestation.m15.v1",
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
+
+          builder = Path("research/optimization/g13_demo_package_manifest_builder_m15.py").read_text(encoding="utf-8")
+          for token in [
+              "forexai.g13.demo_package_manifest.m15.v1",
+              "parity_evidence_sha256",
+              "promotion_manifest_sha256",
+              "ea_source_commit",
+          ]:
+              assert token in builder, f"package manifest builder token missing: {token}"
 
           preflight = Path("research/optimization/g13_demo_package_preflight_m15.py").read_text(encoding="utf-8")
           for token in [
