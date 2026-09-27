@@ -211,6 +211,9 @@ def test_matrix() -> list[dict[str, Any]]:
     assert anchor["mql_trade_allowed"] is True
     assert anchor["account_trade_allowed"] is True
     assert anchor["account_trade_expert"] is True
+    assert len(rows) == 1536
+    assert sum(1 for row in rows if row["actual_allowed"]) == 769
+    assert sum(1 for row in rows if row["is_tester"] and row["actual_allowed"]) == 768
 
     return rows
 
