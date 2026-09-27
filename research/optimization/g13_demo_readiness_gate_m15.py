@@ -48,6 +48,7 @@ def gate(
 ) -> dict[str, Any]:
     p = load_json(promotion)
     s = load_json(safety)
+    par = load_json(parity)
 
     assert p["status"] == "PROMOTION_READY"
     assert p["decision_policy"]["demo_trading_allowed"] is False
@@ -57,6 +58,13 @@ def gate(
     assert s["status"] == "PASS"
     assert s["scope"]["candidate_count"] == 15
     assert s["policy"]["live_trading_allowed"] is False
+    assert par["schema_version"] == "forexai.g13.mql5_signal_parity.v1"
+    assert par["status"] == "PASS"
+    assert par["real_data_only"] is True
+    assert par["synthetic_data"] is False
+    assert par["candidate_count"] == 15
+    assert par["passed_count"] == 15
+    assert all(row["status"] == "PASS" for row in par["results"])
     assert s["policy"]["demo_trading_default_authorized"] is False
     assert len(s["matrix"]) == 48
     assert sum(1 for row in s["matrix"] if row["actual_allowed"]) == 25
@@ -128,6 +136,8 @@ def gate(
         "evidence": {
             "parity_head_sha": parity_head_sha,
             "safety_head_sha": safety_head_sha,
+            "parity_status": par["status"],
+            "parity_passed_count": par["passed_count"],
         },
         "next_gate": "CONTROLLED_DEMO_EXECUTION_AUDIT",
         "live_remains_disabled": True,
