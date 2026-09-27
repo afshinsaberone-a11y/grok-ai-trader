@@ -33,6 +33,16 @@ def classify(path: Path, policy: dict) -> tuple[bool, str]:
     if ext not in set(policy.get("allowed_extensions", [])):
         return False, "extension_not_allowed"
 
+    filename = path.name.lower()
+    for token in policy.get("denied_filename_tokens", []):
+        if str(token).lower() in filename:
+            return False, "denied_filename"
+
+    allowed_tokens = [str(token).lower() for token in policy.get("allowed_filename_tokens", [])]
+    if ext in {".json", ".md", ".txt", ".csv"} and allowed_tokens:
+        if not any(token in filename for token in allowed_tokens):
+            return False, "filename_not_evidence"
+
     size = path.stat().st_size
     max_file = int(policy.get("max_file_upload_bytes", 0))
     if size > max_file:
