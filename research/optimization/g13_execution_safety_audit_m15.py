@@ -46,6 +46,8 @@ FORBIDDEN_TOKENS = (
     'ACCOUNT_TRADE_MODE_REAL &&',
     'ACCOUNT_TRADE_MODE_REAL ||',
     'MathMax(minLot,MathMin(maxLot,lots))',
+    'trans.magic',
+    'trans.comment',
 )
 
 def runtime_contract(
