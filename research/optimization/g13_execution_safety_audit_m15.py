@@ -1,0 +1,191 @@
+"""Independent G13 M15 execution-safety audit.
+
+This module audits the generated MQL5 source and a small pure-Python reference
+model of the fail-closed runtime contract. It deliberately does not claim to
+execute trades or broker APIs; MT5 account/fill testing remains a separate gate.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+CANDIDATE_IDS = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
+REQUIRED_TOKENS = (
+    'input bool   DemoTradingAuthorized = false;',
+    'bool DemoTradingExecutionAllowed()',
+    'MQLInfoInteger(MQL_TESTER)',
+    'if(!DemoTradingAuthorized) return false;',
+    'if(AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO) return false;',
+    'g13_demo_kill_switch.txt',
+    'if(!DemoKillSwitchAllowed()) return false;',
+    'HasOtherG13Position()',
+    'if(HasOtherG13Position()) return false;',
+    'if(!DemoTradingExecutionAllowed()) return;',
+    'trade.SetExpertMagicNumber(MagicNumber);',
+)
+FORBIDDEN_TOKENS = (
+    'input bool   DemoTradingAuthorized = true;',
+    'AllowLiveTrading=1',
+    'ACCOUNT_TRADE_MODE_REAL &&',
+    'ACCOUNT_TRADE_MODE_REAL ||',
+)
+
+def runtime_contract(
+    *,
+    is_tester: bool,
+    authorized: bool,
+    account_mode: str,
+    kill_switch: str,
+    other_g13_position: bool,
+) -> bool:
+    if is_tester:
+        return True
+    if not authorized:
+        return False
+    if account_mode != "DEMO":
+        return False
+    if kill_switch != "ALLOW":
+        return False
+    if other_g13_position:
+        return False
+    return True
+
+def find_order_guard_bounds(source: str) -> tuple[int, int]:
+    guard = source.index("if(!DemoTradingExecutionAllowed()) return;")
+    order = source.index("trade.Sell(")
+    if order <= guard:
+        raise AssertionError("order submission appears before the execution guard")
+    return guard, order
+
+def audit_source(path: Path, candidate_id: int) -> dict[str, Any]:
+    source = path.read_text(encoding="utf-8")
+    for token in REQUIRED_TOKENS:
+        assert token in source, f"{path.name}: missing {token}"
+    for token in FORBIDDEN_TOKENS:
+        assert token not in source, f"{path.name}: forbidden token {token}"
+    assert f"MagicNumber = 130000 + {candidate_id};" in source
+    guard, order = find_order_guard_bounds(source)
+    assert source.count("trade.Sell(") == 1, f"{path.name}: unexpected multiple order sites"
+    return {
+        "candidate_id": candidate_id,
+        "file": path.name,
+        "default_demo_authorized": "input bool   DemoTradingAuthorized = false;" in source,
+        "tester_research_path_present": "MQLInfoInteger(MQL_TESTER)" in source,
+        "demo_account_required": "ACCOUNT_TRADE_MODE_DEMO" in source,
+        "kill_switch_required": "g13_demo_kill_switch.txt" in source and "state==\"ALLOW\"" in source,
+        "single_position_guard_required": "HasOtherG13Position()" in source,
+        "order_after_guard": order > guard,
+        "live_blocked_by_demo_only_gate": "!=ACCOUNT_TRADE_MODE_DEMO" in source,
+        "pass": True,
+    }
+
+def test_matrix() -> list[dict[str, Any]]:
+    cases = [
+        ("tester_research", True, False, "REAL", "DENY", True, True),
+        ("demo_unauthorized", False, False, "DEMO", "ALLOW", False, False),
+        ("real_account", False, True, "REAL", "ALLOW", False, False),
+        ("unknown_account_mode", False, True, "UNKNOWN", "ALLOW", False, False),
+        ("kill_switch_missing_or_deny", False, True, "DEMO", "DENY", False, False),
+        ("other_g13_position", False, True, "DEMO", "ALLOW", True, False),
+        ("demo_authorized_all_clear", False, True, "DEMO", "ALLOW", False, True),
+    ]
+    rows = []
+    for name, is_tester, authorized, account_mode, kill_switch, other, expected in cases:
+        actual = runtime_contract(
+            is_tester=is_tester,
+            authorized=authorized,
+            account_mode=account_mode,
+            kill_switch=kill_switch,
+            other_g13_position=other,
+        )
+        assert actual is expected, f"{name}: expected {expected}, got {actual}"
+        rows.append(
+            {
+                "case": name,
+                "expected_allowed": expected,
+                "actual_allowed": actual,
+                "pass": actual is expected,
+            }
+        )
+    return rows
+
+def audit(generator: Path, output_dir: Path) -> dict[str, Any]:
+    matrix = test_matrix()
+    assert all(row["pass"] for row in matrix)
+
+    generated = sorted(output_dir.glob("ForexAI_G13_Candidate_*.mq5"))
+    assert len(generated) == len(CANDIDATE_IDS), (
+        f"expected {len(CANDIDATE_IDS)} generated EAs, found {len(generated)}"
+    )
+    by_id = {}
+    for path in generated:
+        try:
+            cid = int(path.stem.rsplit("_", 1)[1])
+        except (ValueError, IndexError) as exc:
+            raise AssertionError(f"unrecognised EA filename: {path.name}") from exc
+        by_id[cid] = path
+    assert tuple(sorted(by_id)) == CANDIDATE_IDS
+
+    sources = [audit_source(by_id[cid], cid) for cid in CANDIDATE_IDS]
+    assert all(row["pass"] for row in sources)
+
+    result = {
+        "schema": "forexai.g13.execution_safety_audit_m15.v1",
+        "status": "PASS",
+        "scope": {
+            "symbol": "EURUSD",
+            "timeframe": "M15",
+            "candidate_count": len(CANDIDATE_IDS),
+            "candidate_ids": list(CANDIDATE_IDS),
+        },
+        "policy": {
+            "live_trading_allowed": False,
+            "demo_trading_default_authorized": False,
+            "demo_requires_account_mode": "DEMO",
+            "demo_requires_kill_switch": "ALLOW",
+            "demo_requires_single_position": True,
+            "tester_mode_is_research_only": True,
+            "broker_fill_testing_performed": False,
+        },
+        "matrix": matrix,
+        "sources": sources,
+        "notes": [
+            "This is a source-level and deterministic policy-model audit.",
+            "A green audit does not prove broker fills, slippage, latency, VPS uptime, or MT5 account connectivity.",
+            "No Live account path is authorized; Live remains blocked by the Demo-only execution gate.",
+        ],
+    }
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    return result
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--generator", type=Path, required=True)
+    ap.add_argument("--output-dir", type=Path, required=True)
+    ap.add_argument("--report", type=Path, required=True)
+    args = ap.parse_args()
+
+    assert args.generator.exists(), f"missing generator: {args.generator}"
+    result = audit(args.generator, args.output_dir)
+    result["generator_sha256"] = __import__("hashlib").sha256(
+        args.generator.read_bytes()
+    ).hexdigest()
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.report.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "status": result["status"],
+                "candidate_count": result["scope"]["candidate_count"],
+                "matrix_cases": len(result["matrix"]),
+                "live_trading_allowed": result["policy"]["live_trading_allowed"],
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
