@@ -51,9 +51,11 @@ input int    ExpiryBars = 30;
 input bool   ParityMode = false;
 input bool   DemoTradingAuthorized = false;
 input string ParityFile = "g13_mql5_parity.csv";
+input string ExecutionAuditFile = "g13_demo_execution_audit.csv";
 
 datetime lastBar=0;
 int parityHandle=INVALID_HANDLE;
+int executionAuditHandle=INVALID_HANDLE;
 
 bool IsNewBar()
 {{
@@ -206,9 +208,40 @@ int OnInit()
    return INIT_SUCCEEDED;
 }}
 
+void ExecutionAuditOpen()
+{{
+   if(executionAuditHandle!=INVALID_HANDLE) return;
+   executionAuditHandle=FileOpen(ExecutionAuditFile,FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
+   if(executionAuditHandle==INVALID_HANDLE) return;
+   if(FileSize(executionAuditHandle)==0)
+      FileWrite(executionAuditHandle,"candidate_id","event","timestamp","symbol","order","deal","volume","price","retcode","retcode_description","elapsed_ms","comment");
+   FileSeek(executionAuditHandle,0,SEEK_END);
+}}
+
+void ExecutionAuditLog(const string event,const ulong order,const ulong deal,const double volume,const double price,
+                       const long retcode,const string retcode_description,const ulong elapsed_ms,const string comment)
+{{
+   ExecutionAuditOpen();
+   if(executionAuditHandle==INVALID_HANDLE) return;
+   FileWrite(executionAuditHandle,MagicNumber-130000,event,
+             TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,
+             (string)order,(string)deal,DoubleToString(volume,2),DoubleToString(price,_Digits),
+             (string)retcode,retcode_description,(string)elapsed_ms,comment);
+   FileFlush(executionAuditHandle);
+}}
+
 void OnDeinit(const int reason)
 {{
    if(parityHandle!=INVALID_HANDLE) FileClose(parityHandle);
+   if(executionAuditHandle!=INVALID_HANDLE) FileClose(executionAuditHandle);
+}}
+
+void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result)
+{{
+   if(trans.symbol!=_Symbol) return;
+   if(trans.magic!=MagicNumber) return;
+   ExecutionAuditLog("TRADE_TRANSACTION",trans.order,trans.deal,trans.volume,trans.price,
+                     result.retcode,result.comment,0,trans.comment);
 }}
 
 bool DemoKillSwitchAllowed()
@@ -281,7 +314,11 @@ void OnTick()
    double tp=entry-RR*risk;
    double lots=LotSize(risk);
    if(lots<=0.0) return;
-   trade.Sell(lots,_Symbol,0.0,sl,tp,"ForexAI-G13-{cid:02d}");
+   ulong started=GetTickCount64();
+   bool accepted=trade.Sell(lots,_Symbol,0.0,sl,tp,"ForexAI-G13-{cid:02d}");
+   ulong elapsed=GetTickCount64()-started;
+   ExecutionAuditLog("ORDER_ATTEMPT",trade.ResultOrder(),trade.ResultDeal(),lots,trade.ResultPrice(),
+                     trade.ResultRetcode(),trade.ResultRetcodeDescription(),elapsed,trade.ResultComment());
 }}
 //+------------------------------------------------------------------+
 '''
