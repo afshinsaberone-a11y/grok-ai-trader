@@ -216,7 +216,6 @@ def main() -> int:
     parser.add_argument("--manifest-out", required=True)
     args = parser.parse_args()
 
-    account = _api_json("users/get_current_account", {})
     source = Path(args.source_dir)
     records = sync_tree(source, args.dropbox_root)
 
@@ -229,7 +228,6 @@ def main() -> int:
             "conclusion": args.conclusion,
         },
         "dropbox_root": args.dropbox_root,
-        "account_id": account.get("account_id"),
         "file_count": len(records),
         "files": records,
         "policy": {
