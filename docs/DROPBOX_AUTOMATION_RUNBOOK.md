@@ -122,3 +122,22 @@ The active utility is `tools/dropbox_evidence_sync_v2.py`; v1 is retained only a
 
 Health Check sequence: connection -> canonical root -> required control/data/evidence/release
 folders. It is read-only and creates no Dropbox files.
+
+## Dropbox Basic free-tier policy
+
+Dropbox Basic currently provides 2 GB of storage. The evidence synchronizer
+therefore applies `config/dropbox_free_tier_policy.json` before every upload. It
+does not treat Dropbox as the primary store for multi-year market datasets.
+
+The free-tier policy:
+- keeps JSON/Markdown/text evidence and small CSV evidence;
+- keeps MQ5/EX5 only for recognized release/compile artifacts;
+- excludes raw/normalized market-data paths and large archive formats;
+- caps the selected payload per Run;
+- reserves part of the quota as a safety margin;
+- queries Dropbox space usage before writing;
+- never performs automatic deletion.
+
+This preserves the most valuable evidence—manifests, gates, validation,
+robustness, OOS, parity, release metadata and audit records—while preventing
+routine research runs from consuming the entire 2 GB quota.
