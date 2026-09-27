@@ -34,6 +34,11 @@ REQUIRED_TOKENS = (
     'HistoryOrderSelect(',
     'if(lots<minLot) return 0.0;',
     'return NormalizeDouble(lots,8);',
+    'SYMBOL_TRADE_MODE_SHORTONLY',
+    'SYMBOL_TRADE_MODE_FULL',
+    'SYMBOL_ORDER_MARKET',
+    'SYMBOL_ORDER_SL',
+    'SYMBOL_ORDER_TP',
 )
 FORBIDDEN_TOKENS = (
     'input bool   DemoTradingAuthorized = true;',
