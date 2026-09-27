@@ -133,7 +133,6 @@ jobs:
             --robustness "$ROBUSTNESS" \
             --oos "$OOS" \
             --provenance evidence/source-provenance.json \
-\
             --output artifacts/g13/g13-promotion-manifest-m15.json
       - name: Fail closed
         run: |
