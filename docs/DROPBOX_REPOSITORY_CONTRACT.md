@@ -193,3 +193,19 @@ The repository already contains canonical implementations for:
 
 Dropbox should therefore act as a durable evidence mirror and operational
 filing system rather than creating a second implementation of these rules.
+
+## Dropbox Basic storage profile
+
+The project is currently operated on Dropbox Basic, which provides 2 GB of
+storage. Dropbox API usage itself does not require a paid Dropbox plan. The
+repository therefore treats Dropbox as a constrained evidence vault rather
+than the primary market-data lake.
+
+The machine-readable free-tier policy is:
+`config/dropbox_free_tier_policy.json`
+
+The policy deliberately excludes full raw/normalized historical datasets and
+large archive formats from routine synchronization. It prioritizes manifests,
+reports, gate decisions, provenance, hashes, parity evidence and small release
+artifacts. Synchronization fails closed when the planned upload would violate
+the configured quota reserve.
