@@ -141,9 +141,6 @@ jobs:
               "local_zip_sha256",
               "evidence_provenance_sha256",
               "promotion_run_attestation.m15.v1",
-              "--preflight "$PREFLIGHT_JSON"",
-              "PROMOTION_ATTESTATION",
-              "PREFLIGHT_JSON",
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
 
@@ -154,6 +151,16 @@ jobs:
               "latest_success_exact",
           ]:
               assert token in readiness_workflow, f"readiness workflow binding token missing: {token}"
+
+          preflight = Path("research/optimization/g13_demo_package_preflight_m15.py").read_text(encoding="utf-8")
+          for token in [
+              "compile_parity_run_id",
+              "compile_parity_head_sha",
+              "compile_parity_artifact_id",
+              "compile_parity_artifact_digest",
+              "downloaded_zip_sha256",
+          ]:
+              assert token in preflight, f"preflight provenance token missing: {token}"
 
           generator = Path("research/optimization/g13_mql5_generator_v2.py").read_text(encoding="utf-8")
           assert "trans.magic" not in generator, "MQL5 MqlTradeTransaction has no magic field; use history/request resolution"
