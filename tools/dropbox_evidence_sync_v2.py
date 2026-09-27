@@ -13,6 +13,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from tools.dropbox_free_tier_policy import load_policy, select_files
+
 API_URL = "https://api.dropboxapi.com/2"
 CONTENT_URL = "https://content.dropboxapi.com/2"
 CHUNK_SIZE = 64 * 1024 * 1024
@@ -161,12 +163,15 @@ def upload(path: Path, remote: str) -> dict[str, Any]:
     return upload_large(path, remote)
 
 
-def collect_and_upload(source_dir: Path, remote_root: str) -> list[dict[str, Any]]:
+def collect_and_upload(
+    source_dir: Path, remote_root: str, policy: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not source_dir.is_dir():
         raise DropboxSyncError("source directory does not exist: " + str(source_dir))
-    files = sorted(item for item in source_dir.rglob("*") if item.is_file())
-    if not files:
-        raise DropboxSyncError("no evidence files found under " + str(source_dir))
+    try:
+        files, excluded = select_files(source_dir, policy)
+    except ValueError as exc:
+        raise DropboxSyncError(str(exc)) from exc
     ensure_folder(remote_root)
     records: list[dict[str, Any]] = []
     for local in files:
@@ -190,7 +195,7 @@ def collect_and_upload(source_dir: Path, remote_root: str) -> list[dict[str, Any
                 "dropbox_size": meta.get("size"),
             }
         )
-    return records
+    return records, excluded
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -215,10 +220,15 @@ def main() -> int:
     parser.add_argument("--run-metadata", required=False)
     parser.add_argument("--ledger-out", required=False)
     parser.add_argument("--ledger-remote-root", required=False)
+    parser.add_argument(
+        "--policy",
+        default="config/dropbox_free_tier_policy.json",
+    )
     args = parser.parse_args()
 
+    policy = load_policy(Path(args.policy))
     source = Path(args.source_dir)
-    records = collect_and_upload(source, args.dropbox_root)
+    records, excluded = collect_and_upload(source, args.dropbox_root, policy)
 
     run_metadata: dict[str, Any] = {}
     if args.run_metadata:
@@ -239,12 +249,18 @@ def main() -> int:
         "source_run": run_metadata,
         "file_count": len(records),
         "files": records,
+        "excluded_file_count": len(excluded),
+        "excluded_files": excluded,
         "policy": {
             "real_data_only": True,
             "synthetic_generation": False,
             "hash_algorithm": "SHA-256",
             "source_artifacts_immutable": True,
             "manifest_written_last": True,
+            "dropbox_plan": policy.get("plan"),
+            "quota_bytes": int(policy.get("quota_bytes", 0)),
+            "reserve_bytes": int(policy.get("reserve_bytes", 0)),
+            "max_run_upload_bytes": int(policy.get("max_run_upload_bytes", 0)),
         },
     }
 
