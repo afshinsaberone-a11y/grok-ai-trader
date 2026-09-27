@@ -17,7 +17,6 @@ on:
       - 'research/optimization/g13_demo_readiness_gate_m15.py'
       - '.github/workflows/forexai-g13-promotion-m15.yml'
       - 'research/optimization/g13_promotion_gate_m15.py'
-      - '.github/workflows/forexai-g13-promotion-m15.yml'
       - 'research/optimization/g13_controlled_demo_execution_audit.py'
       - 'research/optimization/g13_execution_safety_audit_m15.py'
       - 'research/optimization/G13_Safety_Probe_AuthOff.mq5'
@@ -28,6 +27,7 @@ on:
       - '.github/workflows/forexai-g13-promotion-m15.yml'
       - 'research/optimization/g13_demo_package_preflight_m15.py'
       - 'research/optimization/g13_promotion_gate_m15.py'
+      - 'tests/test_g13_demo_readiness_promotion_binding.py'
   pull_request:
     paths:
       - '.github/workflows/forexai-g13-promotion-m15.yml'
@@ -129,6 +129,7 @@ jobs:
               "source-provenance.json",
               "Verify downloaded artifact bytes against GitHub digests",
               "--provenance evidence/source-provenance.json",
+              "promotion-run-attestation.json",
           ]:
               assert token in promotion, f"promotion provenance token missing: {token}"
 
@@ -138,6 +139,7 @@ jobs:
               "forexai.g13.promotion_evidence_provenance.m15.v1",
               "local_zip_sha256",
               "evidence_provenance_sha256",
+              "promotion_run_attestation.m15.v1",
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
 
