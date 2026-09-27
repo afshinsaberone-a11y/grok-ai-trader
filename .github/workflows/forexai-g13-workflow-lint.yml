@@ -104,7 +104,7 @@ jobs:
       - name: Compile final promotion gate
         run: |
           python -m py_compile research/optimization/g13_promotion_gate_m15.py
-          python -m pytest -q tests/test_g13_promotion_gate_provenance.py tests/test_g13_demo_readiness_promotion_binding.py
+          python -m pytest -q tests/test_g13_promotion_gate_provenance.py tests/test_g13_demo_readiness_promotion_binding.py tests/test_g13_demo_package_preflight_binding.py
 
       - name: Validate G13 parity contract wiring
         run: |
