@@ -124,6 +124,11 @@ def gate(
         "mql_trade_allowed",
         "account_trade_allowed",
         "account_trade_expert",
+        "symbol_market_order_allowed",
+        "symbol_sl_allowed",
+        "symbol_tp_allowed",
+        "symbol_trade_mode",
+        "stops_level_points",
     )
     for key in required_permission_keys:
         assert off[key] in ("true", "false")
@@ -137,6 +142,10 @@ def gate(
         and on["mql_trade_allowed"] == "true"
         and on["account_trade_allowed"] == "true"
         and on["account_trade_expert"] == "true"
+        and on["symbol_market_order_allowed"] == "true"
+        and on["symbol_sl_allowed"] == "true"
+        and on["symbol_tp_allowed"] == "true"
+        and int(on["stops_level_points"]) >= 0
         and on["kill_switch_allow"] == "true"
         and on["other_g13_position"] == "false"
     )
