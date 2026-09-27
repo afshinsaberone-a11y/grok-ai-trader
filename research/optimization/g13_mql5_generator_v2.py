@@ -50,6 +50,7 @@ input int    ExpiryBars = 30;
 // must not filter on open positions and must not submit broker orders.
 input bool   ParityMode = false;
 input bool   DemoTradingAuthorized = false;
+input string ConfigHash = "{cfg_hash}";
 input string ParityFile = "g13_mql5_parity.csv";
 input string ExecutionAuditFile = "g13_demo_execution_audit.csv";
 
@@ -215,9 +216,9 @@ void ManageExpiry()
          ulong started=GetTickCount64();
          bool closed=trade.PositionClose(ticket);
          ulong elapsed=GetTickCount64()-started;
-         ExecutionAuditLog("CLOSE_ATTEMPT",trade.ResultOrder(),trade.ResultDeal(),
-                           0.0,trade.ResultPrice(),trade.ResultRetcode(),
-                           trade.ResultRetcodeDescription(),elapsed,
+         ExecutionAuditLog("CLOSE_ATTEMPT","CLOSE",trade.ResultOrder(),trade.ResultDeal(),
+                           0.0,trade.ResultVolume(),0.0,trade.ResultPrice(),0.0,0.0,0.0,0.0,
+                           trade.ResultRetcode(),trade.ResultRetcodeDescription(),elapsed,
                            closed ? trade.ResultComment() : "PositionClose returned false");
       }}
    }}
@@ -235,18 +236,31 @@ void ExecutionAuditOpen()
    executionAuditHandle=FileOpen(ExecutionAuditFile,FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
    if(executionAuditHandle==INVALID_HANDLE) return;
    if(FileSize(executionAuditHandle)==0)
-      FileWrite(executionAuditHandle,"candidate_id","event","timestamp","symbol","order","deal","volume","price","retcode","retcode_description","elapsed_ms","comment");
+      FileWrite(executionAuditHandle,"candidate_id","config_hash","event","timestamp_utc",
+                "symbol","timeframe","side","order","deal","requested_volume","executed_volume",
+                "requested_price","executed_price","sl","tp","spread_points","slippage_points",
+                "retcode","retcode_description","elapsed_ms","comment");
    FileSeek(executionAuditHandle,0,SEEK_END);
 }}
 
-void ExecutionAuditLog(const string event,const ulong order,const ulong deal,const double volume,const double price,
-                       const long retcode,const string retcode_description,const ulong elapsed_ms,const string comment)
+void ExecutionAuditLog(const string event,const string side,
+                       const ulong order,const ulong deal,
+                       const double requestedVolume,const double executedVolume,
+                       const double requestedPrice,const double executedPrice,
+                       const double sl,const double tp,
+                       const double spreadPoints,const double slippagePoints,
+                       const long retcode,const string retcode_description,
+                       const ulong elapsed_ms,const string comment)
 {{
    ExecutionAuditOpen();
    if(executionAuditHandle==INVALID_HANDLE) return;
-   FileWrite(executionAuditHandle,MagicNumber-130000,event,
-             TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,
-             (string)order,(string)deal,DoubleToString(volume,2),DoubleToString(price,_Digits),
+   FileWrite(executionAuditHandle,MagicNumber-130000,ConfigHash,event,
+             TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,"M15",side,
+             (string)order,(string)deal,
+             DoubleToString(requestedVolume,8),DoubleToString(executedVolume,8),
+             DoubleToString(requestedPrice,_Digits),DoubleToString(executedPrice,_Digits),
+             DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),
+             DoubleToString(spreadPoints,2),DoubleToString(slippagePoints,2),
              (string)retcode,retcode_description,(string)elapsed_ms,comment);
    FileFlush(executionAuditHandle);
 }}
@@ -273,7 +287,13 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
       transactionComment=HistoryDealGetString(trans.deal,DEAL_COMMENT);
    else if(trans.order>0 && HistoryOrderSelect(trans.order))
       transactionComment=HistoryOrderGetString(trans.order,ORDER_COMMENT);
-   ExecutionAuditLog("TRADE_TRANSACTION",trans.order,trans.deal,trans.volume,trans.price,
+   string side="UNKNOWN";
+   if(trans.deal>0 && HistoryDealSelect(trans.deal))
+      side=(HistoryDealGetInteger(trans.deal,DEAL_TYPE)==DEAL_TYPE_SELL ? "SELL" : "OTHER");
+   else if(trans.order>0 && HistoryOrderSelect(trans.order))
+      side=(HistoryOrderGetInteger(trans.order,ORDER_TYPE)==ORDER_TYPE_SELL ? "SELL" : "OTHER");
+   ExecutionAuditLog("TRADE_TRANSACTION",side,trans.order,trans.deal,
+                     0.0,trans.volume,0.0,trans.price,0.0,0.0,0.0,0.0,
                      result.retcode,result.comment,0,transactionComment);
 }}
 
@@ -364,11 +384,19 @@ void OnTick()
    if(RR<=0.0) return;
    double lots=LotSize(risk,entry);
    if(lots<=0.0) return;
+   MqlTick tick={};
+   if(!SymbolInfoTick(_Symbol,tick)) return;
+   double spreadPoints=(tick.ask-tick.bid)/_Point;
    ulong started=GetTickCount64();
    bool accepted=trade.Sell(lots,_Symbol,0.0,sl,tp,"ForexAI-G13-{cid:02d}");
    ulong elapsed=GetTickCount64()-started;
-   ExecutionAuditLog("ORDER_ATTEMPT",trade.ResultOrder(),trade.ResultDeal(),lots,trade.ResultPrice(),
-                     trade.ResultRetcode(),trade.ResultRetcodeDescription(),elapsed,trade.ResultComment());
+   double executedPrice=trade.ResultPrice();
+   double slippagePoints=(executedPrice>0.0 ? (executedPrice-entry)/_Point : 0.0);
+   ExecutionAuditLog("ORDER_ATTEMPT","SELL",trade.ResultOrder(),trade.ResultDeal(),
+                     lots,trade.ResultVolume(),entry,executedPrice,sl,tp,
+                     spreadPoints,slippagePoints,
+                     trade.ResultRetcode(),trade.ResultRetcodeDescription(),
+                     elapsed,trade.ResultComment());
 }}
 //+------------------------------------------------------------------+
 '''
