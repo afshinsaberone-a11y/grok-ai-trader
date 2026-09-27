@@ -186,6 +186,7 @@ jobs:
             --promotion-attestation "$PROMOTION_ATTESTATION" \
             --preflight "$PREFLIGHT_JSON" \
             --promotion-run-id "$PROMOTION_RUN_ID" \
+            --preflight-run-id "$PREFLIGHT_RUN_ID" \
             --main-head-sha "$MAIN_HEAD_SHA" \
             --safety "$SAFETY_JSON" \
             --runtime-dir "$RUNTIME_DIR" \
@@ -200,12 +201,14 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json
+          import os
           p=json.load(open('artifacts/g13/g13-demo-readiness-gate-m15.json',encoding='utf-8'))
           assert p['status']=='READY_FOR_CONTROLLED_DEMO_AUDIT'
           assert p['promotion']['demo_trading_allowed'] is False
           assert p['promotion']['live_trading_allowed'] is False
-          assert p['promotion']['run_id'] == int("$PROMOTION_RUN_ID")
+          assert p['promotion']['run_id'] == int(os.environ["PROMOTION_RUN_ID"])
           assert p['preflight']['status'] == "PASS"
+          assert p['preflight']['run_id'] == int(os.environ["PREFLIGHT_RUN_ID"])
           assert p['preflight']['candidate_count'] == 15
           assert p['safety']['status']=='PASS'
           assert p['safety']['matrix_cases']==1536
