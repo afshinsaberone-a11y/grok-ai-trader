@@ -127,6 +127,11 @@ jobs:
               "Script=ForexAI_G13_Parity_Harness.ex5",
               "AllowLiveTrading=0",
               "DATA_CSV_INPUT:",
+              "Resolve exact Promotion run",
+              "G13_PROMOTION_ARTIFACT_CONSUMER_OK",
+              "PROMOTION_MANIFEST",
+              "Build immutable Demo package manifest",
+              "g13-demo-package-manifest-m15.json",
           ]
           for token in required_workflow_tokens:
               assert token in workflow, f"missing workflow token: {token}"
@@ -169,6 +174,15 @@ jobs:
               "downloaded_zip_sha256",
           ]:
               assert token in preflight, f"preflight provenance token missing: {token}"
+
+          package_preflight_workflow = Path(".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
+          for token in [
+              "g13-demo-package-manifest-m15.json",
+              "PARITY_EVIDENCE",
+              "--parity-evidence",
+              "--compile-parity-artifact-digest",
+          ]:
+              assert token in package_preflight_workflow, f"package preflight wiring token missing: {token}"
 
           generator = Path("research/optimization/g13_mql5_generator_v2.py").read_text(encoding="utf-8")
           assert "trans.magic" not in generator, "MQL5 MqlTradeTransaction has no magic field; use history/request resolution"
