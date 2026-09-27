@@ -1,11 +1,6 @@
 name: ForexAI G13 MT5 Compile + Signal Parity
 
 on:
-  push:
-    paths:
-      - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
-      - 'research/optimization/g13_mql5_parity_harness_generator.py'
-      - 'research/optimization/g13_mql5_parity.py'
   workflow_dispatch:
     inputs:
       mt5_root:
