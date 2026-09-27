@@ -68,6 +68,36 @@ def validate_promotion_binding(
     assert attestation["manifest_sha256"] == file_sha256(promotion_path)
     assert attestation["provenance_sha256"] == file_sha256(provenance_path)
 
+def validate_preflight_binding(
+    promotion: dict[str, Any],
+    preflight: dict[str, Any],
+    *,
+    parity_run_id: int,
+    parity_head_sha: str,
+    main_head_sha: str,
+) -> None:
+    assert promotion["status"] == "PROMOTION_READY"
+    assert preflight["schema_version"] == "forexai.g13.controlled_demo_package_preflight.m15.v1"
+    assert preflight["status"] == "PASS"
+    assert preflight["candidate_count"] == 15
+    assert preflight["candidate_ids"] == PROMOTED_IDS
+    assert preflight["binary_hashes_verified"] == 15
+    assert preflight["source_safety_contracts_verified"] == 15
+    assert preflight["real_data_only"] is True
+    assert preflight["synthetic_data"] is False
+    assert preflight["demo_trading_allowed_by_source"] is False
+    assert preflight["live_trading_allowed"] is False
+    assert int(preflight["compile_parity_run_id"]) == parity_run_id
+    assert preflight["compile_parity_head_sha"] == parity_head_sha == main_head_sha
+    assert isinstance(preflight["compile_parity_artifact_id"], int) and preflight["compile_parity_artifact_id"] > 0
+    digest = preflight["compile_parity_artifact_digest"]
+    assert isinstance(digest, str) and digest.startswith("sha256:") and len(digest) == 71
+    assert isinstance(preflight["downloaded_zip_sha256"], str) and len(preflight["downloaded_zip_sha256"]) == 64
+    assert digest == "sha256:" + preflight["downloaded_zip_sha256"]
+    promotion_hashes = {str(x["candidate_id"]): x["config_hash"] for x in promotion["candidates"]}
+    assert preflight["candidate_config_hashes"] == promotion_hashes
+
+
 def git_diff_clean(base_sha: str, paths: list[str]) -> bool:
     cmd = ["git", "diff", "--quiet", base_sha, "--", *paths]
     return subprocess.run(cmd, check=False).returncode == 0
@@ -119,25 +149,13 @@ def gate(
     assert p["decision_policy"]["demo_trading_allowed"] is False
     assert p["decision_policy"]["live_trading_allowed"] is False
     assert p["promoted_candidate_ids"] == PROMOTED_IDS
-    assert preflight_head_sha == main_head_sha
-    promotion_hashes = {str(x["candidate_id"]): x["config_hash"] for x in p["candidates"]}
-    assert pf["schema_version"] == "forexai.g13.controlled_demo_package_preflight.m15.v1"
-    assert pf["status"] == "PASS"
-    assert pf["candidate_count"] == 15
-    assert pf["candidate_ids"] == PROMOTED_IDS
-    assert pf["binary_hashes_verified"] == 15
-    assert pf["source_safety_contracts_verified"] == 15
-    assert pf["real_data_only"] is True
-    assert pf["synthetic_data"] is False
-    assert pf["demo_trading_allowed_by_source"] is False
-    assert pf["live_trading_allowed"] is False
-    assert int(pf["compile_parity_run_id"]) == parity_run_id
-    assert pf["compile_parity_head_sha"] == parity_head_sha
-    assert pf["compile_parity_head_sha"] == main_head_sha
-    assert isinstance(pf["compile_parity_artifact_id"], int) and pf["compile_parity_artifact_id"] > 0
-    assert isinstance(pf["compile_parity_artifact_digest"], str) and pf["compile_parity_artifact_digest"].startswith("sha256:")
-    assert len(pf["downloaded_zip_sha256"]) == 64
-    assert pf["candidate_config_hashes"] == promotion_hashes
+    validate_preflight_binding(
+        p,
+        pf,
+        parity_run_id=parity_run_id,
+        parity_head_sha=parity_head_sha,
+        main_head_sha=main_head_sha,
+    )
 
     assert s["status"] == "PASS"
     assert s["scope"]["candidate_count"] == 15
