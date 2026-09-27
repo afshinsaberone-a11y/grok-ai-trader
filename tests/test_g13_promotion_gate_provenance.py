@@ -1,3 +1,5 @@
+import json
+
 from research.optimization import g13_promotion_gate_m15 as gate
 
 
@@ -42,6 +44,30 @@ def _good() -> dict:
     }
 
 
+def _validation_artifact() -> dict:
+    return {
+        "schema": "forexai.g13.validation_m15.v1",
+        "symbol": "EURUSD",
+        "timeframe": "M15",
+        "discovery_years": [2022, 2023, 2024],
+        "selection_years": [2022, 2023, 2024],
+        "validation_year": 2025,
+        "oos_year": 2026,
+        "oos_evaluated": False,
+        "selection_used_2025": False,
+        "pre_oos_qualified_count": 16,
+        "validation_qualified_count": 16,
+        "real_data_only": True,
+        "promotion": {
+            "validation_pass": True,
+            "robustness_required": True,
+            "oos_required": True,
+            "ea_generation_allowed": False,
+        },
+        "candidates": [],
+    }
+
+
 def test_valid_provenance_is_accepted():
     gate.validate_provenance(_good())
 
@@ -74,3 +100,32 @@ def test_expired_artifact_is_rejected():
     except AssertionError:
         return
     raise AssertionError("expired artifact was accepted")
+
+
+def test_validation_artifact_matching_handoff_is_accepted():
+    handoff = {
+        "candidates": [
+            {"candidate_id": 1, "config_hash": "a", "params": {"x": 1}},
+            {"candidate_id": 2, "config_hash": "b", "params": {"x": 2}},
+        ]
+    }
+    validation = _validation_artifact()
+    validation["candidates"] = list(handoff["candidates"])
+    gate.validate_validation_artifact(validation, handoff)
+
+
+def test_validation_artifact_candidate_mismatch_is_rejected():
+    handoff = {
+        "candidates": [
+            {"candidate_id": 1, "config_hash": "a", "params": {"x": 1}},
+        ]
+    }
+    validation = _validation_artifact()
+    validation["candidates"] = [
+        {"candidate_id": 1, "config_hash": "wrong", "params": {"x": 1}},
+    ]
+    try:
+        gate.validate_validation_artifact(validation, handoff)
+    except AssertionError:
+        return
+    raise AssertionError("validation artifact candidate mismatch was accepted")
