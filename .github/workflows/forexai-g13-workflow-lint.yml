@@ -1,7 +1,7 @@
 name: ForexAI G13 Workflow Static Validation
 
 # Static GitHub-hosted validation for the self-hosted MT5 parity workflow.
-# Re-trigger after each G13 workflow repair.
+# Re-trigger after each G13 workflow repair; keep this gate current with main.
 # Validate the current main branch configuration, including custom MT5 labels.
 
 on:
