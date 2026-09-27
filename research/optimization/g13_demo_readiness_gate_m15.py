@@ -66,8 +66,8 @@ def gate(
     assert par["passed_count"] == 15
     assert all(row["status"] == "PASS" for row in par["results"])
     assert s["policy"]["demo_trading_default_authorized"] is False
-    assert len(s["matrix"]) == 48
-    assert sum(1 for row in s["matrix"] if row["actual_allowed"]) == 25
+    assert len(s["matrix"]) == 1536
+    assert sum(1 for row in s["matrix"] if row["actual_allowed"]) == 769
     assert sum(1 for row in s["matrix"] if not row["is_tester"] and row["actual_allowed"]) == 1
     allowed = [row for row in s["matrix"] if not row["is_tester"] and row["actual_allowed"]][0]
     assert allowed["authorization"] is True
@@ -144,6 +144,7 @@ def gate(
         "safety": {
             "status": s["status"],
             "matrix_cases": len(s["matrix"]),
+            "matrix_allowed_states": sum(1 for row in s["matrix"] if row["actual_allowed"]),
             "non_tester_allowed_states": 1,
             "live_trading_allowed": s["policy"]["live_trading_allowed"],
         },
@@ -153,7 +154,7 @@ def gate(
             "demo_account": on["demo_account"] == "true",
             "live_blocked": on["live_blocked"] == "false",
             "authorization_off_blocks": off["execution_allowed"] == "false",
-            "authorization_on_still_blocked": on["execution_allowed"] == "false",
+            "authorization_on_permission_chain_match": on["execution_allowed"] == ("true" if expected_allowed else "false"),
             "orders_submitted": False,
         },
         "evidence": {
