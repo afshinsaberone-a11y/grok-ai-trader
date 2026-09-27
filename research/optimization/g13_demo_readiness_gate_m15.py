@@ -100,9 +100,32 @@ def gate(
     assert on["account_mode"] == "0"
     assert on["live_blocked"] == "false"
 
-    # The current Runtime Probe intentionally does not authorize execution.
-    # This is readiness evidence, not permission to trade.
-    assert on["execution_allowed"] == "false"
+    required_permission_keys = (
+        "terminal_connected",
+        "terminal_trade_allowed",
+        "mql_trade_allowed",
+        "account_trade_allowed",
+        "account_trade_expert",
+    )
+    for key in required_permission_keys:
+        assert off[key] in ("true", "false")
+        assert on[key] in ("true", "false")
+
+    expected_allowed = (
+        on["authorization"] == "true"
+        and on["demo_account"] == "true"
+        and on["terminal_connected"] == "true"
+        and on["terminal_trade_allowed"] == "true"
+        and on["mql_trade_allowed"] == "true"
+        and on["account_trade_allowed"] == "true"
+        and on["account_trade_expert"] == "true"
+        and on["kill_switch_allow"] == "true"
+        and on["other_g13_position"] == "false"
+    )
+    assert on["execution_allowed"] == ("true" if expected_allowed else "false")
+
+    # This is readiness evidence, not permission to trade. The probe itself
+    # is guaranteed not to submit an order.
 
     return {
         "schema": "forexai.g13.demo_readiness_gate_m15.v1",
