@@ -67,8 +67,15 @@ def find_package(root: Path) -> Path:
     raise AssertionError(f"no G13 EX5 package found under {root}")
 
 
-def audit(manifest_path: Path, package_root: Path) -> dict:
+def audit(
+    manifest_path: Path,
+    package_root: Path,
+    compile_parity_run_id: int,
+    compile_parity_head_sha: str,
+) -> dict:
     manifest = load_manifest(manifest_path)
+    assert int(manifest["compile_parity_run_id"]) == compile_parity_run_id
+    assert manifest["ea_source_commit"] == compile_parity_head_sha
     package = find_package(package_root)
 
     rows = {x["candidate_id"]: x for x in manifest["candidates"]}
@@ -103,6 +110,7 @@ def audit(manifest_path: Path, package_root: Path) -> dict:
         "schema_version": "forexai.g13.controlled_demo_package_preflight.m15.v1",
         "status": "PASS",
         "compile_parity_run_id": manifest["compile_parity_run_id"],
+        "compile_parity_head_sha": compile_parity_head_sha,
         "ea_source_commit": manifest["ea_source_commit"],
         "symbol": manifest["symbol"],
         "timeframe": manifest["timeframe"],
@@ -127,10 +135,17 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", type=Path, required=True)
     ap.add_argument("--package-root", type=Path, required=True)
+    ap.add_argument("--compile-parity-run-id", type=int, required=True)
+    ap.add_argument("--compile-parity-head-sha", required=True)
     ap.add_argument("--report", type=Path, required=True)
     args = ap.parse_args()
 
-    result = audit(args.manifest, args.package_root)
+    result = audit(
+        args.manifest,
+        args.package_root,
+        args.compile_parity_run_id,
+        args.compile_parity_head_sha,
+    )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({
