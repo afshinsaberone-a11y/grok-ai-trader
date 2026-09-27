@@ -69,12 +69,32 @@ jobs:
       - name: Deploy non-trading probes
         run: |
           $ErrorActionPreference = 'Stop'
-          $serviceData = Join-Path $env:APPDATA 'MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
-          $scripts = Join-Path $serviceData 'MQL5\Scripts'
-          foreach ($name in @('G13_Safety_Probe_AuthOff','G13_Safety_Probe_AuthOn')) {
-            Copy-Item (Join-Path $env:GITHUB_WORKSPACE ('artifacts\g13\safety_probe_build\' + $name + '.ex5')) (Join-Path $scripts ($name + '.ex5')) -Force
+          $appData = $env:APPDATA
+          if ([string]::IsNullOrWhiteSpace($appData)) {
+            $appData = 'C:\Windows\ServiceProfiles\NetworkService\AppData\Roaming'
+            Write-Host "APPDATA_FALLBACK=$appData"
           }
-          Write-Host "MT5_SAFETY_PROBE_DEPLOY_OK"
+          $serviceData = Join-Path $appData 'MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
+          $scripts = Join-Path $serviceData 'MQL5\Scripts'
+          if (!(Test-Path -LiteralPath $scripts -PathType Container)) {
+            throw "MT5 Scripts destination missing: $scripts"
+          }
+          foreach ($name in @('G13_Safety_Probe_AuthOff','G13_Safety_Probe_AuthOn')) {
+            $src = Join-Path $env:GITHUB_WORKSPACE ('artifacts\g13\safety_probe_build\' + $name + '.ex5')
+            $dst = Join-Path $scripts ($name + '.ex5')
+            if (!(Test-Path -LiteralPath $src -PathType Leaf)) { throw "Probe EX5 missing: $src" }
+            $tmp = $dst + '.ci-copy-' + [guid]::NewGuid().ToString('N')
+            Copy-Item -LiteralPath $src -Destination $tmp -Force
+            try {
+              Move-Item -LiteralPath $tmp -Destination $dst -Force
+            } catch {
+              Copy-Item -LiteralPath $tmp -Destination $dst -Force
+              Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            }
+            if (!(Test-Path -LiteralPath $dst -PathType Leaf)) { throw "Probe deployment failed: $dst" }
+            Write-Host "DEPLOYED_PROBE=$name DEST=$dst"
+          }
+          Write-Host "MT5_SAFETY_PROBE_DEPLOY_OK=$scripts"
 
       - name: Snapshot kill switch before probes
         run: |
