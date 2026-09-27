@@ -124,6 +124,7 @@ def gate(
     assert pf["synthetic_data"] is False
     assert pf["demo_trading_allowed_by_source"] is False
     assert pf["live_trading_allowed"] is False
+    assert int(pf["compile_parity_run_id"]) == parity_run_id
 
     assert s["status"] == "PASS"
     assert s["scope"]["candidate_count"] == 15
@@ -227,6 +228,7 @@ def gate(
             "status": pf["status"],
             "run_id": preflight_run_id,
             "compile_parity_run_id": pf["compile_parity_run_id"],
+            "parity_run_id": parity_run_id,
             "candidate_count": pf["candidate_count"],
             "binary_hashes_verified": pf["binary_hashes_verified"],
             "source_safety_contracts_verified": pf["source_safety_contracts_verified"],
@@ -265,6 +267,7 @@ def main() -> int:
     ap.add_argument("--preflight", type=Path, required=True)
     ap.add_argument("--promotion-run-id", type=int, required=True)
     ap.add_argument("--preflight-run-id", type=int, required=True)
+    ap.add_argument("--parity-run-id", type=int, required=True)
     ap.add_argument("--main-head-sha", required=True)
     ap.add_argument("--safety", type=Path, required=True)
     ap.add_argument("--runtime-dir", type=Path, required=True)
@@ -281,6 +284,7 @@ def main() -> int:
         preflight=a.preflight,
         promotion_run_id=a.promotion_run_id,
         preflight_run_id=a.preflight_run_id,
+        parity_run_id=a.parity_run_id,
         main_head_sha=a.main_head_sha,
         safety=a.safety,
         runtime_dir=a.runtime_dir,
