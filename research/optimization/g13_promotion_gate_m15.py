@@ -51,7 +51,7 @@ def validate_provenance(provenance: dict[str, Any]) -> None:
         assert row.get("local_zip_sha256") == digest.split(":", 1)[1]
 
 
-def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, Any]) -> None:
+def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, Any], validation_path: Path) -> None:
     assert validation["schema"] == "forexai.g13.validation_m15.v1"
     assert validation["symbol"] == "EURUSD"
     assert validation["timeframe"] == "M15"
@@ -68,6 +68,8 @@ def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, 
     assert validation["promotion"]["robustness_required"] is True
     assert validation["promotion"]["oos_required"] is True
     assert validation["promotion"]["ea_generation_allowed"] is False
+    file_sha256 = hashlib.sha256(validation_path.read_bytes()).hexdigest()
+    assert handoff["source_validation_sha256"] == file_sha256
 
     handoff_candidates = {
         int(c["candidate_id"]): (c["config_hash"], c["params"])
@@ -87,7 +89,7 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
     provenance = load(provenance_path)
     validation = load(validation_path)
     validate_provenance(provenance)
-    validate_validation_artifact(validation, h)
+    validate_validation_artifact(validation, h, validation_path)
 
     assert h["schema_version"] == "forexai.g13.candidate_handoff.frozen.v1"
     assert h["source_validation_run_id"] == EXPECTED_VALIDATION_RUN
