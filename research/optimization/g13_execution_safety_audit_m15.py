@@ -140,6 +140,11 @@ def test_matrix() -> list[dict[str, Any]]:
                 and account_mode == "DEMO"
                 and kill_switch == "ALLOW"
                 and not other
+                and terminal_connected
+                and terminal_trade_allowed
+                and mql_trade_allowed
+                and account_trade_allowed
+                and account_trade_expert
             )
         )
         actual = runtime_contract(
@@ -234,11 +239,11 @@ def audit(generator: Path, output_dir: Path) -> dict[str, Any]:
             "demo_requires_account_mode": "DEMO",
             "demo_requires_kill_switch": "ALLOW",
             "demo_requires_single_position": True,
-        "demo_requires_terminal_connection": True,
-        "demo_requires_terminal_trade_permission": True,
-        "demo_requires_program_trade_permission": True,
-        "demo_requires_account_trade_permission": True,
-        "demo_requires_account_expert_permission": True,
+            "demo_requires_terminal_connection": True,
+            "demo_requires_terminal_trade_permission": True,
+            "demo_requires_program_trade_permission": True,
+            "demo_requires_account_trade_permission": True,
+            "demo_requires_account_expert_permission": True,
             "tester_mode_is_research_only": True,
             "broker_fill_testing_performed": False,
         },
