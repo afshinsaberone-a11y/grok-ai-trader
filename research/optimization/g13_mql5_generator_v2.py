@@ -239,7 +239,14 @@ void OnDeinit(const int reason)
 void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result)
 {{
    if(trans.symbol!=_Symbol) return;
-   if(trans.magic!=MagicNumber) return;
+   long magic=0;
+   if(trans.deal>0 && HistoryDealSelect(trans.deal))
+      magic=(long)HistoryDealGetInteger(trans.deal,DEAL_MAGIC);
+   else if(trans.order>0 && HistoryOrderSelect(trans.order))
+      magic=(long)HistoryOrderGetInteger(trans.order,ORDER_MAGIC);
+   else
+      magic=(long)request.magic;
+   if(magic!=MagicNumber) return;
    ExecutionAuditLog("TRADE_TRANSACTION",trans.order,trans.deal,trans.volume,trans.price,
                      result.retcode,result.comment,0,trans.comment);
 }}
