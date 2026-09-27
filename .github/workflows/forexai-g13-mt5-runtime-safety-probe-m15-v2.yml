@@ -1,0 +1,228 @@
+name: ForexAI G13 MT5 Runtime Safety Probe M15 v2
+
+# Read-only execution safety verification. No EA/order submission is possible.
+# Every probe is installed under a run-unique MT5 Scripts directory to avoid
+# collisions with older MT5 processes or files locked by a prior run.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/G13_Safety_Probe_AuthOff.mq5
+      - research/optimization/G13_Safety_Probe_AuthOn.mq5
+      - .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+
+jobs:
+  runtime-safety-probe:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 20
+    env:
+      MT5_ROOT: 'C:\Program Files\MetaTrader 5'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve MT5 service paths
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:MT5_ROOT
+          $appData = $env:APPDATA
+          if ([string]::IsNullOrWhiteSpace($appData)) {
+            $appData = 'C:\Windows\ServiceProfiles\NetworkService\AppData\Roaming'
+          }
+          $serviceData = Join-Path $appData 'MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
+          $common = Join-Path $appData 'MetaQuotes\Terminal\Common\Files'
+          $meta = Join-Path $root 'metaeditor64.exe'
+          $terminal = Join-Path $root 'terminal64.exe'
+          $scriptsRoot = Join-Path $serviceData 'MQL5\Scripts'
+          foreach ($p in @($meta,$terminal,$serviceData,$scriptsRoot,$common)) {
+            if (!(Test-Path -LiteralPath $p)) { throw "Required MT5 path missing: $p" }
+          }
+          $runScripts = Join-Path $scriptsRoot ('G13_CI_' + $env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $runScripts -Force | Out-Null
+          "MT5_APPDATA=$appData" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "MT5_SERVICE_DATA_ROOT=$serviceData" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "MT5_COMMON_FILES=$common" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "MT5_SCRIPTS_ROOT=$scriptsRoot" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "MT5_RUN_SCRIPTS=$runScripts" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "MT5_PATH_RESOLUTION_OK"
+          Write-Host "MT5_SERVICE_DATA_ROOT=$serviceData"
+          Write-Host "MT5_RUN_SCRIPTS=$runScripts"
+
+      - name: Compile safety probes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\safety_probe_build'
+          New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+          Remove-Item (Join-Path $buildDir '*') -Recurse -Force -ErrorAction SilentlyContinue
+          foreach ($name in @('G13_Safety_Probe_AuthOff','G13_Safety_Probe_AuthOn')) {
+            $src = Join-Path $buildDir ($name + '.mq5')
+            $ex5 = Join-Path $buildDir ($name + '.ex5')
+            $log = Join-Path $buildDir ($name + '.log')
+            Copy-Item (Join-Path $env:GITHUB_WORKSPACE ('research\optimization\' + $name + '.mq5')) $src -Force
+            Remove-Item $ex5,$log -Force -ErrorAction SilentlyContinue
+            $proc = Start-Process -FilePath $meta -WorkingDirectory $buildDir -ArgumentList @("/compile:$src",'/log') -Wait -PassThru
+            if (!(Test-Path -LiteralPath $log)) { throw "MetaEditor log missing for $name" }
+            $logText = Get-Content -LiteralPath $log -Raw
+            $m=[regex]::Match($logText,'Result:\s*(\d+) errors,\s*(\d+) warnings')
+            if (!$m.Success) { throw "Unable to parse MetaEditor result for $name" }
+            $errors=[int]$m.Groups[1].Value
+            $warnings=[int]$m.Groups[2].Value
+            Write-Host "PROBE=$name METAEDITOR_EXIT=$($proc.ExitCode) ERRORS=$errors WARNINGS=$warnings"
+            if ($errors -ne 0) { throw "Probe $name failed to compile" }
+            if (!(Test-Path -LiteralPath $ex5)) { throw "Probe $name produced no EX5" }
+          }
+          Write-Host "MT5_SAFETY_PROBE_COMPILE_OK"
+
+      - name: Deploy run-unique non-trading probes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!(Test-Path -LiteralPath $env:MT5_RUN_SCRIPTS -PathType Container)) {
+            throw "Run-unique Scripts destination missing: $env:MT5_RUN_SCRIPTS"
+          }
+          foreach ($name in @('G13_Safety_Probe_AuthOff','G13_Safety_Probe_AuthOn')) {
+            $src = Join-Path $env:GITHUB_WORKSPACE ('artifacts\g13\safety_probe_build\' + $name + '.ex5')
+            $dst = Join-Path $env:MT5_RUN_SCRIPTS ($name + '.ex5')
+            if (!(Test-Path -LiteralPath $src -PathType Leaf)) { throw "Probe EX5 missing: $src" }
+            Copy-Item -LiteralPath $src -Destination $dst -Force
+            $srcHash=(Get-FileHash $src -Algorithm SHA256).Hash
+            $dstHash=(Get-FileHash $dst -Algorithm SHA256).Hash
+            if($srcHash -ne $dstHash){throw "Probe deploy hash mismatch: $name"}
+            Write-Host "DEPLOYED_PROBE=$name SHA256=$dstHash"
+          }
+          Write-Host "MT5_SAFETY_PROBE_DEPLOY_OK=$env:MT5_RUN_SCRIPTS"
+
+      - name: Snapshot shared kill switch
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $switch = Join-Path $env:MT5_COMMON_FILES 'g13_demo_kill_switch.txt'
+          $snapshot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_demo_kill_switch.before.txt'
+          if (Test-Path -LiteralPath $switch) {
+            Copy-Item -LiteralPath $switch -Destination $snapshot -Force
+          } else {
+            Set-Content -LiteralPath $snapshot -Value '__MISSING__' -Encoding ascii
+          }
+          Write-Host "KILL_SWITCH_SNAPSHOT_CREATED"
+
+      - name: Run Auth OFF probe
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
+          $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\probe-auth-off.ini'
+          $done = Join-Path $env:MT5_COMMON_FILES 'g13_safety_probe_auth_off.done.txt'
+          Remove-Item $done -Force -ErrorAction SilentlyContinue
+          $scriptRel = 'G13_CI_' + $env:GITHUB_RUN_ID + '\G13_Safety_Probe_AuthOff.ex5'
+          @"
+          [Experts]
+          AllowLiveTrading=0
+          AllowDllImport=0
+          Enabled=1
+
+          [StartUp]
+          Script=$scriptRel
+          ShutdownTerminal=1
+          "@ | Set-Content -LiteralPath $config -Encoding ascii
+          $proc=Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @('/config:"' + $config + '"','/skipupdate') -PassThru
+          $deadline=(Get-Date).AddSeconds(180)
+          while(-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+            if(Test-Path -LiteralPath $done){break}
+            Start-Sleep -Seconds 2
+          }
+          if(!(Test-Path -LiteralPath $done)){throw 'Auth OFF probe did not produce completion marker'}
+          if(!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)){throw 'Auth OFF probe status not PASS'}
+          if(!(Select-String -LiteralPath $done -Pattern '^authorization,false$' -Quiet)){throw 'Auth OFF authorization mismatch'}
+          if(!(Select-String -LiteralPath $done -Pattern '^execution_allowed,false$' -Quiet)){throw 'Auth OFF must be blocked'}
+          if(!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)){throw 'Probe submitted an order'}
+          Copy-Item $done (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_off.done.txt') -Force
+          if(-not $proc.HasExited){try{$proc.Kill()}catch{}}
+          Write-Host "MT5_AUTH_OFF_PROBE_OK"
+
+      - name: Run Auth ON probe
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
+          $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\probe-auth-on.ini'
+          $done = Join-Path $env:MT5_COMMON_FILES 'g13_safety_probe_auth_on.done.txt'
+          Remove-Item $done -Force -ErrorAction SilentlyContinue
+          $scriptRel = 'G13_CI_' + $env:GITHUB_RUN_ID + '\G13_Safety_Probe_AuthOn.ex5'
+          @"
+          [Experts]
+          AllowLiveTrading=0
+          AllowDllImport=0
+          Enabled=1
+
+          [StartUp]
+          Script=$scriptRel
+          ShutdownTerminal=1
+          "@ | Set-Content -LiteralPath $config -Encoding ascii
+          $proc=Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @('/config:"' + $config + '"','/skipupdate') -PassThru
+          $deadline=(Get-Date).AddSeconds(180)
+          while(-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+            if(Test-Path -LiteralPath $done){break}
+            Start-Sleep -Seconds 2
+          }
+          if(!(Test-Path -LiteralPath $done)){throw 'Auth ON probe did not produce completion marker'}
+          if(!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)){throw 'Auth ON probe status not PASS'}
+          if(!(Select-String -LiteralPath $done -Pattern '^authorization,true$' -Quiet)){throw 'Auth ON authorization mismatch'}
+          if(!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)){throw 'Probe submitted an order'}
+          Copy-Item $done (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_on.done.txt') -Force
+          if(-not $proc.HasExited){try{$proc.Kill()}catch{}}
+          Write-Host "MT5_AUTH_ON_PROBE_OK"
+
+      - name: Evaluate runtime evidence
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $off = Get-Content (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_off.done.txt')
+          $on = Get-Content (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_on.done.txt')
+          function Value([string[]]$lines,[string]$key) {
+            $line=$lines | Where-Object { $_ -like ($key + ',*') } | Select-Object -First 1
+            if(!$line){throw "Missing key $key"}
+            return $line.Substring($key.Length+1)
+          }
+          $mode=Value $on 'account_mode'
+          $demo=Value $on 'demo_account'
+          $liveBlocked=Value $on 'live_blocked'
+          $authOnAllowed=Value $on 'execution_allowed'
+          $authOffAllowed=Value $off 'execution_allowed'
+          $ordersOn=Value $on 'orders_submitted'
+          $ordersOff=Value $off 'orders_submitted'
+          if($demo -ne 'true'){throw "Runtime probe is not on DEMO account"}
+          if($liveBlocked -ne 'false'){throw "Unexpected live-block state on DEMO probe"}
+          if($authOffAllowed -ne 'false'){throw "Auth OFF allowed execution"}
+          if($authOnAllowed -eq 'true'){
+            Write-Host "DEMO_RUNTIME_GATE=ALL_POLICY_CONTROLS_CLEAR"
+          } else {
+            Write-Host "DEMO_RUNTIME_GATE=BLOCKED_BY_RUNTIME_CONTROL"
+          }
+          if($ordersOn -ne 'false' -or $ordersOff -ne 'false'){throw "Probe order-submission invariant violated"}
+          Write-Host "ACCOUNT_MODE=$mode"
+          Write-Host "DEMO_ACCOUNT=$demo"
+          Write-Host "LIVE_BLOCKED=$liveBlocked"
+          Write-Host "AUTH_OFF_ALLOWED=$authOffAllowed"
+          Write-Host "AUTH_ON_ALLOWED=$authOnAllowed"
+          Write-Host "ORDERS_OFF=$ordersOff"
+          Write-Host "ORDERS_ON=$ordersOn"
+
+      - name: Verify kill switch unchanged
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $switch = Join-Path $env:MT5_COMMON_FILES 'g13_demo_kill_switch.txt'
+          $before = (Get-Content (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_demo_kill_switch.before.txt') -Raw).Trim()
+          if(Test-Path -LiteralPath $switch){$after=(Get-Content $switch -Raw).Trim()}else{$after='__MISSING__'}
+          if($before -ne $after){throw 'Safety probes modified shared kill switch'}
+          Write-Host 'KILL_SWITCH_UNCHANGED=true'
+
+      - name: Upload runtime safety evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-mt5-runtime-safety-probe-m15-v2
+          path: artifacts/g13/**
+          if-no-files-found: warn
