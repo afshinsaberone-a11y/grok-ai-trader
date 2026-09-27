@@ -125,7 +125,8 @@ jobs:
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
             --robustness "$ROBUSTNESS" \
             --oos "$OOS" \
-            --provenance evidence/source-provenance.json             --output artifacts/g13/g13-promotion-manifest-m15.json
+            --provenance evidence/source-provenance.json \
+            --output artifacts/g13/g13-promotion-manifest-m15.json
       - name: Fail closed
         run: |
           python - <<'PY'
