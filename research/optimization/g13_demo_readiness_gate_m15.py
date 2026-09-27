@@ -94,6 +94,7 @@ def gate(
     promotion_run_id: int,
     preflight_run_id: int,
     parity_run_id: int,
+    preflight_head_sha: str,
     main_head_sha: str,
     runtime_head_sha: str,
     parity_head_sha: str,
@@ -118,6 +119,7 @@ def gate(
     assert p["decision_policy"]["demo_trading_allowed"] is False
     assert p["decision_policy"]["live_trading_allowed"] is False
     assert p["promoted_candidate_ids"] == PROMOTED_IDS
+    promotion_hashes = {str(x["candidate_id"]): x["config_hash"] for x in p["candidates"]}
     assert pf["schema_version"] == "forexai.g13.controlled_demo_package_preflight.m15.v1"
     assert pf["status"] == "PASS"
     assert pf["candidate_count"] == 15
@@ -128,6 +130,8 @@ def gate(
     assert pf["demo_trading_allowed_by_source"] is False
     assert pf["live_trading_allowed"] is False
     assert int(pf["compile_parity_run_id"]) == parity_run_id
+    assert pf["compile_parity_head_sha"] == parity_head_sha
+    assert pf["candidate_config_hashes"] == promotion_hashes
 
     assert s["status"] == "PASS"
     assert s["scope"]["candidate_count"] == 15
@@ -230,6 +234,7 @@ def gate(
         "preflight": {
             "status": pf["status"],
             "run_id": preflight_run_id,
+            "head_sha": preflight_head_sha,
             "compile_parity_run_id": pf["compile_parity_run_id"],
             "parity_run_id": parity_run_id,
             "candidate_count": pf["candidate_count"],
@@ -271,6 +276,7 @@ def main() -> int:
     ap.add_argument("--promotion-run-id", type=int, required=True)
     ap.add_argument("--preflight-run-id", type=int, required=True)
     ap.add_argument("--parity-run-id", type=int, required=True)
+    ap.add_argument("--preflight-head-sha", required=True)
     ap.add_argument("--main-head-sha", required=True)
     ap.add_argument("--safety", type=Path, required=True)
     ap.add_argument("--runtime-dir", type=Path, required=True)
@@ -288,6 +294,7 @@ def main() -> int:
         promotion_run_id=a.promotion_run_id,
         preflight_run_id=a.preflight_run_id,
         parity_run_id=a.parity_run_id,
+        preflight_head_sha=a.preflight_head_sha,
         main_head_sha=a.main_head_sha,
         safety=a.safety,
         runtime_dir=a.runtime_dir,
