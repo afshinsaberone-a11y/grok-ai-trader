@@ -409,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
                 dataset_id=f"{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}",
                 symbol="EURUSD",
                 timeframe=args.timeframe,
-                source="Dukascopy JETTA v1 BID candles resampled to M15",
+                source=f"Dukascopy JETTA v1 BID candles resampled to {args.timeframe}",
                 source_hash=str(result["manifest"]["source_hash"]),
                 quality_status=report.status,
                 output_path=Path(args.output) / "normalized" / f"EURUSD_{args.timeframe}_{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}.manifest.json",
