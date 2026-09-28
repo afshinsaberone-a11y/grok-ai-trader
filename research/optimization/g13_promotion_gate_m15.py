@@ -176,6 +176,8 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
         "source_artifacts": {
             "validation": {
                 "run_id": provenance["sources"]["validation"]["run_id"],
+                "workflow_name": provenance["sources"]["validation"]["workflow_name"],
+                "head_branch": provenance["sources"]["validation"]["head_branch"],
                 "job_id": provenance["sources"]["validation"].get("job_id"),
                 "job_name": provenance["sources"]["validation"].get("job_name"),
                 "artifact_id": provenance["sources"]["validation"]["artifact"]["artifact_id"],
@@ -185,7 +187,8 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
             },
             "robustness": {
                 "run_id": provenance["sources"]["robustness"]["run_id"],
-                "job_id": provenance["sources"]["robustness"].get("job_id"),
+                "workflow_name": provenance["sources"]["robustness"]["workflow_name"],
+                "head_branch": provenance["sources"]["robustness"]["head_branch"],
                 "job_id": provenance["sources"]["robustness"].get("job_id"),
                 "job_name": provenance["sources"]["robustness"].get("job_name"),
                 "artifact_id": provenance["sources"]["robustness"]["artifact"]["artifact_id"],
@@ -195,7 +198,8 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
             },
             "oos": {
                 "run_id": provenance["sources"]["oos"]["run_id"],
-                "job_id": provenance["sources"]["oos"].get("job_id"),
+                "workflow_name": provenance["sources"]["oos"]["workflow_name"],
+                "head_branch": provenance["sources"]["oos"]["head_branch"],
                 "job_id": provenance["sources"]["oos"].get("job_id"),
                 "job_name": provenance["sources"]["oos"].get("job_name"),
                 "artifact_id": provenance["sources"]["oos"]["artifact"]["artifact_id"],
