@@ -379,8 +379,10 @@ void OnTick()
    // the planned/requested execution price. Risk, SL/TP, and slippage are
    // therefore tied to the same observable quote rather than a historical
    // bar-open proxy used only by the deterministic research path.
-   double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   MqlTick quote;
+   if(!SymbolInfoTick(_Symbol,quote)) return;
+   double bid=quote.bid;
+   double ask=quote.ask;
    if(bid<=0.0 || ask<=0.0 || ask<bid) return;
    double entry=bid;
    double sl=entry+risk;
