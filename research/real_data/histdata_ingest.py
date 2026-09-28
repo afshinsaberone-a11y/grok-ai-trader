@@ -247,6 +247,7 @@ def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "
             source_hash=str(manifest["source_hash"]),
             quality_status=report.status,
             output_path=normalized / f"EURUSD_{timeframe}_{dataset_id}.manifest.json",
+            dataset_path=out,
         )
         result["dataset"] = out
         result["manifest"] = m15_manifest
