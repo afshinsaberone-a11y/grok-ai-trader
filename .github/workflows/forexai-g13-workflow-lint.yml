@@ -162,7 +162,6 @@ jobs:
               "forexai.g13.promotion_evidence_provenance.m15.v1",
               "local_zip_sha256",
               "evidence_provenance_sha256",
-              "promotion_manifest_sha256",
               "promotion_run_attestation.m15.v1",
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
@@ -232,6 +231,7 @@ jobs:
               'sum(1 for row in s["matrix"] if row["actual_allowed"]) == 769',
               '"status": "READY_FOR_CONTROLLED_DEMO_AUDIT"',
               'def validate_promotion_binding',
+              'promotion_manifest_sha256',
               'preflight_run_id',
               'parity_run_id',
           ]:
