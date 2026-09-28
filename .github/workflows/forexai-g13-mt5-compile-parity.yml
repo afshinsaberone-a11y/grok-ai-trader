@@ -60,6 +60,8 @@ jobs:
           (github.event.workflow_run.conclusion == 'success' &&
            github.event.workflow_run.head_branch == 'main') }}
     runs-on: [self-hosted, windows, mt5]
+    env:
+      PYTHONOPTIMIZE: '0'
     timeout-minutes: 240
     env:
       MT5_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
