@@ -20,8 +20,18 @@ FORBIDDEN = [
     re.compile(r"\bgrid\b", re.I),
     re.compile(r"averag(e|ing)[-_ ]?up", re.I),
     re.compile(r"recover(y)?[-_ ]?lot", re.I),
-    re.compile(r"double\s+lot", re.I),
+    re.compile(r"\bdouble\s+lot\b", re.I),
 ]
+
+COMMENT_OR_STRING = re.compile(
+    r"//[^\\n]*|/\\*.*?\\*/|"(?:\\\\.|[^"\\\\])*"",
+    re.S,
+)
+
+def _executable_code(text: str) -> str:
+    """Remove comments and string literals before scanning executable code patterns."""
+    return COMMENT_OR_STRING.sub(" ", text)
+
 
 
 def _issues_to_checks(path: Path, issues: list[str]) -> list[dict]:
@@ -61,17 +71,35 @@ def audit_mq5(path: Path) -> list[str]:
         args = m.group(2)
         if args.count(",") < 3:
             issues.append(f"{m.group(1)} call may miss SL/TP args")
+    code = _executable_code(text)
+    trade_capable = bool(
+        re.search(r"trade\\.(Buy|Sell)\\s*\\(", code)
+        or re.search(r"\\bOrderSend\\s*\\(", code)
+    )
     for rx in FORBIDDEN:
-        if rx.search(text):
-            issues.append(f"forbidden pattern: {rx.pattern}")
-    if "RiskPercent" in text and "RiskPercent>0.6" not in text and "RiskPercent > 0.6" not in text:
-        issues.append("missing OnInit RiskPercent hard cap 0.6")
-    if "MaxPositions" in text and "MaxPositions != 1" not in text and "MaxPositions!=1" not in text:
-        issues.append("missing OnInit MaxPositions==1 guard")
-    if "SetExpertMagicNumber" not in text:
-        issues.append("missing magic number")
-    if "last_bar" not in text and "iTime" not in text:
-        issues.append("possible every-tick entries (no new-bar gate)")
+        if rx.search(code):
+            issues.append(f"forbidden executable pattern: {rx.pattern}")
+
+    if trade_capable:
+        if "StopLoss" not in code and " sl=" not in code.lower() and not re.search(r"\\bsl\\s*,", code, re.I):
+            issues.append("no obvious StopLoss usage")
+        if not re.search(r"trade\\.(Buy|Sell)\\s*\\(", code) and not re.search(r"\\bOrderSend\\s*\\(", code):
+            issues.append("no executable order-send path")
+        for m in re.finditer(r"trade\\.(Buy|Sell)\\s*\\(([^;]+)\\)", code):
+            args = m.group(2)
+            if args.count(",") < 3:
+                issues.append(f"{m.group(1)} call may miss SL/TP args")
+        if "RiskPercent" in text and not re.search(r"if\\s*\\(\\s*RiskPercent\\s*>\\s*0\\.6\\s*\\)", code):
+            issues.append("missing OnInit RiskPercent hard cap 0.6")
+        if "MaxPositions" in text and not re.search(r"if\\s*\\(\\s*MaxPositions\\s*!=\\s*1\\s*\\)", code):
+            issues.append("missing OnInit MaxPositions==1 guard")
+        if "SetExpertMagicNumber" not in code:
+            issues.append("missing magic number")
+        if "last_bar" not in code and "iTime" not in code:
+            issues.append("possible every-tick entries (no new-bar gate)")
+    else:
+        if "EA_ROLE: ANALYTICS_ONLY_NO_ORDERS" not in text:
+            issues.append("non-trading EA must declare EA_ROLE: ANALYTICS_ONLY_NO_ORDERS")
     if "GRK-SAFETY-CONTRACT" not in text:
         issues.append("missing safety contract comment")
     return issues
