@@ -55,10 +55,17 @@ jobs:
             "robustness": "g13-robustness",
             "oos": "G13 2026 OOS M15 Current",
           }
+          expected_workflows={
+            "validation": "ForexAI G13 Validation M15",
+            "robustness": "ForexAI G13 Robustness M15",
+            "oos": "ForexAI G13 OOS M15 Current",
+          }
           for key, (run_key, art_key, expected_artifact_name) in checks.items():
               run_id=int(os.environ[run_key]); artifact_id=int(os.environ[art_key])
               run=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}'],text=True))
               assert run.get('conclusion')=='success', (run_id,run.get('conclusion'))
+              assert run.get('name') == expected_workflows[key], (run_id, run.get('name'), expected_workflows[key])
+              assert run.get('head_branch') == 'main', (run_id, run.get('head_branch'))
               arts=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}/artifacts'],text=True))['artifacts']
               match=[a for a in arts if int(a['id'])==artifact_id]
               assert len(match)==1, (run_id,artifact_id)
@@ -73,6 +80,8 @@ jobs:
               assert isinstance(digest,str) and digest.startswith('sha256:')
               provenance['sources'][key]={
                   'run_id':run_id,
+                  'workflow_name':run.get('name'),
+                  'head_branch':run.get('head_branch'),
                   'job_id':job_id,
                   'job_name':expected_jobs[key],
                   'head_sha':run.get('head_sha'),
