@@ -120,6 +120,7 @@ def main() -> int:
     raw = pd.read_csv(a.data)
     assert int(data_manifest["rows"]) == len(raw), (data_manifest["rows"], len(raw))
     data_sha256 = hashlib.sha256(a.data.read_bytes()).hexdigest()
+    assert data_sha256 == data_manifest["data_sha256"], (data_sha256, data_manifest["data_sha256"])
     data_manifest_sha256 = hashlib.sha256(a.data_manifest.read_bytes()).hexdigest()
     ts = pd.to_datetime(raw["timestamp"], utc=True)
     assert ts.is_monotonic_increasing
