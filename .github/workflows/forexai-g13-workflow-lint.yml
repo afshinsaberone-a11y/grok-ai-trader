@@ -27,6 +27,8 @@ on:
       - 'research/optimization/g13_demo_package_preflight_m15.py'
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'research/optimization/g13_real_data_provenance.py'
+      - 'research/real_data/histdata_ingest.py'
+      - 'research/real_data/dukascopy_ingest.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_real_data_provenance.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
