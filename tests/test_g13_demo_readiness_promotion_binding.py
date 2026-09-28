@@ -181,6 +181,7 @@ def test_preflight_candidate_hash_mismatch_fails():
         validate_preflight_binding(
             _promotion(),
             payload,
+            promotion_manifest_sha256="p" * 64,
             parity_run_id=55,
             parity_head_sha="main-sha",
             main_head_sha="main-sha",
