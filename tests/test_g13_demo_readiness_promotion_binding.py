@@ -115,6 +115,7 @@ def _preflight():
         "candidate_count": 15,
         "candidate_ids": [2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48],
         "binary_hashes_verified": 15,
+        "source_hashes_verified": 15,
         "source_safety_contracts_verified": 15,
         "real_data_only": True,
         "synthetic_data": False,
