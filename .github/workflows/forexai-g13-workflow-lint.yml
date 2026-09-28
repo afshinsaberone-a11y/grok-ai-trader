@@ -246,8 +246,11 @@ jobs:
           package_preflight_workflow = Path(".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
           for token in [
               "g13-demo-package-manifest-m15.json",
+              "g13_real_eurusd_m15.manifest.json",
               "PARITY_EVIDENCE",
+              "DATA_MANIFEST_EVIDENCE",
               "--parity-evidence",
+              "--data-manifest",
               "--compile-parity-artifact-digest",
           ]:
               assert token in package_preflight_workflow, f"package preflight wiring token missing: {token}"
