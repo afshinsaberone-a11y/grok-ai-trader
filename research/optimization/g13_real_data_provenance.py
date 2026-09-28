@@ -64,8 +64,12 @@ def validate(csv_path: Path, manifest_path: Path, *, expected_csv_path: Path | N
     timestamps = [datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")) for row in rows]
     assert all(ts.tzinfo is not None for ts in timestamps)
     assert all(left < right for left, right in zip(timestamps, timestamps[1:]))
-    assert timestamps[0].astimezone(timezone.utc) >= datetime.fromisoformat(START_MIN)
-    assert timestamps[-1].astimezone(timezone.utc) < datetime.fromisoformat(END_EXCLUSIVE)
+    first_utc = timestamps[0].astimezone(timezone.utc)
+    last_utc = timestamps[-1].astimezone(timezone.utc)
+    assert first_utc == datetime.fromisoformat(str(manifest["start"])).astimezone(timezone.utc)
+    assert last_utc == datetime.fromisoformat(str(manifest["end"])).astimezone(timezone.utc)
+    assert first_utc >= datetime.fromisoformat(START_MIN)
+    assert last_utc < datetime.fromisoformat(END_EXCLUSIVE)
 
     manifest_sha256 = sha256(manifest_path)
     return {
