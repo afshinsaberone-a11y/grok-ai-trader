@@ -30,6 +30,8 @@ on:
       - "ForexAI G13 Final Promotion M15"
       - "ForexAI G13 Controlled Demo Package Preflight M15"
     types: [completed]
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -43,8 +45,7 @@ jobs:
   readiness:
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.workflow_run.conclusion == 'success' &&
-           github.event.workflow_run.head_branch == 'main') }}
+          github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -133,7 +134,7 @@ jobs:
           gh run download "$PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-controlled-demo-package-preflight-m15 --dir evidence/preflight
           gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-mt5-runtime-safety-probe-m15-v2 --dir evidence/runtime
           gh run download "$SAFETY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-execution-safety-audit-m15 --dir evidence/safety
-          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARITY_RUN_ID/artifacts" | python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"].startswith("g13-mt5-compile-parity-") and not x["expired"]]; assert m, "compile/parity artifact missing"; print(max(m,key=lambda x:x["id"])["name"])')"
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARITY_RUN_ID/artifacts" | python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; expected="g13-mt5-compile-parity-"+sys.argv[1]; m=[x for x in a if x["name"]==expected and not x["expired"]]; assert len(m)==1, (expected, [(x["name"],x["expired"]) for x in a]); print(m[0]["name"])' "$PARITY_RUN_ID")"
           gh run download "$PARITY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir evidence/parity
 
       - name: Resolve evidence files
@@ -147,16 +148,16 @@ jobs:
           promotion_attestation="$(find evidence/promotion -name promotion-run-attestation.json -type f | head -n1)"
           preflight_file="$(find evidence/preflight -name g13-demo-package-preflight-m15.json -type f | head -n1)"
           [ -n "$runtime_file" ] && [ -n "$safety_file" ] && [ -n "$parity_file" ] && [ -n "$promotion_file" ] && [ -n "$promotion_provenance" ] && [ -n "$promotion_attestation" ] && [ -n "$preflight_file" ] || exit 1
-          {
-            echo "RUNTIME_DIR=$(dirname "$runtime_file")"
-            echo "SAFETY_JSON=$safety_file"
-            echo "PARITY_JSON=$parity_file"
-            echo "PROMOTION_JSON=$promotion_file"
-            echo "PROMOTION_PROVENANCE=$promotion_provenance"
-            echo "PROMOTION_ATTESTATION=$promotion_attestation"
-            echo "PREFLIGHT_JSON=$preflight_file"
-            echo "PREFLIGHT_RUN_ID=$PREFLIGHT_RUN_ID"
-          } >> "$GITHUB_ENV"
+          cat >> "$GITHUB_ENV" <<EOF
+          RUNTIME_DIR=$(dirname "$runtime_file")
+          SAFETY_JSON=$safety_file
+          PARITY_JSON=$parity_file
+          PROMOTION_JSON=$promotion_file
+          PROMOTION_PROVENANCE=$promotion_provenance
+          PROMOTION_ATTESTATION=$promotion_attestation
+          PREFLIGHT_JSON=$preflight_file
+          PREFLIGHT_RUN_ID=$PREFLIGHT_RUN_ID
+          EOF
 
       - name: Verify static validation freshness
         env:
