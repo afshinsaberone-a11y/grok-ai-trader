@@ -72,6 +72,7 @@ def validate_preflight_binding(
     promotion: dict[str, Any],
     preflight: dict[str, Any],
     *,
+    promotion_manifest_sha256: str,
     parity_run_id: int,
     parity_head_sha: str,
     main_head_sha: str,
@@ -81,6 +82,8 @@ def validate_preflight_binding(
     assert preflight["status"] == "PASS"
     assert preflight["candidate_count"] == 15
     assert preflight["candidate_ids"] == PROMOTED_IDS
+    assert isinstance(promotion_manifest_sha256, str) and len(promotion_manifest_sha256) == 64
+    assert preflight["promotion_manifest_sha256"] == promotion_manifest_sha256
     assert preflight["binary_hashes_verified"] == 15
     assert preflight["source_safety_contracts_verified"] == 15
     assert preflight["real_data_only"] is True
@@ -152,6 +155,7 @@ def gate(
     validate_preflight_binding(
         p,
         pf,
+        promotion_manifest_sha256=file_sha256(promotion),
         parity_run_id=parity_run_id,
         parity_head_sha=parity_head_sha,
         main_head_sha=main_head_sha,
