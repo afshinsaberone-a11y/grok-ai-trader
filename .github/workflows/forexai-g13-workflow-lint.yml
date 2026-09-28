@@ -216,6 +216,7 @@ jobs:
               "data_provenance",
               "data_sha256",
               "data_manifest_sha256",
+              "mql5_signal_parity.v2",
           ]:
               assert token in builder, f"package manifest builder token missing: {token}"
 
