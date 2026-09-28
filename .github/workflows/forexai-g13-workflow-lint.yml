@@ -170,6 +170,16 @@ jobs:
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
 
+          for workflow_name in [
+              ".github/workflows/forexai-g13-promotion-m15.yml",
+              ".github/workflows/forexai-g13-mt5-compile-parity.yml",
+              ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml",
+              ".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml",
+              ".github/workflows/forexai-g13-workflow-lint.yml",
+          ]:
+              workflow_text = Path(workflow_name).read_text(encoding="utf-8")
+              assert "PYTHONOPTIMIZE: '0'" in workflow_text, f"optimized Python not blocked in workflow: {workflow_name}"
+
           for gate_name in [
               "research/optimization/g13_promotion_gate_m15.py",
               "research/optimization/g13_demo_readiness_gate_m15.py",
