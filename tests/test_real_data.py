@@ -134,6 +134,15 @@ def test_manifest_and_sha256(tmp_path: Path):
     assert manifest["source_hash"] == digest
     assert manifest["timezone"] == "UTC"
 
+    dataset = tmp_path / "dataset.csv"
+    fixture_m1().to_csv(dataset, index=False)
+    manifest_with_data_hash = build_manifest(
+        fixture_m1(), dataset_id="fixture", symbol="EURUSD", timeframe="M1",
+        source="Dukascopy", source_hash=digest, quality_status="PASS",
+        dataset_path=dataset,
+    )
+    assert manifest_with_data_hash["data_sha256"] == sha256_file(dataset)
+
 
 def test_missing_real_dataset_fails(tmp_path: Path):
     ingestor = DukascopyM1Ingestor(tmp_path)
