@@ -33,6 +33,8 @@ EXPECTED_SOURCE_ARTIFACT_NAMES = {
 }
 PROMOTED_IDS = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 REJECTED_IDS = (44,)
+PROMOTION_MANIFEST_SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
+PROMOTION_RUN_ATTESTATION_SCHEMA = "forexai.g13.promotion_run_attestation.m15.v1"
 
 
 def canonical_hash(value: Any) -> str:
