@@ -85,6 +85,18 @@ def validate_compile_artifact_binding(
     assert compile_parity_artifact_digest == "sha256:" + downloaded_zip_sha256
 
 
+def validate_mq5_source_binding(rows: dict[int, dict], source_path: Path) -> str:
+    cid = int(source_path.stem.rsplit("_", 1)[1])
+    assert cid in rows, f"unexpected MQ5 candidate {cid}"
+    expected_sha = rows[cid].get("mq5_sha256")
+    assert isinstance(expected_sha, str) and len(expected_sha) == 64, (
+        f"missing MQ5 hash in manifest candidate {cid}"
+    )
+    actual_sha = sha256(source_path)
+    assert actual_sha == expected_sha, f"MQ5 hash mismatch candidate {cid}"
+    return actual_sha
+
+
 def audit(
     manifest_path: Path,
     package_root: Path,
@@ -136,10 +148,7 @@ def audit(
     source_checks = []
     for f in mq5:
         cid = int(f.stem.rsplit("_", 1)[1])
-        assert cid in rows, f"unexpected MQ5 candidate {cid}"
-        assert "mq5_sha256" in rows[cid], f"missing MQ5 hash in manifest candidate {cid}"
-        actual_source_sha = sha256(f)
-        assert actual_source_sha == rows[cid]["mq5_sha256"], f"MQ5 hash mismatch candidate {cid}"
+        actual_source_sha = validate_mq5_source_binding(rows, f)
         text = f.read_text(encoding="utf-8")
         assert f'ConfigHash = "{rows[cid]["config_hash"]}";' in text, f"ConfigHash mismatch candidate {cid}"
         assert f"MagicNumber = 130000 + {cid};" in text, f"MagicNumber mismatch candidate {cid}"
