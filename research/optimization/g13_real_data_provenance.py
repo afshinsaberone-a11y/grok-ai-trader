@@ -73,7 +73,7 @@ def validate(csv_path: Path, manifest_path: Path, *, expected_csv_path: Path | N
         "manifest": str(manifest_path),
         "data_sha256": csv_sha256,
         "manifest_sha256": manifest_sha256,
-        "rows": len(data),
+        "rows": len(rows),
         "source": manifest["source"],
         "dataset_id": manifest["dataset_id"],
         "quality_status": manifest["quality_status"],
