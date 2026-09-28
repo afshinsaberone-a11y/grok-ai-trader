@@ -4,6 +4,7 @@ import pytest
 
 from research.optimization.g13_demo_package_preflight_m15 import (
     validate_compile_artifact_binding,
+    validate_mq5_source_binding,
 )
 
 
@@ -41,3 +42,23 @@ def test_compile_artifact_binding_passes():
 def test_compile_artifact_binding_rejects_mismatch(kwargs):
     with pytest.raises(AssertionError):
         validate_compile_artifact_binding(_manifest(), **kwargs)
+
+
+def test_mq5_source_binding_passes(tmp_path):
+    source = tmp_path / "ForexAI_G13_Candidate_2.mq5"
+    source.write_text("exact-source", encoding="utf-8")
+    import hashlib
+
+    expected = hashlib.sha256(source.read_bytes()).hexdigest()
+    rows = {2: {"mq5_sha256": expected}}
+
+    assert validate_mq5_source_binding(rows, source) == expected
+
+
+def test_mq5_source_binding_rejects_tampering(tmp_path):
+    source = tmp_path / "ForexAI_G13_Candidate_2.mq5"
+    source.write_text("tampered-source", encoding="utf-8")
+    rows = {2: {"mq5_sha256": "a" * 64}}
+
+    with pytest.raises(AssertionError):
+        validate_mq5_source_binding(rows, source)
