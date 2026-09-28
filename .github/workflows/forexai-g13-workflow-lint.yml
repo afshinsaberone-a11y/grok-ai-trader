@@ -57,6 +57,8 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      PYTHONOPTIMIZE: '0'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
