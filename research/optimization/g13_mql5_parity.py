@@ -138,7 +138,7 @@ def main() -> int:
         results.append(compare(expected_signals(raw, candidates[cid]["params"]), by_id[cid], cid, a.tolerance))
 
     payload = {
-        "schema_version": "forexai.g13.mql5_signal_parity.v1",
+        "schema_version": "forexai.g13.mql5_signal_parity.v2",
         "status": "PASS",
         "real_data_only": True,
         "synthetic_data": False,
