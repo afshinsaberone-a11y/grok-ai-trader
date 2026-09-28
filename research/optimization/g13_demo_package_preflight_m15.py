@@ -72,6 +72,21 @@ def find_package(root: Path) -> Path:
     raise AssertionError(f"no G13 EX5 package found under {root}")
 
 
+def validate_data_manifest_binding(parity: dict, data_manifest_path: Path) -> None:
+    assert data_manifest_path.is_file(), f"missing real-data provenance manifest: {data_manifest_path}"
+    actual_manifest_sha = sha256(data_manifest_path)
+    assert actual_manifest_sha == parity["data_manifest_sha256"], (
+        actual_manifest_sha,
+        parity["data_manifest_sha256"],
+    )
+    data_manifest = json.loads(data_manifest_path.read_text(encoding="utf-8"))
+    assert data_manifest["dataset_id"] == parity["data_provenance"]["dataset_id"]
+    assert data_manifest["source"] == parity["data_provenance"]["source"]
+    assert data_manifest["quality_status"] == parity["data_provenance"]["quality_status"]
+    assert data_manifest["data_sha256"] == parity["data_sha256"]
+    assert int(data_manifest["rows"]) >= 100
+
+
 def validate_compile_artifact_binding(
     manifest: dict,
     *,
@@ -106,11 +121,13 @@ def audit(
     compile_parity_artifact_digest: str,
     downloaded_zip_sha256: str,
     parity_evidence_path: Path,
+    data_manifest_path: Path,
 ) -> dict:
     manifest = load_manifest(manifest_path)
     parity = json.loads(parity_evidence_path.read_text(encoding="utf-8"))
     assert manifest["parity_evidence_sha256"] == sha256(parity_evidence_path)
     assert parity["schema_version"] == "forexai.g13.mql5_signal_parity.v2"
+    validate_data_manifest_binding(parity, data_manifest_path)
     assert len(parity["data_sha256"]) == 64
     assert len(parity["data_manifest_sha256"]) == 64
     assert parity["data_provenance"]["quality_status"] == "PASS"
@@ -175,6 +192,9 @@ def audit(
         "downloaded_zip_sha256": downloaded_zip_sha256,
         "parity_evidence_sha256": manifest["parity_evidence_sha256"],
         "promotion_manifest_sha256": manifest["promotion_manifest_sha256"],
+        "data_sha256": parity["data_sha256"],
+        "data_manifest_sha256": parity["data_manifest_sha256"],
+        "data_provenance": parity["data_provenance"],
         "data_sha256": manifest["data_sha256"],
         "data_manifest_sha256": manifest["data_manifest_sha256"],
         "data_provenance": manifest["data_provenance"],
@@ -212,6 +232,7 @@ def main() -> int:
     ap.add_argument("--compile-parity-artifact-digest", required=True)
     ap.add_argument("--downloaded-zip-sha256", required=True)
     ap.add_argument("--parity-evidence", type=Path, required=True)
+    ap.add_argument("--data-manifest", type=Path, required=True)
     ap.add_argument("--report", type=Path, required=True)
     args = ap.parse_args()
 
@@ -224,6 +245,7 @@ def main() -> int:
         args.compile_parity_artifact_digest,
         args.downloaded_zip_sha256,
         args.parity_evidence,
+        args.data_manifest,
     )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
