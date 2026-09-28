@@ -17,6 +17,7 @@ if not __debug__:
 
 import argparse
 import csv
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ from research.optimization.rsi_divergence_discovery_g13 import prep, signals
 
 HANDOFF_SCHEMA = "forexai.g13.candidate_handoff.frozen.v1"
 MANIFEST_SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
+REAL_DATA_SOURCES = ("HistData.com", "Dukascopy")
 PROMOTED = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 
 
@@ -91,6 +93,7 @@ def compare(expected: list[dict[str, Any]], actual: list[dict[str, Any]], cid: i
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True, type=Path)
+    ap.add_argument("--data-manifest", required=True, type=Path)
     ap.add_argument("--handoff", required=True, type=Path)
     ap.add_argument("--manifest", required=True, type=Path)
     ap.add_argument("--mt5", required=True, type=Path)
@@ -107,7 +110,17 @@ def main() -> int:
     assert h["handoff_policy"]["oos_optimization_disabled"] is True
     assert h["research_symbol"] == "EURUSD" and h["research_timeframe"] == "M15"
 
+    data_manifest = json.loads(a.data_manifest.read_text(encoding="utf-8"))
+    assert data_manifest["symbol"] == "EURUSD"
+    assert data_manifest["timeframe"] == "M15"
+    assert data_manifest["quality_status"] == "PASS"
+    assert any(source in str(data_manifest["source"]) for source in REAL_DATA_SOURCES)
+    assert data_manifest["rows"] >= 100
+
     raw = pd.read_csv(a.data)
+    assert int(data_manifest["rows"]) == len(raw), (data_manifest["rows"], len(raw))
+    data_sha256 = hashlib.sha256(a.data.read_bytes()).hexdigest()
+    data_manifest_sha256 = hashlib.sha256(a.data_manifest.read_bytes()).hexdigest()
     ts = pd.to_datetime(raw["timestamp"], utc=True)
     assert ts.is_monotonic_increasing
     assert ts.max() < pd.Timestamp("2026-01-01", tz="UTC")
@@ -134,6 +147,13 @@ def main() -> int:
         "candidate_count": 15,
         "passed_count": len(results),
         "tolerance": a.tolerance,
+        "data_sha256": data_sha256,
+        "data_manifest_sha256": data_manifest_sha256,
+        "data_provenance": {
+            "dataset_id": data_manifest["dataset_id"],
+            "source": data_manifest["source"],
+            "quality_status": data_manifest["quality_status"],
+        },
         "scope": {"symbol": "EURUSD", "timeframe": "M15", "data_end_exclusive": "2026-01-01T00:00:00+00:00"},
         "results": results,
         "note": "Signal parity is deterministic; broker-dependent fill/spread/tick execution is audited separately.",
