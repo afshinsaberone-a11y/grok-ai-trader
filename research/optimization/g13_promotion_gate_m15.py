@@ -36,6 +36,11 @@ EXPECTED_SOURCE_WORKFLOW_NAMES = {
     "robustness": "ForexAI G13 Robustness M15",
     "oos": "ForexAI G13 OOS M15 Current",
 }
+EXPECTED_SOURCE_WORKFLOW_IDS = {
+    "validation": 355468598,
+    "robustness": 355473409,
+    "oos": 356162316,
+}
 EXPECTED_SOURCE_ARTIFACT_NAMES = {
     "validation": "g13-validation-m15",
     "robustness": "g13-robustness-m15",
@@ -66,6 +71,7 @@ def validate_provenance(provenance: dict[str, Any]) -> None:
         row = provenance["sources"][key]
         assert row["run_id"] == run_id
         assert row.get("workflow_name") == EXPECTED_SOURCE_WORKFLOW_NAMES[key]
+        assert int(row.get("workflow_id")) == EXPECTED_SOURCE_WORKFLOW_IDS[key]
         assert row.get("head_branch") == "main"
         assert isinstance(row.get("job_id"), int) and row["job_id"] > 0
         assert row.get("job_name") == EXPECTED_SOURCE_JOB_NAMES[key]
@@ -177,6 +183,7 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
             "validation": {
                 "run_id": provenance["sources"]["validation"]["run_id"],
                 "workflow_name": provenance["sources"]["validation"]["workflow_name"],
+                "workflow_id": provenance["sources"]["validation"]["workflow_id"],
                 "head_branch": provenance["sources"]["validation"]["head_branch"],
                 "job_id": provenance["sources"]["validation"].get("job_id"),
                 "job_name": provenance["sources"]["validation"].get("job_name"),
@@ -188,6 +195,7 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
             "robustness": {
                 "run_id": provenance["sources"]["robustness"]["run_id"],
                 "workflow_name": provenance["sources"]["robustness"]["workflow_name"],
+                "workflow_id": provenance["sources"]["robustness"]["workflow_id"],
                 "head_branch": provenance["sources"]["robustness"]["head_branch"],
                 "job_id": provenance["sources"]["robustness"].get("job_id"),
                 "job_name": provenance["sources"]["robustness"].get("job_name"),
@@ -199,6 +207,7 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
             "oos": {
                 "run_id": provenance["sources"]["oos"]["run_id"],
                 "workflow_name": provenance["sources"]["oos"]["workflow_name"],
+                "workflow_id": provenance["sources"]["oos"]["workflow_id"],
                 "head_branch": provenance["sources"]["oos"]["head_branch"],
                 "job_id": provenance["sources"]["oos"].get("job_id"),
                 "job_name": provenance["sources"]["oos"].get("job_name"),
