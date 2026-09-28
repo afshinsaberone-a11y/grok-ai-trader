@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
 import pytest
 
 from research.optimization.g13_demo_package_preflight_m15 import (
     validate_compile_artifact_binding,
+    validate_data_manifest_binding,
     validate_mq5_source_binding,
 )
 
@@ -62,3 +66,49 @@ def test_mq5_source_binding_rejects_tampering(tmp_path):
 
     with pytest.raises(AssertionError):
         validate_mq5_source_binding(rows, source)
+
+
+def test_data_manifest_binding_passes(tmp_path):
+    data_manifest = tmp_path / "g13_real_eurusd_m15.manifest.json"
+    payload = {
+        "dataset_id": "20220101_20251231",
+        "source": "HistData.com Generic ASCII M1 resampled to M15",
+        "quality_status": "PASS",
+        "data_sha256": "a" * 64,
+        "rows": 120,
+    }
+    data_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    manifest_sha = hashlib.sha256(data_manifest.read_bytes()).hexdigest()
+    parity = {
+        "data_manifest_sha256": manifest_sha,
+        "data_sha256": "a" * 64,
+        "data_provenance": {
+            "dataset_id": payload["dataset_id"],
+            "source": payload["source"],
+            "quality_status": payload["quality_status"],
+        },
+    }
+    validate_data_manifest_binding(parity, data_manifest)
+
+
+def test_data_manifest_binding_rejects_tampering(tmp_path):
+    data_manifest = tmp_path / "g13_real_eurusd_m15.manifest.json"
+    payload = {
+        "dataset_id": "20220101_20251231",
+        "source": "HistData.com Generic ASCII M1 resampled to M15",
+        "quality_status": "PASS",
+        "data_sha256": "a" * 64,
+        "rows": 120,
+    }
+    data_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    parity = {
+        "data_manifest_sha256": "b" * 64,
+        "data_sha256": "a" * 64,
+        "data_provenance": {
+            "dataset_id": payload["dataset_id"],
+            "source": payload["source"],
+            "quality_status": payload["quality_status"],
+        },
+    }
+    with pytest.raises(AssertionError):
+        validate_data_manifest_binding(parity, data_manifest)
