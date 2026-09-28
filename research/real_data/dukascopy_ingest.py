@@ -320,6 +320,7 @@ class DukascopyM1Ingestor:
             source_hash=source_hash,
             quality_status=report.status,
             output_path=self.normalized_dir / f"EURUSD_M1_{dataset_id}.manifest.json",
+            dataset_path=output,
         )
         return {"dataset": output, "manifest": manifest, "quality": report.to_dict()}
 
