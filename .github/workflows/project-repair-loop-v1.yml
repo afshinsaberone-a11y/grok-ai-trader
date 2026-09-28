@@ -6,8 +6,10 @@ on:
     paths:
       - 'research/**'
       - 'tests/**'
+      - 'ea/**'
       - '.github/workflows/**'
       - 'docs/**'
+      - 'requirements.txt'
 
 permissions:
   contents: read
