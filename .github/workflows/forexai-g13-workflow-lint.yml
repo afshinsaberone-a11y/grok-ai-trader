@@ -28,6 +28,7 @@ on:
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
+      - 'tests/test_g13_promotion_gate_provenance.py'
   pull_request:
     paths:
       - '.github/workflows/forexai-g13-promotion-m15.yml'
@@ -40,10 +41,8 @@ on:
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'research/optimization/g13_demo_package_preflight_m15.py'
       - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
-      - 'research/optimization/g13_demo_package_preflight_m15.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
-      - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_demo_package_manifest_builder.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
   workflow_dispatch:
