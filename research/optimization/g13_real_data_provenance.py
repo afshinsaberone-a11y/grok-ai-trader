@@ -44,8 +44,8 @@ def validate(csv_path: Path, manifest_path: Path, *, expected_csv_path: Path | N
     assert manifest["quality_status"] == "PASS"
     assert manifest["timezone"] == "UTC"
     assert any(source in str(manifest["source"]) for source in ALLOWED_SOURCES)
-    assert len(str(manifest["source_hash"])) == 64
-    assert len(str(manifest["data_sha256"])) == 64
+    assert re.fullmatch(r"[0-9a-fA-F]{64}", str(manifest["source_hash"]))
+    assert re.fullmatch(r"[0-9a-fA-F]{64}", str(manifest["data_sha256"]))
 
     csv_sha256 = sha256(csv_path)
     assert csv_sha256 == manifest["data_sha256"], (csv_sha256, manifest["data_sha256"])
