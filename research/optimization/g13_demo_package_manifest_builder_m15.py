@@ -83,13 +83,21 @@ def build(
     by_id = {int(x["candidate_id"]): x for x in promotion["candidates"]}
     assert tuple(sorted(by_id)) == PROMOTED
 
+    source_by_id = {
+        int(source.stem.rsplit("_", 1)[1]): source
+        for source in sources
+    }
+    assert tuple(sorted(source_by_id)) == PROMOTED
+
     rows = []
     for binary in candidates:
         cid = int(binary.stem.rsplit("_", 1)[1])
         assert cid in by_id, f"unexpected promoted binary candidate {cid}"
+        source = source_by_id[cid]
         rows.append({
             "candidate_id": cid,
             "config_hash": by_id[cid]["config_hash"],
+            "mq5_sha256": sha256(source),
             "ex5_sha256": sha256(binary),
         })
     assert tuple(row["candidate_id"] for row in rows) == PROMOTED
