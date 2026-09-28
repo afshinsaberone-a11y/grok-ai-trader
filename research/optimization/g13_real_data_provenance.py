@@ -7,9 +7,11 @@ if not __debug__:
 
 
 import argparse
+import csv
 import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 ALLOWED_SOURCES = ("HistData.com", "Dukascopy")
@@ -50,15 +52,20 @@ def validate(csv_path: Path, manifest_path: Path, *, expected_csv_path: Path | N
     csv_sha256 = sha256(csv_path)
     assert csv_sha256 == manifest["data_sha256"], (csv_sha256, manifest["data_sha256"])
 
-    import pandas as pd
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        required_columns = {"timestamp", "open", "high", "low", "close", "volume"}
+        assert reader.fieldnames is not None
+        assert required_columns.issubset(reader.fieldnames), sorted(required_columns - set(reader.fieldnames))
+        rows = list(reader)
 
-    data = pd.read_csv(csv_path)
-    assert int(manifest["rows"]) == len(data), (manifest["rows"], len(data))
-    ts = pd.to_datetime(data["timestamp"], utc=True)
-    assert len(data) >= 100
-    assert ts.is_monotonic_increasing
-    assert ts.min() >= pd.Timestamp(START_MIN)
-    assert ts.max() < pd.Timestamp(END_EXCLUSIVE)
+    assert int(manifest["rows"]) == len(rows), (manifest["rows"], len(rows))
+    assert len(rows) >= 100
+    timestamps = [datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")) for row in rows]
+    assert all(ts.tzinfo is not None for ts in timestamps)
+    assert all(left < right for left, right in zip(timestamps, timestamps[1:]))
+    assert timestamps[0].astimezone(timezone.utc) >= datetime.fromisoformat(START_MIN)
+    assert timestamps[-1].astimezone(timezone.utc) < datetime.fromisoformat(END_EXCLUSIVE)
 
     manifest_sha256 = sha256(manifest_path)
     return {
