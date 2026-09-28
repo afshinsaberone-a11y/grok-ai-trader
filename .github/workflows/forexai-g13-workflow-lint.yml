@@ -200,6 +200,7 @@ jobs:
               "research/optimization/g13_demo_package_preflight_m15.py",
               "research/optimization/g13_demo_package_manifest_builder_m15.py",
               "research/optimization/g13_mql5_parity.py",
+              "research/optimization/g13_real_data_provenance.py",
               "research/optimization/g13_execution_safety_audit_m15.py",
               "research/optimization/g13_controlled_demo_execution_audit.py",
           ]:
@@ -224,6 +225,7 @@ jobs:
 
           provenance = Path("research/optimization/g13_real_data_provenance.py").read_text(encoding="utf-8")
           for token in [
+              "if not __debug__:",
               "EXPECTED_DATASET_ID",
               "ALLOWED_SOURCES",
               "data_sha256",
