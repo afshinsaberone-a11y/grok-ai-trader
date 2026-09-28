@@ -413,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_hash=str(result["manifest"]["source_hash"]),
                 quality_status=report.status,
                 output_path=Path(args.output) / "normalized" / f"EURUSD_{args.timeframe}_{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}.manifest.json",
+                dataset_path=out,
             )
             print(m15_manifest)
         else:
