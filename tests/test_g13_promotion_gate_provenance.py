@@ -11,6 +11,8 @@ def _good() -> dict:
         "sources": {
             "validation": {
                 "run_id": gate.EXPECTED_VALIDATION_RUN,
+                "workflow_name": "ForexAI G13 Validation M15",
+                "head_branch": "main",
                 "conclusion": "success",
                 "head_sha": "validation-sha",
                 "job_id": 103140078741,
@@ -25,6 +27,8 @@ def _good() -> dict:
             },
             "robustness": {
                 "run_id": gate.EXPECTED_ROBUST_RUN,
+                "workflow_name": "ForexAI G13 Robustness M15",
+                "head_branch": "main",
                 "conclusion": "success",
                 "head_sha": "robust-sha",
                 "job_id": 103514547206,
@@ -39,6 +43,8 @@ def _good() -> dict:
             },
             "oos": {
                 "run_id": gate.EXPECTED_OOS_RUN,
+                "workflow_name": "ForexAI G13 OOS M15 Current",
+                "head_branch": "main",
                 "conclusion": "success",
                 "head_sha": "oos-sha",
                 "job_id": 103516577859,
@@ -147,3 +153,13 @@ def test_validation_artifact_candidate_mismatch_is_rejected(tmp_path: Path):
     except AssertionError:
         return
     raise AssertionError("validation artifact candidate mismatch was accepted")
+
+
+def test_wrong_workflow_identity_is_rejected():
+    p = _good()
+    p["sources"]["oos"]["workflow_name"] = "ForexAI G13 Validation M15"
+    try:
+        gate.validate_provenance(p)
+    except AssertionError:
+        return
+    raise AssertionError("wrong producer workflow was accepted")
