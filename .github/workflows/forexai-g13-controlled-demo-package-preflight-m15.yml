@@ -24,7 +24,6 @@ jobs:
     timeout-minutes: 10
     env:
       PYTHONOPTIMIZE: '0'
-    env:
       COMPILE_PARITY_RUN_ID: ${{ inputs.compile_parity_run_id }}
     steps:
       - name: Checkout
