@@ -29,7 +29,10 @@ def _promotion():
 
 def _parity():
     return {
-        "schema_version": "forexai.g13.mql5_signal_parity.v1",
+        "schema_version": "forexai.g13.mql5_signal_parity.v2",
+        "data_sha256": "a" * 64,
+        "data_manifest_sha256": "b" * 64,
+        "data_provenance": {"dataset_id": "x", "source": "HistData.com Generic ASCII M1 resampled to M15", "quality_status": "PASS"},
         "status": "PASS",
         "real_data_only": True,
         "synthetic_data": False,
