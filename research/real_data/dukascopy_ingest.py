@@ -403,7 +403,17 @@ def main(argv: list[str] | None = None) -> int:
                 raise DukascopyIngestError(
                     f"REAL_DATA_REQUIRED: resampled dataset failed validation: {report.to_dict()}"
                 )
-            print(report.to_dict())
+            m15_manifest = build_manifest(
+                target,
+                dataset_id=f"{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}",
+                symbol="EURUSD",
+                timeframe=args.timeframe,
+                source="Dukascopy JETTA v1 BID candles resampled to M15",
+                source_hash=str(result["manifest"]["source_hash"]),
+                quality_status=report.status,
+                output_path=Path(args.output) / "normalized" / f"EURUSD_{args.timeframe}_{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}.manifest.json",
+            )
+            print(m15_manifest)
         else:
             print(result["quality"])
             if args.manifest:
