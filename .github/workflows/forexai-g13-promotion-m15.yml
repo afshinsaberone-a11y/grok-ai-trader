@@ -82,6 +82,7 @@ jobs:
               assert isinstance(digest,str) and digest.startswith('sha256:')
               provenance['sources'][key]={
                   'run_id':run_id,
+                  'workflow_id':run.get('workflow_id'),
                   'workflow_name':run.get('name'),
                   'head_branch':run.get('head_branch'),
                   'job_id':job_id,
