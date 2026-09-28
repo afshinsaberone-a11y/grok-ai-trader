@@ -51,8 +51,8 @@ def validate(csv_path: Path, manifest_path: Path, *, expected_csv_path: Path | N
     ts = pd.to_datetime(data["timestamp"], utc=True)
     assert len(data) >= 100
     assert ts.is_monotonic_increasing
-    assert ts.min() >= pd.Timestamp(START_MIN, tz="UTC")
-    assert ts.max() < pd.Timestamp(END_EXCLUSIVE, tz="UTC")
+    assert ts.min() >= pd.Timestamp(START_MIN)
+    assert ts.max() < pd.Timestamp(END_EXCLUSIVE)
 
     manifest_sha256 = sha256(manifest_path)
     return {
