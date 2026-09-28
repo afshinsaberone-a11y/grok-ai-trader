@@ -389,27 +389,44 @@ jobs:
           }
 
           $requested = ($env:DATA_CSV_INPUT | Out-String).Trim()
+          $expectedDatasetId = '20220101_20251231'
           $workspaceCanonical = Join-Path $env:GITHUB_WORKSPACE 'data\\real\\normalized\\EURUSD_M15_20220101_20251231.csv'
+          $workspaceManifest = Join-Path $env:GITHUB_WORKSPACE 'data\\real\\normalized\\EURUSD_M15_20220101_20251231.manifest.json'
           $cacheRoot = 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13'
           $cacheCanonical = Join-Path $cacheRoot 'normalized\\EURUSD_M15_20220101_20251231.csv'
+          $cacheManifest = Join-Path $cacheRoot 'normalized\\EURUSD_M15_20220101_20251231.manifest.json'
           $data = $null
+          $dataManifest = $null
 
-          # Only accept a supplied path if it is readable; service-account
-          # permission errors must not terminate dataset resolution.
-          if (Try-ReadableFile $requested) {
-            $data = $requested
-            Write-Host "REAL_M15_SOURCE=input"
-          } elseif ($requested) {
-            Write-Host "REAL_M15_INPUT_SKIPPED=$requested"
+          function Test-TrustedRealDataset([string]$csv, [string]$manifest) {
+            if (-not (Try-ReadableFile $csv) -or -not (Try-ReadableFile $manifest)) { return $false }
+            & $env:PYTHON_EXE -m research.optimization.g13_real_data_provenance --csv $csv --manifest $manifest
+            return ($LASTEXITCODE -eq 0)
           }
 
-          if (-not $data -and (Try-ReadableFile $workspaceCanonical)) {
+          if ($requested) {
+            if ($requested -eq $workspaceCanonical -and (Test-TrustedRealDataset $workspaceCanonical $workspaceManifest)) {
+              $data = $workspaceCanonical
+              $dataManifest = $workspaceManifest
+              Write-Host "REAL_M15_SOURCE=workspace"
+            } elseif ($requested -eq $cacheCanonical -and (Test-TrustedRealDataset $cacheCanonical $cacheManifest)) {
+              $data = $cacheCanonical
+              $dataManifest = $cacheManifest
+              Write-Host "REAL_M15_SOURCE=runner_cache"
+            } elseif ($requested -ne $workspaceCanonical -and $requested -ne $cacheCanonical) {
+              Write-Host "REAL_M15_INPUT_REJECTED_NONCANONICAL=$requested"
+            }
+          }
+
+          if (-not $data -and (Test-TrustedRealDataset $workspaceCanonical $workspaceManifest)) {
             $data = $workspaceCanonical
+            $dataManifest = $workspaceManifest
             Write-Host "REAL_M15_SOURCE=workspace"
           }
 
-          if (-not $data -and (Try-ReadableFile $cacheCanonical)) {
+          if (-not $data -and (Test-TrustedRealDataset $cacheCanonical $cacheManifest)) {
             $data = $cacheCanonical
+            $dataManifest = $cacheManifest
             Write-Host "REAL_M15_SOURCE=runner_cache"
           }
 
