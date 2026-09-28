@@ -267,3 +267,7 @@ bool MondayAsiaReopenSpreadAtrMedThinBlock()
    if(med<=0.0) return false;
    return ((double)vol_now < MondayAsiaReopenThinVolRatio * med);
 }
+
+// GRK-SAFETY-CONTRACT-051
+// Analytics-only module: no order submission path. No grid. No martingale.
+// No synthetic execution or recovery sizing.
