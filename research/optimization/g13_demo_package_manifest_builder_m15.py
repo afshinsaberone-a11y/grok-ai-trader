@@ -20,7 +20,7 @@ from typing import Any
 
 PROMOTED = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 PROMOTION_SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
-PARITY_SCHEMA = "forexai.g13.mql5_signal_parity.v1"
+PARITY_SCHEMA = "forexai.g13.mql5_signal_parity.v2"
 OUTPUT_SCHEMA = "forexai.g13.demo_package_manifest.m15.v2"
 
 
