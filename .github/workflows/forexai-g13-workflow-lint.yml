@@ -200,6 +200,9 @@ jobs:
               "promotion_manifest_sha256",
               "ea_source_commit",
               "mq5_sha256",
+              "data_sha256",
+              "data_manifest_sha256",
+              "data_provenance",
           ]:
               assert token in builder, f"package manifest builder token missing: {token}"
 
