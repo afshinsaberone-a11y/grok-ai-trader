@@ -45,6 +45,7 @@ on:
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_demo_package_manifest_builder.py'
+      - 'tests/test_g13_promotion_gate_provenance.py'
   workflow_dispatch:
 
 concurrency:
@@ -162,6 +163,7 @@ jobs:
               "forexai.g13.promotion_evidence_provenance.m15.v1",
               "local_zip_sha256",
               "evidence_provenance_sha256",
+              "promotion_manifest_sha256",
               "promotion_run_attestation.m15.v1",
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
