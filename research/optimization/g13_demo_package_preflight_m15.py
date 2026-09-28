@@ -125,6 +125,9 @@ def audit(
         "timeframe": "M15",
         "data_end_exclusive": manifest["research_data_end_exclusive"],
     }
+    assert manifest["data_sha256"] == parity["data_sha256"]
+    assert manifest["data_manifest_sha256"] == parity["data_manifest_sha256"]
+    assert manifest["data_provenance"] == parity["data_provenance"]
     validate_compile_artifact_binding(
         manifest,
         compile_parity_run_id=compile_parity_run_id,
