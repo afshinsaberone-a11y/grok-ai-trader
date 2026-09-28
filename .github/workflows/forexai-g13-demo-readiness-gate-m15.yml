@@ -125,20 +125,46 @@ jobs:
           python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success"; assert x["head_sha"]==sys.argv[1], (x["id"],x["head_sha"],sys.argv[1]); print("STATIC_VALIDATION_SUCCESS",x["id"],x["head_sha"])' "$MAIN_SHA" <<< "$lint_json"
           echo "LINT_HEAD_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
 
-      - name: Download evidence
+      - name: Download and byte-verify exact evidence artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          rm -rf evidence
-          mkdir -p evidence/runtime evidence/safety evidence/parity evidence/promotion evidence/preflight
-          gh run download "$PROMOTION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-promotion-manifest-m15 --dir evidence/promotion
-          gh run download "$PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-controlled-demo-package-preflight-m15 --dir evidence/preflight
-          gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-mt5-runtime-safety-probe-m15-v2 --dir evidence/runtime
-          gh run download "$SAFETY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-execution-safety-audit-m15 --dir evidence/safety
-          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARITY_RUN_ID/artifacts" | python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; expected="g13-mt5-compile-parity-"+sys.argv[1]; m=[x for x in a if x["name"]==expected and not x["expired"]]; assert len(m)==1, (expected, [(x["name"],x["expired"]) for x in a]); print(m[0]["name"])' "$PARITY_RUN_ID")"
-          gh run download "$PARITY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir evidence/parity
 
+          download_exact_artifact() {
+            local run_id="$1"
+            local artifact_name="$2"
+            local destination="$3"
+            local meta id digest zip actual
+
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
+            id="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]==sys.argv[1] and not x["expired"]]; assert len(m)==1, (sys.argv[1],[(x["name"],x["expired"]) for x in a]); assert isinstance(m[0].get("digest"),str) and m[0]["digest"].startswith("sha256:"); print(m[0]["id"])' "$artifact_name" <<< "$meta")"
+            digest="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]==sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["digest"])' "$artifact_name" <<< "$meta")"
+
+            rm -rf "$destination"
+            mkdir -p "$destination"
+            zip="$destination/source.zip"
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$zip"
+            actual="sha256:$(sha256sum "$zip" | awk '{print $1}')"
+            test "$actual" = "$digest" || { echo "$artifact_name digest mismatch: $actual != $digest"; exit 1; }
+            unzip -q -o "$zip" -d "$destination/extracted"
+            rm -f "$zip"
+
+            printf '%s\n' "$id" > "$destination/.artifact_id"
+            printf '%s\n' "$digest" > "$destination/.artifact_digest"
+            echo "EVIDENCE_ARTIFACT_VERIFIED name=$artifact_name run=$run_id id=$id digest=$digest"
+          }
+
+          rm -rf evidence
+          mkdir -p evidence
+
+          download_exact_artifact "$PROMOTION_RUN_ID" "g13-promotion-manifest-m15" evidence/promotion
+          download_exact_artifact "$PREFLIGHT_RUN_ID" "g13-controlled-demo-package-preflight-m15" evidence/preflight
+          download_exact_artifact "$RUNTIME_RUN_ID" "g13-mt5-runtime-safety-probe-m15-v2" evidence/runtime
+          download_exact_artifact "$SAFETY_RUN_ID" "g13-execution-safety-audit-m15" evidence/safety
+          download_exact_artifact "$PARITY_RUN_ID" "g13-mt5-compile-parity-$PARITY_RUN_ID" evidence/parity
+
+          echo "G13_EVIDENCE_ARTIFACTS_BYTE_BOUND=true"
       - name: Resolve evidence files
         run: |
           set -euo pipefail
