@@ -246,6 +246,8 @@ jobs:
               "preflight_run_id",
               "g13-controlled-demo-package-preflight-m15",
               "latest_success_exact",
+              "download_exact_artifact",
+              "G13_EVIDENCE_ARTIFACTS_BYTE_BOUND=true",
           ]:
               assert token in readiness_workflow, f"readiness workflow binding token missing: {token}"
           for token in [
