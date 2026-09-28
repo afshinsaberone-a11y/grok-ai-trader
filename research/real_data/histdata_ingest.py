@@ -238,7 +238,18 @@ def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "
             raise HistDataIngestError(f"REAL_DATA_REQUIRED: HistData {timeframe} validation failed: {report.to_dict()}")
         out = normalized / f"EURUSD_{timeframe}_{dataset_id}.csv"
         target.to_csv(out, index=False)
+        m15_manifest = build_manifest(
+            target,
+            dataset_id=dataset_id,
+            symbol="EURUSD",
+            timeframe=timeframe,
+            source="HistData.com Generic ASCII M1 resampled to M15",
+            source_hash=str(manifest["source_hash"]),
+            quality_status=report.status,
+            output_path=normalized / f"EURUSD_{timeframe}_{dataset_id}.manifest.json",
+        )
         result["dataset"] = out
+        result["manifest"] = m15_manifest
         result["quality"] = report.to_dict()
     return result
 
