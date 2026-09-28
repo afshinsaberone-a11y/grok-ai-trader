@@ -104,7 +104,7 @@ jobs:
             --output-dir /tmp/g13_mql5_smoke
           test "$(find /tmp/g13_mql5_smoke -maxdepth 1 -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
           ! grep -R -nE 'MqlTick tick=\{\};|trans\.magic|trans\.comment' /tmp/g13_mql5_smoke
-          test "$(grep -R -l 'input bool DemoTradingAuthorized = false;' /tmp/g13_mql5_smoke | wc -l)" -eq 15
+          test "$(grep -R -lE 'input[[:space:]]+bool[[:space:]]+DemoTradingAuthorized[[:space:]]*=[[:space:]]*false;' /tmp/g13_mql5_smoke | wc -l)" -eq 15
 
       - name: Compile controlled Demo evidence validator
         run: |
