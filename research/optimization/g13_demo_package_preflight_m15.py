@@ -110,7 +110,11 @@ def audit(
     manifest = load_manifest(manifest_path)
     parity = json.loads(parity_evidence_path.read_text(encoding="utf-8"))
     assert manifest["parity_evidence_sha256"] == sha256(parity_evidence_path)
-    assert parity["schema_version"] == "forexai.g13.mql5_signal_parity.v1"
+    assert parity["schema_version"] == "forexai.g13.mql5_signal_parity.v2"
+    assert len(parity["data_sha256"]) == 64
+    assert len(parity["data_manifest_sha256"]) == 64
+    assert parity["data_provenance"]["quality_status"] == "PASS"
+    assert any(source in parity["data_provenance"]["source"] for source in ("HistData.com", "Dukascopy"))
     assert parity["status"] == "PASS"
     assert parity["real_data_only"] is True
     assert parity["synthetic_data"] is False
