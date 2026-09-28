@@ -96,6 +96,7 @@ jobs:
           assert p["status"]=="PASS"
           assert p["candidate_count"]==15
           assert p["binary_hashes_verified"]==15
+          assert p["source_hashes_verified"]==15
           assert p["source_safety_contracts_verified"]==15
           assert p["real_data_only"] is True
           assert p["synthetic_data"] is False
