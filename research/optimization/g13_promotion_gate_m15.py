@@ -31,6 +31,11 @@ EXPECTED_SOURCE_JOB_NAMES = {
     "robustness": "g13-robustness",
     "oos": "G13 2026 OOS M15 Current",
 }
+EXPECTED_SOURCE_WORKFLOW_NAMES = {
+    "validation": "ForexAI G13 Validation M15",
+    "robustness": "ForexAI G13 Robustness M15",
+    "oos": "ForexAI G13 OOS M15 Current",
+}
 EXPECTED_SOURCE_ARTIFACT_NAMES = {
     "validation": "g13-validation-m15",
     "robustness": "g13-robustness-m15",
@@ -60,6 +65,8 @@ def validate_provenance(provenance: dict[str, Any]) -> None:
     for key, (run_id, artifact_id) in expected.items():
         row = provenance["sources"][key]
         assert row["run_id"] == run_id
+        assert row.get("workflow_name") == EXPECTED_SOURCE_WORKFLOW_NAMES[key]
+        assert row.get("head_branch") == "main"
         assert isinstance(row.get("job_id"), int) and row["job_id"] > 0
         assert row.get("job_name") == EXPECTED_SOURCE_JOB_NAMES[key]
         assert row["conclusion"] == "success"
