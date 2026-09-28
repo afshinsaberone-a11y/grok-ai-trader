@@ -160,6 +160,7 @@ jobs:
           assert p['decision_policy']['live_trading_allowed'] is False
           print('G13_FINAL_PROMOTION_GATE_OK')
           print('PROMOTED',p['promoted_candidate_ids'])
+          PY
       - name: Write promotion run attestation
         run: |
           set -euo pipefail
