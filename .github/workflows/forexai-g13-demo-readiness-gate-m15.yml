@@ -147,14 +147,16 @@ jobs:
           promotion_attestation="$(find evidence/promotion -name promotion-run-attestation.json -type f | head -n1)"
           preflight_file="$(find evidence/preflight -name g13-demo-package-preflight-m15.json -type f | head -n1)"
           [ -n "$runtime_file" ] && [ -n "$safety_file" ] && [ -n "$parity_file" ] && [ -n "$promotion_file" ] && [ -n "$promotion_provenance" ] && [ -n "$promotion_attestation" ] && [ -n "$preflight_file" ] || exit 1
-          echo "RUNTIME_DIR=$(dirname "$runtime_file")" >> "$GITHUB_ENV"
-          echo "SAFETY_JSON=$safety_file" >> "$GITHUB_ENV"
-          echo "PARITY_JSON=$parity_file" >> "$GITHUB_ENV"
-          echo "PROMOTION_JSON=$promotion_file" >> "$GITHUB_ENV"
-          echo "PROMOTION_PROVENANCE=$promotion_provenance" >> "$GITHUB_ENV"
-          echo "PROMOTION_ATTESTATION=$promotion_attestation" >> "$GITHUB_ENV"
-          echo "PREFLIGHT_JSON=$preflight_file" >> "$GITHUB_ENV"
-          echo "PREFLIGHT_RUN_ID=$PREFLIGHT_RUN_ID" >> "$GITHUB_ENV"
+          {
+            echo "RUNTIME_DIR=$(dirname "$runtime_file")"
+            echo "SAFETY_JSON=$safety_file"
+            echo "PARITY_JSON=$parity_file"
+            echo "PROMOTION_JSON=$promotion_file"
+            echo "PROMOTION_PROVENANCE=$promotion_provenance"
+            echo "PROMOTION_ATTESTATION=$promotion_attestation"
+            echo "PREFLIGHT_JSON=$preflight_file"
+            echo "PREFLIGHT_RUN_ID=$PREFLIGHT_RUN_ID"
+          } >> "$GITHUB_ENV"
 
       - name: Verify static validation freshness
         env:
