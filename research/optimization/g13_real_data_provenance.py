@@ -1,6 +1,11 @@
 """Fail-closed validation for the real EURUSD M15 dataset consumed by G13 parity."""
 from __future__ import annotations
 
+
+if not __debug__:
+    raise RuntimeError("G13 real-data provenance validator refuses optimized Python execution.")
+
+
 import argparse
 import hashlib
 import json
