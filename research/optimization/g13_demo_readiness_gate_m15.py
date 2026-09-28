@@ -169,7 +169,11 @@ def gate(
     assert s["status"] == "PASS"
     assert s["scope"]["candidate_count"] == 15
     assert s["policy"]["live_trading_allowed"] is False
-    assert par["schema_version"] == "forexai.g13.mql5_signal_parity.v1"
+    assert par["schema_version"] == "forexai.g13.mql5_signal_parity.v2"
+    assert len(par["data_sha256"]) == 64
+    assert len(par["data_manifest_sha256"]) == 64
+    assert par["data_provenance"]["quality_status"] == "PASS"
+    assert any(source in par["data_provenance"]["source"] for source in ("HistData.com", "Dukascopy"))
     assert par["status"] == "PASS"
     assert par["real_data_only"] is True
     assert par["synthetic_data"] is False
