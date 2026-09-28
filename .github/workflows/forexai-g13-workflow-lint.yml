@@ -195,7 +195,7 @@ jobs:
 
           builder = Path("research/optimization/g13_demo_package_manifest_builder_m15.py").read_text(encoding="utf-8")
           for token in [
-              "forexai.g13.demo_package_manifest.m15.v1",
+              "forexai.g13.demo_package_manifest.m15.v2",
               "parity_evidence_sha256",
               "promotion_manifest_sha256",
               "ea_source_commit",
