@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 
-import pandas as pd
 import pytest
 
 from research.optimization.g13_real_data_provenance import validate
@@ -64,7 +63,7 @@ def test_real_data_provenance_rejects_tampering(tmp_path, mutation):
         payload["data_sha256"] = "b" * 64
         manifest_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises((AssertionError, pd.errors.ParserError)):
+    with pytest.raises(AssertionError):
         validate(csv_path, manifest_path, expected_csv_path=csv_path)
 
 
