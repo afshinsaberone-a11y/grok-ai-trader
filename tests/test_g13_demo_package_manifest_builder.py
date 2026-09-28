@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 
 from research.optimization.g13_demo_package_manifest_builder_m15 import build
