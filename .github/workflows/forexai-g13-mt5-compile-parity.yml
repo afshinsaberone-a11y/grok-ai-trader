@@ -444,8 +444,9 @@ jobs:
               --output $cacheRoot `
               --validate `
               --manifest
-            if ($LASTEXITCODE -eq 0 -and (Try-ReadableFile $cacheCanonical)) {
+            if ($LASTEXITCODE -eq 0 -and (Test-TrustedRealDataset $cacheCanonical $cacheManifest)) {
               $data = $cacheCanonical
+              $dataManifest = $cacheManifest
               Write-Host "REAL_M15_SOURCE=histdata_runner_cache"
             } else {
               Write-Host "HISTDATA_SOURCE_UNAVAILABLE=falling back to real Dukascopy JETTA ingestion"
@@ -461,20 +462,23 @@ jobs:
               if ($LASTEXITCODE -ne 0) {
                 throw "REAL_DATA_REQUIRED: both HistData and Dukascopy real-data ingestion failed"
               }
-              if (-not (Try-ReadableFile $cacheCanonical)) {
-                throw "REAL_DATA_REQUIRED: Dukascopy ingestion completed without producing the canonical EURUSD M15 dataset: $cacheCanonical"
+              if (-not (Test-TrustedRealDataset $cacheCanonical $cacheManifest)) {
+                throw "REAL_DATA_REQUIRED: Dukascopy ingestion produced no trusted canonical EURUSD M15 dataset + manifest"
               }
               $data = $cacheCanonical
+              $dataManifest = $cacheManifest
               Write-Host "REAL_M15_SOURCE=dukascopy_runner_cache"
             }
           }
-          if (-not (Try-ReadableFile $data)) {
-            throw "REAL_DATA_REQUIRED: resolved EURUSD M15 dataset is not readable: $data"
+          if (-not $data -or -not $dataManifest) {
+            throw "REAL_DATA_REQUIRED: trusted EURUSD M15 CSV and provenance manifest are both required"
           }
 
           "DATA_CSV_RESOLVED=$data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DATA_MANIFEST_RESOLVED=$dataManifest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DATA_MANIFEST_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $dataManifest).Hash.ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-          & $env:PYTHON_EXE -c "import pandas as pd; p=r'$data'; d=pd.read_csv(p); t=pd.to_datetime(d['timestamp'],utc=True); assert len(d)>=100, 'insufficient rows'; assert t.is_monotonic_increasing, 'timestamps not monotonic'; assert t.min()>=pd.Timestamp('2022-01-01',tz='UTC'), 'starts before 2022'; assert t.max()<pd.Timestamp('2026-01-01',tz='UTC'), 'contains 2026+ data'; print(f'REAL_M15_DATA_OK rows={len(d)} first={t.min()} last={t.max()}')"
+          & $env:PYTHON_EXE -m research.optimization.g13_real_data_provenance --csv "$data" --manifest "$dataManifest" --expected-csv "$data"
           if ($LASTEXITCODE -ne 0) {
             throw "REAL_DATA_REQUIRED: resolved EURUSD M15 dataset failed strict 2022-2025 scope validation"
           }
