@@ -375,14 +375,14 @@ void OnTick()
    double atr=ATRAtShift(1);
    if(atr==EMPTY_VALUE || atr<=0.0) return;
    double risk=ATRMult*atr;
-   MqlTick tick={{}};
-   if(!SymbolInfoTick(_Symbol,tick)) return;
    // In the real Demo execution path, SELL uses the current Bid snapshot as
    // the planned/requested execution price. Risk, SL/TP, and slippage are
    // therefore tied to the same observable quote rather than a historical
    // bar-open proxy used only by the deterministic research path.
-   double entry=tick.bid;
-   if(entry<=0.0) return;
+   double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   if(bid<=0.0 || ask<=0.0 || ask<bid) return;
+   double entry=bid;
    double sl=entry+risk;
    double tp=entry-RR*risk;
    long stopsLevel=(long)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
@@ -391,7 +391,7 @@ void OnTick()
    if(RR<=0.0) return;
    double lots=LotSize(risk,entry);
    if(lots<=0.0) return;
-   double spreadPoints=(tick.ask-tick.bid)/_Point;
+   double spreadPoints=(ask-bid)/_Point;
    ulong started=GetTickCount64();
    bool accepted=trade.Sell(lots,_Symbol,entry,sl,tp,"ForexAI-G13-{cid:02d}");
    ulong elapsed=GetTickCount64()-started;
