@@ -61,6 +61,8 @@ datetime lastDay = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   if(RiskPercent > 0.6) return INIT_FAILED;
+
    hEMA_Fast = iMA(_Symbol, PERIOD_CURRENT, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
    hEMA_Mid  = iMA(_Symbol, PERIOD_CURRENT, EMA_Mid,  0, MODE_EMA, PRICE_CLOSE);
    hEMA_Slow = iMA(_Symbol, PERIOD_CURRENT, EMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
@@ -333,3 +335,7 @@ void CheckDailyLoss()
    }
 }
 //+------------------------------------------------------------------+
+
+// GRK-SAFETY-CONTRACT-051
+// Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
+// No grid. No martingale. Closed-bar entries only. Daily profit/loss halt.
