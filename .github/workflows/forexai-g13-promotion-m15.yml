@@ -125,9 +125,11 @@ jobs:
           test -n "$ROB"
           test -n "$OOS"
           test -f artifacts/g13/frozen/g13-candidate-handoff-m15.json
-          echo "VALIDATION=$VAL" >> "$GITHUB_ENV"
-          echo "ROBUSTNESS=$ROB" >> "$GITHUB_ENV"
-          echo "OOS=$OOS" >> "$GITHUB_ENV"
+          {
+            echo "VALIDATION=$VAL"
+            echo "ROBUSTNESS=$ROB"
+            echo "OOS=$OOS"
+          } >> "$GITHUB_ENV"
       - name: Compile and unit smoke test
         run: |
           python -m py_compile research/optimization/g13_promotion_gate_m15.py
