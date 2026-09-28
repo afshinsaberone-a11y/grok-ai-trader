@@ -137,6 +137,9 @@ def audit(
     for f in mq5:
         cid = int(f.stem.rsplit("_", 1)[1])
         assert cid in rows, f"unexpected MQ5 candidate {cid}"
+        assert "mq5_sha256" in rows[cid], f"missing MQ5 hash in manifest candidate {cid}"
+        actual_source_sha = sha256(f)
+        assert actual_source_sha == rows[cid]["mq5_sha256"], f"MQ5 hash mismatch candidate {cid}"
         text = f.read_text(encoding="utf-8")
         assert f'ConfigHash = "{rows[cid]["config_hash"]}";' in text, f"ConfigHash mismatch candidate {cid}"
         assert f"MagicNumber = 130000 + {cid};" in text, f"MagicNumber mismatch candidate {cid}"
@@ -162,8 +165,10 @@ def audit(
         "candidate_count": 15,
         "candidate_ids": list(PROMOTED),
         "candidate_config_hashes": {str(cid): rows[cid]["config_hash"] for cid in PROMOTED},
+        "candidate_mq5_hashes": {str(cid): rows[cid]["mq5_sha256"] for cid in PROMOTED},
         "candidate_ex5_hashes": {str(cid): rows[cid]["ex5_sha256"] for cid in PROMOTED},
         "binary_hashes_verified": 15,
+        "source_hashes_verified": 15,
         "source_safety_contracts_verified": 15,
         "real_data_only": True,
         "synthetic_data": False,
