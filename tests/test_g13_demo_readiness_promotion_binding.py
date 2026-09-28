@@ -125,6 +125,7 @@ def _preflight():
         "compile_parity_artifact_id": 66,
         "compile_parity_artifact_digest": "sha256:" + "a" * 64,
         "downloaded_zip_sha256": "a" * 64,
+        "promotion_manifest_sha256": "p" * 64,
         "candidate_config_hashes": hashes,
     }
 
@@ -143,6 +144,7 @@ def test_exact_preflight_binding_passes():
     validate_preflight_binding(
         _promotion(),
         _preflight(),
+        promotion_manifest_sha256=_preflight()["promotion_manifest_sha256"],
         parity_run_id=55,
         parity_head_sha="main-sha",
         main_head_sha="main-sha",
@@ -154,6 +156,7 @@ def test_exact_preflight_binding_passes():
     [
         ("compile_parity_run_id", 56),
         ("compile_parity_head_sha", "wrong"),
+        ("promotion_manifest_sha256", "q" * 64),
         ("downloaded_zip_sha256", "b" * 64),
     ],
 )
@@ -164,6 +167,7 @@ def test_preflight_binding_rejects_tampering(field, value):
         validate_preflight_binding(
             _promotion(),
             payload,
+            promotion_manifest_sha256="p" * 64,
             parity_run_id=55,
             parity_head_sha="main-sha",
             main_head_sha="main-sha",
