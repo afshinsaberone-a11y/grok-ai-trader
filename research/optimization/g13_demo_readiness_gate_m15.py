@@ -90,6 +90,7 @@ def validate_preflight_binding(
     assert isinstance(promotion_manifest_sha256, str) and len(promotion_manifest_sha256) == 64
     assert preflight["promotion_manifest_sha256"] == promotion_manifest_sha256
     assert preflight["binary_hashes_verified"] == 15
+    assert preflight["source_hashes_verified"] == 15
     assert preflight["source_safety_contracts_verified"] == 15
     assert preflight["real_data_only"] is True
     assert preflight["synthetic_data"] is False
@@ -180,6 +181,9 @@ def gate(
     assert par["candidate_count"] == 15
     assert par["passed_count"] == 15
     assert all(row["status"] == "PASS" for row in par["results"])
+    assert pf["data_sha256"] == par["data_sha256"]
+    assert pf["data_manifest_sha256"] == par["data_manifest_sha256"]
+    assert pf["data_provenance"] == par["data_provenance"]
     assert s["policy"]["demo_trading_default_authorized"] is False
     assert len(s["matrix"]) == 1536
     assert sum(1 for row in s["matrix"] if row["actual_allowed"]) == 769
@@ -276,6 +280,7 @@ def gate(
             "parity_run_id": parity_run_id,
             "candidate_count": pf["candidate_count"],
             "binary_hashes_verified": pf["binary_hashes_verified"],
+            "source_hashes_verified": pf["source_hashes_verified"],
             "source_safety_contracts_verified": pf["source_safety_contracts_verified"],
             "promotion_manifest_sha256": pf["promotion_manifest_sha256"],
             "parity_evidence_sha256": pf["parity_evidence_sha256"],
@@ -301,6 +306,9 @@ def gate(
             "safety_head_sha": safety_head_sha,
             "parity_status": par["status"],
             "parity_passed_count": par["passed_count"],
+            "data_sha256": par["data_sha256"],
+            "data_manifest_sha256": par["data_manifest_sha256"],
+            "data_provenance": par["data_provenance"],
         },
         "next_gate": "CONTROLLED_DEMO_EXECUTION_AUDIT",
         "live_remains_disabled": True,
