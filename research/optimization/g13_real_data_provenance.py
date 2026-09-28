@@ -9,6 +9,7 @@ if not __debug__:
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 
 ALLOWED_SOURCES = ("HistData.com", "Dukascopy")
