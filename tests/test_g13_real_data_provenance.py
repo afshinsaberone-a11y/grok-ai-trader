@@ -1,42 +1,44 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
 from research.optimization.g13_real_data_provenance import validate
 
 
-def _dataset(rows: int = 120) -> pd.DataFrame:
-    ts = pd.date_range("2022-01-03T00:00:00Z", periods=rows, freq="15min")
-    close = [1.10 + i * 0.00001 for i in range(rows)]
-    return pd.DataFrame(
-        {
-            "timestamp": ts,
-            "open": close,
-            "high": [x + 0.00002 for x in close],
-            "low": [x - 0.00002 for x in close],
-            "close": close,
-            "volume": [1.0] * rows,
-        }
-    )
+def _rows(count: int = 120):
+    start = datetime(2022, 1, 3, tzinfo=timezone.utc)
+    rows = []
+    for i in range(count):
+        ts = start + timedelta(minutes=15 * i)
+        close = 1.10 + i * 0.00001
+        rows.append((ts.isoformat(), close, close + 0.00002, close - 0.00002, close, 1.0))
+    return rows
 
 
-def _write_pair(tmp_path):
+def _write_pair(tmp_path: Path):
     csv_path = tmp_path / "EURUSD_M15_20220101_20251231.csv"
     manifest_path = tmp_path / "EURUSD_M15_20220101_20251231.manifest.json"
-    data = _dataset()
-    data.to_csv(csv_path, index=False)
+    rows = _rows()
+    with csv_path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["timestamp", "open", "high", "low", "close", "volume"])
+        writer.writerows(rows)
+
     payload = {
         "dataset_id": "20220101_20251231",
         "symbol": "EURUSD",
         "timeframe": "M15",
         "source": "HistData.com Generic ASCII M1 resampled to M15",
         "source_hash": "a" * 64,
-        "rows": len(data),
-        "start": data["timestamp"].iloc[0].isoformat(),
-        "end": data["timestamp"].iloc[-1].isoformat(),
+        "rows": len(rows),
+        "start": rows[0][0],
+        "end": rows[-1][0],
         "timezone": "UTC",
         "quality_status": "PASS",
         "data_sha256": hashlib.sha256(csv_path.read_bytes()).hexdigest(),
@@ -45,7 +47,7 @@ def _write_pair(tmp_path):
     return csv_path, manifest_path
 
 
-def test_real_data_provenance_passes(tmp_path):
+def test_real_data_provenance_passes(tmp_path: Path):
     csv_path, manifest_path = _write_pair(tmp_path)
     result = validate(csv_path, manifest_path, expected_csv_path=csv_path)
     assert result["rows"] == 120
@@ -54,7 +56,7 @@ def test_real_data_provenance_passes(tmp_path):
 
 
 @pytest.mark.parametrize("mutation", ["csv", "manifest"])
-def test_real_data_provenance_rejects_tampering(tmp_path, mutation):
+def test_real_data_provenance_rejects_tampering(tmp_path: Path, mutation: str):
     csv_path, manifest_path = _write_pair(tmp_path)
     if mutation == "csv":
         csv_path.write_text(csv_path.read_text(encoding="utf-8") + "tampered\n", encoding="utf-8")
@@ -67,11 +69,7 @@ def test_real_data_provenance_rejects_tampering(tmp_path, mutation):
         validate(csv_path, manifest_path, expected_csv_path=csv_path)
 
 
-def test_real_data_provenance_rejects_noncanonical_path(tmp_path):
+def test_real_data_provenance_rejects_noncanonical_path(tmp_path: Path):
     csv_path, manifest_path = _write_pair(tmp_path)
     with pytest.raises(AssertionError, match="non-canonical"):
-        validate(
-            csv_path,
-            manifest_path,
-            expected_csv_path=tmp_path / "somewhere-else.csv",
-        )
+        validate(csv_path, manifest_path, expected_csv_path=tmp_path / "somewhere-else.csv")
