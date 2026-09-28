@@ -26,7 +26,9 @@ on:
       - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
       - 'research/optimization/g13_demo_package_preflight_m15.py'
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
+      - 'research/optimization/g13_real_data_provenance.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
+      - 'tests/test_g13_real_data_provenance.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
   pull_request:
@@ -40,7 +42,9 @@ on:
       - 'research/optimization/g13_demo_readiness_gate_m15.py'
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'research/optimization/g13_demo_package_preflight_m15.py'
+      - 'research/optimization/g13_real_data_provenance.py'
       - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
+      - 'tests/test_g13_real_data_provenance.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_demo_package_manifest_builder.py'
@@ -102,6 +106,7 @@ jobs:
             research/optimization/g13_controlled_demo_execution_audit.py \
             research/optimization/g13_demo_package_preflight_m15.py \
             research/optimization/g13_demo_package_manifest_builder_m15.py \
+            research/optimization/g13_real_data_provenance.py \
             research/optimization/g13_promotion_gate_m15.py
 
       - name: Smoke-test deterministic G13 EA rendering
@@ -203,6 +208,8 @@ jobs:
               "data_sha256",
               "data_manifest_sha256",
               "data_provenance",
+              "data_sha256",
+              "data_manifest_sha256",
           ]:
               assert token in builder, f"package manifest builder token missing: {token}"
 
