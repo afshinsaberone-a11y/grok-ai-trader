@@ -166,6 +166,18 @@ jobs:
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
 
+          for gate_name in [
+              "research/optimization/g13_promotion_gate_m15.py",
+              "research/optimization/g13_demo_readiness_gate_m15.py",
+              "research/optimization/g13_demo_package_preflight_m15.py",
+              "research/optimization/g13_demo_package_manifest_builder_m15.py",
+              "research/optimization/g13_mql5_parity.py",
+              "research/optimization/g13_execution_safety_audit_m15.py",
+              "research/optimization/g13_controlled_demo_execution_audit.py",
+          ]:
+              gate_text = Path(gate_name).read_text(encoding="utf-8")
+              assert "if not __debug__:" in gate_text, f"optimized Python guard missing: {gate_name}"
+
           builder = Path("research/optimization/g13_demo_package_manifest_builder_m15.py").read_text(encoding="utf-8")
           for token in [
               "forexai.g13.demo_package_manifest.m15.v1",
