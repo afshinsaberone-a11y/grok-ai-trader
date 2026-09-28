@@ -60,10 +60,9 @@ jobs:
           (github.event.workflow_run.conclusion == 'success' &&
            github.event.workflow_run.head_branch == 'main') }}
     runs-on: [self-hosted, windows, mt5]
-    env:
-      PYTHONOPTIMIZE: '0'
     timeout-minutes: 240
     env:
+      PYTHONOPTIMIZE: '0'
       MT5_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
       MT5_DATA_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_data_root || 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075' }}
       DATA_CSV_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.data_csv || 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv' }}
