@@ -69,4 +69,8 @@ def test_builder_binds_exact_package(tmp_path):
     assert result["ea_source_commit"] == "main-sha"
     assert result["compile_parity_run_id"] == 123
     assert result["parity_evidence_sha256"]
+    assert [x["mq5_sha256"] for x in result["candidates"]] == [
+        __import__("hashlib").sha256((package / f"ForexAI_G13_Candidate_{cid}.mq5").read_bytes()).hexdigest()
+        for cid in PROMOTED
+    ]
     assert [x["candidate_id"] for x in result["candidates"]] == PROMOTED
