@@ -161,6 +161,8 @@ jobs:
               "def validate_provenance",
               "forexai.g13.promotion_evidence_provenance.m15.v1",
               "local_zip_sha256",
+              "workflow_name",
+              "head_branch",
               "evidence_provenance_sha256",
               "promotion_run_attestation.m15.v1",
           ]:
