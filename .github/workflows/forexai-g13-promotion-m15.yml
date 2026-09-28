@@ -26,6 +26,8 @@ jobs:
   promotion:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PYTHONOPTIMIZE: '0'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
