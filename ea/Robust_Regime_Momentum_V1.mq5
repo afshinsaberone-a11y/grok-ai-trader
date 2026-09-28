@@ -117,9 +117,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    if(p<0) cooldown=CooldownBars;
 }
 
-void OnInit()
+int OnInit()
 {
-   if(RiskPercent > 0.6) return;
+   if(RiskPercent > 0.6) return INIT_FAILED;
 
    trade.SetExpertMagicNumber(Magic);
    h_adx=iADX(_Symbol,PERIOD_M5,ADX_Period);
