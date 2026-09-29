@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       target_sha:
-        description: 'Exact main SHA whose fresh producer evidence is eligible for Promotion'
+        description: 'Exact main SHA bound to the successful producer lineage audit'
+        required: true
+        type: string
+      audit_run_id:
+        description: 'Exact successful producer lineage audit run that authorizes evidence consumption'
         required: true
         type: string
   workflow_run:
@@ -30,6 +34,7 @@ jobs:
     env:
       PYTHONOPTIMIZE: '0'
       TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
+      AUDIT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.audit_run_id }}
     steps:
       - name: Checkout exact target
         uses: actions/checkout@v4
@@ -45,7 +50,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Resolve exact fresh producer runs and download evidence
+      - name: Consume exact successful lineage-audit evidence
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -61,11 +66,57 @@ jobs:
 
           repo = os.environ["GITHUB_REPOSITORY"]
           target_sha = os.environ["TARGET_SHA"]
+          audit_run_id = int(os.environ["AUDIT_RUN_ID"])
           assert re.fullmatch(r"[0-9a-f]{40}", target_sha), target_sha
+          assert audit_run_id > 0
+
+          def gh_json(path: str) -> dict:
+              return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+
+          audit_run = gh_json(f"repos/{repo}/actions/runs/{audit_run_id}")
+          assert audit_run.get("name") == "ForexAI G13 Producer Lineage Audit M15"
+          assert audit_run.get("conclusion") == "success"
+          assert audit_run.get("head_branch") == "main"
+          assert audit_run_id == int(audit_run["id"])
+
+          artifacts = gh_json(f"repos/{repo}/actions/runs/{audit_run_id}/artifacts")["artifacts"]
+          audit_matches = [
+              a for a in artifacts
+              if a.get("name") == "g13-producer-lineage-audit-m15" and a.get("expired") is False
+          ]
+          assert len(audit_matches) == 1
+          audit_artifact = audit_matches[0]
+          audit_digest = str(audit_artifact.get("digest", ""))
+          assert re.fullmatch(r"sha256:[0-9a-fA-F]{64}", audit_digest)
+
+          audit_dir = Path("evidence/lineage-audit")
+          audit_dir.mkdir(parents=True, exist_ok=True)
+          audit_zip = audit_dir / "source.zip"
+          with audit_zip.open("wb") as fh:
+              subprocess.run(
+                  [
+                      "gh", "api", "--method", "GET",
+                      f"repos/{repo}/actions/artifacts/{int(audit_artifact['id'])}/zip",
+                  ],
+                  check=True,
+                  stdout=fh,
+              )
+          audit_actual = hashlib.sha256(audit_zip.read_bytes()).hexdigest()
+          assert audit_actual == audit_digest.split(":", 1)[1]
+          with zipfile.ZipFile(audit_zip) as archive:
+              archive.extractall(audit_dir)
+
+          audit_reports = list(audit_dir.rglob("g13-producer-lineage-audit-m15.json"))
+          assert len(audit_reports) == 1
+          audit_report = json.loads(audit_reports[0].read_text(encoding="utf-8"))
+          assert audit_report["schema_version"] == "forexai.g13.producer_lineage_audit.m15.v1"
+          assert audit_report["status"] == "PASS"
+          assert audit_report["target_sha"] == target_sha
+          producer_runs = audit_report["producer_runs"]
+          assert set(producer_runs) == {"validation", "robustness", "oos"}
 
           specs = {
               "validation": {
-                  "workflow_file": "forexai-g13-validation-m15.yml",
                   "workflow_name": "ForexAI G13 Validation M15",
                   "workflow_id": 355468598,
                   "job_name": "g13-validation",
@@ -73,7 +124,6 @@ jobs:
                   "provenance_name": "g13-validation-data-provenance.json",
               },
               "robustness": {
-                  "workflow_file": "forexai-g13-robustness-m15.yml",
                   "workflow_name": "ForexAI G13 Robustness M15",
                   "workflow_id": 355473409,
                   "job_name": "g13-robustness",
@@ -81,7 +131,6 @@ jobs:
                   "provenance_name": "g13-robustness-data-provenance.json",
               },
               "oos": {
-                  "workflow_file": "forexai-g13-oos-m15-current.yml",
                   "workflow_name": "ForexAI G13 OOS M15 Current",
                   "workflow_id": 356162316,
                   "job_name": "G13 2026 OOS M15 Current",
@@ -93,37 +142,27 @@ jobs:
           source_provenance = {
               "schema_version": "forexai.g13.promotion_evidence_provenance.m15.v1",
               "target_sha": target_sha,
+              "audit_run_id": audit_run_id,
               "sources": {},
           }
 
-          def gh_json(path: str) -> dict:
-              return json.loads(subprocess.check_output(["gh", "api", path], text=True))
-
           for role, spec in specs.items():
-              runs = gh_json(
-                  f"repos/{repo}/actions/workflows/{spec['workflow_file']}/runs"
-                  "?branch=main&status=success&per_page=100"
-              )["workflow_runs"]
-              matches = [
-                  r for r in runs
-                  if r.get("head_sha") == target_sha and r.get("conclusion") == "success"
-              ]
-              assert matches, f"no successful {role} producer run for exact target SHA {target_sha}"
-              run = max(matches, key=lambda r: int(r["id"]))
-
+              run_id = int(producer_runs[role])
+              assert run_id > 0
+              run = gh_json(f"repos/{repo}/actions/runs/{run_id}")
               assert run.get("name") == spec["workflow_name"]
               assert int(run.get("workflow_id")) == spec["workflow_id"]
               assert run.get("head_branch") == "main"
               assert run.get("head_sha") == target_sha
-              run_id = int(run["id"])
+              assert run.get("conclusion") == "success"
 
               artifacts = gh_json(f"repos/{repo}/actions/runs/{run_id}/artifacts")["artifacts"]
-              candidates = [
+              matches = [
                   a for a in artifacts
                   if a.get("name") == spec["artifact_name"] and a.get("expired") is False
               ]
-              assert len(candidates) == 1, (role, spec["artifact_name"], candidates)
-              artifact = candidates[0]
+              assert len(matches) == 1, (role, spec["artifact_name"], matches)
+              artifact = matches[0]
               artifact_id = int(artifact["id"])
               digest = str(artifact.get("digest", ""))
               assert re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest)
@@ -133,7 +172,7 @@ jobs:
                   j for j in jobs
                   if j.get("name") == spec["job_name"] and j.get("conclusion") == "success"
               ]
-              assert len(job_matches) == 1, (role, spec["job_name"], job_matches)
+              assert len(job_matches) == 1
               job_id = int(job_matches[0]["id"])
 
               dest = Path("evidence") / role
@@ -148,7 +187,6 @@ jobs:
                       check=True,
                       stdout=fh,
                   )
-
               actual = hashlib.sha256(zip_path.read_bytes()).hexdigest()
               expected = digest.split(":", 1)[1]
               assert actual == expected, (role, actual, expected)
@@ -179,15 +217,12 @@ jobs:
                   },
                   "local_zip_sha256": actual,
               }
-              print("SOURCE_RUN_OK", role, run_id, target_sha)
-              print("SOURCE_ARTIFACT_OK", role, artifact_id, digest)
+              print("AUDITED_SOURCE_BOUND", role, run_id, artifact_id, target_sha)
 
           Path("evidence/source-provenance.json").write_text(
               json.dumps(source_provenance, indent=2, sort_keys=True) + "\n",
               encoding="utf-8",
           )
-          PY
-
       - name: Verify upstream artifacts exist
         run: |
           set -euo pipefail
