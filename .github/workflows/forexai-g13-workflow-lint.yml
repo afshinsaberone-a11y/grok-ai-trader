@@ -35,6 +35,7 @@ on:
       - 'research/real_data/dukascopy_ingest.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_real_data_provenance.py'
+      - 'tests/test_g13_data_provenance.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
   pull_request:
