@@ -219,6 +219,9 @@ jobs:
               json.dumps(source_provenance, indent=2, sort_keys=True) + "\n",
               encoding="utf-8",
           )
+          print("PROMOTION_SOURCE_PROVENANCE_OK", target_sha, audit_run_id)
+          PY
+
       - name: Checkout exact audited target
         run: |
           set -euo pipefail
