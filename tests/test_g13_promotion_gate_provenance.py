@@ -66,7 +66,7 @@ def _good() -> dict:
 
 def _data_provenance() -> dict:
     base = {
-        "schema_version": "forexai.g13.data_provenance.m15.v1",
+        "schema_version": "forexai.g13.data_provenance.m15.v2",
         "symbol": "EURUSD",
         "timeframe": "M15",
         "producer": {
@@ -79,6 +79,7 @@ def _data_provenance() -> dict:
             "role": "validation",
             "data_sha256": "a" * 64,
             "data_manifest_sha256": "b" * 64,
+            "manifest_identity_sha256": "e" * 64,
             "manifest_data_sha256": "a" * 64,
             "dataset_id": "20220101_20251231",
             "source": "HistData.com Generic ASCII M1 resampled to M15",
@@ -100,6 +101,7 @@ def _data_provenance() -> dict:
             "role": "robustness",
             "data_sha256": "a" * 64,
             "data_manifest_sha256": "b" * 64,
+            "manifest_identity_sha256": "e" * 64,
             "manifest_data_sha256": "a" * 64,
             "dataset_id": "20220101_20251231",
             "source": "HistData.com Generic ASCII M1 resampled to M15",
@@ -175,6 +177,15 @@ def test_producer_data_sha_mismatch_is_rejected():
     except AssertionError:
         return
     raise AssertionError("producer dataset hash mismatch was accepted")
+
+def test_manifest_identity_mismatch_is_rejected():
+    p = _data_provenance()
+    p["robustness"]["manifest_identity_sha256"] = "f" * 64
+    try:
+        gate.validate_data_lineage(p, _good(), target_sha="target-sha")
+    except AssertionError:
+        return
+    raise AssertionError("manifest identity mismatch was accepted")
 
 
 def test_producer_data_head_sha_mismatch_is_rejected():
