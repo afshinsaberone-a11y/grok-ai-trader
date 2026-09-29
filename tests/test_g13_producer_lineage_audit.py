@@ -26,6 +26,11 @@ def _p(role: str, run_id: int, data_sha: str, manifest_sha: str, **extra):
                 "robustness": "ForexAI G13 Robustness M15",
                 "oos": "ForexAI G13 OOS M15 Current",
             }[role],
+            "workflow_file": {
+                "validation": "forexai-g13-validation-m15.yml",
+                "robustness": "forexai-g13-robustness-m15.yml",
+                "oos": "forexai-g13-oos-m15-current.yml",
+            }[role],
             "run_id": run_id,
             "head_sha": "abc123",
         },
