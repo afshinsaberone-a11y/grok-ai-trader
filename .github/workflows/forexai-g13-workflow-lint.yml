@@ -279,6 +279,15 @@ jobs:
           ]:
               assert token in data_provenance, f"producer data provenance token missing: {token}"
 
+          validation_workflow = Path(".github/workflows/forexai-g13-validation-m15.yml").read_text(encoding="utf-8")
+          robustness_workflow = Path(".github/workflows/forexai-g13-robustness-m15.yml").read_text(encoding="utf-8")
+          oos_workflow = Path(".github/workflows/forexai-g13-oos-m15-current.yml").read_text(encoding="utf-8")
+          continuation = "research/optimization/cost_aware_gate_v14.py " + "\\" + "\n            research/optimization/g13_data_provenance.py"
+          assert continuation in validation_workflow, "validation provenance helper must remain in py_compile continuation"
+          assert continuation in robustness_workflow, "robustness provenance helper must remain in py_compile continuation"
+          oos_continuation = "research/real_data/dukascopy_ingest.py " + "\\" + "\n            research/optimization/g13_data_provenance.py"
+          assert oos_continuation in oos_workflow, "OOS provenance helper must remain in py_compile continuation"
+
           provenance = Path("research/optimization/g13_real_data_provenance.py").read_text(encoding="utf-8")
           for token in [
               "if not __debug__:",
