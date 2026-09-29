@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - research/optimization/g13_promotion_gate_m15.py
-      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
-      - .github/workflows/forexai-g13-promotion-m15.yml
+      - 'research/optimization/g13_*.py'
+      - 'artifacts/g13/frozen/g13-candidate-handoff-m15.json'
+      - '.github/workflows/forexai-g13-*.yml'
 
 permissions:
   contents: read
