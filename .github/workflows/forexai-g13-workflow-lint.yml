@@ -295,8 +295,9 @@ jobs:
 
           data_provenance = Path("research/optimization/g13_data_provenance.py").read_text(encoding="utf-8")
           for token in [
-              "forexai.g13.data_provenance.m15.v1",
+              "forexai.g13.data_provenance.m15.v2",
               "data_sha256",
+              "manifest_identity_sha256",
               "producer",
               "upstream_manifest_sha256",
               "producer_workflow_file",
