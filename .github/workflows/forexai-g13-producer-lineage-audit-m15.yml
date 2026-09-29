@@ -1,0 +1,90 @@
+name: ForexAI G13 Producer Lineage Audit M15
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: 'Exact main SHA whose Validation/Robustness/OOS producer runs must be audited'
+        required: true
+        type: string
+  workflow_run:
+    workflows:
+      - "ForexAI G13 OOS M15 Current"
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONOPTIMIZE: '0'
+      VALIDATION_WORKFLOW_FILE: forexai-g13-validation-m15.yml
+      ROBUSTNESS_WORKFLOW_FILE: forexai-g13-robustness-m15.yml
+      OOS_WORKFLOW_FILE: forexai-g13-oos-m15-current.yml
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
+      - name: Resolve exact producer runs and verify artifact bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_TARGET_SHA: ${{ inputs.target_sha }}
+          EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          TARGET_SHA="$EVENT_TARGET_SHA"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then TARGET_SHA="$MANUAL_TARGET_SHA"; fi
+          test -n "$TARGET_SHA"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          rm -rf evidence/g13-producers
+          mkdir -p evidence/g13-producers/{validation,robustness,oos}
+          resolve_run() {
+            local key="$1" workflow="$2" artifact_name="$3" dest="$4"
+            local runs_json run_id artifact_json artifact_count digest zip actual artifact_id prov
+            runs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=main&status=success&per_page=100")"
+            run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$TARGET_SHA" '.workflow_runs | map(select(.head_sha == $sha and .conclusion == "success")) | sort_by(.id) | last | .id // empty')"
+            test -n "$run_id"
+            artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
+            artifact_count="$(printf '%s' "$artifact_json" | jq --arg n "$artifact_name" '[.artifacts[] | select(.name == $n and .expired == false)] | length')"
+            test "$artifact_count" -eq 1
+            artifact_id="$(printf '%s' "$artifact_json" | jq -r --arg n "$artifact_name" '[.artifacts[] | select(.name == $n and .expired == false)][0].id')"
+            digest="$(printf '%s' "$artifact_json" | jq -r --arg n "$artifact_name" '[.artifacts[] | select(.name == $n and .expired == false)][0].digest')"
+            printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-fA-F]{64}$'
+            mkdir -p "$dest"
+            zip="$dest/source.zip"
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$zip"
+            actual="sha256:$(sha256sum "$zip" | awk '{print $1}')"
+            test "$actual" = "$digest"
+            unzip -o "$zip" -d "$dest/extracted" >/dev/null
+            prov="$(find "$dest/extracted" -type f -name "$key" | head -n1)"
+            test -n "$prov"
+            cp "$prov" "$dest/provenance.json"
+            printf '%s
+' "$run_id" > "$dest/run_id.txt"
+            echo "$key RUN=$run_id ARTIFACT=$artifact_name DIGEST=$digest"
+          }
+          resolve_run "g13-validation-data-provenance.json" "$VALIDATION_WORKFLOW_FILE" "g13-validation-m15" evidence/g13-producers/validation
+          resolve_run "g13-robustness-data-provenance.json" "$ROBUSTNESS_WORKFLOW_FILE" "g13-robustness-m15" evidence/g13-producers/robustness
+          resolve_run "g13-oos-data-provenance.json" "$OOS_WORKFLOW_FILE" "g13-oos-m15-2026-current" evidence/g13-producers/oos
+      - name: Compile lineage audit
+        run: |
+          python -m py_compile research/optimization/g13_producer_lineage_audit.py
+          python -m py_compile research/optimization/g13_data_provenance.py
+      - name: Run fail-closed producer lineage audit
+        run: |
+          python -m research.optimization.g13_producer_lineage_audit             --target-sha "$TARGET_SHA"             --validation-run-id "$(cat evidence/g13-producers/validation/run_id.txt)"             --robustness-run-id "$(cat evidence/g13-producers/robustness/run_id.txt)"             --oos-run-id "$(cat evidence/g13-producers/oos/run_id.txt)"             --validation-provenance evidence/g13-producers/validation/provenance.json             --robustness-provenance evidence/g13-producers/robustness/provenance.json             --oos-provenance evidence/g13-producers/oos/provenance.json             --output artifacts/g13-producer-lineage-audit-m15.json
+      - name: Upload immutable lineage evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-producer-lineage-audit-m15
+          path: |
+            artifacts/g13-producer-lineage-audit-m15.json
+            evidence/g13-producers/**/provenance.json
+          if-no-files-found: error
