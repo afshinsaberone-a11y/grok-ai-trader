@@ -57,6 +57,8 @@ def load(path: Path) -> dict[str, Any]:
 def validate_provenance(provenance: dict[str, Any], *, target_sha: str | None = None) -> None:
     assert provenance["schema_version"] == "forexai.g13.promotion_evidence_provenance.m15.v1"
     assert set(provenance["sources"]) == set(EXPECTED_SOURCE_WORKFLOW_NAMES)
+    if target_sha is not None:
+        assert provenance.get("target_sha") == target_sha
 
     for key in EXPECTED_SOURCE_WORKFLOW_NAMES:
         row = provenance["sources"][key]
