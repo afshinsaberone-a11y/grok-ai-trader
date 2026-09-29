@@ -153,3 +153,14 @@ def test_source_metadata_mismatch_rejected():
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=metadata,
         )
+
+
+def test_source_metadata_is_required():
+    p = _all()
+    with pytest.raises(AssertionError):
+        validate_lineage(
+            p,
+            target_sha="abc123",
+            run_ids={"validation": 101, "robustness": 202, "oos": 303},
+            source_metadata_by_role=None,
+        )
