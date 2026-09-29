@@ -42,6 +42,14 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Capture current main HEAD
+        run: |
+          set -euo pipefail
+          MAIN_HEAD_SHA="$(git rev-parse HEAD)"
+          test -n "$MAIN_HEAD_SHA"
+          echo "MAIN_HEAD_SHA=$MAIN_HEAD_SHA" >> "$GITHUB_ENV"
+          echo "PROMOTION_MAIN_HEAD=$MAIN_HEAD_SHA"
+
       - name: Consume exact successful lineage-audit evidence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,6 +112,7 @@ jobs:
           assert audit_report["status"] == "PASS"
           target_sha = audit_report["target_sha"]
           assert re.fullmatch(r"[0-9a-f]{40}", target_sha), target_sha
+          assert audit_run.get("head_sha") == target_sha, (audit_run.get("head_sha"), target_sha)
           if requested_target_sha:
               assert requested_target_sha == target_sha, (requested_target_sha, target_sha)
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
@@ -222,13 +231,15 @@ jobs:
           print("PROMOTION_SOURCE_PROVENANCE_OK", target_sha, audit_run_id)
           PY
 
-      - name: Checkout exact audited target
+      - name: Enforce current-main freshness and checkout audited target
         run: |
           set -euo pipefail
           test -n "$TARGET_SHA"
+          test -n "$MAIN_HEAD_SHA"
+          test "$TARGET_SHA" = "$MAIN_HEAD_SHA"
           git checkout --detach "$TARGET_SHA"
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-          echo "PROMOTION_TARGET_CHECKOUT_OK $TARGET_SHA"
+          echo "PROMOTION_TARGET_CURRENT_MAIN_OK $TARGET_SHA"
 
       - name: Setup Python
         uses: actions/setup-python@v5
