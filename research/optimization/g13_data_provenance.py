@@ -108,8 +108,10 @@ def build(
         assert upstream_manifest_path.is_file(), f"missing upstream manifest: {upstream_manifest_path}"
         upstream = json.loads(upstream_manifest_path.read_text(encoding="utf-8"))
         upstream_sha256 = sha256(upstream_manifest_path)
+        assert upstream.get("symbol") == symbol
+        assert any(source_name in str(upstream.get("source")) for source_name in ALLOWED_SOURCES)
         upstream_data_sha256 = upstream.get("data_sha256")
-        assert isinstance(upstream_data_sha256, str) and len(upstream_data_sha256) == 64
+        assert isinstance(upstream_data_sha256, str) and len(upstream_data_sha256) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in upstream_data_sha256)
         payload["upstream_manifest_sha256"] = upstream_sha256
         payload["upstream_data_sha256"] = upstream_data_sha256
         payload["upstream_dataset_id"] = upstream.get("dataset_id")
