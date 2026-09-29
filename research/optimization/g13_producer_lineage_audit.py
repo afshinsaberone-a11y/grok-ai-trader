@@ -72,7 +72,13 @@ def validate_provenance(
     assert producer["head_sha"] == target_sha
 
 
-def validate_lineage(provenance_by_role: dict[str, dict[str, Any]], *, target_sha: str, run_ids: dict[str, int]) -> dict[str, Any]:
+def validate_lineage(
+    provenance_by_role: dict[str, dict[str, Any]],
+    *,
+    target_sha: str,
+    run_ids: dict[str, int],
+    source_metadata_by_role: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     for role, p in provenance_by_role.items():
         validate_provenance(
             p,
@@ -101,6 +107,7 @@ def validate_lineage(provenance_by_role: dict[str, dict[str, Any]], *, target_sh
     assert _hex64(oos.get("upstream_data_sha256"))
     assert _hex64(oos.get("upstream_manifest_sha256"))
 
+    source_metadata_by_role = source_metadata_by_role or {}
     return {
         "schema_version": SCHEMA,
         "status": "PASS",
@@ -124,6 +131,7 @@ def validate_lineage(provenance_by_role: dict[str, dict[str, Any]], *, target_sh
             "upstream_manifest_sha256": oos["upstream_manifest_sha256"],
         },
         "producer_runs": run_ids,
+        "producer_evidence": source_metadata_by_role,
     }
 
 
@@ -136,6 +144,9 @@ def main() -> int:
     ap.add_argument("--validation-provenance", required=True, type=Path)
     ap.add_argument("--robustness-provenance", required=True, type=Path)
     ap.add_argument("--oos-provenance", required=True, type=Path)
+    ap.add_argument("--validation-source-metadata", type=Path)
+    ap.add_argument("--robustness-source-metadata", type=Path)
+    ap.add_argument("--oos-source-metadata", type=Path)
     ap.add_argument("--output", required=True, type=Path)
     args = ap.parse_args()
 
@@ -149,7 +160,20 @@ def main() -> int:
         "robustness": load(args.robustness_provenance),
         "oos": load(args.oos_provenance),
     }
-    report = validate_lineage(provenance_by_role, target_sha=args.target_sha, run_ids=run_ids)
+    metadata = {}
+    for role, arg in {
+        "validation": args.validation_source_metadata,
+        "robustness": args.robustness_source_metadata,
+        "oos": args.oos_source_metadata,
+    }.items():
+        if arg is not None:
+            metadata[role] = load(arg)
+    report = validate_lineage(
+        provenance_by_role,
+        target_sha=args.target_sha,
+        run_ids=run_ids,
+        source_metadata_by_role=metadata,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, sort_keys=True))
