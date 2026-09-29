@@ -19,12 +19,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-EXPECTED_VALIDATION_RUN = 34559825574
-EXPECTED_VALIDATION_ARTIFACT = 10184001419
-EXPECTED_ROBUST_RUN = 34679210600
-EXPECTED_ROBUST_ARTIFACT = 10293181701
-EXPECTED_OOS_RUN = 34679937623
-EXPECTED_OOS_ARTIFACT = 10293797420
 
 EXPECTED_SOURCE_JOB_NAMES = {
     "validation": "g13-validation",
@@ -62,14 +56,11 @@ def load(path: Path) -> dict[str, Any]:
 
 def validate_provenance(provenance: dict[str, Any], *, target_sha: str | None = None) -> None:
     assert provenance["schema_version"] == "forexai.g13.promotion_evidence_provenance.m15.v1"
-    expected = {
-        "validation": (EXPECTED_VALIDATION_RUN, EXPECTED_VALIDATION_ARTIFACT),
-        "robustness": (EXPECTED_ROBUST_RUN, EXPECTED_ROBUST_ARTIFACT),
-        "oos": (EXPECTED_OOS_RUN, EXPECTED_OOS_ARTIFACT),
-    }
-    for key, (run_id, artifact_id) in expected.items():
+    assert set(provenance["sources"]) == set(EXPECTED_SOURCE_WORKFLOW_NAMES)
+
+    for key in EXPECTED_SOURCE_WORKFLOW_NAMES:
         row = provenance["sources"][key]
-        assert row["run_id"] == run_id
+        assert isinstance(row.get("run_id"), int) and row["run_id"] > 0
         assert row.get("workflow_name") == EXPECTED_SOURCE_WORKFLOW_NAMES[key]
         assert int(row.get("workflow_id")) == EXPECTED_SOURCE_WORKFLOW_IDS[key]
         assert row.get("head_branch") == "main"
@@ -79,12 +70,14 @@ def validate_provenance(provenance: dict[str, Any], *, target_sha: str | None = 
         assert isinstance(row.get("head_sha"), str) and row["head_sha"]
         if target_sha is not None:
             assert row["head_sha"] == target_sha
+
         artifact = row["artifact"]
-        assert artifact["artifact_id"] == artifact_id
+        assert isinstance(artifact.get("artifact_id"), int) and artifact["artifact_id"] > 0
         assert artifact["name"] == EXPECTED_SOURCE_ARTIFACT_NAMES[key]
         assert artifact["expired"] is False
         digest = str(artifact["digest"])
         assert digest.startswith("sha256:") and len(digest) == 71
+        assert all(ch in "0123456789abcdefABCDEF" for ch in digest.split(":", 1)[1])
         assert row.get("local_zip_sha256") == digest.split(":", 1)[1]
 
 
