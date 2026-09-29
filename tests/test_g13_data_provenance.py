@@ -61,6 +61,7 @@ def test_build_binds_exact_csv_and_manifest(tmp_path: Path):
 
     assert result["data_sha256"] == hashlib.sha256(csv_path.read_bytes()).hexdigest()
     assert result["data_manifest_sha256"] == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    assert len(result["manifest_identity_sha256"]) == 64
     assert result["role"] == "validation"
     assert result["producer"]["workflow_id"] == 355468598
     assert result["producer"]["run_id"] == 123
@@ -107,3 +108,37 @@ def test_build_supports_derived_oos_with_upstream_manifest(tmp_path: Path):
     assert result["source"] == "Dukascopy JETTA M1 resampled to M15"
     assert result["upstream_data_sha256"] == "c" * 64
     assert len(result["upstream_manifest_sha256"]) == 64
+
+
+def test_manifest_identity_ignores_volatile_created_at(tmp_path: Path):
+    csv_path = tmp_path / "EURUSD_M15_20220101_20251231.csv"
+    manifest_path = tmp_path / "EURUSD_M15_20220101_20251231.manifest.json"
+    _write_csv(csv_path)
+    _write_manifest(manifest_path, csv_path)
+
+    first = json.loads(manifest_path.read_text(encoding="utf-8"))
+    first["created_at"] = "2026-09-29T00:00:00+00:00"
+    manifest_path.write_text(json.dumps(first), encoding="utf-8")
+    one = build(csv_path, role="validation", manifest_path=manifest_path)
+
+    second = dict(first)
+    second["created_at"] = "2026-09-30T00:00:00+00:00"
+    manifest_path.write_text(json.dumps(second), encoding="utf-8")
+    two = build(csv_path, role="validation", manifest_path=manifest_path)
+
+    assert one["data_manifest_sha256"] != two["data_manifest_sha256"]
+    assert one["manifest_identity_sha256"] == two["manifest_identity_sha256"]
+
+
+def test_validation_requires_exact_manifest(tmp_path: Path):
+    csv_path = tmp_path / "EURUSD_M15_20220101_20251231.csv"
+    _write_csv(csv_path)
+    with pytest.raises(AssertionError):
+        build(csv_path, role="validation")
+
+
+def test_oos_requires_exact_upstream_manifest(tmp_path: Path):
+    csv_path = tmp_path / "EURUSD_M15_20260101_20260928.csv"
+    _write_csv(csv_path)
+    with pytest.raises(AssertionError):
+        build(csv_path, role="oos")
