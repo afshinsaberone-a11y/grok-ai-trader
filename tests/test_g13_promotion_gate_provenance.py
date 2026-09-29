@@ -15,7 +15,7 @@ def _good() -> dict:
                 "workflow_id": 355468598,
                 "head_branch": "main",
                 "conclusion": "success",
-                "head_sha": "validation-sha",
+                "head_sha": "target-sha",
                 "job_id": 103140078741,
                 "job_name": "g13-validation",
                 "local_zip_sha256": "a" * 64,
@@ -32,7 +32,7 @@ def _good() -> dict:
                 "workflow_id": 355473409,
                 "head_branch": "main",
                 "conclusion": "success",
-                "head_sha": "robust-sha",
+                "head_sha": "target-sha",
                 "job_id": 103514547206,
                 "job_name": "g13-robustness",
                 "local_zip_sha256": "b" * 64,
@@ -49,7 +49,7 @@ def _good() -> dict:
                 "workflow_id": 356162316,
                 "head_branch": "main",
                 "conclusion": "success",
-                "head_sha": "oos-sha",
+                "head_sha": "target-sha",
                 "job_id": 103516577859,
                 "job_name": "G13 2026 OOS M15 Current",
                 "local_zip_sha256": "c" * 64,
@@ -59,6 +59,81 @@ def _good() -> dict:
                     "digest": "sha256:" + "c" * 64,
                     "expired": False,
                 },
+            },
+        },
+    }
+
+
+def _data_provenance() -> dict:
+    base = {
+        "schema_version": "forexai.g13.data_provenance.m15.v1",
+        "symbol": "EURUSD",
+        "timeframe": "M15",
+        "producer": {
+            "head_sha": "target-sha",
+        },
+    }
+    return {
+        "validation": {
+            **base,
+            "role": "validation",
+            "data_sha256": "a" * 64,
+            "data_manifest_sha256": "b" * 64,
+            "manifest_data_sha256": "a" * 64,
+            "dataset_id": "20220101_20251231",
+            "source": "HistData.com Generic ASCII M1 resampled to M15",
+            "quality_status": "PASS",
+            "timezone": "UTC",
+            "rows": 93017,
+            "start": "2022-01-03T00:00:00+00:00",
+            "end": "2025-12-31T23:45:00+00:00",
+            "producer": {
+                "workflow_name": "ForexAI G13 Validation M15",
+                "workflow_file": "forexai-g13-validation-m15.yml",
+                "run_id": gate.EXPECTED_VALIDATION_RUN,
+                "job_name": "g13-validation",
+                "head_sha": "target-sha",
+            },
+        },
+        "robustness": {
+            **base,
+            "role": "robustness",
+            "data_sha256": "a" * 64,
+            "data_manifest_sha256": "b" * 64,
+            "manifest_data_sha256": "a" * 64,
+            "dataset_id": "20220101_20251231",
+            "source": "HistData.com Generic ASCII M1 resampled to M15",
+            "quality_status": "PASS",
+            "timezone": "UTC",
+            "rows": 93017,
+            "start": "2022-01-03T00:00:00+00:00",
+            "end": "2025-12-31T23:45:00+00:00",
+            "producer": {
+                "workflow_name": "ForexAI G13 Robustness M15",
+                "workflow_file": "forexai-g13-robustness-m15.yml",
+                "run_id": gate.EXPECTED_ROBUST_RUN,
+                "job_name": "g13-robustness",
+                "head_sha": "target-sha",
+            },
+        },
+        "oos": {
+            **base,
+            "role": "oos",
+            "data_sha256": "c" * 64,
+            "source": "Dukascopy JETTA M1 resampled to M15",
+            "rows": 150000,
+            "start": "2026-01-01T00:00:00+00:00",
+            "end": "2026-09-28T23:45:00+00:00",
+            "upstream_timeframe": "M1",
+            "upstream_source": "Dukascopy JETTA",
+            "upstream_data_sha256": "d" * 64,
+            "upstream_manifest_sha256": "e" * 64,
+            "producer": {
+                "workflow_name": "ForexAI G13 OOS M15 Current",
+                "workflow_file": "forexai-g13-oos-m15-current.yml",
+                "run_id": gate.EXPECTED_OOS_RUN,
+                "job_name": "G13 2026 OOS M15 Current",
+                "head_sha": "target-sha",
             },
         },
     }
@@ -86,6 +161,40 @@ def _validation_artifact() -> dict:
         },
         "candidates": [],
     }
+
+
+def test_valid_producer_data_lineage_is_accepted():
+    gate.validate_data_lineage(_data_provenance(), _good(), target_sha="target-sha")
+
+
+def test_producer_data_sha_mismatch_is_rejected():
+    p = _data_provenance()
+    p["robustness"]["data_sha256"] = "f" * 64
+    try:
+        gate.validate_data_lineage(p, _good(), target_sha="target-sha")
+    except AssertionError:
+        return
+    raise AssertionError("producer dataset hash mismatch was accepted")
+
+
+def test_producer_data_head_sha_mismatch_is_rejected():
+    p = _data_provenance()
+    p["oos"]["producer"]["head_sha"] = "tampered"
+    try:
+        gate.validate_data_lineage(p, _good(), target_sha="target-sha")
+    except AssertionError:
+        return
+    raise AssertionError("producer data head SHA mismatch was accepted")
+
+
+def test_oos_upstream_lineage_is_required():
+    p = _data_provenance()
+    p["oos"]["upstream_manifest_sha256"] = ""
+    try:
+        gate.validate_data_lineage(p, _good(), target_sha="target-sha")
+    except AssertionError:
+        return
+    raise AssertionError("missing OOS upstream manifest hash was accepted")
 
 
 def test_valid_provenance_is_accepted():
