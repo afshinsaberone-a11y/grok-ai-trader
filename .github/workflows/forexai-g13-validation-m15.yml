@@ -67,6 +67,7 @@ jobs:
             --role validation \
             --manifest "$DATA_MANIFEST" \
             --producer-workflow "$GITHUB_WORKFLOW" \
+            --producer-workflow-file "forexai-g13-validation-m15.yml" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-job-name "$GITHUB_JOB" \
             --head-sha "$GITHUB_SHA" \
