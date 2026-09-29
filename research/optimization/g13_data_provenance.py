@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "forexai.g13.data_provenance.m15.v1"
+SCHEMA = "forexai.g13.data_provenance.m15.v2"
 ALLOWED_SOURCES = ("HistData.com", "Dukascopy")
 
 
@@ -27,6 +27,13 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def manifest_identity_sha256(manifest: dict[str, Any]) -> str:
+    """Hash stable manifest semantics, excluding volatile creation metadata."""
+    stable = {key: value for key, value in manifest.items() if key != "created_at"}
+    encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _inspect_csv(path: Path) -> tuple[int, str, str]:
@@ -106,6 +113,7 @@ def build(
         payload["quality_status"] = manifest["quality_status"]
         payload["timezone"] = manifest["timezone"]
         payload["data_manifest_sha256"] = manifest_sha256
+        payload["manifest_identity_sha256"] = manifest_identity_sha256(manifest)
         payload["manifest_data_sha256"] = manifest["data_sha256"]
 
     if upstream_manifest_path is not None:
