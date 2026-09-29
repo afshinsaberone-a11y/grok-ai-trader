@@ -280,6 +280,8 @@ jobs:
               "preflight_run_id",
               "g13-controlled-demo-package-preflight-m15",
               "latest_success_exact",
+              "local target_sha=\"$2\"",
+              "github.event.workflow_run.name == 'ForexAI G13 Controlled Demo Package Preflight M15'",
               "download_exact_artifact",
               "G13_EVIDENCE_ARTIFACTS_BYTE_BOUND=true",
           ]:
