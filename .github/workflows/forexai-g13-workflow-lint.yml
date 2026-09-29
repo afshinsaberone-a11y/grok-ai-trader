@@ -253,13 +253,13 @@ jobs:
               "g13-validation-data-provenance.json",
               "g13-robustness-data-provenance.json",
               "g13-oos-data-provenance.json",
-              "Verify artifact bytes",
-              "status:success",
-              "TARGET_SHA=$TARGET_SHA",
+              "verify artifact bytes",
+              "status=success",
+              "echo \"TARGET_SHA=$TARGET_SHA\"",
               "g13-producer-lineage-audit-m15",
           ]:
               # The workflow intentionally uses GitHub CLI/API for exact run/artifact binding.
-              assert token in audit_workflow or token == "status:success", f"producer lineage workflow token missing: {token}"
+              assert token in audit_workflow, f"producer lineage workflow token missing: {token}"
 
           data_provenance = Path("research/optimization/g13_data_provenance.py").read_text(encoding="utf-8")
           for token in [
