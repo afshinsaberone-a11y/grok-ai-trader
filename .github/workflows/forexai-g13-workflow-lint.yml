@@ -157,9 +157,11 @@ jobs:
               "PROMOTION_MANIFEST",
               "Build immutable Demo package manifest",
               "g13-demo-package-manifest-m15.json",
+              "([Int64]$env:GITHUB_RUN_ID)",
           ]
           for token in required_workflow_tokens:
               assert token in workflow, f"missing workflow token: {token}"
+          assert "([int]$env:GITHUB_RUN_ID)" not in workflow
 
           promotion = Path(".github/workflows/forexai-g13-promotion-m15.yml").read_text(encoding="utf-8")
           for token in [
