@@ -59,53 +59,8 @@ def _all():
     }
 
 
-def test_shared_validation_robustness_lineage_passes():
-    result = validate_lineage(
-        _all(),
-        target_sha="abc123",
-        run_ids={"validation": 101, "robustness": 202, "oos": 303},
-    )
-    assert result["status"] == "PASS"
-    assert result["shared_pre_oos_dataset"]["data_sha256"] == "a" * 64
-
-
-@pytest.mark.parametrize("field", ["data_sha256", "data_manifest_sha256", "rows", "start", "end"])
-def test_shared_lineage_mismatch_rejected(field: str):
-    p = _all()
-    p["robustness"][field] = "different" if isinstance(p["robustness"][field], str) else 1
-    with pytest.raises(AssertionError):
-        validate_lineage(
-            p,
-            target_sha="abc123",
-            run_ids={"validation": 101, "robustness": 202, "oos": 303},
-        )
-
-
-def test_oos_must_be_held_out_2026():
-    p = _all()
-    p["oos"]["start"] = "2025-12-31T23:45:00+00:00"
-    with pytest.raises(AssertionError):
-        validate_lineage(
-            p,
-            target_sha="abc123",
-            run_ids={"validation": 101, "robustness": 202, "oos": 303},
-        )
-
-
-def test_wrong_producer_sha_rejected():
-    p = _all()
-    p["validation"]["producer"]["head_sha"] = "tampered"
-    with pytest.raises(AssertionError):
-        validate_lineage(
-            p,
-            target_sha="abc123",
-            run_ids={"validation": 101, "robustness": 202, "oos": 303},
-        )
-
-
-def test_source_metadata_mismatch_rejected():
-    p = _all()
-    metadata = {
+def _source_metadata(downloaded_match: bool = True):
+    return {
         "validation": {
             "workflow_name": "ForexAI G13 Validation M15",
             "workflow_id": 355468598,
@@ -142,10 +97,65 @@ def test_source_metadata_mismatch_rejected():
             "artifact_name": "g13-oos-m15-2026-current",
             "artifact_id": 1001,
             "artifact_sha256": "c" * 64,
-            "downloaded_zip_sha256": "0" * 64,
+            "downloaded_zip_sha256": "c" * 64 if downloaded_match else "0" * 64,
             "expired": False,
         },
     }
+
+
+def test_shared_validation_robustness_lineage_passes():
+    result = validate_lineage(
+        _all(),
+        target_sha="abc123",
+        run_ids={"validation": 101, "robustness": 202, "oos": 303},
+        source_metadata_by_role=_source_metadata(),
+    )
+    assert result["status"] == "PASS"
+    assert result["shared_pre_oos_dataset"]["data_sha256"] == "a" * 64
+    assert result["producer_evidence"]["validation"]["artifact_sha256"] == "a" * 64
+    assert result["producer_evidence"]["oos"]["downloaded_zip_sha256"] == "c" * 64
+
+
+@pytest.mark.parametrize("field", ["data_sha256", "data_manifest_sha256", "rows", "start", "end"])
+def test_shared_lineage_mismatch_rejected(field: str):
+    p = _all()
+    p["robustness"][field] = "different" if isinstance(p["robustness"][field], str) else 1
+    with pytest.raises(AssertionError):
+        validate_lineage(
+            p,
+            target_sha="abc123",
+            run_ids={"validation": 101, "robustness": 202, "oos": 303},
+            source_metadata_by_role=_source_metadata(),
+        )
+
+
+def test_oos_must_be_held_out_2026():
+    p = _all()
+    p["oos"]["start"] = "2025-12-31T23:45:00+00:00"
+    with pytest.raises(AssertionError):
+        validate_lineage(
+            p,
+            target_sha="abc123",
+            run_ids={"validation": 101, "robustness": 202, "oos": 303},
+            source_metadata_by_role=_source_metadata(),
+        )
+
+
+def test_wrong_producer_sha_rejected():
+    p = _all()
+    p["validation"]["producer"]["head_sha"] = "tampered"
+    with pytest.raises(AssertionError):
+        validate_lineage(
+            p,
+            target_sha="abc123",
+            run_ids={"validation": 101, "robustness": 202, "oos": 303},
+            source_metadata_by_role=_source_metadata(),
+        )
+
+
+def test_source_metadata_mismatch_rejected():
+    p = _all()
+    metadata = _source_metadata(downloaded_match=False)
     with pytest.raises(AssertionError):
         validate_lineage(
             p,
