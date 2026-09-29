@@ -142,3 +142,28 @@ def test_oos_requires_exact_upstream_manifest(tmp_path: Path):
     _write_csv(csv_path)
     with pytest.raises(AssertionError):
         build(csv_path, role="oos")
+
+
+def test_oos_source_must_match_upstream_provider(tmp_path: Path):
+    csv_path = tmp_path / "EURUSD_M15_20260101_20260928.csv"
+    upstream_manifest = tmp_path / "EURUSD_M1_20250101_20260928.manifest.json"
+    _write_csv(csv_path)
+    upstream_manifest.write_text(
+        json.dumps(
+            {
+                "dataset_id": "20250101_20260928",
+                "symbol": "EURUSD",
+                "timeframe": "M1",
+                "source": "Dukascopy JETTA",
+                "data_sha256": "c" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(AssertionError):
+        build(
+            csv_path,
+            role="oos",
+            upstream_manifest_path=upstream_manifest,
+            source="HistData.com M1 resampled to M15",
+        )
