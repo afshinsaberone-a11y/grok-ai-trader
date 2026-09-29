@@ -412,6 +412,8 @@ jobs:
               '"status": "READY_FOR_CONTROLLED_DEMO_AUDIT"',
               'def validate_promotion_binding',
               'promotion_manifest_sha256',
+              'data_lineage',
+              'promotion["data_lineage"]["target_sha"] == main_head_sha',
               'preflight_run_id',
               'parity_run_id',
           ]:
