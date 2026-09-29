@@ -82,7 +82,7 @@ jobs:
           latest_success_exact() {
             local workflow_file="$1"
             local target_sha="$2"
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${workflow_file}/runs?branch=main&status=success&per_page=50" |
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
               python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; sha=sys.argv[2]; m=[r for r in rs if r.get("head_sha")==sha]; assert m, "no successful run for current main " + sys.argv[1] + " @ " + sha; print(max(m,key=lambda x:x["id"])["id"])' "$workflow_file" "$target_sha"
           }
 
