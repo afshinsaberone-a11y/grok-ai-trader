@@ -15,16 +15,22 @@ SCHEMA = "forexai.g13.producer_lineage_audit.m15.v1"
 WORKFLOWS = {
     "validation": {
         "workflow_name": "ForexAI G13 Validation M15",
+        "workflow_id": 355468598,
+        "job_name": "g13-validation",
         "artifact_name": "g13-validation-m15",
         "provenance_name": "g13-validation-data-provenance.json",
     },
     "robustness": {
         "workflow_name": "ForexAI G13 Robustness M15",
+        "workflow_id": 355473409,
+        "job_name": "g13-robustness",
         "artifact_name": "g13-robustness-m15",
         "provenance_name": "g13-robustness-data-provenance.json",
     },
     "oos": {
         "workflow_name": "ForexAI G13 OOS M15 Current",
+        "workflow_id": 356162316,
+        "job_name": "G13 2026 OOS M15 Current",
         "artifact_name": "g13-oos-m15-2026-current",
         "provenance_name": "g13-oos-data-provenance.json",
     },
@@ -108,6 +114,20 @@ def validate_lineage(
     assert _hex64(oos.get("upstream_manifest_sha256"))
 
     source_metadata_by_role = source_metadata_by_role or {}
+    for role, metadata in source_metadata_by_role.items():
+        expected = WORKFLOWS[role]
+        assert metadata["workflow_name"] == expected["workflow_name"]
+        assert int(metadata["workflow_id"]) == expected["workflow_id"]
+        assert metadata["head_branch"] == "main"
+        assert metadata["head_sha"] == target_sha
+        assert metadata["job_name"] == expected["job_name"]
+        assert int(metadata["run_id"]) == run_ids[role]
+        assert metadata["artifact_name"] == expected["artifact_name"]
+        assert int(metadata["artifact_id"]) > 0
+        assert _hex64(metadata["artifact_sha256"])
+        assert _hex64(metadata["downloaded_zip_sha256"])
+        assert metadata["artifact_sha256"] == metadata["downloaded_zip_sha256"]
+        assert metadata["expired"] is False
     return {
         "schema_version": SCHEMA,
         "status": "PASS",
