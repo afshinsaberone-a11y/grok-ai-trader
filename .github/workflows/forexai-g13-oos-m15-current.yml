@@ -128,6 +128,7 @@ jobs:
             --upstream-manifest "$M1_MANIFEST" \
             --source "Dukascopy JETTA M1 resampled to M15" \
             --producer-workflow "$GITHUB_WORKFLOW" \
+            --producer-workflow-file "forexai-g13-oos-m15-current.yml" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-job-name "$GITHUB_JOB" \
             --head-sha "$GITHUB_SHA" \
