@@ -126,12 +126,15 @@ def test_validation_artifact_matching_handoff_is_accepted(tmp_path: Path):
     handoff = {
         "source_validation_sha256": "",
         "candidates": [
-            {"candidate_id": 1, "config_hash": "a", "params": {"x": 1}},
-            {"candidate_id": 2, "config_hash": "b", "params": {"x": 2}},
+            {"candidate_id": 1, "config_hash": gate.canonical_hash({"x": 1}), "params": {"x": 1}},
+            {"candidate_id": 2, "config_hash": gate.canonical_hash({"x": 2}), "params": {"x": 2}},
         ],
     }
     validation = _validation_artifact()
-    validation["candidates"] = list(handoff["candidates"])
+    validation["candidates"] = [
+        {"candidate_id": 1, "params": {"x": 1}},
+        {"candidate_id": 2, "params": {"x": 2}},
+    ]
     path = tmp_path / "validation.json"
     path.write_text(json.dumps(validation, sort_keys=True), encoding="utf-8")
     handoff["source_validation_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -141,12 +144,12 @@ def test_validation_artifact_matching_handoff_is_accepted(tmp_path: Path):
 def test_validation_artifact_candidate_mismatch_is_rejected(tmp_path: Path):
     handoff = {
         "candidates": [
-            {"candidate_id": 1, "config_hash": "a", "params": {"x": 1}},
+            {"candidate_id": 1, "config_hash": gate.canonical_hash({"x": 1}), "params": {"x": 1}},
         ]
     }
     validation = _validation_artifact()
     validation["candidates"] = [
-        {"candidate_id": 1, "config_hash": "wrong", "params": {"x": 1}},
+        {"candidate_id": 1, "params": {"x": 1, "tampered": True}},
     ]
     path = tmp_path / "validation.json"
     path.write_text(json.dumps(validation, sort_keys=True), encoding="utf-8")

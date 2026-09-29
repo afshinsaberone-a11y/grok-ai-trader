@@ -109,11 +109,15 @@ def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, 
         int(c["candidate_id"]): (c["config_hash"], c["params"])
         for c in handoff["candidates"]
     }
-    artifact_candidates = {
-        int(c["candidate_id"]): (c["config_hash"], c["params"])
+    validation_candidates = {
+        int(c["candidate_id"]): c["params"]
         for c in validation["candidates"]
     }
-    assert artifact_candidates == handoff_candidates
+    assert set(validation_candidates) == set(handoff_candidates)
+    for cid, params in validation_candidates.items():
+        expected_hash, expected_params = handoff_candidates[cid]
+        assert params == expected_params
+        assert canonical_hash(params) == expected_hash
 
 
 def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: Path, provenance_path: Path, validation_path: Path) -> dict[str, Any]:
