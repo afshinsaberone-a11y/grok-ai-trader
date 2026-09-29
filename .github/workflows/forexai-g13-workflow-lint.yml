@@ -211,7 +211,7 @@ jobs:
               "AUDIT_RUN_ID:",
               "MAIN_HEAD_SHA",
               "assert audit_run.get(\"head_sha\") == target_sha",
-              "TARGET_SHA=MAIN_HEAD_SHA",
+              "test \"$TARGET_SHA\" = \"$MAIN_HEAD_SHA\"",
               "PROMOTION_TARGET_CURRENT_MAIN_OK",
               "ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}",
               "Consume exact successful lineage-audit evidence",
