@@ -113,7 +113,8 @@ def validate_lineage(
     assert _hex64(oos.get("upstream_data_sha256"))
     assert _hex64(oos.get("upstream_manifest_sha256"))
 
-    source_metadata_by_role = source_metadata_by_role or {}
+    assert source_metadata_by_role is not None
+    assert set(source_metadata_by_role) == set(WORKFLOWS)
     for role, metadata in source_metadata_by_role.items():
         expected = WORKFLOWS[role]
         assert metadata["workflow_name"] == expected["workflow_name"]
