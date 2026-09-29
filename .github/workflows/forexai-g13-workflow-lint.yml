@@ -245,6 +245,8 @@ jobs:
               "target_sha",
               "Dukascopy",
               "workflow_file",
+              "assert source_metadata_by_role is not None",
+              "set(source_metadata_by_role) == set(WORKFLOWS)",
               "if not __debug__:",
           ]:
               assert token in lineage_audit, f"producer lineage audit token missing: {token}"
@@ -257,6 +259,10 @@ jobs:
               "verify artifact bytes",
               "status=success",
               "echo \"TARGET_SHA=$TARGET_SHA\"",
+              "expected_workflow_name",
+              "355468598",
+              "355473409",
+              "356162316",
               "g13-producer-lineage-audit-m15",
           ]:
               # The workflow intentionally uses GitHub CLI/API for exact run/artifact binding.
