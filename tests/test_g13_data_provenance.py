@@ -167,3 +167,17 @@ def test_oos_source_must_match_upstream_provider(tmp_path: Path):
             upstream_manifest_path=upstream_manifest,
             source="HistData.com M1 resampled to M15",
         )
+
+
+def test_manifest_metadata_mismatch_is_rejected(tmp_path: Path):
+    csv_path = tmp_path / "EURUSD_M15_20220101_20251231.csv"
+    manifest_path = tmp_path / "EURUSD_M15_20220101_20251231.manifest.json"
+    _write_csv(csv_path)
+    _write_manifest(manifest_path, csv_path)
+
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["rows"] += 1
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        build(csv_path, role="validation", manifest_path=manifest_path)
