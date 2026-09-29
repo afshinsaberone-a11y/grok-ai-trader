@@ -304,7 +304,7 @@ jobs:
               assert output_name in producer_workflow, f"data provenance output missing: {workflow_path}"
               assert "--producer-run-id \"$GITHUB_RUN_ID\"" in producer_workflow
               assert "--head-sha \"$GITHUB_SHA\"" in producer_workflow
-              assert f"--producer-workflow-file \"{workflow_path.split("/")[-1]}\"" in producer_workflow
+              assert f"--producer-workflow-file \"{workflow_path.split('/')[-1]}\"" in producer_workflow
               if role == "oos":
                   assert "--upstream-manifest \"$M1_MANIFEST\"" in producer_workflow
               else:
