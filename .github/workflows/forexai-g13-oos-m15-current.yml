@@ -46,6 +46,7 @@ jobs:
             research/optimization/rsi_divergence_discovery_g13.py \
             research/optimization/execution_contract_v1.py \
             research/real_data/dukascopy_ingest.py
+            research/optimization/g13_data_provenance.py
 
       - name: Determine latest complete UTC data cutoff
         shell: bash
