@@ -27,6 +27,10 @@ on:
       - 'research/optimization/g13_demo_package_preflight_m15.py'
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'research/optimization/g13_real_data_provenance.py'
+      - 'research/optimization/g13_data_provenance.py'
+      - '.github/workflows/forexai-g13-validation-m15.yml'
+      - '.github/workflows/forexai-g13-robustness-m15.yml'
+      - '.github/workflows/forexai-g13-oos-m15-current.yml'
       - 'research/real_data/histdata_ingest.py'
       - 'research/real_data/dukascopy_ingest.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
@@ -45,6 +49,10 @@ on:
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'research/optimization/g13_demo_package_preflight_m15.py'
       - 'research/optimization/g13_real_data_provenance.py'
+      - 'research/optimization/g13_data_provenance.py'
+      - '.github/workflows/forexai-g13-validation-m15.yml'
+      - '.github/workflows/forexai-g13-robustness-m15.yml'
+      - '.github/workflows/forexai-g13-oos-m15-current.yml'
       - 'research/real_data/histdata_ingest.py'
       - 'research/real_data/dukascopy_ingest.py'
       - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
@@ -131,8 +139,8 @@ jobs:
 
       - name: Compile final promotion gate
         run: |
-          python -m py_compile research/optimization/g13_promotion_gate_m15.py
-          python -m pytest -q tests/test_g13_promotion_gate_provenance.py tests/test_g13_demo_readiness_promotion_binding.py tests/test_g13_demo_package_preflight_binding.py tests/test_g13_demo_package_manifest_builder.py tests/test_g13_real_data_provenance.py
+          python -m py_compile research/optimization/g13_promotion_gate_m15.py research/optimization/g13_data_provenance.py
+          python -m pytest -q tests/test_g13_promotion_gate_provenance.py tests/test_g13_demo_readiness_promotion_binding.py tests/test_g13_demo_package_preflight_binding.py tests/test_g13_demo_package_manifest_builder.py tests/test_g13_real_data_provenance.py tests/test_g13_data_provenance.py
 
       - name: Validate G13 parity contract wiring
         run: |
@@ -225,6 +233,16 @@ jobs:
           ]:
               assert token in builder, f"package manifest builder token missing: {token}"
 
+          data_provenance = Path("research/optimization/g13_data_provenance.py").read_text(encoding="utf-8")
+          for token in [
+              "forexai.g13.data_provenance.m15.v1",
+              "data_sha256",
+              "producer",
+              "upstream_manifest_sha256",
+              "if not __debug__:",
+          ]:
+              assert token in data_provenance, f"producer data provenance token missing: {token}"
+
           provenance = Path("research/optimization/g13_real_data_provenance.py").read_text(encoding="utf-8")
           for token in [
               "if not __debug__:",
@@ -244,6 +262,19 @@ jobs:
               "downloaded_zip_sha256",
           ]:
               assert token in preflight, f"preflight provenance token missing: {token}"
+
+          for workflow_path, role, output_name in [
+              (".github/workflows/forexai-g13-validation-m15.yml", "validation", "artifacts/g13-validation-data-provenance.json"),
+              (".github/workflows/forexai-g13-robustness-m15.yml", "robustness", "artifacts/g13-robustness-data-provenance.json"),
+              (".github/workflows/forexai-g13-oos-m15-current.yml", "oos", "artifacts/g13-oos-data-provenance.json"),
+          ]:
+              producer_workflow = Path(workflow_path).read_text(encoding="utf-8")
+              assert "research/optimization/g13_data_provenance.py" in producer_workflow, f"data provenance helper missing: {workflow_path}"
+              assert f"--role {role}" in producer_workflow, f"data provenance role missing: {workflow_path}"
+              assert output_name in producer_workflow, f"data provenance output missing: {workflow_path}"
+              assert "--producer-run-id \"$GITHUB_RUN_ID\"" in producer_workflow
+              assert "--head-sha \"$GITHUB_SHA\"" in producer_workflow
+              assert "g13-oos-m15-current.yml" not in workflow_path or "--upstream-manifest \"$M1_MANIFEST\"" in producer_workflow
 
           package_preflight_workflow = Path(".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
           for token in [
