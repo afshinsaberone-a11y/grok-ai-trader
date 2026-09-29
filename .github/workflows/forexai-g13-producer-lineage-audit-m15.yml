@@ -61,6 +61,7 @@ jobs:
             local dest="$4"
             local expected_job="$5"
             local expected_workflow_id="$6"
+            local expected_workflow_name="$7"
             local runs_json run_id run_json artifact_json artifact_count artifact_id digest zip actual
             local jobs_json job_count job_id workflow_name prov artifact_sha downloaded_sha
 
@@ -70,7 +71,7 @@ jobs:
 
             run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
             workflow_name="$(printf '%s' "$run_json" | jq -r '.name')"
-            test "$workflow_name" = "$workflow"
+            test "$workflow_name" = "$expected_workflow_name"
             test "$(printf '%s' "$run_json" | jq -r '.workflow_id')" -eq "$expected_workflow_id"
             test "$(printf '%s' "$run_json" | jq -r '.head_branch')" = "main"
             test "$(printf '%s' "$run_json" | jq -r '.head_sha')" = "$TARGET_SHA"
@@ -117,9 +118,9 @@ jobs:
             echo "PRODUCER_EVIDENCE_OK role=$key run=$run_id artifact=$artifact_id digest=$digest"
           }
 
-          resolve_run "g13-validation-data-provenance.json" "$VALIDATION_WORKFLOW_FILE" "g13-validation-m15" evidence/g13-producers/validation "g13-validation" 355468598
-          resolve_run "g13-robustness-data-provenance.json" "$ROBUSTNESS_WORKFLOW_FILE" "g13-robustness-m15" evidence/g13-producers/robustness "g13-robustness" 355473409
-          resolve_run "g13-oos-data-provenance.json" "$OOS_WORKFLOW_FILE" "g13-oos-m15-2026-current" evidence/g13-producers/oos "G13 2026 OOS M15 Current" 356162316
+          resolve_run "g13-validation-data-provenance.json" "$VALIDATION_WORKFLOW_FILE" "g13-validation-m15" evidence/g13-producers/validation "g13-validation" 355468598 "ForexAI G13 Validation M15"
+          resolve_run "g13-robustness-data-provenance.json" "$ROBUSTNESS_WORKFLOW_FILE" "g13-robustness-m15" evidence/g13-producers/robustness "g13-robustness" 355473409 "ForexAI G13 Robustness M15"
+          resolve_run "g13-oos-data-provenance.json" "$OOS_WORKFLOW_FILE" "g13-oos-m15-2026-current" evidence/g13-producers/oos "G13 2026 OOS M15 Current" 356162316 "ForexAI G13 OOS M15 Current"
 
       - name: Compile lineage audit
         run: |
