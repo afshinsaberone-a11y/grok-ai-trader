@@ -320,6 +320,7 @@ class DukascopyM1Ingestor:
             source_hash=source_hash,
             quality_status=report.status,
             output_path=self.normalized_dir / f"EURUSD_M1_{dataset_id}.manifest.json",
+            dataset_path=output,
         )
         return {"dataset": output, "manifest": manifest, "quality": report.to_dict()}
 
@@ -403,7 +404,18 @@ def main(argv: list[str] | None = None) -> int:
                 raise DukascopyIngestError(
                     f"REAL_DATA_REQUIRED: resampled dataset failed validation: {report.to_dict()}"
                 )
-            print(report.to_dict())
+            m15_manifest = build_manifest(
+                target,
+                dataset_id=f"{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}",
+                symbol="EURUSD",
+                timeframe=args.timeframe,
+                source=f"Dukascopy JETTA v1 BID candles resampled to {args.timeframe}",
+                source_hash=str(result["manifest"]["source_hash"]),
+                quality_status=report.status,
+                output_path=Path(args.output) / "normalized" / f"EURUSD_{args.timeframe}_{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}.manifest.json",
+                dataset_path=out,
+            )
+            print(m15_manifest)
         else:
             print(result["quality"])
             if args.manifest:

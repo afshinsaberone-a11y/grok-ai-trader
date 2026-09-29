@@ -15,8 +15,10 @@ This audit is an evidence exercise. It is not a profitability claim and it does 
 
 A controlled Demo execution audit may start only when all of the following are current and green:
 
-1. Promotion manifest status is `PROMOTION_READY`.
-2. Exactly 15 promoted candidates are present.
+1. A successful **G13 Final Promotion M15** workflow exists for the exact current `main` commit.
+2. Its uploaded `g13-promotion-manifest-m15` artifact is the authoritative manifest for this audit.
+3. The promotion manifest status is `PROMOTION_READY` and its provenance hash matches the uploaded source-provenance record.
+4. Exactly 15 promoted candidates are present.
 3. Safety Audit is `PASS` with:
    - 1536 exhaustive runtime-policy states,
    - 769 allowed states total,
@@ -30,7 +32,16 @@ A controlled Demo execution audit may start only when all of the following are c
    - permission-chain causality,
    - no orders from safety probes,
    - kill switch unchanged.
-7. No Live path is enabled.
+7. Controlled Demo Package Preflight is `PASS` against the exact compile/parity artifact, including byte-level GitHub artifact-digest verification.
+8. No Live path is enabled.
+
+## Evidence binding chain
+
+The readiness decision must be reproducible as:
+
+`Validation → Robustness → OOS → Promotion workflow → Promotion attestation → Compile/Parity → Safety → Runtime → Static Validation → Package Preflight → Controlled Demo Audit`.
+
+The Promotion workflow records the exact upstream artifact IDs and GitHub-reported SHA-256 digests. The Promotion run attestation binds the generated manifest and provenance files to the exact workflow run and `main` head SHA. Demo Readiness consumes that uploaded bundle rather than a repository copy.
 
 ## Execution contract
 

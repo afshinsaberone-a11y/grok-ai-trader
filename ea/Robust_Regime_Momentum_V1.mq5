@@ -117,8 +117,10 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    if(p<0) cooldown=CooldownBars;
 }
 
-void OnInit()
+int OnInit()
 {
+   if(RiskPercent > 0.6) return INIT_FAILED;
+
    trade.SetExpertMagicNumber(Magic);
    h_adx=iADX(_Symbol,PERIOD_M5,ADX_Period);
    h_atr=iATR(_Symbol,PERIOD_M5,ATR_Period);
@@ -168,3 +170,7 @@ void OnTick()
    if(ok && (trade.ResultRetcode()==TRADE_RETCODE_DONE || trade.ResultRetcode()==TRADE_RETCODE_PLACED)) trades_today++;
 }
 //+------------------------------------------------------------------+
+
+// GRK-SAFETY-CONTRACT-051
+// Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
+// No grid. No martingale. Closed-bar entries only. Daily profit/loss halt.

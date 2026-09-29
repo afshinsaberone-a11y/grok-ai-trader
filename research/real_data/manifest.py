@@ -29,6 +29,7 @@ def build_manifest(
     source_hash: str,
     quality_status: str,
     output_path: str | Path | None = None,
+    dataset_path: str | Path | None = None,
 ) -> dict[str, Any]:
     if dataset.empty:
         raise ValueError("Cannot build a manifest for an empty real dataset")
@@ -46,6 +47,11 @@ def build_manifest(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "quality_status": quality_status,
     }
+    if dataset_path is not None:
+        dataset_file = Path(dataset_path)
+        if not dataset_file.is_file():
+            raise FileNotFoundError(f"Dataset file does not exist: {dataset_file}")
+        manifest["data_sha256"] = sha256_file(dataset_file)
     if output_path is not None:
         Path(output_path).write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     return manifest

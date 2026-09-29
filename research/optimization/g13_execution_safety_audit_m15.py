@@ -6,6 +6,11 @@ execute trades or broker APIs; MT5 account/fill testing remains a separate gate.
 """
 from __future__ import annotations
 
+
+# Gate assertions are part of the fail-closed contract; optimized Python (-O) must never disable them.
+if not __debug__:
+    raise RuntimeError("G13 gate refuses optimized Python execution; assertions must remain enabled.")
+
 import argparse
 import json
 from pathlib import Path

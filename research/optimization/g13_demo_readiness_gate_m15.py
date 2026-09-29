@@ -6,7 +6,13 @@ order and never enables Demo or Live execution.
 """
 from __future__ import annotations
 
+
+# Gate assertions are part of the fail-closed contract; optimized Python (-O) must never disable them.
+if not __debug__:
+    raise RuntimeError("G13 gate refuses optimized Python execution; assertions must remain enabled.")
+
 import argparse
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -40,6 +46,67 @@ RUNTIME_CRITICAL_FILES = [
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
+def canonical_hash(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+def validate_promotion_binding(
+    promotion: dict[str, Any],
+    provenance: dict[str, Any],
+    attestation: dict[str, Any],
+    *,
+    promotion_run_id: int,
+    main_head_sha: str,
+    promotion_path: Path,
+    provenance_path: Path,
+) -> None:
+    assert promotion["schema_version"] == "forexai.g13.promotion_manifest.m15.v1"
+    assert promotion["status"] == "PROMOTION_READY"
+    assert promotion["evidence_provenance_sha256"] == canonical_hash(provenance)
+    assert attestation["schema_version"] == "forexai.g13.promotion_run_attestation.m15.v1"
+    assert int(attestation["workflow_run_id"]) == promotion_run_id
+    assert attestation["head_sha"] == main_head_sha
+    assert attestation["manifest_sha256"] == file_sha256(promotion_path)
+    assert attestation["provenance_sha256"] == file_sha256(provenance_path)
+
+def validate_preflight_binding(
+    promotion: dict[str, Any],
+    preflight: dict[str, Any],
+    *,
+    promotion_manifest_sha256: str,
+    parity_run_id: int,
+    parity_head_sha: str,
+    main_head_sha: str,
+) -> None:
+    assert promotion["status"] == "PROMOTION_READY"
+    assert preflight["schema_version"] == "forexai.g13.controlled_demo_package_preflight.m15.v1"
+    assert preflight["status"] == "PASS"
+    assert preflight["candidate_count"] == 15
+    assert preflight["candidate_ids"] == PROMOTED_IDS
+    assert isinstance(promotion_manifest_sha256, str) and len(promotion_manifest_sha256) == 64
+    assert preflight["promotion_manifest_sha256"] == promotion_manifest_sha256
+    assert preflight["binary_hashes_verified"] == 15
+    assert preflight["source_hashes_verified"] == 15
+    assert preflight["source_safety_contracts_verified"] == 15
+    assert preflight["real_data_only"] is True
+    assert preflight["synthetic_data"] is False
+    assert preflight["demo_trading_allowed_by_source"] is False
+    assert preflight["live_trading_allowed"] is False
+    assert int(preflight["compile_parity_run_id"]) == parity_run_id
+    assert preflight["compile_parity_head_sha"] == parity_head_sha == main_head_sha
+    assert isinstance(preflight["compile_parity_artifact_id"], int) and preflight["compile_parity_artifact_id"] > 0
+    digest = preflight["compile_parity_artifact_digest"]
+    assert isinstance(digest, str) and digest.startswith("sha256:") and len(digest) == 71
+    assert isinstance(preflight["downloaded_zip_sha256"], str) and len(preflight["downloaded_zip_sha256"]) == 64
+    assert digest == "sha256:" + preflight["downloaded_zip_sha256"]
+    promotion_hashes = {str(x["candidate_id"]): x["config_hash"] for x in promotion["candidates"]}
+    assert preflight["candidate_config_hashes"] == promotion_hashes
+
+
 def git_diff_clean(base_sha: str, paths: list[str]) -> bool:
     cmd = ["git", "diff", "--quiet", base_sha, "--", *paths]
     return subprocess.run(cmd, check=False).returncode == 0
@@ -60,29 +127,63 @@ def gate(
     safety: Path,
     runtime_dir: Path,
     parity: Path,
+    provenance: Path,
+    preflight: Path,
+    attestation: Path,
+    promotion_run_id: int,
+    preflight_run_id: int,
+    parity_run_id: int,
+    preflight_head_sha: str,
+    main_head_sha: str,
     runtime_head_sha: str,
     parity_head_sha: str,
     safety_head_sha: str,
 ) -> dict[str, Any]:
     p = load_json(promotion)
+    prov = load_json(provenance)
+    attest = load_json(attestation)
+    pf = load_json(preflight)
     s = load_json(safety)
     par = load_json(parity)
+
+    validate_promotion_binding(
+        p, prov, attest,
+        promotion_run_id=promotion_run_id,
+        main_head_sha=main_head_sha,
+        promotion_path=promotion,
+        provenance_path=provenance,
+    )
 
     assert p["status"] == "PROMOTION_READY"
     assert p["decision_policy"]["demo_trading_allowed"] is False
     assert p["decision_policy"]["live_trading_allowed"] is False
     assert p["promoted_candidate_ids"] == PROMOTED_IDS
+    validate_preflight_binding(
+        p,
+        pf,
+        promotion_manifest_sha256=file_sha256(promotion),
+        parity_run_id=parity_run_id,
+        parity_head_sha=parity_head_sha,
+        main_head_sha=main_head_sha,
+    )
 
     assert s["status"] == "PASS"
     assert s["scope"]["candidate_count"] == 15
     assert s["policy"]["live_trading_allowed"] is False
-    assert par["schema_version"] == "forexai.g13.mql5_signal_parity.v1"
+    assert par["schema_version"] == "forexai.g13.mql5_signal_parity.v2"
+    assert len(par["data_sha256"]) == 64
+    assert len(par["data_manifest_sha256"]) == 64
+    assert par["data_provenance"]["quality_status"] == "PASS"
+    assert any(source in par["data_provenance"]["source"] for source in ("HistData.com", "Dukascopy"))
     assert par["status"] == "PASS"
     assert par["real_data_only"] is True
     assert par["synthetic_data"] is False
     assert par["candidate_count"] == 15
     assert par["passed_count"] == 15
     assert all(row["status"] == "PASS" for row in par["results"])
+    assert pf["data_sha256"] == par["data_sha256"]
+    assert pf["data_manifest_sha256"] == par["data_manifest_sha256"]
+    assert pf["data_provenance"] == par["data_provenance"]
     assert s["policy"]["demo_trading_default_authorized"] is False
     assert len(s["matrix"]) == 1536
     assert sum(1 for row in s["matrix"] if row["actual_allowed"]) == 769
@@ -164,9 +265,25 @@ def gate(
         },
         "promotion": {
             "status": p["status"],
+            "run_id": promotion_run_id,
+            "head_sha": main_head_sha,
+            "evidence_provenance_sha256": p["evidence_provenance_sha256"],
             "candidate_count": len(PROMOTED_IDS),
             "demo_trading_allowed": p["decision_policy"]["demo_trading_allowed"],
             "live_trading_allowed": p["decision_policy"]["live_trading_allowed"],
+        },
+        "preflight": {
+            "status": pf["status"],
+            "run_id": preflight_run_id,
+            "head_sha": preflight_head_sha,
+            "compile_parity_run_id": pf["compile_parity_run_id"],
+            "parity_run_id": parity_run_id,
+            "candidate_count": pf["candidate_count"],
+            "binary_hashes_verified": pf["binary_hashes_verified"],
+            "source_hashes_verified": pf["source_hashes_verified"],
+            "source_safety_contracts_verified": pf["source_safety_contracts_verified"],
+            "promotion_manifest_sha256": pf["promotion_manifest_sha256"],
+            "parity_evidence_sha256": pf["parity_evidence_sha256"],
         },
         "safety": {
             "status": s["status"],
@@ -189,6 +306,9 @@ def gate(
             "safety_head_sha": safety_head_sha,
             "parity_status": par["status"],
             "parity_passed_count": par["passed_count"],
+            "data_sha256": par["data_sha256"],
+            "data_manifest_sha256": par["data_manifest_sha256"],
+            "data_provenance": par["data_provenance"],
         },
         "next_gate": "CONTROLLED_DEMO_EXECUTION_AUDIT",
         "live_remains_disabled": True,
@@ -197,6 +317,14 @@ def gate(
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--promotion", type=Path, required=True)
+    ap.add_argument("--provenance", type=Path, required=True)
+    ap.add_argument("--promotion-attestation", type=Path, required=True)
+    ap.add_argument("--preflight", type=Path, required=True)
+    ap.add_argument("--promotion-run-id", type=int, required=True)
+    ap.add_argument("--preflight-run-id", type=int, required=True)
+    ap.add_argument("--parity-run-id", type=int, required=True)
+    ap.add_argument("--preflight-head-sha", required=True)
+    ap.add_argument("--main-head-sha", required=True)
     ap.add_argument("--safety", type=Path, required=True)
     ap.add_argument("--runtime-dir", type=Path, required=True)
     ap.add_argument("--parity", type=Path, required=True)
@@ -207,6 +335,14 @@ def main() -> int:
     a = ap.parse_args()
     result = gate(
         promotion=a.promotion,
+        provenance=a.provenance,
+        attestation=a.promotion_attestation,
+        preflight=a.preflight,
+        promotion_run_id=a.promotion_run_id,
+        preflight_run_id=a.preflight_run_id,
+        parity_run_id=a.parity_run_id,
+        preflight_head_sha=a.preflight_head_sha,
+        main_head_sha=a.main_head_sha,
         safety=a.safety,
         runtime_dir=a.runtime_dir,
         parity=a.parity,

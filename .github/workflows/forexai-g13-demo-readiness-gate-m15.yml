@@ -15,12 +15,20 @@ on:
       parity_run_id:
         description: "Successful G13 MT5 Compile + Signal Parity run"
         required: true
+      promotion_run_id:
+        description: "Successful G13 Final Promotion M15 run for the current main commit"
+        required: true
+      preflight_run_id:
+        description: "Successful G13 Controlled Demo Package Preflight run for the current main commit"
+        required: true
   workflow_run:
     workflows:
       - "ForexAI G13 MT5 Compile + Signal Parity"
       - "ForexAI G13 Execution Safety Audit M15"
       - "ForexAI G13 MT5 Runtime Safety Probe M15 v2"
       - "ForexAI G13 Workflow Static Validation"
+      - "ForexAI G13 Final Promotion M15"
+      - "ForexAI G13 Controlled Demo Package Preflight M15"
     types: [completed]
     branches:
       - main
@@ -39,6 +47,8 @@ jobs:
       ${{ github.event_name == 'workflow_dispatch' ||
           github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    env:
+      PYTHONOPTIMIZE: '0'
     timeout-minutes: 20
     steps:
       - name: Checkout current main
@@ -52,73 +62,130 @@ jobs:
           MANUAL_RUNTIME_RUN_ID: ${{ inputs.runtime_run_id }}
           MANUAL_SAFETY_RUN_ID: ${{ inputs.safety_run_id }}
           MANUAL_PARITY_RUN_ID: ${{ inputs.parity_run_id }}
+          MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
+          MANUAL_PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
           EVENT_WORKFLOW: ${{ github.event.workflow_run.name }}
           EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
 
+          MAIN_SHA="$(git rev-parse HEAD)"
+          echo "MAIN_HEAD_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
+
+          latest_success() {
+            local workflow_file="$1"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
+              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful run for " + sys.argv[1]; print(max(rs,key=lambda x:x["id"])["id"])' "$workflow_file"
+          }
+
+          latest_success_exact() {
+            local workflow_file="$1"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
+              python -c 'import json,sys,os; rs=json.load(sys.stdin)["workflow_runs"]; sha=os.environ["MAIN_SHA"]; m=[r for r in rs if r.get("head_sha")==sha]; assert m, "no successful run for current main " + sys.argv[1] + " @ " + sha; print(max(m,key=lambda x:x["id"])["id"])' "$workflow_file"
+          }
+
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             runtime_id="${MANUAL_RUNTIME_RUN_ID}"
             safety_id="${MANUAL_SAFETY_RUN_ID}"
             parity_id="${MANUAL_PARITY_RUN_ID}"
+            promotion_id="${MANUAL_PROMOTION_RUN_ID}"
+            preflight_id="${MANUAL_PREFLIGHT_RUN_ID}"
           else
-            latest_success() {
-              local workflow_file="$1"
-              gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=20" |
-                python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful run"; print(max(rs,key=lambda x:x["id"])["id"])'
-            }
-
             runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")"
             safety_id="$(latest_success "forexai-g13-execution-safety-audit-m15.yml")"
             parity_id="$(latest_success "forexai-g13-mt5-compile-parity.yml")"
-
+            promotion_id="$(latest_success_exact "forexai-g13-promotion-m15.yml")"
+            preflight_id="$(latest_success_exact "forexai-g13-controlled-demo-package-preflight-m15.yml")"
             case "${EVENT_WORKFLOW}" in
               "ForexAI G13 MT5 Runtime Safety Probe M15 v2") runtime_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 Execution Safety Audit M15") safety_id="${EVENT_RUN_ID}" ;;
               "ForexAI G13 MT5 Compile + Signal Parity") parity_id="${EVENT_RUN_ID}" ;;
+              "ForexAI G13 Final Promotion M15") promotion_id="${EVENT_RUN_ID}" ;;
+              "ForexAI G13 Controlled Demo Package Preflight M15") preflight_id="${EVENT_RUN_ID}" ;;
             esac
           fi
 
-          for pair in "RUNTIME=$runtime_id" "SAFETY=$safety_id" "PARITY=$parity_id"; do
+          for pair in "RUNTIME=$runtime_id" "SAFETY=$safety_id" "PARITY=$parity_id" "PROMOTION=$promotion_id" "PREFLIGHT=$preflight_id"; do
             key="${pair%%=*}"
             id="${pair#*=}"
             [ -n "$id" ] || { echo "Missing $key run id"; exit 1; }
             json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")"
-            python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); print(x["id"],x["head_sha"])' <<< "$json"
+            python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); assert x["head_branch"]=="main", (x["id"],x["head_branch"]); print(x["id"],x["head_sha"])' <<< "$json"
             sha="$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")"
+            if [ "$key" = "PROMOTION" ] || [ "$key" = "PARITY" ] || [ "$key" = "PREFLIGHT" ]; then
+              [ "$sha" = "$MAIN_SHA" ] || { echo "$key run head SHA mismatch: $sha != $MAIN_SHA"; exit 1; }
+            fi
             echo "${key}_HEAD_SHA=$sha" >> "$GITHUB_ENV"
             echo "${key}_RUN_ID=$id" >> "$GITHUB_ENV"
           done
 
-          lint_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-workflow-lint.yml/runs?branch=main&status=success&per_page=20")"
-          lint_id="$(python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful static-validation run"; print(max(rs,key=lambda x:x["id"])["id"])' <<< "$lint_runs")"
+          lint_id="$(latest_success_exact "forexai-g13-workflow-lint.yml")"
           echo "LINT_RUN_ID=$lint_id" >> "$GITHUB_ENV"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$lint_id" |
-            python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); print(x["id"],x["head_sha"])'
-          echo "LINT_HEAD_SHA=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$lint_id" | python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])')" >> "$GITHUB_ENV"
+          lint_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$lint_id")"
+          python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success"; assert x["head_sha"]==sys.argv[1], (x["id"],x["head_sha"],sys.argv[1]); print("STATIC_VALIDATION_SUCCESS",x["id"],x["head_sha"])' "$MAIN_SHA" <<< "$lint_json"
+          echo "LINT_HEAD_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
 
-      - name: Download evidence
+      - name: Download and byte-verify exact evidence artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          rm -rf evidence
-          mkdir -p evidence/runtime evidence/safety evidence/parity
-          gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-mt5-runtime-safety-probe-m15-v2 --dir evidence/runtime
-          gh run download "$SAFETY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-execution-safety-audit-m15 --dir evidence/safety
-          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARITY_RUN_ID/artifacts" | python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"].startswith("g13-mt5-compile-parity-") and not x["expired"]]; assert m, "compile/parity artifact missing"; print(max(m,key=lambda x:x["id"])["name"])')"
-          gh run download "$PARITY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir evidence/parity
 
+          download_exact_artifact() {
+            local run_id="$1"
+            local artifact_name="$2"
+            local destination="$3"
+            local meta id digest zip actual
+
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
+            id="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]==sys.argv[1] and not x["expired"]]; assert len(m)==1, (sys.argv[1],[(x["name"],x["expired"]) for x in a]); assert isinstance(m[0].get("digest"),str) and m[0]["digest"].startswith("sha256:"); print(m[0]["id"])' "$artifact_name" <<< "$meta")"
+            digest="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]==sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["digest"])' "$artifact_name" <<< "$meta")"
+
+            rm -rf "$destination"
+            mkdir -p "$destination"
+            zip="$destination/source.zip"
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$zip"
+            actual="sha256:$(sha256sum "$zip" | awk '{print $1}')"
+            test "$actual" = "$digest" || { echo "$artifact_name digest mismatch: $actual != $digest"; exit 1; }
+            unzip -q -o "$zip" -d "$destination/extracted"
+            rm -f "$zip"
+
+            printf '%s\n' "$id" > "$destination/.artifact_id"
+            printf '%s\n' "$digest" > "$destination/.artifact_digest"
+            echo "EVIDENCE_ARTIFACT_VERIFIED name=$artifact_name run=$run_id id=$id digest=$digest"
+          }
+
+          rm -rf evidence
+          mkdir -p evidence
+
+          download_exact_artifact "$PROMOTION_RUN_ID" "g13-promotion-manifest-m15" evidence/promotion
+          download_exact_artifact "$PREFLIGHT_RUN_ID" "g13-controlled-demo-package-preflight-m15" evidence/preflight
+          download_exact_artifact "$RUNTIME_RUN_ID" "g13-mt5-runtime-safety-probe-m15-v2" evidence/runtime
+          download_exact_artifact "$SAFETY_RUN_ID" "g13-execution-safety-audit-m15" evidence/safety
+          download_exact_artifact "$PARITY_RUN_ID" "g13-mt5-compile-parity-$PARITY_RUN_ID" evidence/parity
+
+          echo "G13_EVIDENCE_ARTIFACTS_BYTE_BOUND=true"
       - name: Resolve evidence files
         run: |
           set -euo pipefail
           runtime_file="$(find evidence/runtime -name g13_safety_probe_auth_off.done.txt -type f | head -n1)"
           safety_file="$(find evidence/safety -name g13-execution-safety-audit-m15.json -type f | head -n1)"
           parity_file="$(find evidence/parity -name g13-mql5-signal-parity.json -type f | head -n1)"
-          [ -n "$runtime_file" ] && [ -n "$safety_file" ] && [ -n "$parity_file" ] || exit 1
-          echo "RUNTIME_DIR=$(dirname "$runtime_file")" >> "$GITHUB_ENV"
-          echo "SAFETY_JSON=$safety_file" >> "$GITHUB_ENV"
-          echo "PARITY_JSON=$parity_file" >> "$GITHUB_ENV"
+          promotion_file="$(find evidence/promotion -name g13-promotion-manifest-m15.json -type f | head -n1)"
+          promotion_provenance="$(find evidence/promotion -name source-provenance.json -type f | head -n1)"
+          promotion_attestation="$(find evidence/promotion -name promotion-run-attestation.json -type f | head -n1)"
+          preflight_file="$(find evidence/preflight -name g13-demo-package-preflight-m15.json -type f | head -n1)"
+          [ -n "$runtime_file" ] && [ -n "$safety_file" ] && [ -n "$parity_file" ] && [ -n "$promotion_file" ] && [ -n "$promotion_provenance" ] && [ -n "$promotion_attestation" ] && [ -n "$preflight_file" ] || exit 1
+          cat >> "$GITHUB_ENV" <<EOF
+          RUNTIME_DIR=$(dirname "$runtime_file")
+          SAFETY_JSON=$safety_file
+          PARITY_JSON=$parity_file
+          PROMOTION_JSON=$promotion_file
+          PROMOTION_PROVENANCE=$promotion_provenance
+          PROMOTION_ATTESTATION=$promotion_attestation
+          PREFLIGHT_JSON=$preflight_file
+          PREFLIGHT_RUN_ID=$PREFLIGHT_RUN_ID
+          EOF
 
       - name: Verify static validation freshness
         env:
@@ -133,24 +200,51 @@ jobs:
             .github/workflows/forexai-g13-mt5-compile-parity.yml \
             .github/workflows/forexai-g13-execution-safety-audit-m15.yml \
             .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml \
-            research/optimization/g13_demo_readiness_gate_m15.py
+            .github/workflows/forexai-g13-promotion-m15.yml \
+            .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml \
+            research/optimization/g13_demo_readiness_gate_m15.py \
+            research/optimization/g13_promotion_gate_m15.py \
+            research/optimization/g13_demo_package_preflight_m15.py
           echo "STATIC_VALIDATION_COVERS_CURRENT_G13_CONFIG=true"
 
       - name: Run readiness gate
         run: |
           set -euo pipefail
           python -m py_compile research/optimization/g13_demo_readiness_gate_m15.py
-          python -m research.optimization.g13_demo_readiness_gate_m15             --promotion artifacts/g13/g13-promotion-manifest-m15.json             --safety "$SAFETY_JSON"             --runtime-dir "$RUNTIME_DIR"             --parity "$PARITY_JSON"             --runtime-head-sha "$RUNTIME_HEAD_SHA"             --parity-head-sha "$PARITY_HEAD_SHA"             --safety-head-sha "$SAFETY_HEAD_SHA"             --report artifacts/g13/g13-demo-readiness-gate-m15.json
+          python -m research.optimization.g13_demo_readiness_gate_m15 \
+            --promotion "$PROMOTION_JSON" \
+            --provenance "$PROMOTION_PROVENANCE" \
+            --promotion-attestation "$PROMOTION_ATTESTATION" \
+            --preflight "$PREFLIGHT_JSON" \
+            --promotion-run-id "$PROMOTION_RUN_ID" \
+            --preflight-run-id "$PREFLIGHT_RUN_ID" \
+            --parity-run-id "$PARITY_RUN_ID" \
+            --preflight-head-sha "$PREFLIGHT_HEAD_SHA" \
+            --main-head-sha "$MAIN_HEAD_SHA" \
+            --safety "$SAFETY_JSON" \
+            --runtime-dir "$RUNTIME_DIR" \
+            --parity "$PARITY_JSON" \
+            --runtime-head-sha "$RUNTIME_HEAD_SHA" \
+            --parity-head-sha "$PARITY_HEAD_SHA" \
+            --safety-head-sha "$SAFETY_HEAD_SHA" \
+            --report artifacts/g13/g13-demo-readiness-gate-m15.json
 
       - name: Fail closed assertions
         run: |
           set -euo pipefail
           python - <<'PY'
           import json
+          import os
           p=json.load(open('artifacts/g13/g13-demo-readiness-gate-m15.json',encoding='utf-8'))
           assert p['status']=='READY_FOR_CONTROLLED_DEMO_AUDIT'
           assert p['promotion']['demo_trading_allowed'] is False
           assert p['promotion']['live_trading_allowed'] is False
+          assert p['promotion']['run_id'] == int(os.environ["PROMOTION_RUN_ID"])
+          assert p['preflight']['status'] == "PASS"
+          assert p['preflight']['run_id'] == int(os.environ["PREFLIGHT_RUN_ID"])
+          assert p['preflight']['head_sha'] == os.environ["MAIN_HEAD_SHA"]
+          assert p['preflight']['candidate_count'] == 15
+          assert p['preflight']['compile_parity_run_id'] == int(os.environ["PARITY_RUN_ID"])
           assert p['safety']['status']=='PASS'
           assert p['safety']['matrix_cases']==1536
           assert p['safety']['matrix_allowed_states']==769

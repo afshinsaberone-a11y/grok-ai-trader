@@ -3,6 +3,10 @@ name: ForexAI G13 MT5 Compile + Signal Parity
 on:
   workflow_dispatch:
     inputs:
+      promotion_run_id:
+        description: 'Successful G13 Final Promotion M15 run for this exact commit'
+        required: true
+        type: string
       mt5_root:
         description: 'MT5 installation root on the self-hosted Windows runner'
         required: false
@@ -17,15 +21,24 @@ on:
         default: 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\Common\\Files\\g13_mql5_parity.csv'
         type: string
       data_csv:
-        description: 'Optional readable REAL EURUSD M15 CSV on the service-account runner; if missing, use runner cache or real Dukascopy ingestion'
+        description: 'Canonical REAL EURUSD M15 CSV path only; must have a matching provenance manifest; non-canonical paths are rejected'
         required: false
         default: 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv'
         type: string
+  workflow_run:
+    workflows:
+      - "ForexAI G13 Final Promotion M15"
+    types: [completed]
   push:
+    branches: [main]
     paths:
       - research/optimization/g13_mql5_generator_v2.py
       - research/optimization/g13_mql5_parity.py
       - research/optimization/g13_mql5_parity_harness_generator.py
+      - research/optimization/g13_demo_package_manifest_builder_m15.py
+      - research/optimization/g13_real_data_provenance.py
+      - research/real_data/histdata_ingest.py
+      - research/real_data/dukascopy_ingest.py
       - research/optimization/g13_mql5_parity_harness.mq5
       - artifacts/g13/g13-promotion-manifest-m15.json
       - artifacts/g13/frozen/g13-candidate-handoff-m15.json
@@ -36,6 +49,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 defaults:
   run:
@@ -43,10 +57,15 @@ defaults:
 
 jobs:
   compile-and-parity:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'push' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == 'main') }}
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 240
     env:
+      PYTHONOPTIMIZE: '0'
       MT5_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
       MT5_DATA_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_data_root || 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075' }}
       DATA_CSV_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.data_csv || 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv' }}
@@ -54,8 +73,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
+      - name: Resolve exact Promotion run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
+          EVENT_PROMOTION_RUN_ID: ${{ github.event.workflow_run.id }}
+          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_run') {
+            $promotionId = [int]$env:EVENT_PROMOTION_RUN_ID
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            $promotionId = [int]$env:MANUAL_PROMOTION_RUN_ID
+          } else {
+            $payload = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=50" | ConvertFrom-Json
+            $matches = @($payload.workflow_runs | Where-Object { $_.head_sha -eq $env:TARGET_SHA -and $_.conclusion -eq 'success' } | Sort-Object id -Descending)
+            if ($matches.Count -lt 1) { throw "No successful Promotion run for current commit $env:TARGET_SHA" }
+            $promotionId = [int]$matches[0].id
+          }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$promotionId" | ConvertFrom-Json
+          if ($run.conclusion -ne 'success') { throw "Promotion run $promotionId is not successful" }
+          if ($run.head_branch -ne 'main') { throw "Promotion run $promotionId is not on main" }
+          if ($run.head_sha -ne $env:TARGET_SHA) { throw "Promotion run $promotionId head SHA $($run.head_sha) != target $env:TARGET_SHA" }
+          "PROMOTION_RUN_ID=$promotionId" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TARGET_SHA=$env:TARGET_SHA" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "PROMOTION_RUN_OK=$promotionId HEAD=$($run.head_sha)"
       - name: Verify local Python runtime
         run: |
           $ErrorActionPreference = 'Stop'
@@ -115,6 +159,60 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m pip install -r requirements.txt
 
+      - name: Download and bind exact Promotion artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\promotion-source'
+          Remove-Item -Recurse -Force $artifactDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+
+          $artifactJson = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:PROMOTION_RUN_ID/artifacts" | ConvertFrom-Json
+          $matches = @($artifactJson.artifacts | Where-Object { $_.name -eq 'g13-promotion-manifest-m15' -and -not $_.expired })
+          if ($matches.Count -ne 1) { throw "Expected exactly one non-expired Promotion artifact, found $($matches.Count)" }
+          $artifact = $matches[0]
+          if ($artifact.digest -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw "Invalid Promotion artifact digest: $($artifact.digest)" }
+
+          $zip = Join-Path $artifactDir 'promotion.zip'
+          & curl.exe -fsSL -H "Authorization: Bearer $env:GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($artifact.id)/zip" -o $zip
+          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          if ($actualDigest -ne $artifact.digest.ToLowerInvariant()) { throw "Promotion artifact digest mismatch: $actualDigest != $($artifact.digest)" }
+
+          $extract = Join-Path $artifactDir 'extracted'
+          Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+          $manifest = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'g13-promotion-manifest-m15.json')
+          $provenance = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'source-provenance.json')
+          $attestation = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'promotion-run-attestation.json')
+          if ($manifest.Count -ne 1) { throw "Expected exactly one Promotion manifest, found $($manifest.Count)" }
+          if ($provenance.Count -ne 1) { throw "Expected exactly one Promotion provenance file, found $($provenance.Count)" }
+          if ($attestation.Count -ne 1) { throw "Expected exactly one Promotion attestation, found $($attestation.Count)" }
+          $manifest = $manifest[0].FullName
+          $provenance = $provenance[0].FullName
+          $attestation = $attestation[0].FullName
+
+          $m = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+          $p = Get-Content -LiteralPath $provenance -Raw | ConvertFrom-Json
+          $a = Get-Content -LiteralPath $attestation -Raw | ConvertFrom-Json
+          if ($m.schema_version -ne 'forexai.g13.promotion_manifest.m15.v1') { throw 'Promotion manifest schema mismatch' }
+          if ($m.status -ne 'PROMOTION_READY') { throw 'Promotion manifest is not PROMOTION_READY' }
+          if ($m.symbol -ne 'EURUSD' -or $m.timeframe -ne 'M15') { throw 'Promotion scope mismatch' }
+          if ($m.decision_policy.demo_trading_allowed -ne $false -or $m.decision_policy.live_trading_allowed -ne $false) { throw 'Promotion policy allows trading' }
+          if ($a.schema_version -ne 'forexai.g13.promotion_run_attestation.m15.v1') { throw 'Promotion attestation schema mismatch' }
+          if ([int64]$a.workflow_run_id -ne [int64]$env:PROMOTION_RUN_ID) { throw 'Promotion attestation run mismatch' }
+          if ($a.head_sha -ne $env:TARGET_SHA) { throw 'Promotion attestation head mismatch' }
+          if ($a.manifest_sha256.ToLowerInvariant() -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $manifest).Hash.ToLowerInvariant()) { throw 'Promotion manifest SHA mismatch' }
+          if ($a.provenance_sha256.ToLowerInvariant() -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $provenance).Hash.ToLowerInvariant()) { throw 'Promotion provenance SHA mismatch' }
+          if ([int64]$p.workflow_run_id -ne [int64]$env:PROMOTION_RUN_ID -or $p.head_sha -ne $env:TARGET_SHA) { throw 'Promotion provenance identity mismatch' }
+          Write-Host 'G13_PROMOTION_ARTIFACT_CONSUMER_OK'
+
+          "PROMOTION_MANIFEST=$manifest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PROMOTION_PROVENANCE=$provenance" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PROMOTION_ATTESTATION=$attestation" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PROMOTION_ARTIFACT_ID=$($artifact.id)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PROMOTION_ARTIFACT_DIGEST=$($artifact.digest)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PROMOTION_ARTIFACT_ZIP_SHA256=$($actualDigest.Substring(7))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "G13_PROMOTION_ARTIFACT_BOUND=true ID=$($artifact.id) DIGEST=$($artifact.digest)"
       - name: Verify MT5 toolchain and data folder
         run: |
           $ErrorActionPreference = 'Stop'
@@ -162,7 +260,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Remove-Item -Recurse -Force artifacts/g13/mql5 -ErrorAction SilentlyContinue
           & $env:PYTHON_EXE -m research.optimization.g13_mql5_generator_v2 `
-            --manifest artifacts/g13/g13-promotion-manifest-m15.json `
+            --manifest "$env:PROMOTION_MANIFEST" `
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
             --output-dir artifacts/g13/mql5
 
@@ -294,27 +392,44 @@ jobs:
           }
 
           $requested = ($env:DATA_CSV_INPUT | Out-String).Trim()
+          $expectedDatasetId = '20220101_20251231'
           $workspaceCanonical = Join-Path $env:GITHUB_WORKSPACE 'data\\real\\normalized\\EURUSD_M15_20220101_20251231.csv'
+          $workspaceManifest = Join-Path $env:GITHUB_WORKSPACE 'data\\real\\normalized\\EURUSD_M15_20220101_20251231.manifest.json'
           $cacheRoot = 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13'
           $cacheCanonical = Join-Path $cacheRoot 'normalized\\EURUSD_M15_20220101_20251231.csv'
+          $cacheManifest = Join-Path $cacheRoot 'normalized\\EURUSD_M15_20220101_20251231.manifest.json'
           $data = $null
+          $dataManifest = $null
 
-          # Only accept a supplied path if it is readable; service-account
-          # permission errors must not terminate dataset resolution.
-          if (Try-ReadableFile $requested) {
-            $data = $requested
-            Write-Host "REAL_M15_SOURCE=input"
-          } elseif ($requested) {
-            Write-Host "REAL_M15_INPUT_SKIPPED=$requested"
+          function Test-TrustedRealDataset([string]$csv, [string]$manifest) {
+            if (-not (Try-ReadableFile $csv) -or -not (Try-ReadableFile $manifest)) { return $false }
+            & $env:PYTHON_EXE -m research.optimization.g13_real_data_provenance --csv $csv --manifest $manifest
+            return ($LASTEXITCODE -eq 0)
           }
 
-          if (-not $data -and (Try-ReadableFile $workspaceCanonical)) {
+          if ($requested) {
+            if ($requested -eq $workspaceCanonical -and (Test-TrustedRealDataset $workspaceCanonical $workspaceManifest)) {
+              $data = $workspaceCanonical
+              $dataManifest = $workspaceManifest
+              Write-Host "REAL_M15_SOURCE=workspace"
+            } elseif ($requested -eq $cacheCanonical -and (Test-TrustedRealDataset $cacheCanonical $cacheManifest)) {
+              $data = $cacheCanonical
+              $dataManifest = $cacheManifest
+              Write-Host "REAL_M15_SOURCE=runner_cache"
+            } elseif ($requested -ne $workspaceCanonical -and $requested -ne $cacheCanonical) {
+              Write-Host "REAL_M15_INPUT_REJECTED_NONCANONICAL=$requested"
+            }
+          }
+
+          if (-not $data -and (Test-TrustedRealDataset $workspaceCanonical $workspaceManifest)) {
             $data = $workspaceCanonical
+            $dataManifest = $workspaceManifest
             Write-Host "REAL_M15_SOURCE=workspace"
           }
 
-          if (-not $data -and (Try-ReadableFile $cacheCanonical)) {
+          if (-not $data -and (Test-TrustedRealDataset $cacheCanonical $cacheManifest)) {
             $data = $cacheCanonical
+            $dataManifest = $cacheManifest
             Write-Host "REAL_M15_SOURCE=runner_cache"
           }
 
@@ -332,8 +447,9 @@ jobs:
               --output $cacheRoot `
               --validate `
               --manifest
-            if ($LASTEXITCODE -eq 0 -and (Try-ReadableFile $cacheCanonical)) {
+            if ($LASTEXITCODE -eq 0 -and (Test-TrustedRealDataset $cacheCanonical $cacheManifest)) {
               $data = $cacheCanonical
+              $dataManifest = $cacheManifest
               Write-Host "REAL_M15_SOURCE=histdata_runner_cache"
             } else {
               Write-Host "HISTDATA_SOURCE_UNAVAILABLE=falling back to real Dukascopy JETTA ingestion"
@@ -349,20 +465,23 @@ jobs:
               if ($LASTEXITCODE -ne 0) {
                 throw "REAL_DATA_REQUIRED: both HistData and Dukascopy real-data ingestion failed"
               }
-              if (-not (Try-ReadableFile $cacheCanonical)) {
-                throw "REAL_DATA_REQUIRED: Dukascopy ingestion completed without producing the canonical EURUSD M15 dataset: $cacheCanonical"
+              if (-not (Test-TrustedRealDataset $cacheCanonical $cacheManifest)) {
+                throw "REAL_DATA_REQUIRED: Dukascopy ingestion produced no trusted canonical EURUSD M15 dataset + manifest"
               }
               $data = $cacheCanonical
+              $dataManifest = $cacheManifest
               Write-Host "REAL_M15_SOURCE=dukascopy_runner_cache"
             }
           }
-          if (-not (Try-ReadableFile $data)) {
-            throw "REAL_DATA_REQUIRED: resolved EURUSD M15 dataset is not readable: $data"
+          if (-not $data -or -not $dataManifest) {
+            throw "REAL_DATA_REQUIRED: trusted EURUSD M15 CSV and provenance manifest are both required"
           }
 
           "DATA_CSV_RESOLVED=$data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DATA_MANIFEST_RESOLVED=$dataManifest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DATA_MANIFEST_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $dataManifest).Hash.ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-          & $env:PYTHON_EXE -c "import pandas as pd; p=r'$data'; d=pd.read_csv(p); t=pd.to_datetime(d['timestamp'],utc=True); assert len(d)>=100, 'insufficient rows'; assert t.is_monotonic_increasing, 'timestamps not monotonic'; assert t.min()>=pd.Timestamp('2022-01-01',tz='UTC'), 'starts before 2022'; assert t.max()<pd.Timestamp('2026-01-01',tz='UTC'), 'contains 2026+ data'; print(f'REAL_M15_DATA_OK rows={len(d)} first={t.min()} last={t.max()}')"
+          & $env:PYTHON_EXE -m research.optimization.g13_real_data_provenance --csv "$data" --manifest "$dataManifest" --expected-csv "$data"
           if ($LASTEXITCODE -ne 0) {
             throw "REAL_DATA_REQUIRED: resolved EURUSD M15 dataset failed strict 2022-2025 scope validation"
           }
@@ -504,6 +623,8 @@ jobs:
           Copy-Item $parity (Join-Path $stageDir 'g13_mql5_parity.csv') -Force
           Copy-Item $done (Join-Path $stageDir 'g13_mql5_parity.done.txt') -Force
           "PARITY_CSV_RESOLVED=$(Join-Path $stageDir 'g13_mql5_parity.csv')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Copy-Item $env:DATA_MANIFEST_RESOLVED (Join-Path $stageDir 'g13_real_eurusd_m15.manifest.json') -Force
+          "DATA_MANIFEST_CI=$(Join-Path $stageDir 'g13_real_eurusd_m15.manifest.json')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "DATA_CSV_RESOLVED=$(Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files\\g13_real_eurusd_m15.csv')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "MQL5_REAL_DATA_PARITY_OK"
 
@@ -565,11 +686,22 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m research.optimization.g13_mql5_parity `
             --data "$env:DATA_CSV_RESOLVED" `
+            --data-manifest "$env:DATA_MANIFEST_RESOLVED" `
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
             --manifest artifacts/g13/g13-promotion-manifest-m15.json `
             --mt5 "$env:PARITY_CSV_RESOLVED" `
             --output artifacts/g13-mql5-signal-parity.json
 
+      - name: Build immutable Demo package manifest
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:PYTHON_EXE -m research.optimization.g13_demo_package_manifest_builder_m15 `
+            --promotion artifacts/g13/g13-promotion-manifest-m15.json `
+            --parity artifacts/g13-mql5-signal-parity.json `
+            --package-root artifacts/g13/mql5 `
+            --output artifacts/g13/g13-demo-package-manifest-m15.json `
+            --source-commit "$env:GITHUB_SHA" `
+            --compile-parity-run-id ([int]$env:GITHUB_RUN_ID)
       - name: Print MT5 parity diagnostics
         if: always()
         run: |
@@ -616,6 +748,7 @@ jobs:
             artifacts/g13/mql5/*.mq5
             artifacts/g13/mql5/*.ex5
             artifacts/g13/mql5/g13_parity_harness.ini
+            artifacts/g13/g13-demo-package-manifest-m15.json
             artifacts/g13-mql5-signal-parity.json
             artifacts/g13/ci_inputs/*
           if-no-files-found: warn

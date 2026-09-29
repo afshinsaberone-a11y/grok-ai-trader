@@ -82,7 +82,7 @@ On the Windows MT5 machine:
 11. Remove the old common parity CSV **once before the first candidate** of a parity batch; do not delete it between candidates.
 12. Verify the resulting CSV contains rows from 2022, 2023, 2024 and 2025 before dispatching the workflow.
 13. Collect the resulting `g13_mql5_parity.csv` from the MT5 Common Files directory.
-14. Dispatch `ForexAI G13 MT5 Compile + Signal Parity` and provide the absolute path to that CSV plus the exact REAL EURUSD M15 CSV used by the research environment.
+14. Dispatch `ForexAI G13 MT5 Compile + Signal Parity`. The workflow resolves only the canonical EURUSD M15 CSV together with its provenance manifest; arbitrary `data_csv` paths are rejected. The parity CSV remains the MT5-generated Common Files output.
 
 The CSV header must be:
 
