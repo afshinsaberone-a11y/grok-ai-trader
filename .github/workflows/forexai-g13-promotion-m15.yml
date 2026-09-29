@@ -190,6 +190,12 @@ jobs:
           assert p['decision_policy']['ea_generation_allowed'] is True
           assert p['decision_policy']['demo_trading_allowed'] is False
           assert p['decision_policy']['live_trading_allowed'] is False
+          assert p['data_lineage']['schema_version']=='forexai.g13.data_lineage_binding.m15.v1'
+          assert p['data_lineage']['status']=='PASS'
+          assert p['data_lineage']['target_sha'] == '${{ env.TARGET_SHA }}'
+          assert p['data_lineage']['validation']['data_sha256']
+          assert p['data_lineage']['robustness']['data_manifest_sha256']
+          assert p['data_lineage']['oos']['upstream_data_sha256']
           print('G13_FINAL_PROMOTION_GATE_OK')
           print('PROMOTED',p['promoted_candidate_ids'])
           PY
