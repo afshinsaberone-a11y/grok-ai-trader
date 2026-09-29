@@ -61,11 +61,15 @@ def validate_provenance(
     workflow_name: str,
     target_sha: str,
 ) -> None:
-    assert provenance["schema_version"] == "forexai.g13.data_provenance.m15.v1"
+    assert provenance["schema_version"] == "forexai.g13.data_provenance.m15.v2"
     assert provenance["role"] == role
     assert provenance["symbol"] == "EURUSD"
     assert provenance["timeframe"] == "M15"
     assert _hex64(provenance["data_sha256"])
+    if role in {"validation", "robustness"}:
+        assert _hex64(provenance["data_manifest_sha256"])
+        assert _hex64(provenance["manifest_identity_sha256"])
+        assert provenance["manifest_data_sha256"] == provenance["data_sha256"]
     producer = provenance["producer"]
     assert producer["workflow_name"] == workflow_name
     expected_files = {
@@ -98,8 +102,10 @@ def validate_lineage(
     robustness = provenance_by_role["robustness"]
     oos = provenance_by_role["oos"]
 
-    for field in ("data_sha256", "data_manifest_sha256", "dataset_id", "source", "quality_status", "timezone", "rows", "start", "end"):
+    for field in ("data_sha256", "manifest_identity_sha256", "dataset_id", "source", "quality_status", "timezone", "rows", "start", "end"):
         assert validation.get(field) == robustness.get(field), field
+    assert _hex64(validation["data_manifest_sha256"])
+    assert _hex64(robustness["data_manifest_sha256"])
     assert validation["quality_status"] == "PASS"
     assert validation["timezone"] == "UTC"
     assert validation["dataset_id"] == "20220101_20251231"
@@ -136,6 +142,7 @@ def validate_lineage(
         "shared_pre_oos_dataset": {
             "data_sha256": validation["data_sha256"],
             "data_manifest_sha256": validation["data_manifest_sha256"],
+            "manifest_identity_sha256": validation["manifest_identity_sha256"],
             "dataset_id": validation["dataset_id"],
             "rows": validation["rows"],
             "start": validation["start"],
