@@ -132,7 +132,13 @@ def build(
         payload["upstream_source"] = upstream.get("source")
 
     if source is not None:
-        assert any(source_name in source for source_name in ALLOWED_SOURCES)
+        source_providers = [name for name in ALLOWED_SOURCES if name in source]
+        assert len(source_providers) == 1
+        provider = source_providers[0]
+        if manifest_path is not None:
+            assert source == manifest["source"]
+        if upstream_manifest_path is not None:
+            assert provider in str(upstream.get("source"))
         payload["source"] = source
 
     producer = {
