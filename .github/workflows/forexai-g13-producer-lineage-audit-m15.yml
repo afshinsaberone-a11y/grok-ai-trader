@@ -46,8 +46,8 @@ jobs:
           rm -rf evidence/g13-producers
           mkdir -p evidence/g13-producers/{validation,robustness,oos}
           resolve_run() {
-            local key="$1" workflow="$2" artifact_name="$3" dest="$4"
-            local runs_json run_id artifact_json artifact_count digest zip actual artifact_id prov
+            local key="$1" workflow="$2" artifact_name="$3" dest="$4" expected_job="$5" expected_workflow_id="$6"
+            local runs_json run_id artifact_json artifact_count digest zip actual artifact_id prov jobs_json job_count job_id
             runs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=main&status=success&per_page=100")"
             run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$TARGET_SHA" '.workflow_runs | map(select(.head_sha == $sha and .conclusion == "success")) | sort_by(.id) | last | .id // empty')"
             test -n "$run_id"
@@ -57,6 +57,9 @@ jobs:
             artifact_id="$(printf '%s' "$artifact_json" | jq -r --arg n "$artifact_name" '[.artifacts[] | select(.name == $n and .expired == false)][0].id')"
             digest="$(printf '%s' "$artifact_json" | jq -r --arg n "$artifact_name" '[.artifacts[] | select(.name == $n and .expired == false)][0].digest')"
             printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-fA-F]{64}$'
+            jobs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs")"
+            job_count="$(printf '%s' "$jobs_json" | jq --arg j "$expected_job" '[.jobs[] | select(.name == $j and .conclusion == "success")] | length')"
+            test "$job_count" -eq 1
             mkdir -p "$dest"
             zip="$dest/source.zip"
             gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$zip"
@@ -66,12 +69,39 @@ jobs:
             prov="$(find "$dest/extracted" -type f -name "$key" | head -n1)"
             test -n "$prov"
             cp "$prov" "$dest/provenance.json"
+            job_id="$(printf '%s' "$jobs_json" | jq -r --arg j "$expected_job" '[.jobs[] | select(.name == $j and .conclusion == "success")][0].id')"
+            cat > "$dest/source-metadata.json" <<EOF
+{
+  "workflow_name": "$(printf '%s' "$runs_json" | jq -r --arg sha "$TARGET_SHA" --argjson rid "$run_id" '.workflow_runs[] | select(.id == $rid) | .name')",
+  "workflow_id": $expected_workflow_id,
+  "head_branch": "main",
+  "head_sha": "$TARGET_SHA",
+  "run_id": $run_id,
+  "job_name": "$expected_job",
+  "job_id": $job_id,
+  "artifact_name": "$artifact_name",
+  "artifact_id": $artifact_id,
+  "artifact_sha256": "DIGEST_PLACEHOLDER",
+  "downloaded_zip_sha256": "ACTUAL_PLACEHOLDER",
+  "expired": false
+}
+EOF
+            artifact_sha="$(printf '%s' "$digest" | cut -d: -f2)"
+            downloaded_sha="$(printf '%s' "$actual" | cut -d: -f2)"
+            python - "$dest/source-metadata.json" "$artifact_sha" "$downloaded_sha" <<'PY'
+import json, pathlib, sys
+p=pathlib.Path(sys.argv[1])
+d=json.loads(p.read_text(encoding='utf-8'))
+d["artifact_sha256"]=sys.argv[2]
+d["downloaded_zip_sha256"]=sys.argv[3]
+p.write_text(json.dumps(d, indent=2, sort_keys=True)+"\n", encoding="utf-8")
+PY
             printf '%s\n' "$run_id" > "$dest/run_id.txt"
             echo "$key RUN=$run_id ARTIFACT=$artifact_name DIGEST=$digest"
           }
-          resolve_run "g13-validation-data-provenance.json" "$VALIDATION_WORKFLOW_FILE" "g13-validation-m15" evidence/g13-producers/validation
-          resolve_run "g13-robustness-data-provenance.json" "$ROBUSTNESS_WORKFLOW_FILE" "g13-robustness-m15" evidence/g13-producers/robustness
-          resolve_run "g13-oos-data-provenance.json" "$OOS_WORKFLOW_FILE" "g13-oos-m15-2026-current" evidence/g13-producers/oos
+          resolve_run "g13-validation-data-provenance.json" "$VALIDATION_WORKFLOW_FILE" "g13-validation-m15" evidence/g13-producers/validation "g13-validation" 355468598
+          resolve_run "g13-robustness-data-provenance.json" "$ROBUSTNESS_WORKFLOW_FILE" "g13-robustness-m15" evidence/g13-producers/robustness "g13-robustness" 355473409
+          resolve_run "g13-oos-data-provenance.json" "$OOS_WORKFLOW_FILE" "g13-oos-m15-2026-current" evidence/g13-producers/oos "G13 2026 OOS M15 Current" 356162316
       - name: Compile lineage audit
         run: |
           python -m py_compile research/optimization/g13_producer_lineage_audit.py
@@ -86,4 +116,5 @@ jobs:
           path: |
             artifacts/g13-producer-lineage-audit-m15.json
             evidence/g13-producers/**/provenance.json
+            evidence/g13-producers/**/source-metadata.json
           if-no-files-found: error
