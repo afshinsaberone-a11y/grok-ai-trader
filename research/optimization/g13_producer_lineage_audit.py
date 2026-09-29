@@ -62,6 +62,12 @@ def validate_provenance(
     assert _hex64(provenance["data_sha256"])
     producer = provenance["producer"]
     assert producer["workflow_name"] == workflow_name
+    expected_files = {
+        "ForexAI G13 Validation M15": "forexai-g13-validation-m15.yml",
+        "ForexAI G13 Robustness M15": "forexai-g13-robustness-m15.yml",
+        "ForexAI G13 OOS M15 Current": "forexai-g13-oos-m15-current.yml",
+    }
+    assert producer["workflow_file"] == expected_files[workflow_name]
     assert int(producer["run_id"]) == run_id
     assert producer["head_sha"] == target_sha
 
