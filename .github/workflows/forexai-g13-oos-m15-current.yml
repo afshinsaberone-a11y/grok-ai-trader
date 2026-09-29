@@ -110,15 +110,19 @@ jobs:
           d=pd.read_csv(src,parse_dates=['timestamp'])
           d['timestamp']=pd.to_datetime(d['timestamp'],utc=True)
           m15=resample_ohlcv(d,'15min')
+          cutoff=pd.Timestamp(os.environ['END_TAG'],tz='UTC')+pd.Timedelta(days=1)
+          m15=m15[(m15['timestamp']>=pd.Timestamp('2026-01-01',tz='UTC'))&(m15['timestamp']<cutoff)].copy()
+          if m15.empty:
+              raise SystemExit('REAL_DATA_REQUIRED: 2026 OOS M15 dataset is empty')
           report=validate_ohlcv(m15,symbol='EURUSD',timeframe='M15')
           if report.status != 'PASS':
               raise SystemExit(f'REAL_DATA_REQUIRED: M15 validation failed: {report.to_dict()}')
-          out=Path(f"data/real/normalized/EURUSD_M15_20250101_{os.environ['END_TAG']}.csv")
+          out=Path(f"data/real/normalized/EURUSD_M15_20260101_{os.environ['END_TAG']}.csv")
           m15.to_csv(out,index=False)
           print(report.to_dict())
           print('M15_DATASET',out,len(m15))
           PY
-          echo "DATA=data/real/normalized/EURUSD_M15_20250101_${END_TAG}.csv" >> "$GITHUB_ENV"
+          echo "DATA=data/real/normalized/EURUSD_M15_20260101_${END_TAG}.csv" >> "$GITHUB_ENV"
 
       - name: Write immutable OOS data provenance
         run: |
