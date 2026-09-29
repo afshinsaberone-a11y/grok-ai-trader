@@ -20,7 +20,7 @@ permissions:
 jobs:
   audit:
     if: >-
-      \${{ github.event_name == 'workflow_dispatch' ||
+      ${{ github.event_name == 'workflow_dispatch' ||
           (github.event.workflow_run.conclusion == 'success' &&
            github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
@@ -35,13 +35,13 @@ jobs:
       - name: Checkout exact target
         uses: actions/checkout@v4
         with:
-          ref: \${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
 
       - name: Resolve exact producer runs and verify artifact bytes
         env:
-          GH_TOKEN: \${{ github.token }}
-          MANUAL_TARGET_SHA: \${{ inputs.target_sha }}
-          EVENT_TARGET_SHA: \${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_TARGET_SHA: ${{ inputs.target_sha }}
+          EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           TARGET_SHA="$EVENT_TARGET_SHA"
