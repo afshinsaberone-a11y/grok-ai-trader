@@ -60,6 +60,7 @@ def build(
     source: str | None = None,
     producer_workflow: str | None = None,
     producer_workflow_id: int | None = None,
+    producer_workflow_file: str | None = None,
     producer_run_id: int | None = None,
     producer_job_name: str | None = None,
     producer_job_id: int | None = None,
@@ -69,6 +70,10 @@ def build(
     assert csv_path.is_file(), f"missing dataset CSV: {csv_path}"
     assert role in {"validation", "robustness", "oos"}
     assert symbol == "EURUSD" and timeframe == "M15"
+    if role in {"validation", "robustness"}:
+        assert manifest_path is not None, f"{role} provenance requires its exact dataset manifest"
+    if role == "oos":
+        assert upstream_manifest_path is not None, "oos provenance requires its exact upstream M1 manifest"
 
     rows, start, end = _inspect_csv(csv_path)
     data_sha256 = sha256(csv_path)
@@ -125,6 +130,7 @@ def build(
     producer = {
         "workflow_name": producer_workflow,
         "workflow_id": producer_workflow_id,
+        "workflow_file": producer_workflow_file,
         "run_id": producer_run_id,
         "job_name": producer_job_name,
         "job_id": producer_job_id,
@@ -144,6 +150,7 @@ def main() -> int:
     ap.add_argument("--source")
     ap.add_argument("--producer-workflow")
     ap.add_argument("--producer-workflow-id", type=int)
+    ap.add_argument("--producer-workflow-file")
     ap.add_argument("--producer-run-id", type=int)
     ap.add_argument("--producer-job-name")
     ap.add_argument("--producer-job-id", type=int)
@@ -159,6 +166,7 @@ def main() -> int:
         source=args.source,
         producer_workflow=args.producer_workflow,
         producer_workflow_id=args.producer_workflow_id,
+        producer_workflow_file=args.producer_workflow_file,
         producer_run_id=args.producer_run_id,
         producer_job_name=args.producer_job_name,
         producer_job_id=args.producer_job_id,
