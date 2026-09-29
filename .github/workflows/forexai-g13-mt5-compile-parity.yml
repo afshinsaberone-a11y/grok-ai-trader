@@ -700,8 +700,8 @@ jobs:
             --parity artifacts/g13-mql5-signal-parity.json `
             --package-root artifacts/g13/mql5 `
             --output artifacts/g13/g13-demo-package-manifest-m15.json `
-            --source-commit "$env:GITHUB_SHA" `
-            --compile-parity-run-id ([int]$env:GITHUB_RUN_ID)
+            --source-commit "$env:TARGET_SHA" `
+            --compile-parity-run-id ([Int64]$env:GITHUB_RUN_ID)
       - name: Print MT5 parity diagnostics
         if: always()
         run: |
