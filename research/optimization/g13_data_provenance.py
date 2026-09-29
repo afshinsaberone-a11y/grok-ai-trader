@@ -106,6 +106,9 @@ def build(
         assert manifest.get("timezone") == "UTC"
         manifest_sha256 = sha256(manifest_path)
         assert manifest.get("data_sha256") == data_sha256
+        assert int(manifest.get("rows")) == rows
+        assert manifest.get("start") == start
+        assert manifest.get("end") == end
         assert any(source_name in str(manifest.get("source")) for source_name in ALLOWED_SOURCES)
         payload["dataset_id"] = manifest["dataset_id"]
         payload["source"] = manifest["source"]
