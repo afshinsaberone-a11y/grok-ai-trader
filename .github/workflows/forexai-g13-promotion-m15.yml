@@ -143,11 +143,20 @@ jobs:
           test -n "$VAL"
           test -n "$ROB"
           test -n "$OOS"
+          VAL_DATA_PROV=$(find evidence/validation -name 'g13-validation-data-provenance.json' -type f | head -n1)
+          ROB_DATA_PROV=$(find evidence/robustness -name 'g13-robustness-data-provenance.json' -type f | head -n1)
+          OOS_DATA_PROV=$(find evidence/oos -name 'g13-oos-data-provenance.json' -type f | head -n1)
+          test -n "$VAL_DATA_PROV"
+          test -n "$ROB_DATA_PROV"
+          test -n "$OOS_DATA_PROV"
           test -f artifacts/g13/frozen/g13-candidate-handoff-m15.json
           {
             echo "VALIDATION=$VAL"
             echo "ROBUSTNESS=$ROB"
             echo "OOS=$OOS"
+            echo "VALIDATION_DATA_PROVENANCE=$VAL_DATA_PROV"
+            echo "ROBUSTNESS_DATA_PROVENANCE=$ROB_DATA_PROV"
+            echo "OOS_DATA_PROVENANCE=$OOS_DATA_PROV"
           } >> "$GITHUB_ENV"
       - name: Compile and unit smoke test
         run: |
@@ -161,6 +170,10 @@ jobs:
             --robustness "$ROBUSTNESS" \
             --oos "$OOS" \
             --provenance evidence/source-provenance.json \
+            --validation-data-provenance "$VALIDATION_DATA_PROVENANCE" \
+            --robustness-data-provenance "$ROBUSTNESS_DATA_PROVENANCE" \
+            --oos-data-provenance "$OOS_DATA_PROVENANCE" \
+            --target-sha "$TARGET_SHA" \
             --output artifacts/g13/g13-promotion-manifest-m15.json
       - name: Fail closed
         run: |
