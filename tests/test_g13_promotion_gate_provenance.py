@@ -10,7 +10,7 @@ def _good() -> dict:
         "schema_version": "forexai.g13.promotion_evidence_provenance.m15.v1",
         "sources": {
             "validation": {
-                "run_id": gate.EXPECTED_VALIDATION_RUN,
+                "run_id": 12345678901,
                 "workflow_name": "ForexAI G13 Validation M15",
                 "workflow_id": 355468598,
                 "head_branch": "main",
@@ -20,14 +20,14 @@ def _good() -> dict:
                 "job_name": "g13-validation",
                 "local_zip_sha256": "a" * 64,
                 "artifact": {
-                    "artifact_id": gate.EXPECTED_VALIDATION_ARTIFACT,
+                    "artifact_id": 12345678911,
                     "name": "g13-validation-m15",
                     "digest": "sha256:" + "a" * 64,
                     "expired": False,
                 },
             },
             "robustness": {
-                "run_id": gate.EXPECTED_ROBUST_RUN,
+                "run_id": 12345678921,
                 "workflow_name": "ForexAI G13 Robustness M15",
                 "workflow_id": 355473409,
                 "head_branch": "main",
@@ -37,14 +37,14 @@ def _good() -> dict:
                 "job_name": "g13-robustness",
                 "local_zip_sha256": "b" * 64,
                 "artifact": {
-                    "artifact_id": gate.EXPECTED_ROBUST_ARTIFACT,
+                    "artifact_id": 12345678931,
                     "name": "g13-robustness-m15",
                     "digest": "sha256:" + "b" * 64,
                     "expired": False,
                 },
             },
             "oos": {
-                "run_id": gate.EXPECTED_OOS_RUN,
+                "run_id": 12345678941,
                 "workflow_name": "ForexAI G13 OOS M15 Current",
                 "workflow_id": 356162316,
                 "head_branch": "main",
@@ -54,7 +54,7 @@ def _good() -> dict:
                 "job_name": "G13 2026 OOS M15 Current",
                 "local_zip_sha256": "c" * 64,
                 "artifact": {
-                    "artifact_id": gate.EXPECTED_OOS_ARTIFACT,
+                    "artifact_id": 12345678951,
                     "name": "g13-oos-m15-2026-current",
                     "digest": "sha256:" + "c" * 64,
                     "expired": False,
@@ -90,7 +90,7 @@ def _data_provenance() -> dict:
             "producer": {
                 "workflow_name": "ForexAI G13 Validation M15",
                 "workflow_file": "forexai-g13-validation-m15.yml",
-                "run_id": gate.EXPECTED_VALIDATION_RUN,
+                "run_id": 12345678901,
                 "job_name": "g13-validation",
                 "head_sha": "target-sha",
             },
@@ -111,7 +111,7 @@ def _data_provenance() -> dict:
             "producer": {
                 "workflow_name": "ForexAI G13 Robustness M15",
                 "workflow_file": "forexai-g13-robustness-m15.yml",
-                "run_id": gate.EXPECTED_ROBUST_RUN,
+                "run_id": 12345678921,
                 "job_name": "g13-robustness",
                 "head_sha": "target-sha",
             },
@@ -131,7 +131,7 @@ def _data_provenance() -> dict:
             "producer": {
                 "workflow_name": "ForexAI G13 OOS M15 Current",
                 "workflow_file": "forexai-g13-oos-m15-current.yml",
-                "run_id": gate.EXPECTED_OOS_RUN,
+                "run_id": 12345678941,
                 "job_name": "G13 2026 OOS M15 Current",
                 "head_sha": "target-sha",
             },
@@ -201,14 +201,20 @@ def test_valid_provenance_is_accepted():
     gate.validate_provenance(_good())
 
 
-def test_wrong_run_id_is_rejected():
+def test_non_positive_run_id_is_rejected():
     p = _good()
-    p["sources"]["oos"]["run_id"] += 1
+    p["sources"]["oos"]["run_id"] = 0
     try:
         gate.validate_provenance(p)
     except AssertionError:
         return
-    raise AssertionError("wrong OOS run id was accepted")
+    raise AssertionError("non-positive OOS run id was accepted")
+
+def test_fresh_run_and_artifact_ids_are_not_required_to_match_history():
+    p = _good()
+    p["sources"]["validation"]["run_id"] = 41234567890
+    p["sources"]["validation"]["artifact"]["artifact_id"] = 51234567890
+    gate.validate_provenance(p)
 
 
 def test_zip_digest_mismatch_is_rejected():
