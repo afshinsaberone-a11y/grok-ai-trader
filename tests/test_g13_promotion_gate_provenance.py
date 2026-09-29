@@ -8,6 +8,7 @@ from research.optimization import g13_promotion_gate_m15 as gate
 def _good() -> dict:
     return {
         "schema_version": "forexai.g13.promotion_evidence_provenance.m15.v1",
+        "target_sha": "target-sha",
         "sources": {
             "validation": {
                 "run_id": 12345678901,
@@ -209,7 +210,14 @@ def test_oos_upstream_lineage_is_required():
 
 
 def test_valid_provenance_is_accepted():
-    gate.validate_provenance(_good())
+    gate.validate_provenance(_good(), target_sha="target-sha")
+
+def test_provenance_target_sha_mismatch_is_rejected():
+    try:
+        gate.validate_provenance(_good(), target_sha="other-target")
+    except AssertionError:
+        return
+    raise AssertionError("promotion provenance target SHA mismatch was accepted")
 
 
 def test_non_positive_run_id_is_rejected():
