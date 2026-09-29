@@ -194,9 +194,34 @@ jobs:
               "workflow_name",
               "head_branch",
               "evidence_provenance_sha256",
+              "data_lineage",
+              "forexai.g13.data_lineage_binding.m15.v1",
+              "validate_data_lineage",
+              "--validation-data-provenance",
+              "--robustness-data-provenance",
+              "--oos-data-provenance",
+              "--target-sha",
               "promotion_run_attestation.m15.v1",
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
+
+          promotion_workflow = Path(".github/workflows/forexai-g13-promotion-m15.yml").read_text(encoding="utf-8")
+          for token in [
+              "target_sha:",
+              "TARGET_SHA:",
+              "assert run.get('head_sha') == os.environ['TARGET_SHA']",
+              "g13-validation-data-provenance.json",
+              "g13-robustness-data-provenance.json",
+              "g13-oos-data-provenance.json",
+              "VALIDATION_DATA_PROVENANCE",
+              "ROBUSTNESS_DATA_PROVENANCE",
+              "OOS_DATA_PROVENANCE",
+              "--validation-data-provenance",
+              "--robustness-data-provenance",
+              "--oos-data-provenance",
+              "--target-sha",
+          ]:
+              assert token in promotion_workflow, f"Promotion data-lineage wiring token missing: {token}"
 
           for workflow_name in [
               ".github/workflows/forexai-g13-promotion-m15.yml",
