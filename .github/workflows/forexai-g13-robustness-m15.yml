@@ -39,7 +39,7 @@ jobs:
             research/optimization/g13_validation_m15.py \
             research/optimization/rsi_divergence_discovery_g13.py \
             research/optimization/execution_contract_v1.py \
-            research/optimization/cost_aware_gate_v14.py
+            research/optimization/cost_aware_gate_v14.py \
             research/optimization/g13_data_provenance.py
       - name: Download REAL EURUSD M15
         run: |
