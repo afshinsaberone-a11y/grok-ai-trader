@@ -96,7 +96,7 @@ def validate_data_lineage(
     }
 
     for role, data in data_provenance_by_role.items():
-        assert data["schema_version"] == "forexai.g13.data_provenance.m15.v1"
+        assert data["schema_version"] == "forexai.g13.data_provenance.m15.v2"
         assert data["role"] == role
         assert data["symbol"] == "EURUSD"
         assert data["timeframe"] == "M15"
@@ -115,12 +115,15 @@ def validate_data_lineage(
     robustness = data_provenance_by_role["robustness"]
     oos = data_provenance_by_role["oos"]
 
-    for field in ("data_sha256", "data_manifest_sha256", "dataset_id", "source", "quality_status", "timezone", "rows", "start", "end"):
+    for field in ("data_sha256", "manifest_identity_sha256", "dataset_id", "source", "quality_status", "timezone", "rows", "start", "end"):
         assert validation.get(field) == robustness.get(field), field
+    assert len(validation["data_manifest_sha256"]) == 64
+    assert len(robustness["data_manifest_sha256"]) == 64
     assert validation["quality_status"] == "PASS"
     assert validation["timezone"] == "UTC"
     assert validation["dataset_id"] == "20220101_20251231"
-    assert len(validation["data_manifest_sha256"]) == 64
+    assert len(validation["manifest_identity_sha256"]) == 64
+    assert len(robustness["manifest_identity_sha256"]) == 64
     assert validation["manifest_data_sha256"] == validation["data_sha256"]
     assert robustness["manifest_data_sha256"] == robustness["data_sha256"]
 
@@ -142,6 +145,7 @@ def validate_data_lineage(
         "validation": {
             "data_sha256": validation["data_sha256"],
             "data_manifest_sha256": validation["data_manifest_sha256"],
+            "manifest_identity_sha256": validation["manifest_identity_sha256"],
             "dataset_id": validation["dataset_id"],
             "rows": validation["rows"],
             "start": validation["start"],
@@ -151,6 +155,7 @@ def validate_data_lineage(
         "robustness": {
             "data_sha256": robustness["data_sha256"],
             "data_manifest_sha256": robustness["data_manifest_sha256"],
+            "manifest_identity_sha256": robustness["manifest_identity_sha256"],
             "dataset_id": robustness["dataset_id"],
             "rows": robustness["rows"],
             "start": robustness["start"],
