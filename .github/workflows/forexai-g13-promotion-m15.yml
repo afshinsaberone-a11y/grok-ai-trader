@@ -107,7 +107,7 @@ jobs:
           if requested_target_sha:
               assert requested_target_sha == target_sha, (requested_target_sha, target_sha)
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
-              env_file.write(f"TARGET_SHA={target_sha}\\n")
+              env_file.write(f"TARGET_SHA={target_sha}\n")
           producer_runs = audit_report["producer_runs"]
           assert set(producer_runs) == {"validation", "robustness", "oos"}
 
@@ -272,7 +272,7 @@ jobs:
       - name: Fail closed
         run: |
           python - <<'PY'
-          import json
+          import json, os
           p=json.load(open('artifacts/g13/g13-promotion-manifest-m15.json',encoding='utf-8'))
           assert p['schema_version']=='forexai.g13.promotion_manifest.m15.v1'
           assert p['status']=='PROMOTION_READY'
@@ -286,7 +286,7 @@ jobs:
           assert p['decision_policy']['live_trading_allowed'] is False
           assert p['data_lineage']['schema_version']=='forexai.g13.data_lineage_binding.m15.v1'
           assert p['data_lineage']['status']=='PASS'
-          assert p['data_lineage']['target_sha'] == '${{ env.TARGET_SHA }}'
+          assert p['data_lineage']['target_sha'] == os.environ['TARGET_SHA']
           assert p['data_lineage']['validation']['data_sha256']
           assert p['data_lineage']['robustness']['data_manifest_sha256']
           assert p['data_lineage']['oos']['upstream_data_sha256']
