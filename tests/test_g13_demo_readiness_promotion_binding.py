@@ -26,6 +26,11 @@ def _case(tmp_path: Path):
     promotion = {
         "schema_version": "forexai.g13.promotion_manifest.m15.v1",
         "status": "PROMOTION_READY",
+        "data_lineage": {
+            "schema_version": "forexai.g13.data_lineage_binding.m15.v1",
+            "status": "PASS",
+            "target_sha": "abc123",
+        },
         "evidence_provenance_sha256": __import__(
             "research.optimization.g13_demo_readiness_gate_m15",
             fromlist=["canonical_hash"],
@@ -186,4 +191,20 @@ def test_preflight_candidate_hash_mismatch_fails():
             parity_run_id=55,
             parity_head_sha="main-sha",
             main_head_sha="main-sha",
+        )
+
+
+def test_promotion_data_lineage_target_mismatch_fails(tmp_path: Path):
+    p, prov, att = _case(tmp_path)
+    payload = json.loads(p.read_text())
+    payload["data_lineage"]["target_sha"] = "different"
+    with pytest.raises(AssertionError):
+        validate_promotion_binding(
+            payload,
+            json.loads(prov.read_text()),
+            json.loads(att.read_text()),
+            promotion_run_id=999,
+            main_head_sha="abc123",
+            promotion_path=p,
+            provenance_path=prov,
         )
