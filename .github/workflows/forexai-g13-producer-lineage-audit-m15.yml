@@ -66,8 +66,7 @@ jobs:
             prov="$(find "$dest/extracted" -type f -name "$key" | head -n1)"
             test -n "$prov"
             cp "$prov" "$dest/provenance.json"
-            printf '%s
-' "$run_id" > "$dest/run_id.txt"
+            printf '%s\n' "$run_id" > "$dest/run_id.txt"
             echo "$key RUN=$run_id ARTIFACT=$artifact_name DIGEST=$digest"
           }
           resolve_run "g13-validation-data-provenance.json" "$VALIDATION_WORKFLOW_FILE" "g13-validation-m15" evidence/g13-producers/validation
