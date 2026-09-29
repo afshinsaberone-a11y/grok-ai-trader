@@ -244,6 +244,7 @@ jobs:
               "oos_dataset",
               "target_sha",
               "Dukascopy",
+              "workflow_file",
               "if not __debug__:",
           ]:
               assert token in lineage_audit, f"producer lineage audit token missing: {token}"
@@ -267,6 +268,7 @@ jobs:
               "data_sha256",
               "producer",
               "upstream_manifest_sha256",
+              "producer_workflow_file",
               "if not __debug__:",
           ]:
               assert token in data_provenance, f"producer data provenance token missing: {token}"
@@ -302,7 +304,11 @@ jobs:
               assert output_name in producer_workflow, f"data provenance output missing: {workflow_path}"
               assert "--producer-run-id \"$GITHUB_RUN_ID\"" in producer_workflow
               assert "--head-sha \"$GITHUB_SHA\"" in producer_workflow
-              assert "g13-oos-m15-current.yml" not in workflow_path or "--upstream-manifest \"$M1_MANIFEST\"" in producer_workflow
+              assert f"--producer-workflow-file \"{workflow_path.split("/")[-1]}\"" in producer_workflow
+              if role == "oos":
+                  assert "--upstream-manifest \"$M1_MANIFEST\"" in producer_workflow
+              else:
+                  assert "--manifest \"$DATA_MANIFEST\"" in producer_workflow
 
           package_preflight_workflow = Path(".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
           for token in [
