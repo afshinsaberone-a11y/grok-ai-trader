@@ -9,131 +9,185 @@ on:
         description: 'Exact main SHA whose fresh producer evidence is eligible for Promotion'
         required: true
         type: string
-  push:
-    paths:
-      - 'research/optimization/g13_*.py'
-      - 'artifacts/g13/frozen/g13-candidate-handoff-m15.json'
-      - '.github/workflows/forexai-g13-*.yml'
+  workflow_run:
+    workflows:
+      - "ForexAI G13 Producer Lineage Audit M15"
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
   actions: read
 
-env:
-  VALIDATION_RUN_ID: '34559825574'
-  VALIDATION_ARTIFACT_ID: '10184001419'
-  ROBUSTNESS_RUN_ID: '34679210600'
-  ROBUSTNESS_ARTIFACT_ID: '10293181701'
-  OOS_RUN_ID: '34679937623'
-  OOS_ARTIFACT_ID: '10293797420'
-
 jobs:
   promotion:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       PYTHONOPTIMIZE: '0'
-      TARGET_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.sha }}
+      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
     steps:
-      - name: Checkout
+      - name: Checkout exact target
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
+          fetch-depth: 1
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Verify source runs and download exact evidence artifacts
+
+      - name: Resolve exact fresh producer runs and download evidence
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p evidence/validation evidence/robustness evidence/oos
           python - <<'PY'
-          import json, os, subprocess
-          repo=os.environ['GITHUB_REPOSITORY']
-          provenance={"schema_version":"forexai.g13.promotion_evidence_provenance.m15.v1","sources":{}}
-          checks={
-            "validation": ('VALIDATION_RUN_ID', 'VALIDATION_ARTIFACT_ID', 'g13-validation-m15'),
-            "robustness": ('ROBUSTNESS_RUN_ID', 'ROBUSTNESS_ARTIFACT_ID', 'g13-robustness-m15'),
-            "oos": ('OOS_RUN_ID', 'OOS_ARTIFACT_ID', 'g13-oos-m15-2026-current'),
-          }
-          expected_jobs={
-            "validation": "g13-validation",
-            "robustness": "g13-robustness",
-            "oos": "G13 2026 OOS M15 Current",
-          }
-          expected_workflows={
-            "validation": "ForexAI G13 Validation M15",
-            "robustness": "ForexAI G13 Robustness M15",
-            "oos": "ForexAI G13 OOS M15 Current",
-          }
-          for key, (run_key, art_key, expected_artifact_name) in checks.items():
-              run_id=int(os.environ[run_key]); artifact_id=int(os.environ[art_key])
-              run=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}'],text=True))
-              assert run.get('conclusion')=='success', (run_id,run.get('conclusion'))
-              assert run.get('head_sha') == os.environ['TARGET_SHA'], (run_id, run.get('head_sha'), os.environ['TARGET_SHA'])
-              assert run.get('name') == expected_workflows[key], (run_id, run.get('name'), expected_workflows[key])
-              assert run.get('head_branch') == 'main', (run_id, run.get('head_branch'))
-              arts=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}/artifacts'],text=True))['artifacts']
-              match=[a for a in arts if int(a['id'])==artifact_id]
-              assert len(match)==1, (run_id,artifact_id)
-              artifact=match[0]
-              assert artifact.get('name') == expected_artifact_name, (artifact.get('name'), expected_artifact_name)
-              assert artifact.get('expired') is False
-              jobs=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}/jobs'],text=True))['jobs']
-              success_jobs=[j for j in jobs if j.get('name')==expected_jobs[key] and j.get('conclusion')=='success']
-              assert len(success_jobs)==1, (run_id, key, expected_jobs[key], [(j.get('name'),j.get('conclusion')) for j in jobs])
-              job_id=int(success_jobs[0]['id'])
-              digest=artifact.get('digest')
-              assert isinstance(digest,str) and digest.startswith('sha256:')
-              provenance['sources'][key]={
-                  'run_id':run_id,
-                  'workflow_id':run.get('workflow_id'),
-                  'workflow_name':run.get('name'),
-                  'head_branch':run.get('head_branch'),
-                  'job_id':job_id,
-                  'job_name':expected_jobs[key],
-                  'head_sha':run.get('head_sha'),
-                  'conclusion':run.get('conclusion'),
-                  'artifact':{
-                      'artifact_id':int(artifact['id']),
-                      'name':artifact.get('name'),
-                      'digest':digest,
-                      'expired':bool(artifact.get('expired')),
-                      'created_at':artifact.get('created_at'),
-                  },
-              }
-              print('SOURCE_RUN_OK',run_id,run.get('head_sha'))
-              print('SOURCE_ARTIFACT_OK',artifact_id,artifact.get('name'),digest)
-          json.dump(provenance,open('evidence/source-provenance.json','w',encoding='utf-8'),indent=2,sort_keys=True)
-          PY
-          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$VALIDATION_ARTIFACT_ID/zip" > evidence/validation/source.zip
-          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ROBUSTNESS_ARTIFACT_ID/zip" > evidence/robustness/source.zip
-          unzip -o evidence/validation/source.zip -d evidence/validation
-          unzip -o evidence/robustness/source.zip -d evidence/robustness
-          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$OOS_ARTIFACT_ID/zip" > evidence/oos/source.zip
-          unzip -o evidence/oos/source.zip -d evidence/oos
-      - name: Verify downloaded artifact bytes against GitHub digests
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import hashlib, json
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          import zipfile
           from pathlib import Path
-          p=Path('evidence/source-provenance.json')
-          d=json.loads(p.read_text(encoding='utf-8'))
-          for key, path in {
-              'validation':Path('evidence/validation/source.zip'),
-              'robustness':Path('evidence/robustness/source.zip'),
-              'oos':Path('evidence/oos/source.zip'),
-          }.items():
-              actual=hashlib.sha256(path.read_bytes()).hexdigest()
-              expected=d['sources'][key]['artifact']['digest'].split(':',1)[1]
-              assert actual==expected,(key,actual,expected)
-              d['sources'][key]['local_zip_sha256']=actual
-              print('ARTIFACT_BYTES_OK',key,actual)
-          p.write_text(json.dumps(d,indent=2,sort_keys=True) + "\n", encoding='utf-8')
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          target_sha = os.environ["TARGET_SHA"]
+          assert re.fullmatch(r"[0-9a-f]{40}", target_sha), target_sha
+
+          specs = {
+              "validation": {
+                  "workflow_file": "forexai-g13-validation-m15.yml",
+                  "workflow_name": "ForexAI G13 Validation M15",
+                  "workflow_id": 355468598,
+                  "job_name": "g13-validation",
+                  "artifact_name": "g13-validation-m15",
+                  "provenance_name": "g13-validation-data-provenance.json",
+              },
+              "robustness": {
+                  "workflow_file": "forexai-g13-robustness-m15.yml",
+                  "workflow_name": "ForexAI G13 Robustness M15",
+                  "workflow_id": 355473409,
+                  "job_name": "g13-robustness",
+                  "artifact_name": "g13-robustness-m15",
+                  "provenance_name": "g13-robustness-data-provenance.json",
+              },
+              "oos": {
+                  "workflow_file": "forexai-g13-oos-m15-current.yml",
+                  "workflow_name": "ForexAI G13 OOS M15 Current",
+                  "workflow_id": 356162316,
+                  "job_name": "G13 2026 OOS M15 Current",
+                  "artifact_name": "g13-oos-m15-2026-current",
+                  "provenance_name": "g13-oos-data-provenance.json",
+              },
+          }
+
+          source_provenance = {
+              "schema_version": "forexai.g13.promotion_evidence_provenance.m15.v1",
+              "target_sha": target_sha,
+              "sources": {},
+          }
+
+          def gh_json(path: str) -> dict:
+              return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+
+          for role, spec in specs.items():
+              runs = gh_json(
+                  f"repos/{repo}/actions/workflows/{spec['workflow_file']}/runs"
+                  "?branch=main&status=success&per_page=100"
+              )["workflow_runs"]
+              matches = [
+                  r for r in runs
+                  if r.get("head_sha") == target_sha and r.get("conclusion") == "success"
+              ]
+              assert matches, f"no successful {role} producer run for exact target SHA {target_sha}"
+              run = max(matches, key=lambda r: int(r["id"]))
+
+              assert run.get("name") == spec["workflow_name"]
+              assert int(run.get("workflow_id")) == spec["workflow_id"]
+              assert run.get("head_branch") == "main"
+              assert run.get("head_sha") == target_sha
+              run_id = int(run["id"])
+
+              artifacts = gh_json(f"repos/{repo}/actions/runs/{run_id}/artifacts")["artifacts"]
+              candidates = [
+                  a for a in artifacts
+                  if a.get("name") == spec["artifact_name"] and a.get("expired") is False
+              ]
+              assert len(candidates) == 1, (role, spec["artifact_name"], candidates)
+              artifact = candidates[0]
+              artifact_id = int(artifact["id"])
+              digest = str(artifact.get("digest", ""))
+              assert re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest)
+
+              jobs = gh_json(f"repos/{repo}/actions/runs/{run_id}/jobs")["jobs"]
+              job_matches = [
+                  j for j in jobs
+                  if j.get("name") == spec["job_name"] and j.get("conclusion") == "success"
+              ]
+              assert len(job_matches) == 1, (role, spec["job_name"], job_matches)
+              job_id = int(job_matches[0]["id"])
+
+              dest = Path("evidence") / role
+              dest.mkdir(parents=True, exist_ok=True)
+              zip_path = dest / "source.zip"
+              with zip_path.open("wb") as fh:
+                  subprocess.run(
+                      [
+                          "gh", "api", "--method", "GET",
+                          f"repos/{repo}/actions/artifacts/{artifact_id}/zip",
+                      ],
+                      check=True,
+                      stdout=fh,
+                  )
+
+              actual = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+              expected = digest.split(":", 1)[1]
+              assert actual == expected, (role, actual, expected)
+
+              with zipfile.ZipFile(zip_path) as archive:
+                  archive.extractall(dest)
+
+              provenance_files = list(dest.rglob(spec["provenance_name"]))
+              assert len(provenance_files) == 1, (role, provenance_files)
+              local_provenance = provenance_files[0]
+              (dest / "provenance.json").write_bytes(local_provenance.read_bytes())
+
+              source_provenance["sources"][role] = {
+                  "run_id": run_id,
+                  "workflow_id": int(run["workflow_id"]),
+                  "workflow_name": run["name"],
+                  "head_branch": run["head_branch"],
+                  "job_id": job_id,
+                  "job_name": spec["job_name"],
+                  "head_sha": run["head_sha"],
+                  "conclusion": run["conclusion"],
+                  "artifact": {
+                      "artifact_id": artifact_id,
+                      "name": artifact["name"],
+                      "digest": digest,
+                      "expired": bool(artifact["expired"]),
+                      "created_at": artifact.get("created_at"),
+                  },
+                  "local_zip_sha256": actual,
+              }
+              print("SOURCE_RUN_OK", role, run_id, target_sha)
+              print("SOURCE_ARTIFACT_OK", role, artifact_id, digest)
+
+          Path("evidence/source-provenance.json").write_text(
+              json.dumps(source_provenance, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
           PY
+
       - name: Verify upstream artifacts exist
         run: |
           set -euo pipefail
@@ -158,23 +212,16 @@ jobs:
             echo "ROBUSTNESS_DATA_PROVENANCE=$ROB_DATA_PROV"
             echo "OOS_DATA_PROVENANCE=$OOS_DATA_PROV"
           } >> "$GITHUB_ENV"
+
       - name: Compile and unit smoke test
         run: |
-          python -m py_compile research/optimization/g13_promotion_gate_m15.py
-          python -m pytest -q tests/test_g13_oos_m15.py
+          python -m py_compile research/optimization/g13_promotion_gate_m15.py research/optimization/g13_data_provenance.py
+          python -m pytest -q tests/test_g13_oos_m15.py tests/test_g13_promotion_gate_provenance.py tests/test_g13_data_provenance.py
+
       - name: Run final promotion gate
         run: |
-          python -m research.optimization.g13_promotion_gate_m15 \
-            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
-            --validation "$VALIDATION" \
-            --robustness "$ROBUSTNESS" \
-            --oos "$OOS" \
-            --provenance evidence/source-provenance.json \
-            --validation-data-provenance "$VALIDATION_DATA_PROVENANCE" \
-            --robustness-data-provenance "$ROBUSTNESS_DATA_PROVENANCE" \
-            --oos-data-provenance "$OOS_DATA_PROVENANCE" \
-            --target-sha "$TARGET_SHA" \
-            --output artifacts/g13/g13-promotion-manifest-m15.json
+          python -m research.optimization.g13_promotion_gate_m15             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json             --validation "$VALIDATION"             --robustness "$ROBUSTNESS"             --oos "$OOS"             --provenance evidence/source-provenance.json             --validation-data-provenance "$VALIDATION_DATA_PROVENANCE"             --robustness-data-provenance "$ROBUSTNESS_DATA_PROVENANCE"             --oos-data-provenance "$OOS_DATA_PROVENANCE"             --target-sha "$TARGET_SHA"             --output artifacts/g13/g13-promotion-manifest-m15.json
+
       - name: Fail closed
         run: |
           python - <<'PY'
@@ -199,6 +246,7 @@ jobs:
           print('G13_FINAL_PROMOTION_GATE_OK')
           print('PROMOTED',p['promoted_candidate_ids'])
           PY
+
       - name: Write promotion run attestation
         run: |
           set -euo pipefail
@@ -213,6 +261,7 @@ jobs:
               "schema_version": "forexai.g13.promotion_run_attestation.m15.v1",
               "workflow_run_id": int(os.environ["GITHUB_RUN_ID"]),
               "head_sha": os.environ["GITHUB_SHA"],
+              "target_sha": os.environ["TARGET_SHA"],
               "manifest_sha256": sha(manifest),
               "provenance_sha256": sha(provenance),
           }
@@ -222,6 +271,7 @@ jobs:
           )
           print("PROMOTION_RUN_ATTESTATION_OK", payload)
           PY
+
       - name: Upload promotion manifest
         uses: actions/upload-artifact@v4
         with:
