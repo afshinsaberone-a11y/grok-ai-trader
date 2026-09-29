@@ -33,22 +33,14 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONOPTIMIZE: '0'
-      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
       AUDIT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.audit_run_id }}
+      REQUESTED_TARGET_SHA: ${{ inputs.target_sha }}
     steps:
-      - name: Checkout exact target
+      - name: Bootstrap main workspace
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
-          fetch-depth: 1
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+          ref: main
+          fetch-depth: 0
 
       - name: Consume exact successful lineage-audit evidence
         env:
@@ -65,9 +57,8 @@ jobs:
           from pathlib import Path
 
           repo = os.environ["GITHUB_REPOSITORY"]
-          target_sha = os.environ["TARGET_SHA"]
           audit_run_id = int(os.environ["AUDIT_RUN_ID"])
-          assert re.fullmatch(r"[0-9a-f]{40}", target_sha), target_sha
+          requested_target_sha = os.environ.get("REQUESTED_TARGET_SHA", "")
           assert audit_run_id > 0
 
           def gh_json(path: str) -> dict:
@@ -111,7 +102,12 @@ jobs:
           audit_report = json.loads(audit_reports[0].read_text(encoding="utf-8"))
           assert audit_report["schema_version"] == "forexai.g13.producer_lineage_audit.m15.v1"
           assert audit_report["status"] == "PASS"
-          assert audit_report["target_sha"] == target_sha
+          target_sha = audit_report["target_sha"]
+          assert re.fullmatch(r"[0-9a-f]{40}", target_sha), target_sha
+          if requested_target_sha:
+              assert requested_target_sha == target_sha, (requested_target_sha, target_sha)
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
+              env_file.write(f"TARGET_SHA={target_sha}\\n")
           producer_runs = audit_report["producer_runs"]
           assert set(producer_runs) == {"validation", "robustness", "oos"}
 
@@ -223,6 +219,22 @@ jobs:
               json.dumps(source_provenance, indent=2, sort_keys=True) + "\n",
               encoding="utf-8",
           )
+      - name: Checkout exact audited target
+        run: |
+          set -euo pipefail
+          test -n "$TARGET_SHA"
+          git checkout --detach "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          echo "PROMOTION_TARGET_CHECKOUT_OK $TARGET_SHA"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
       - name: Verify upstream artifacts exist
         run: |
           set -euo pipefail
@@ -295,7 +307,8 @@ jobs:
           payload = {
               "schema_version": "forexai.g13.promotion_run_attestation.m15.v1",
               "workflow_run_id": int(os.environ["GITHUB_RUN_ID"]),
-              "head_sha": os.environ["GITHUB_SHA"],
+              "head_sha": os.environ["TARGET_SHA"],
+              "workflow_run_head_sha": os.environ["GITHUB_SHA"],
               "target_sha": os.environ["TARGET_SHA"],
               "manifest_sha256": sha(manifest),
               "provenance_sha256": sha(provenance),
