@@ -176,7 +176,7 @@ jobs:
           promotion = Path(".github/workflows/forexai-g13-promotion-m15.yml").read_text(encoding="utf-8")
           for token in [
               "source-provenance.json",
-              "Verify downloaded artifact bytes against GitHub digests",
+              "Consume exact successful lineage-audit evidence",
               "--provenance evidence/source-provenance.json",
               "promotion-run-attestation.json",
               "g13-promotion-manifest-m15",
@@ -208,8 +208,13 @@ jobs:
           promotion_workflow = Path(".github/workflows/forexai-g13-promotion-m15.yml").read_text(encoding="utf-8")
           for token in [
               "target_sha:",
+              "audit_run_id:",
               "TARGET_SHA:",
-              "assert run.get('head_sha') == os.environ['TARGET_SHA']",
+              "AUDIT_RUN_ID:",
+              "ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}",
+              "Consume exact successful lineage-audit evidence",
+              "g13-producer-lineage-audit-m15",
+              "assert run.get(\"head_sha\") == target_sha",
               "g13-validation-data-provenance.json",
               "g13-robustness-data-provenance.json",
               "g13-oos-data-provenance.json",
