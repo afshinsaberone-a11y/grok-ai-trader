@@ -1,6 +1,6 @@
 name: ForexAI G13 Controlled Demo Package Preflight M15
 
-# Manual, offline/read-only package integrity gate.
+# Offline/read-only package integrity gate. It can run manually or automatically after a successful exact-main Compile/Parity run.
 # This workflow never connects to MT5 and never submits orders.
 on:
   workflow_dispatch:
@@ -9,6 +9,12 @@ on:
         description: "Successful ForexAI G13 MT5 Compile + Signal Parity run containing the frozen EX5 package"
         required: true
         type: string
+  workflow_run:
+    workflows:
+      - "ForexAI G13 MT5 Compile + Signal Parity"
+    types: [completed]
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -22,9 +28,13 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.name == 'ForexAI G13 MT5 Compile + Signal Parity') }}
     env:
       PYTHONOPTIMIZE: '0'
-      COMPILE_PARITY_RUN_ID: ${{ inputs.compile_parity_run_id }}
+      COMPILE_PARITY_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.compile_parity_run_id || github.event.workflow_run.id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
