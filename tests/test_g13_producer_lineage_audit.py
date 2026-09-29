@@ -101,3 +101,55 @@ def test_wrong_producer_sha_rejected():
             target_sha="abc123",
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
         )
+
+
+def test_source_metadata_mismatch_rejected():
+    p = _all()
+    metadata = {
+        "validation": {
+            "workflow_name": "ForexAI G13 Validation M15",
+            "workflow_id": 355468598,
+            "head_branch": "main",
+            "head_sha": "abc123",
+            "job_name": "g13-validation",
+            "run_id": 101,
+            "artifact_name": "g13-validation-m15",
+            "artifact_id": 999,
+            "artifact_sha256": "a" * 64,
+            "downloaded_zip_sha256": "a" * 64,
+            "expired": False,
+        },
+        "robustness": {
+            "workflow_name": "ForexAI G13 Robustness M15",
+            "workflow_id": 355473409,
+            "head_branch": "main",
+            "head_sha": "abc123",
+            "job_name": "g13-robustness",
+            "run_id": 202,
+            "artifact_name": "g13-robustness-m15",
+            "artifact_id": 1000,
+            "artifact_sha256": "b" * 64,
+            "downloaded_zip_sha256": "b" * 64,
+            "expired": False,
+        },
+        "oos": {
+            "workflow_name": "ForexAI G13 OOS M15 Current",
+            "workflow_id": 356162316,
+            "head_branch": "main",
+            "head_sha": "abc123",
+            "job_name": "G13 2026 OOS M15 Current",
+            "run_id": 303,
+            "artifact_name": "g13-oos-m15-2026-current",
+            "artifact_id": 1001,
+            "artifact_sha256": "c" * 64,
+            "downloaded_zip_sha256": "0" * 64,
+            "expired": False,
+        },
+    }
+    with pytest.raises(AssertionError):
+        validate_lineage(
+            p,
+            target_sha="abc123",
+            run_ids={"validation": 101, "robustness": 202, "oos": 303},
+            source_metadata_by_role=metadata,
+        )
