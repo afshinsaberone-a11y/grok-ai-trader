@@ -7,7 +7,7 @@ from research.optimization.g13_producer_lineage_audit import validate_lineage
 
 def _p(role: str, run_id: int, data_sha: str, manifest_sha: str, **extra):
     p = {
-        "schema_version": "forexai.g13.data_provenance.m15.v1",
+        "schema_version": "forexai.g13.data_provenance.m15.v2",
         "role": role,
         "symbol": "EURUSD",
         "timeframe": "M15",
@@ -173,4 +173,20 @@ def test_source_metadata_is_required():
             target_sha="abc123",
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=None,
+        )
+
+
+def test_manifest_identity_mismatch_is_rejected():
+    p = {
+        "validation": _p("validation", 101, "a" * 64, "b" * 64),
+        "robustness": _p("robustness", 202, "a" * 64, "b" * 64),
+        "oos": _p("oos", 303, "c" * 64, "d" * 64),
+    }
+    p["robustness"]["manifest_identity_sha256"] = "f" * 64
+    with pytest.raises(AssertionError):
+        validate_lineage(
+            p,
+            target_sha="abc123",
+            run_ids={"validation": 101, "robustness": 202, "oos": 303},
+            source_metadata_by_role=_metadata(),
         )
