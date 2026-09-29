@@ -67,6 +67,9 @@ def validate_promotion_binding(
     assert promotion["schema_version"] == "forexai.g13.promotion_manifest.m15.v1"
     assert promotion["status"] == "PROMOTION_READY"
     assert promotion["evidence_provenance_sha256"] == canonical_hash(provenance)
+    assert promotion["data_lineage"]["schema_version"] == "forexai.g13.data_lineage_binding.m15.v1"
+    assert promotion["data_lineage"]["status"] == "PASS"
+    assert promotion["data_lineage"]["target_sha"] == main_head_sha
     assert attestation["schema_version"] == "forexai.g13.promotion_run_attestation.m15.v1"
     assert int(attestation["workflow_run_id"]) == promotion_run_id
     assert attestation["head_sha"] == main_head_sha
