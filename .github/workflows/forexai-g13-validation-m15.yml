@@ -6,6 +6,7 @@ on:
     paths:
       - research/optimization/g13_validation_m15.py
       - research/optimization/rsi_divergence_discovery_g13.py
+      - research/optimization/g13_data_provenance.py
       - .github/workflows/forexai-g13-validation-m15.yml
 
 permissions:
@@ -31,7 +32,8 @@ jobs:
             research/optimization/g13_validation_m15.py \
             research/optimization/rsi_divergence_discovery_g13.py \
             research/optimization/execution_contract_v1.py \
-            research/optimization/cost_aware_gate_v14.py
+            research/optimization/cost_aware_gate_v14.py \
+            research/optimization/g13_data_provenance.py
       - name: Download REAL EURUSD M15
         run: |
           python -m research.real_data.histdata_ingest \
@@ -43,7 +45,10 @@ jobs:
           set -euo pipefail
           DATA="$(find data/real/normalized -type f -name 'EURUSD_M15_20220101_20251231.csv' | sort | head -n1)"
           test -n "$DATA"
+          MANIFEST="${DATA%.csv}.manifest.json"
+          test -f "$MANIFEST"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "DATA_MANIFEST=$MANIFEST" >> "$GITHUB_ENV"
       - name: Validate real dataset and OOS boundary
         run: |
           DATASET="$DATA" python - <<'PY'
@@ -55,6 +60,18 @@ jobs:
           assert ts.max() < pd.Timestamp('2026-01-01',tz='UTC')
           print('REAL_DATA_OK',len(d),ts.min().isoformat(),ts.max().isoformat())
           PY
+      - name: Write immutable validation data provenance
+        run: |
+          python -m research.optimization.g13_data_provenance \
+            --csv "$DATA" \
+            --role validation \
+            --manifest "$DATA_MANIFEST" \
+            --producer-workflow "$GITHUB_WORKFLOW" \
+            --producer-workflow-file "forexai-g13-validation-m15.yml" \
+            --producer-run-id "$GITHUB_RUN_ID" \
+            --producer-job-name "$GITHUB_JOB" \
+            --head-sha "$GITHUB_SHA" \
+            --output artifacts/g13-validation-data-provenance.json
       - name: Run independent G13 Validation
         run: |
           python -m research.optimization.rsi_divergence_discovery_g13 \
@@ -96,4 +113,5 @@ jobs:
             artifacts/rsi-divergence-g13-M15.json
             artifacts/g13-validation-m15.json
             artifacts/g13-candidate-handoff-m15.json
+            artifacts/g13-validation-data-provenance.json
           if-no-files-found: error
