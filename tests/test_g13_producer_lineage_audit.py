@@ -13,6 +13,8 @@ def _p(role: str, run_id: int, data_sha: str, manifest_sha: str, **extra):
         "timeframe": "M15",
         "data_sha256": data_sha,
         "data_manifest_sha256": manifest_sha,
+        "manifest_identity_sha256": manifest_sha,
+        "manifest_data_sha256": data_sha,
         "dataset_id": "20220101_20251231",
         "source": "HistData.com Generic ASCII M1 resampled to M15",
         "quality_status": "PASS",
@@ -116,7 +118,7 @@ def test_shared_validation_robustness_lineage_passes():
     assert result["producer_evidence"]["oos"]["downloaded_zip_sha256"] == "c" * 64
 
 
-@pytest.mark.parametrize("field", ["data_sha256", "data_manifest_sha256", "rows", "start", "end"])
+@pytest.mark.parametrize("field", ["data_sha256", "manifest_identity_sha256", "rows", "start", "end"])
 def test_shared_lineage_mismatch_rejected(field: str):
     p = _all()
     p["robustness"][field] = "different" if isinstance(p["robustness"][field], str) else 1
@@ -188,5 +190,5 @@ def test_manifest_identity_mismatch_is_rejected():
             p,
             target_sha="abc123",
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
-            source_metadata_by_role=_metadata(),
+            source_metadata_by_role=_source_metadata(),
         )
