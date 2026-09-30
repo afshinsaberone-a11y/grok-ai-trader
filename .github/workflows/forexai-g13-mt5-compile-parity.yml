@@ -84,14 +84,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:GITHUB_EVENT_NAME -eq 'workflow_run') {
-            $promotionId = [int]$env:EVENT_PROMOTION_RUN_ID
+            $promotionId = [int64]$env:EVENT_PROMOTION_RUN_ID
           } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
-            $promotionId = [int]$env:MANUAL_PROMOTION_RUN_ID
+            $promotionId = [int64]$env:MANUAL_PROMOTION_RUN_ID
           } else {
             $payload = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=50" | ConvertFrom-Json
             $matches = @($payload.workflow_runs | Where-Object { $_.head_sha -eq $env:TARGET_SHA -and $_.conclusion -eq 'success' } | Sort-Object id -Descending)
             if ($matches.Count -lt 1) { throw "No successful Promotion run for current commit $env:TARGET_SHA" }
-            $promotionId = [int]$matches[0].id
+            $promotionId = [int64]$matches[0].id
           }
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$promotionId" | ConvertFrom-Json
           if ($run.conclusion -ne 'success') { throw "Promotion run $promotionId is not successful" }
@@ -701,7 +701,7 @@ jobs:
             --package-root artifacts/g13/mql5 `
             --output artifacts/g13/g13-demo-package-manifest-m15.json `
             --source-commit "$env:GITHUB_SHA" `
-            --compile-parity-run-id ([int]$env:GITHUB_RUN_ID)
+            --compile-parity-run-id ([int64]$env:GITHUB_RUN_ID)
       - name: Print MT5 parity diagnostics
         if: always()
         run: |
