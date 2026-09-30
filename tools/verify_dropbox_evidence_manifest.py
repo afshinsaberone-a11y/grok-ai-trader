@@ -82,6 +82,14 @@ def verify_manifest(
     root = _required_string(data.get("dropbox_root"), "dropbox_root")
     if not root.startswith("/ForexAI/"):
         raise ManifestVerificationError("dropbox_root must remain under /ForexAI/")
+    expected_root_suffix = f"/{run_id}/attempt-{run_attempt}"
+    if not root.endswith(expected_root_suffix):
+        raise ManifestVerificationError(
+            "dropbox_root is not bound to workflow run/attempt: "
+            + root
+            + " expected suffix "
+            + expected_root_suffix
+        )
 
     source_run = data.get("source_run")
     if not isinstance(source_run, dict):
@@ -137,6 +145,8 @@ def verify_manifest(
         raise ManifestVerificationError(
             f"file_count mismatch: declared={file_count} actual={len(files)}"
         )
+    if file_count <= 0:
+        raise ManifestVerificationError("manifest contains no synchronized evidence payload")
 
     seen_remote: set[str] = set()
     for entry in files:
