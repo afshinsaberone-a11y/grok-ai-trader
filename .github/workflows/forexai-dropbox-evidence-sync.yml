@@ -91,16 +91,16 @@ jobs:
           artifacts=[]
           for page in pages:
               for a in page.get("artifacts",[]):
-              if a.get("expired"):
-                  continue
-              artifacts.append({
-                  "id": int(a["id"]),
-                  "name": str(a["name"]),
-                  "digest": str(a.get("digest") or ""),
-                  "size_in_bytes": int(a.get("size_in_bytes") or 0),
-                  "created_at": a.get("created_at"),
-                  "expires_at": a.get("expires_at")
-              })
+                  if a.get("expired"):
+                      continue
+                  artifacts.append({
+                      "id": int(a["id"]),
+                      "name": str(a["name"]),
+                      "digest": str(a.get("digest") or ""),
+                      "size_in_bytes": int(a.get("size_in_bytes") or 0),
+                      "created_at": a.get("created_at"),
+                      "expires_at": a.get("expires_at")
+                  })
           metadata={
               "run_id": int(run["id"]),
               "workflow_name": str(run["name"]),
