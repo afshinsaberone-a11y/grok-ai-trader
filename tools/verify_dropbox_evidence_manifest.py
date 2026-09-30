@@ -109,7 +109,14 @@ def verify_manifest(
             )
 
     created_at = source_run.get("created_at") or source_run.get("updated_at")
-    _required_string(created_at, "source_run.created_at/updated_at")
+    created_at = _required_string(created_at, "source_run.created_at/updated_at")
+    generated_at = _required_string(
+        data.get("generated_at_utc"), "generated_at_utc"
+    )
+    if generated_at != created_at:
+        raise ManifestVerificationError(
+            "generated_at_utc does not match deterministic source run timestamp"
+        )
 
     artifacts = source_run.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
