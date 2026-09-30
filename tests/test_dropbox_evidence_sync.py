@@ -325,3 +325,18 @@ def test_run_metadata_binding_is_exact():
         assert "binding mismatch" in str(exc)
     else:
         raise AssertionError("mismatched run provenance must fail closed")
+
+
+
+def test_every_sync_trigger_has_a_workflow_profile():
+    workflow_text = __import__("pathlib").Path(
+        ".github/workflows/forexai-dropbox-evidence-sync.yml"
+    ).read_text(encoding="utf-8")
+    import re
+
+    names = re.findall(r'^\s+- "([^"]+)"$', workflow_text, flags=re.MULTILINE)
+    policy = load_policy(__import__("pathlib").Path("config/dropbox_free_tier_policy.json"))
+    profiles = set(policy["workflow_profiles"])
+    assert names
+    missing = [name for name in names if workflow_key(name) not in profiles]
+    assert missing == []
