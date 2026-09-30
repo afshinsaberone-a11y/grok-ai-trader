@@ -60,6 +60,24 @@ evidence workflows:
 It can also be run manually with any source run ID.
 
 
+## Workflow-scoped artifact admission
+
+The sync workflow does not treat every artifact produced by a source run as Dropbox
+evidence. The source workflow name is normalized to a stable profile key and resolved
+against the machine-readable Dropbox Basic policy.
+
+Each covered workflow has an explicit list of allowed artifact-name prefixes. Files
+under an unrecognized artifact family are excluded even when their filename otherwise
+looks like an evidence document.
+
+For the Dukascopy cross-feed workflow, the policy additionally allows cross-feed
+comparison outputs while explicitly rejecting the raw one-day EURUSD source file.
+This keeps diagnostic evidence without turning the 2 GB Dropbox Basic account into a
+market-data store.
+
+A CI test compares every workflow name in the Dropbox sync trigger list with the policy
+profiles. Adding a new trigger without adding its evidence profile therefore fails CI.
+
 ## Immutability and idempotency hardening
 
 The active v2 synchronizer is write-once at the evidence-path level.
@@ -99,8 +117,12 @@ that synchronization succeeded.
 ## Evidence flow
 
 GitHub Actions run
--> download exact run artifacts
--> calculate SHA-256
+-> capture exact artifact IDs/digests
+-> download each artifact ZIP
+-> verify archive size + SHA-256 against GitHub metadata
+-> extract into artifact-scoped directories
+-> apply workflow-specific evidence admission
+-> calculate file SHA-256
 -> upload to Dropbox
 -> register the central Run Index manifest
 -> upload _SYNC_MANIFEST.json as the final Dropbox checkpoint
