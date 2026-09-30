@@ -152,7 +152,11 @@ jobs:
               "--data-manifest",
               "DATA_MANIFEST_CI",
               "Test-TrustedRealDataset",
-              "HttpClient",
+              "Download exact Promotion artifact handoff",
+              "Stage exact Promotion artifact on GitHub-hosted resolver",
+              "Upload exact Promotion artifact handoff",
+              "source-artifact.env",
+              "PROMOTION_ARTIFACT_DIGEST",
               "Resolve exact Promotion run",
               "G13_PROMOTION_ARTIFACT_CONSUMER_OK",
               "PROMOTION_MANIFEST",
@@ -162,7 +166,8 @@ jobs:
           for token in required_workflow_tokens:
               assert token in workflow, f"missing workflow token: {token}"
           windows_compile = workflow.split("  compile-and-parity:", 1)[1]
-          assert "gh api" not in windows_compile, "Windows Compile job must not depend on GitHub CLI"
+          for forbidden in ["gh api", "HttpClient", "Invoke-RestMethod", "Invoke-WebRequest"]:
+              assert forbidden not in windows_compile, f"Windows Compile job must not use raw GitHub/network client: {forbidden}"
 
           promotion = Path(".github/workflows/forexai-g13-promotion-m15.yml").read_text(encoding="utf-8")
           for token in [

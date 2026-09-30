@@ -53,6 +53,8 @@ jobs:
     outputs:
       promotion_run_id: ${{ steps.resolve.outputs.promotion_run_id }}
       target_sha: ${{ steps.resolve.outputs.target_sha }}
+      promotion_artifact_id: ${{ steps.stage.outputs.promotion_artifact_id }}
+      promotion_artifact_digest: ${{ steps.stage.outputs.promotion_artifact_digest }}
     env:
       GH_TOKEN: ${{ github.token }}
       MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
@@ -96,6 +98,43 @@ jobs:
           echo "promotion_run_id=$promotion_id" >> "$GITHUB_OUTPUT"
           echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Stage exact Promotion artifact on GitHub-hosted resolver
+        id: stage
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROMOTION_RUN_ID: ${{ steps.resolve.outputs.promotion_run_id }}
+        run: |
+          set -euo pipefail
+          stage_dir="artifacts/g13/promotion-source-handoff"
+          rm -rf "$stage_dir"
+          mkdir -p "$stage_dir"
+          artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROMOTION_RUN_ID/artifacts?per_page=100")"
+          artifact_line="$(printf '%s' "$artifact_json" | python -c 'import json,sys; rs=[a for a in json.load(sys.stdin).get("artifacts",[]) if a.get("name")=="g13-promotion-manifest-m15" and not a.get("expired")]; assert len(rs)==1, f"expected one non-expired Promotion artifact, found {len(rs)}"; a=rs[0]; assert isinstance(a.get("id"),int); assert isinstance(a.get("digest"),str) and a["digest"].startswith("sha256:"); print(a["id"],a["digest"])')"
+          read -r artifact_id artifact_digest <<< "$artifact_line"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o "$stage_dir/promotion.zip"
+          actual_digest="sha256:$(sha256sum "$stage_dir/promotion.zip" | awk '{print tolower($1)}')"
+          if [[ "$actual_digest" != "$(printf '%s' "$artifact_digest" | tr '[:upper:]' '[:lower:]')" ]]; then
+            echo "PROMOTION_SOURCE_DIGEST_MISMATCH actual=$actual_digest expected=$artifact_digest"
+            exit 1
+          fi
+          cat > "$stage_dir/source-artifact.env" <<EOF
+PROMOTION_RUN_ID=$PROMOTION_RUN_ID
+TARGET_SHA=$TARGET_SHA
+PROMOTION_ARTIFACT_ID=$artifact_id
+PROMOTION_ARTIFACT_DIGEST=$artifact_digest
+EOF
+          echo "promotion_artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+          echo "promotion_artifact_digest=$artifact_digest" >> "$GITHUB_OUTPUT"
+          echo "G13_PROMOTION_SOURCE_ZIP_VERIFIED=true ID=$artifact_id DIGEST=$artifact_digest"
+
+      - name: Upload exact Promotion artifact handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-promotion-source-handoff
+          path: artifacts/g13/promotion-source-handoff/*
+          if-no-files-found: error
+
   compile-and-parity:
     needs: resolve-promotion
     if: needs.resolve-promotion.result == 'success'
@@ -105,6 +144,8 @@ jobs:
       PYTHONOPTIMIZE: '0'
       PROMOTION_RUN_ID: ${{ needs.resolve-promotion.outputs.promotion_run_id }}
       TARGET_SHA: ${{ needs.resolve-promotion.outputs.target_sha }}
+      PROMOTION_ARTIFACT_ID: ${{ needs.resolve-promotion.outputs.promotion_artifact_id }}
+      PROMOTION_ARTIFACT_DIGEST: ${{ needs.resolve-promotion.outputs.promotion_artifact_digest }}
       MT5_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
       MT5_DATA_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_data_root || 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075' }}
       DATA_CSV_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.data_csv || 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv' }}
@@ -173,45 +214,31 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m pip install -r requirements.txt
 
+      - name: Download exact Promotion artifact handoff
+        uses: actions/download-artifact@v4
+        with:
+          name: g13-promotion-source-handoff
+          path: artifacts/g13/promotion-source
+
       - name: Download and bind exact Promotion artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\promotion-source'
-          Remove-Item -Recurse -Force $artifactDir -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
-
-          Add-Type -AssemblyName System.Net.Http
-          $apiBase = 'https://api.github.com'
-          $httpHandler = [System.Net.Http.HttpClientHandler]::new()
-          $httpHandler.AllowAutoRedirect = $true
-          $httpClient = [System.Net.Http.HttpClient]::new($httpHandler)
-          $httpClient.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $env:GH_TOKEN)
-          $httpClient.DefaultRequestHeaders.Accept.ParseAdd('application/vnd.github+json')
-          $httpClient.DefaultRequestHeaders.Add('X-GitHub-Api-Version', '2022-11-28')
-
-          try {
-            $metaResponse = $httpClient.GetAsync("$apiBase/repos/$env:GITHUB_REPOSITORY/actions/runs/$env:PROMOTION_RUN_ID/artifacts").GetAwaiter().GetResult()
-            $metaResponse.EnsureSuccessStatusCode()
-            $artifactJson = ($metaResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json)
-          $matches = @($artifactJson.artifacts | Where-Object { $_.name -eq 'g13-promotion-manifest-m15' -and -not $_.expired })
-          if ($matches.Count -ne 1) { throw "Expected exactly one non-expired Promotion artifact, found $($matches.Count)" }
-          $artifact = $matches[0]
-          if ($artifact.digest -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw "Invalid Promotion artifact digest: $($artifact.digest)" }
-
           $zip = Join-Path $artifactDir 'promotion.zip'
-          $zipResponse = $httpClient.GetAsync("$apiBase/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($artifact.id)/zip").GetAwaiter().GetResult()
-          $zipResponse.EnsureSuccessStatusCode()
-          [System.IO.File]::WriteAllBytes($zip, $zipResponse.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
-          $zipResponse.Dispose()
+          $metaFile = Join-Path $artifactDir 'source-artifact.env'
+          if (!(Test-Path -LiteralPath $zip -PathType Leaf)) { throw "Promotion handoff ZIP not found: $zip" }
+          if (!(Test-Path -LiteralPath $metaFile -PathType Leaf)) { throw "Promotion handoff metadata not found: $metaFile" }
+          $meta = @{}
+          Get-Content -LiteralPath $metaFile | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { $meta[$matches[1]] = $matches[2] }
           }
-          finally {
-            $httpClient.Dispose()
-            $httpHandler.Dispose()
-          }
+          if ($meta.PROMOTION_RUN_ID -ne $env:PROMOTION_RUN_ID) { throw "Promotion run mismatch: $($meta.PROMOTION_RUN_ID) != $env:PROMOTION_RUN_ID" }
+          if ($meta.TARGET_SHA -ne $env:TARGET_SHA) { throw "Promotion handoff SHA mismatch: $($meta.TARGET_SHA) != $env:TARGET_SHA" }
+          if ($meta.PROMOTION_ARTIFACT_ID -ne $env:PROMOTION_ARTIFACT_ID) { throw "Promotion artifact ID mismatch: $($meta.PROMOTION_ARTIFACT_ID) != $env:PROMOTION_ARTIFACT_ID" }
+          if ($meta.PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant() -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) { throw "Promotion handoff digest mismatch: $($meta.PROMOTION_ARTIFACT_DIGEST) != $env:PROMOTION_ARTIFACT_DIGEST" }
+          if ($env:PROMOTION_ARTIFACT_DIGEST -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw "Invalid Promotion artifact digest: $env:PROMOTION_ARTIFACT_DIGEST" }
           $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
-          if ($actualDigest -ne $artifact.digest.ToLowerInvariant()) { throw "Promotion artifact digest mismatch: $actualDigest != $($artifact.digest)" }
+          if ($actualDigest -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) { throw "Promotion artifact digest mismatch: $actualDigest != $env:PROMOTION_ARTIFACT_DIGEST" }
 
           $extract = Join-Path $artifactDir 'extracted'
           Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
