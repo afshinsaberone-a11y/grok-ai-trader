@@ -34,7 +34,7 @@ def _p(role: str, run_id: int, data_sha: str, manifest_sha: str, **extra):
                 "oos": "forexai-g13-oos-m15-current.yml",
             }[role],
             "run_id": run_id,
-            "head_sha": "abc123",
+            "head_sha": "a" * 40,
         },
     }
     p.update(extra)
@@ -67,7 +67,7 @@ def _source_metadata(downloaded_match: bool = True):
             "workflow_name": "ForexAI G13 Validation M15",
             "workflow_id": 355468598,
             "head_branch": "main",
-            "head_sha": "abc123",
+            "head_sha": "a" * 40,
             "job_name": "g13-validation",
             "run_id": 101,
             "artifact_name": "g13-validation-m15",
@@ -80,7 +80,7 @@ def _source_metadata(downloaded_match: bool = True):
             "workflow_name": "ForexAI G13 Robustness M15",
             "workflow_id": 355473409,
             "head_branch": "main",
-            "head_sha": "abc123",
+            "head_sha": "a" * 40,
             "job_name": "g13-robustness",
             "run_id": 202,
             "artifact_name": "g13-robustness-m15",
@@ -93,7 +93,7 @@ def _source_metadata(downloaded_match: bool = True):
             "workflow_name": "ForexAI G13 OOS M15 Current",
             "workflow_id": 356162316,
             "head_branch": "main",
-            "head_sha": "abc123",
+            "head_sha": "a" * 40,
             "job_name": "G13 2026 OOS M15 Current",
             "run_id": 303,
             "artifact_name": "g13-oos-m15-2026-current",
@@ -108,7 +108,7 @@ def _source_metadata(downloaded_match: bool = True):
 def test_shared_validation_robustness_lineage_passes():
     result = validate_lineage(
         _all(),
-        target_sha="abc123",
+        target_sha="a" * 40,
         run_ids={"validation": 101, "robustness": 202, "oos": 303},
         source_metadata_by_role=_source_metadata(),
         audit_run_id=404,
@@ -127,7 +127,7 @@ def test_shared_lineage_mismatch_rejected(field: str):
     with pytest.raises(AssertionError):
         validate_lineage(
             p,
-            target_sha="abc123",
+            target_sha="a" * 40,
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=_source_metadata(),
         )
@@ -139,7 +139,7 @@ def test_oos_must_be_held_out_2026():
     with pytest.raises(AssertionError):
         validate_lineage(
             p,
-            target_sha="abc123",
+            target_sha="a" * 40,
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=_source_metadata(),
         )
@@ -151,7 +151,7 @@ def test_wrong_producer_sha_rejected():
     with pytest.raises(AssertionError):
         validate_lineage(
             p,
-            target_sha="abc123",
+            target_sha="a" * 40,
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=_source_metadata(),
         )
@@ -163,7 +163,7 @@ def test_source_metadata_mismatch_rejected():
     with pytest.raises(AssertionError):
         validate_lineage(
             p,
-            target_sha="abc123",
+            target_sha="a" * 40,
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=metadata,
         )
@@ -174,7 +174,7 @@ def test_source_metadata_is_required():
     with pytest.raises(AssertionError):
         validate_lineage(
             p,
-            target_sha="abc123",
+            target_sha="a" * 40,
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=None,
         )
@@ -190,7 +190,7 @@ def test_manifest_identity_mismatch_is_rejected():
     with pytest.raises(AssertionError):
         validate_lineage(
             p,
-            target_sha="abc123",
+            target_sha="a" * 40,
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=_source_metadata(),
         )
@@ -200,7 +200,7 @@ def test_audit_run_id_must_be_positive_when_bound():
     with pytest.raises(AssertionError):
         validate_lineage(
             _all(),
-            target_sha="abc123",
+            target_sha="a" * 40,
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=_source_metadata(),
             audit_run_id=0,
