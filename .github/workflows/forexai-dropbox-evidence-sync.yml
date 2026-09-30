@@ -126,15 +126,25 @@ jobs:
           mkdir -p incoming/github-artifacts
           python - <<'PY' > artifact-index.tsv
           import json
+          import re
+          import sys
+          from pathlib import Path
+
+          from tools.dropbox_free_tier_policy_v2 import load_policy, workflow_profile
+
           metadata=json.load(open("run-metadata.json",encoding="utf-8"))
+          policy=load_policy(Path("config/dropbox_free_tier_policy.json"))
+          profile=workflow_profile(metadata["workflow_name"], policy)
+          prefixes=[str(x).lower() for x in profile["allowed_artifact_prefixes"]]
           artifacts=metadata.get("artifacts",[])
-          if not artifacts:
-              raise SystemExit("DROPBOX_SYNC_FAIL_CLOSED: source run has no live artifacts")
+          admitted=0
           for a in artifacts:
               digest=str(a.get("digest") or "")
-              if not digest.startswith("sha256:") or len(digest) != 71:
-                  raise SystemExit("DROPBOX_SYNC_FAIL_CLOSED: artifact has no valid sha256 digest: " + str(a.get("id")))
-              import re
+              if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
+                  raise SystemExit(
+                      "DROPBOX_SYNC_FAIL_CLOSED: artifact has no valid sha256 digest: "
+                      + str(a.get("id"))
+                  )
               name=str(a.get("name") or "")
               if not name:
                   raise SystemExit("DROPBOX_SYNC_FAIL_CLOSED: artifact name is empty")
@@ -143,7 +153,23 @@ jobs:
                       "DROPBOX_SYNC_FAIL_CLOSED: artifact name contains unsafe path characters: "
                       + name
                   )
-              print(str(int(a["id"])) + "\t" + name + "\t" + digest + "\t" + str(int(a.get("size_in_bytes") or 0)))
+              if not any(name.lower().startswith(prefix) for prefix in prefixes):
+                  print(
+                      "SOURCE_ARTIFACT_SKIPPED id=" + str(a.get("id"))
+                      + " name=" + name
+                      + " reason=artifact_family_not_allowed",
+                      file=sys.stderr,
+                  )
+                  continue
+              admitted += 1
+              print(
+                  str(int(a["id"])) + "\t" + name + "\t" + digest + "\t"
+                  + str(int(a.get("size_in_bytes") or 0))
+              )
+          if admitted == 0:
+              raise SystemExit(
+                  "DROPBOX_SYNC_FAIL_CLOSED: no artifact belongs to the workflow-scoped allowlist"
+              )
           PY
           while IFS=$'\t' read -r ARTIFACT_ID ARTIFACT_NAME ARTIFACT_DIGEST ARTIFACT_SIZE; do
             test -n "$ARTIFACT_ID"
