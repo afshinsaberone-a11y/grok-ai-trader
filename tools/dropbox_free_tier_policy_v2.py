@@ -194,11 +194,29 @@ def select_files(
         raise PolicyError("workflow_name is required for workflow-scoped Dropbox selection")
 
     for path in paths:
-        keep, reason = classify(path, policy)
-        if keep and workflow_name:
-            keep, reason = classify_workflow_artifact(
+        if workflow_name:
+            workflow_keep, workflow_reason = classify_workflow_artifact(
                 path, source_dir, workflow_name, policy
             )
+            if not workflow_keep:
+                keep, reason = False, workflow_reason
+            else:
+                keep, reason = classify(path, policy)
+                profile = workflow_profile(workflow_name, policy)
+                profile_tokens = [
+                    str(x).lower()
+                    for x in profile.get("allowed_filename_tokens", [])
+                ]
+                if (
+                    not keep
+                    and reason == "filename_not_evidence"
+                    and profile_tokens
+                    and any(token in path.name.lower() for token in profile_tokens)
+                ):
+                    keep, reason = True, "workflow_filename_override"
+        else:
+            keep, reason = classify(path, policy)
+
         if keep:
             accepted.append(path)
         else:
