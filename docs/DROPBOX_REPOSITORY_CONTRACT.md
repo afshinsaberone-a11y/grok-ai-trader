@@ -25,6 +25,10 @@ reproducibility and audit.
 9. Dropbox is not used to silently alter GitHub source artifacts.
 10. A copied/archived artifact must retain enough provenance to reconstruct its
     origin.
+11. Synchronized evidence paths are write-once: a destination that already exists
+    may only be reused when its downloaded bytes have the exact expected SHA-256.
+12. Replaying the same source run and run attempt is idempotent; a divergent payload
+    at the same evidence path is a hard integrity conflict.
 
 ## Canonical Dropbox zones
 
