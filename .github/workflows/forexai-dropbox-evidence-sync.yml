@@ -114,7 +114,7 @@ jobs:
           json.dump(metadata,open("run-metadata.json","w",encoding="utf-8"),indent=2,sort_keys=True)
           print(json.dumps(metadata,indent=2,ensure_ascii=False))
           PY
-      - name: Download source run artifacts
+      - name: Download and verify exact source artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -131,9 +131,15 @@ jobs:
               digest=str(a.get("digest") or "")
               if not digest.startswith("sha256:") or len(digest) != 71:
                   raise SystemExit("DROPBOX_SYNC_FAIL_CLOSED: artifact has no valid sha256 digest: " + str(a.get("id")))
+              import re
               name=str(a.get("name") or "")
               if not name:
                   raise SystemExit("DROPBOX_SYNC_FAIL_CLOSED: artifact name is empty")
+              if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+                  raise SystemExit(
+                      "DROPBOX_SYNC_FAIL_CLOSED: artifact name contains unsafe path characters: "
+                      + name
+                  )
               print(str(int(a["id"])) + "\t" + name + "\t" + digest + "\t" + str(int(a.get("size_in_bytes") or 0)))
           PY
           while IFS=$'\t' read -r ARTIFACT_ID ARTIFACT_NAME ARTIFACT_DIGEST ARTIFACT_SIZE; do
