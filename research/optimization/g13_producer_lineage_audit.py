@@ -88,6 +88,7 @@ def validate_lineage(
     target_sha: str,
     run_ids: dict[str, int],
     source_metadata_by_role: dict[str, dict[str, Any]] | None = None,
+    audit_run_id: int | None = None,
 ) -> dict[str, Any]:
     for role, p in provenance_by_role.items():
         validate_provenance(
@@ -120,6 +121,8 @@ def validate_lineage(
     assert _hex64(oos.get("upstream_manifest_sha256"))
 
     assert source_metadata_by_role is not None
+    if audit_run_id is not None:
+        assert isinstance(audit_run_id, int) and audit_run_id > 0
     assert set(source_metadata_by_role) == set(WORKFLOWS)
     for role, metadata in source_metadata_by_role.items():
         expected = WORKFLOWS[role]
@@ -139,6 +142,7 @@ def validate_lineage(
         "schema_version": SCHEMA,
         "status": "PASS",
         "target_sha": target_sha,
+        **({"audit_run_id": audit_run_id} if audit_run_id is not None else {}),
         "shared_pre_oos_dataset": {
             "data_sha256": validation["data_sha256"],
             "data_manifest_sha256": validation["data_manifest_sha256"],
@@ -176,6 +180,7 @@ def main() -> int:
     ap.add_argument("--robustness-source-metadata", type=Path)
     ap.add_argument("--oos-source-metadata", type=Path)
     ap.add_argument("--output", required=True, type=Path)
+    ap.add_argument("--audit-run-id", type=int)
     args = ap.parse_args()
 
     run_ids = {
@@ -201,6 +206,7 @@ def main() -> int:
         target_sha=args.target_sha,
         run_ids=run_ids,
         source_metadata_by_role=metadata,
+        audit_run_id=args.audit_run_id,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
