@@ -7,6 +7,7 @@ on:
       - "config/dropbox_free_tier_policy.json"
       - "tools/dropbox_*.py"
       - "tools/validate_dropbox_contract.py"
+      - "tools/verify_dropbox_evidence_manifest.py"
       - "tests/test_dropbox_*.py"
       - ".github/workflows/forexai-dropbox-*.yml"
   pull_request:
