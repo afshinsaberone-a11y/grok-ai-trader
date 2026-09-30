@@ -15,7 +15,9 @@ def _params(cid: int) -> dict[str, float | int]:
         "min_delta": 0.0001 + cid / 1_000_000,
         "atr_mult": 1.0 + (cid % 4) / 10,
         "rr": 1.5 + (cid % 3) / 10,
-        "rsi_high": 55 + cid % 10,
+        "rsi_high": 65 + cid % 5,
+        "rsi_low": 30 if cid % 2 == 0 else 35,
+        "side": "short",
     }
 
 
