@@ -149,6 +149,11 @@ def gate(
     s = load_json(safety)
     par = load_json(parity)
 
+    assert re.fullmatch(r"[0-9a-f]{40}", main_head_sha), main_head_sha
+    assert runtime_head_sha == main_head_sha, (runtime_head_sha, main_head_sha)
+    assert safety_head_sha == main_head_sha, (safety_head_sha, main_head_sha)
+    assert parity_head_sha == main_head_sha, (parity_head_sha, main_head_sha)
+
     validate_promotion_binding(
         p, prov, attest,
         promotion_run_id=promotion_run_id,
