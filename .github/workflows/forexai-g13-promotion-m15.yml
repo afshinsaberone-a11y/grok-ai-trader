@@ -107,6 +107,8 @@ jobs:
 
           audit_reports = list(audit_dir.rglob("g13-producer-lineage-audit-m15.json"))
           assert len(audit_reports) == 1
+          audit_report_sha256 = hashlib.sha256(audit_reports[0].read_bytes()).hexdigest()
+          assert re.fullmatch(r"[0-9a-fA-F]{64}", audit_report_sha256)
           audit_report = json.loads(audit_reports[0].read_text(encoding="utf-8"))
           assert audit_report["schema_version"] == "forexai.g13.producer_lineage_audit.m15.v1"
           assert audit_report["status"] == "PASS"
@@ -149,6 +151,15 @@ jobs:
               "schema_version": "forexai.g13.promotion_evidence_provenance.m15.v1",
               "target_sha": target_sha,
               "audit_run_id": audit_run_id,
+              "audit_evidence": {
+                  "run_id": audit_run_id,
+                  "head_sha": audit_run["head_sha"],
+                  "artifact_id": int(audit_artifact["id"]),
+                  "artifact_name": audit_artifact["name"],
+                  "artifact_digest": audit_digest,
+                  "local_zip_sha256": audit_actual,
+                  "report_sha256": audit_report_sha256,
+              },
               "sources": {},
           }
 
@@ -330,6 +341,10 @@ jobs:
               "target_sha": os.environ["TARGET_SHA"],
               "manifest_sha256": sha(manifest),
               "provenance_sha256": sha(provenance),
+              "audit_artifact_id": int(json.loads(provenance.read_text(encoding="utf-8"))["audit_evidence"]["artifact_id"]),
+              "audit_artifact_digest": json.loads(provenance.read_text(encoding="utf-8"))["audit_evidence"]["artifact_digest"],
+              "audit_artifact_zip_sha256": json.loads(provenance.read_text(encoding="utf-8"))["audit_evidence"]["local_zip_sha256"],
+              "audit_report_sha256": json.loads(provenance.read_text(encoding="utf-8"))["audit_evidence"]["report_sha256"],
           }
           Path("evidence/promotion-run-attestation.json").write_text(
               json.dumps(payload, indent=2, sort_keys=True) + "\n",
