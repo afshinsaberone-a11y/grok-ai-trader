@@ -104,6 +104,8 @@ jobs:
               "event": run.get("event"),
               "status": run.get("status"),
               "conclusion": run.get("conclusion"),
+              "created_at": run.get("created_at"),
+              "updated_at": run.get("updated_at"),
               "head_sha": str(run["head_sha"]),
               "head_branch": run.get("head_branch"),
               "run_attempt": int(run.get("run_attempt") or 1),
