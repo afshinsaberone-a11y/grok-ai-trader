@@ -155,6 +155,25 @@ secret still has to be configured in the repository's GitHub Actions settings.
 The active utility is `tools/dropbox_evidence_sync_v2.py`; v1 is retained only as historical code until a later cleanup decision.
 
 
+## Independent manifest verification
+
+After a synchronized run exists in Dropbox, the read-only workflow
+`.github/workflows/forexai-dropbox-manifest-verification.yml` can validate an
+exact `_SYNC_MANIFEST.json` without invoking the writer.
+
+The verifier checks:
+
+- run ID, run attempt, workflow name, commit SHA and conclusion binding;
+- run-scoped Dropbox path binding;
+- source artifact IDs, names, sizes and SHA-256 digests;
+- synchronized file paths, sizes, SHA-256 values and immutable/verified flags;
+- real-data-only and no-synthetic-generation policy flags;
+- write-once/idempotent/final-checkpoint invariants.
+
+The verification workflow is read-only against Dropbox. It requires the same
+`DROPBOX_ACCESS_TOKEN` GitHub Actions secret but performs only a manifest
+download and produces a GitHub verification receipt.
+
 ## Operational sequence
 
 1. Run `.github/workflows/forexai-dropbox-healthcheck.yml` after configuring the secret.
