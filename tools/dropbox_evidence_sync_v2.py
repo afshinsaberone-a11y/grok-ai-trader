@@ -78,6 +78,28 @@ def content_call(endpoint: str, args: dict[str, Any], data: bytes) -> dict[str, 
         raise DropboxSyncError("Dropbox content transport error: {0}".format(exc)) from exc
 
 
+def content_download(endpoint: str, args: dict[str, Any]) -> bytes:
+    request = urllib.request.Request(
+        CONTENT_URL + "/" + endpoint,
+        data=b"",
+        method="POST",
+        headers={
+            "Authorization": "Bearer " + token(),
+            "Dropbox-API-Arg": json.dumps(args, ensure_ascii=False, separators=(",", ":")),
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise DropboxSyncError(
+            "Dropbox content API {0} HTTP {1}: {2}".format(endpoint, exc.code, detail)
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise DropboxSyncError("Dropbox content transport error: {0}".format(exc)) from exc
+
+
 def ensure_folder(path: str) -> None:
     if not path or path == "/":
         return
@@ -105,17 +127,17 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def upload_small(path: Path, remote: str) -> dict[str, Any]:
+def upload_small_bytes(payload: bytes, remote: str) -> dict[str, Any]:
     return content_call(
         "files/upload",
         {
             "path": remote,
-            "mode": "overwrite",
+            "mode": "add",
             "autorename": False,
             "mute": True,
-            "strict_conflict": False,
+            "strict_conflict": True,
         },
-        path.read_bytes(),
+        payload,
     )
 
 
@@ -124,7 +146,7 @@ def upload_large(path: Path, remote: str) -> dict[str, Any]:
     with path.open("rb") as handle:
         first = handle.read(CHUNK_SIZE)
         if not first:
-            return upload_small(path, remote)
+            return upload_small_bytes(b"", remote)
         started = content_call("files/upload_session/start", {"close": False}, first)
         session_id = started["session_id"]
         offset = len(first)
@@ -147,10 +169,10 @@ def upload_large(path: Path, remote: str) -> dict[str, Any]:
                 "cursor": {"session_id": session_id, "offset": offset},
                 "commit": {
                     "path": remote,
-                    "mode": "overwrite",
+                    "mode": "add",
                     "autorename": False,
                     "mute": True,
-                    "strict_conflict": False,
+                    "strict_conflict": True,
                 },
             },
             final,
@@ -159,8 +181,81 @@ def upload_large(path: Path, remote: str) -> dict[str, Any]:
 
 def upload(path: Path, remote: str) -> dict[str, Any]:
     if path.stat().st_size <= DIRECT_LIMIT:
-        return upload_small(path, remote)
+        return upload_small_bytes(path.read_bytes(), remote)
     return upload_large(path, remote)
+
+
+def remote_metadata(remote: str) -> dict[str, Any] | None:
+    try:
+        return api_json("files/get_metadata", {"path": remote})
+    except DropboxSyncError as exc:
+        message = str(exc).lower()
+        if "not_found" in message or "path/not_found" in message:
+            return None
+        raise
+
+
+def remote_sha256(remote: str, expected_size: int) -> tuple[dict[str, Any], str]:
+    metadata = remote_metadata(remote)
+    if metadata is None:
+        raise DropboxSyncError("remote evidence disappeared during integrity check: " + remote)
+    remote_size = int(metadata.get("size") or 0)
+    if remote_size != expected_size:
+        raise DropboxSyncError(
+            "IMMUTABLE_CONFLICT: remote size differs for "
+            + remote
+            + " (remote="
+            + str(remote_size)
+            + ", local="
+            + str(expected_size)
+            + ")"
+        )
+    payload = content_download("files/download", {"path": remote})
+    if len(payload) != expected_size:
+        raise DropboxSyncError(
+            "IMMUTABLE_CONFLICT: remote download size differs for " + remote
+        )
+    return metadata, hashlib.sha256(payload).hexdigest()
+
+
+def verify_or_mark_existing(remote: str, payload: bytes, local_sha256: str) -> dict[str, Any] | None:
+    metadata = remote_metadata(remote)
+    if metadata is None:
+        return None
+    remote_size = int(metadata.get("size") or 0)
+    if remote_size != len(payload):
+        raise DropboxSyncError(
+            "IMMUTABLE_CONFLICT: remote file exists with a different size: " + remote
+        )
+    _, remote_hash = remote_sha256(remote, len(payload))
+    if remote_hash != local_sha256:
+        raise DropboxSyncError(
+            "IMMUTABLE_CONFLICT: remote file exists with different SHA-256: " + remote
+        )
+    return metadata
+
+
+def upload_immutable_bytes(
+    remote: str, payload: bytes, local_sha256: str
+) -> tuple[dict[str, Any], str]:
+    existing = verify_or_mark_existing(remote, payload, local_sha256)
+    if existing is not None:
+        return existing, "already_present"
+
+    try:
+        metadata = upload_small_bytes(payload, remote)
+        return metadata, "uploaded"
+    except DropboxSyncError as exc:
+        if "conflict" not in str(exc).lower():
+            raise
+        # A concurrent writer may have won the race. Accept only a byte-for-byte
+        # identical object; never overwrite a different object.
+        existing = verify_or_mark_existing(remote, payload, local_sha256)
+        if existing is not None:
+            return existing, "already_present_after_race"
+        raise DropboxSyncError(
+            "IMMUTABLE_CONFLICT: destination appeared during upload: " + remote
+        ) from exc
 
 
 def get_space_usage() -> tuple[int, int]:
@@ -174,7 +269,11 @@ def get_space_usage() -> tuple[int, int]:
 
 
 def collect_and_upload(
-    source_dir: Path, remote_root: str, policy: dict[str, Any]
+    source_dir: Path,
+    remote_root: str,
+    policy: dict[str, Any],
+    *,
+    manifest_count: int = 1,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not source_dir.is_dir():
         raise DropboxSyncError("source directory does not exist: " + str(source_dir))
@@ -183,39 +282,71 @@ def collect_and_upload(
     except ValueError as exc:
         raise DropboxSyncError(str(exc)) from exc
 
-    selected_bytes = sum(path.stat().st_size for path in files)
+    prepared: list[dict[str, Any]] = []
+    projected_new_bytes = 0
+    for local in files:
+        payload = local.read_bytes()
+        sha256 = hashlib.sha256(payload).hexdigest()
+        relative = local.relative_to(source_dir).as_posix()
+        remote = remote_root.rstrip("/") + "/" + relative
+        existing = verify_or_mark_existing(remote, payload, sha256)
+        prepared.append(
+            {
+                "local": local,
+                "payload": payload,
+                "sha256": sha256,
+                "remote": remote,
+                "existing": existing,
+            }
+        )
+        if existing is None:
+            projected_new_bytes += len(payload)
+
     used_bytes, allocated_bytes = get_space_usage()
     reserve_bytes = int(policy.get("reserve_bytes", 0))
+    manifest_reserve = int(policy.get("manifest_reserve_bytes", 0))
     available_bytes = allocated_bytes - used_bytes
-    if available_bytes - selected_bytes < reserve_bytes:
+    projected_required = (
+        projected_new_bytes + reserve_bytes + manifest_reserve * max(1, manifest_count)
+    )
+    if available_bytes < projected_required:
         raise DropboxSyncError(
             "Dropbox quota guard: required="
-            + str(selected_bytes + reserve_bytes)
+            + str(projected_required)
             + " available="
             + str(available_bytes)
+            + " (new="
+            + str(projected_new_bytes)
+            + ", reserve="
+            + str(reserve_bytes)
+            + ", manifest_reserve="
+            + str(manifest_reserve)
+            + ")"
         )
 
     ensure_folder(remote_root)
     records: list[dict[str, Any]] = []
-    for local in files:
-        relative = local.relative_to(source_dir).as_posix()
-        remote = remote_root.rstrip("/") + "/" + relative
+    for item in prepared:
+        local = item["local"]
+        payload = item["payload"]
+        sha256 = item["sha256"]
+        remote = item["remote"]
         ensure_folder(str(Path(remote).parent).replace("\\", "/"))
-        size_before = local.stat().st_size
-        sha256 = sha256_file(local)
-        meta = upload(local, remote)
-        size_after = local.stat().st_size
-        if size_before != size_after:
-            raise DropboxSyncError("local file changed during sync: " + str(local))
+        meta = item["existing"]
+        status = "already_present"
+        if meta is None:
+            meta, status = upload_immutable_bytes(remote, payload, sha256)
         records.append(
             {
                 "local_path": str(local),
                 "remote_path": remote,
-                "bytes": size_before,
+                "bytes": len(payload),
                 "sha256": sha256,
                 "dropbox_id": meta.get("id"),
                 "dropbox_rev": meta.get("rev"),
                 "dropbox_size": meta.get("size"),
+                "sync_status": status,
+                "immutable": True,
             }
         )
     return records, excluded
@@ -252,7 +383,10 @@ def main() -> int:
 
     policy = load_policy(Path(args.policy))
     source = Path(args.source_dir)
-    records, excluded = collect_and_upload(source, args.dropbox_root, policy)
+    manifest_count = 2 if args.ledger_out and args.ledger_remote_root else 1
+    records, excluded = collect_and_upload(
+        source, args.dropbox_root, policy, manifest_count=manifest_count
+    )
 
     run_metadata: dict[str, Any] = {}
     if args.run_metadata:
@@ -281,6 +415,8 @@ def main() -> int:
             "synthetic_generation": False,
             "hash_algorithm": "SHA-256",
             "source_artifacts_immutable": True,
+            "remote_paths_write_once": True,
+            "idempotent_replay": True,
             "manifest_written_last": True,
             "dropbox_plan": policy.get("plan"),
             "quota_bytes": int(policy.get("quota_bytes", 0)),
@@ -296,8 +432,12 @@ def main() -> int:
         encoding="utf-8",
     )
 
+    manifest_payload = manifest_path.read_bytes()
+    manifest_sha256 = hashlib.sha256(manifest_payload).hexdigest()
     remote_manifest = args.dropbox_root.rstrip("/") + "/_SYNC_MANIFEST.json"
-    upload(manifest_path, remote_manifest)
+    manifest_meta, manifest_status = upload_immutable_bytes(
+        remote_manifest, manifest_payload, manifest_sha256
+    )
 
     if args.ledger_out and args.ledger_remote_root:
         ledger_path = Path(args.ledger_out)
@@ -306,6 +446,8 @@ def main() -> int:
             json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        ledger_payload = ledger_path.read_bytes()
+        ledger_sha256 = hashlib.sha256(ledger_payload).hexdigest()
         ledger_remote = (
             args.ledger_remote_root.rstrip("/")
             + "/run-manifest__"
@@ -314,7 +456,9 @@ def main() -> int:
             + str(int(args.run_attempt))
             + "__v2.json"
         )
-        upload(ledger_path, ledger_remote)
+        ledger_meta, ledger_status = upload_immutable_bytes(
+            ledger_remote, ledger_payload, ledger_sha256
+        )
 
     print(
         json.dumps(
@@ -326,6 +470,10 @@ def main() -> int:
                 "file_count": len(records),
                 "dropbox_root": args.dropbox_root,
                 "remote_manifest": remote_manifest,
+                "manifest_sync_status": manifest_status,
+                "manifest_sha256": manifest_sha256,
+                "manifest_dropbox_rev": manifest_meta.get("rev"),
+                "ledger_sync_status": ledger_status if args.ledger_out and args.ledger_remote_root else None,
             },
             ensure_ascii=False,
         )
