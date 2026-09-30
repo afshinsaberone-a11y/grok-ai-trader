@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from tools.dropbox_free_tier_policy_v2 import load_policy, select_files
+from tools.dropbox_free_tier_policy_v2 import load_policy, select_files, workflow_key
 
 API_URL = "https://api.dropboxapi.com/2"
 CONTENT_URL = "https://content.dropboxapi.com/2"
@@ -275,12 +275,13 @@ def collect_and_upload(
     remote_root: str,
     policy: dict[str, Any],
     *,
+    workflow_name: str | None = None,
     manifest_count: int = 1,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not source_dir.is_dir():
         raise DropboxSyncError("source directory does not exist: " + str(source_dir))
     try:
-        files, excluded = select_files(source_dir, policy)
+        files, excluded = select_files(source_dir, policy, workflow_name)
     except ValueError as exc:
         raise DropboxSyncError(str(exc)) from exc
 
@@ -395,7 +396,11 @@ def main() -> int:
     source = Path(args.source_dir)
     manifest_count = 2 if args.ledger_out and args.ledger_remote_root else 1
     records, excluded = collect_and_upload(
-        source, args.dropbox_root, policy, manifest_count=manifest_count
+        source,
+        args.dropbox_root,
+        policy,
+        workflow_name=args.workflow_name,
+        manifest_count=manifest_count,
     )
 
     run_metadata: dict[str, Any] = {}
@@ -417,6 +422,7 @@ def main() -> int:
             "conclusion": args.conclusion,
         },
         "dropbox_root": args.dropbox_root,
+        "workflow_profile": workflow_key(args.workflow_name),
         "source_run": run_metadata,
         "file_count": len(records),
         "files": records,
