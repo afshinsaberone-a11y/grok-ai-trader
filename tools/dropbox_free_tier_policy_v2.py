@@ -49,6 +49,28 @@ def load_policy(path: Path) -> dict[str, Any]:
     ):
         raise PolicyError("allowed_extensions and denied_extensions overlap")
 
+    profiles = data.get("workflow_profiles") or {}
+    if not isinstance(profiles, dict):
+        raise PolicyError("workflow_profiles must be an object")
+    for key, profile in profiles.items():
+        if not isinstance(key, str) or not key.strip():
+            raise PolicyError("workflow profile keys must be non-empty strings")
+        if not isinstance(profile, dict):
+            raise PolicyError("workflow profile must be an object: " + str(key))
+        prefixes = profile.get("allowed_artifact_prefixes")
+        if not isinstance(prefixes, list) or not prefixes:
+            raise PolicyError("workflow profile has no allowed_artifact_prefixes: " + str(key))
+        if not all(isinstance(x, str) and x.strip() for x in prefixes):
+            raise PolicyError("workflow artifact prefixes must be non-empty strings: " + str(key))
+        for field in ("allowed_filename_tokens", "denied_filename_tokens"):
+            values = profile.get(field, [])
+            if not isinstance(values, list) or not all(
+                isinstance(x, str) and x.strip() for x in values
+            ):
+                raise PolicyError(
+                    "workflow profile " + field + " must be a string list: " + str(key)
+                )
+
     return data
 
 
@@ -93,6 +115,16 @@ def classify_workflow_artifact(
     prefixes = [str(x).lower() for x in profile["allowed_artifact_prefixes"]]
     if not any(root.startswith(prefix) for prefix in prefixes):
         return False, "artifact_family_not_allowed"
+
+    filename = path.name.lower()
+    denied_tokens = [str(x).lower() for x in profile.get("denied_filename_tokens", [])]
+    if any(token in filename for token in denied_tokens):
+        return False, "workflow_denied_filename"
+
+    allowed_tokens = [str(x).lower() for x in profile.get("allowed_filename_tokens", [])]
+    if allowed_tokens and not any(token in filename for token in allowed_tokens):
+        return False, "workflow_filename_not_allowed"
+
     return True, "artifact_family_allowed"
 
 
