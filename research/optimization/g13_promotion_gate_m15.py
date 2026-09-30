@@ -59,6 +59,17 @@ def validate_provenance(provenance: dict[str, Any], *, target_sha: str | None = 
     assert set(provenance["sources"]) == set(EXPECTED_SOURCE_WORKFLOW_NAMES)
     if target_sha is not None:
         assert provenance.get("target_sha") == target_sha
+    audit_evidence = provenance["audit_evidence"]
+    assert int(audit_evidence["run_id"]) == int(provenance["audit_run_id"])
+    assert audit_evidence["head_sha"] == provenance["target_sha"]
+    assert audit_evidence["artifact_name"] == "g13-producer-lineage-audit-m15"
+    for key in ("artifact_digest",):
+        digest = str(audit_evidence[key])
+        assert digest.startswith("sha256:") and len(digest) == 71
+        assert all(ch in "0123456789abcdefABCDEF" for ch in digest.split(":", 1)[1])
+    for key in ("local_zip_sha256", "report_sha256"):
+        value = str(audit_evidence[key])
+        assert len(value) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in value)
 
     for key in EXPECTED_SOURCE_WORKFLOW_NAMES:
         row = provenance["sources"][key]
