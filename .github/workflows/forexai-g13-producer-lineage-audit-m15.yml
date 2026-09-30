@@ -140,6 +140,7 @@ jobs:
             --validation-source-metadata evidence/g13-producers/validation/source-metadata.json \
             --robustness-source-metadata evidence/g13-producers/robustness/source-metadata.json \
             --oos-source-metadata evidence/g13-producers/oos/source-metadata.json \
+            --audit-run-id "$GITHUB_RUN_ID" \
             --output artifacts/g13-producer-lineage-audit-m15.json
 
       - name: Upload immutable lineage evidence
