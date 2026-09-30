@@ -13,6 +13,7 @@ from tools.verify_dropbox_evidence_manifest import (
 def sample_manifest():
     return {
         "schema_version": "forexai.dropbox_evidence_sync.v2",
+        "generated_at_utc": "2026-09-30T18:00:00Z",
         "workflow": {
             "name": "ForexAI G13 Final Promotion M15",
             "run_id": 123,
@@ -147,4 +148,12 @@ def test_empty_evidence_payload_fails():
     manifest["files"] = []
     manifest["file_count"] = 0
     with pytest.raises(ManifestVerificationError, match="no synchronized evidence"):
+        verify_manifest(manifest)
+
+
+
+def test_generated_timestamp_mismatch_fails():
+    manifest = sample_manifest()
+    manifest["generated_at_utc"] = "2026-09-30T19:00:00Z"
+    with pytest.raises(ManifestVerificationError, match="generated_at_utc"):
         verify_manifest(manifest)
