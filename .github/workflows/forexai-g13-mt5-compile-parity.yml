@@ -264,7 +264,15 @@ jobs:
           if ($a.head_sha -ne $env:TARGET_SHA) { throw 'Promotion attestation head mismatch' }
           if ($a.manifest_sha256.ToLowerInvariant() -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $manifest).Hash.ToLowerInvariant()) { throw 'Promotion manifest SHA mismatch' }
           if ($a.provenance_sha256.ToLowerInvariant() -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $provenance).Hash.ToLowerInvariant()) { throw 'Promotion provenance SHA mismatch' }
-          if ([int64]$p.workflow_run_id -ne [int64]$env:PROMOTION_RUN_ID -or $p.head_sha -ne $env:TARGET_SHA) { throw 'Promotion provenance identity mismatch' }
+          if ($p.schema_version -ne 'forexai.g13.promotion_evidence_provenance.m15.v1') { throw 'Promotion provenance schema mismatch' }
+          if (-not $p.sources.validation -or -not $p.sources.robustness -or -not $p.sources.oos) { throw 'Promotion provenance source set mismatch' }
+          foreach ($key in @('validation','robustness','oos')) {
+            $src = $p.sources.$key
+            if ([int64]$src.run_id -le 0) { throw "Promotion provenance $key run_id is invalid" }
+            if ([int64]$src.job_id -le 0) { throw "Promotion provenance $key job_id is invalid" }
+            if ([int64]$src.artifact.artifact_id -le 0) { throw "Promotion provenance $key artifact_id is invalid" }
+            if ($src.artifact.digest -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw "Promotion provenance $key artifact digest is invalid" }
+          }
           Write-Host 'G13_PROMOTION_ARTIFACT_CONSUMER_OK'
 
           "PROMOTION_MANIFEST=$manifest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
