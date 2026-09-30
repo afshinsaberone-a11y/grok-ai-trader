@@ -326,3 +326,11 @@ def test_wrong_workflow_identity_is_rejected():
     except AssertionError:
         return
     raise AssertionError("wrong producer workflow was accepted")
+
+
+def test_audit_artifact_digest_mismatch_rejected():
+    import pytest
+    p = _good()
+    p["audit_evidence"]["artifact_digest"] = "sha256:" + "0" * 64
+    with pytest.raises(AssertionError):
+        gate.validate_provenance(p, target_sha="target-sha")
