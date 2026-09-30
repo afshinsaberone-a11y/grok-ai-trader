@@ -6,6 +6,7 @@ from tools.dropbox_evidence_sync_v2 import (
     collect_and_upload,
     safe_slug,
     upload_immutable_bytes,
+    stable_manifest_timestamp,
     upload_small_bytes,
     verify_or_mark_existing,
 )
@@ -184,3 +185,16 @@ def test_policy_manifest_limit_is_exposed():
     policy = load_policy(__import__("pathlib").Path("config/dropbox_free_tier_policy.json"))
     assert policy["max_manifest_bytes"] <= policy["max_file_upload_bytes"]
     assert policy["manifest_reserve_bytes"] > 0
+
+
+
+def test_manifest_timestamp_is_stable_and_requires_source_timestamp():
+    metadata = {"created_at": "2026-09-30T18:00:00Z", "updated_at": "2026-09-30T18:01:00Z"}
+    assert stable_manifest_timestamp(metadata) == "2026-09-30T18:00:00Z"
+
+    try:
+        stable_manifest_timestamp({})
+    except DropboxSyncError as exc:
+        assert "deterministic" in str(exc)
+    else:
+        raise AssertionError("missing source timestamp must fail closed")
