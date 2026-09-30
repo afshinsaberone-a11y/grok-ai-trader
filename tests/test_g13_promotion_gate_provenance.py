@@ -9,6 +9,16 @@ def _good() -> dict:
     return {
         "schema_version": "forexai.g13.promotion_evidence_provenance.m15.v1",
         "target_sha": "target-sha",
+        "audit_run_id": 12345678901,
+        "audit_evidence": {
+            "run_id": 12345678901,
+            "head_sha": "target-sha",
+            "artifact_id": 12345678961,
+            "artifact_name": "g13-producer-lineage-audit-m15",
+            "artifact_digest": "sha256:" + "9" * 64,
+            "local_zip_sha256": "9" * 64,
+            "report_sha256": "8" * 64,
+        },
         "sources": {
             "validation": {
                 "run_id": 12345678901,
@@ -20,6 +30,7 @@ def _good() -> dict:
                 "job_id": 103140078741,
                 "job_name": "g13-validation",
                 "local_zip_sha256": "a" * 64,
+                "provenance_sha256": "1" * 64,
                 "artifact": {
                     "artifact_id": 12345678911,
                     "name": "g13-validation-m15",
@@ -37,6 +48,7 @@ def _good() -> dict:
                 "job_id": 103514547206,
                 "job_name": "g13-robustness",
                 "local_zip_sha256": "b" * 64,
+                "provenance_sha256": "2" * 64,
                 "artifact": {
                     "artifact_id": 12345678931,
                     "name": "g13-robustness-m15",
@@ -54,6 +66,7 @@ def _good() -> dict:
                 "job_id": 103516577859,
                 "job_name": "G13 2026 OOS M15 Current",
                 "local_zip_sha256": "c" * 64,
+                "provenance_sha256": "3" * 64,
                 "artifact": {
                     "artifact_id": 12345678951,
                     "name": "g13-oos-m15-2026-current",
