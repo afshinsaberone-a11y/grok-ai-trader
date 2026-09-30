@@ -23,6 +23,10 @@ on:
         description: "Optional expected source commit SHA"
         required: false
         type: string
+      expected_conclusion:
+        description: "Optional expected source conclusion"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -50,30 +54,42 @@ jobs:
           MANIFEST_PATH: ${{ inputs.manifest_path }}
         run: |
           set -euo pipefail
-          test "${MANIFEST_PATH}" = "/ForexAI/"*"/_SYNC_MANIFEST.json" || {
+          [[ "${MANIFEST_PATH}" == /ForexAI/*/_SYNC_MANIFEST.json ]] || {
             echo "DROPBOX_MANIFEST_VERIFY_FAIL_CLOSED: manifest_path must target /ForexAI/.../_SYNC_MANIFEST.json"
             exit 2
           }
           python - <<'PY'
-          import json
-          import os
+          import json, os
           from pathlib import Path
-          path=os.environ["MANIFEST_PATH"]
-          header=json.dumps({"path": path}, separators=(",", ":"))
-          Path("dropbox-api-arg.json").write_text(header, encoding="utf-8")
+          Path("dropbox-api-arg.json").write_text(
+              json.dumps({"path": os.environ["MANIFEST_PATH"]}, separators=(",", ":")),
+              encoding="utf-8",
+          )
           PY
           curl -fsSL             -X POST             -H "Authorization: Bearer ${DROPBOX_ACCESS_TOKEN}"             -H "Dropbox-API-Arg: @dropbox-api-arg.json"             -o dropbox-manifest.json             https://content.dropboxapi.com/2/files/download
           test -s dropbox-manifest.json
 
       - name: Verify manifest provenance and integrity
+        env:
+          EXPECTED_RUN_ID: ${{ inputs.expected_run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ inputs.expected_run_attempt }}
+          EXPECTED_WORKFLOW: ${{ inputs.expected_workflow }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          EXPECTED_CONCLUSION: ${{ inputs.expected_conclusion }}
         run: |
           set -euo pipefail
           python -m py_compile tools/verify_dropbox_evidence_manifest.py
-          python tools/verify_dropbox_evidence_manifest.py             --manifest dropbox-manifest.json             ${{ inputs.expected_run_id != '' && format('--expected-run-id {0}', inputs.expected_run_id) || '' }}             ${{ inputs.expected_run_attempt != '' && format('--expected-run-attempt {0}', inputs.expected_run_attempt) || '' }}             ${{ inputs.expected_workflow != '' && format('--expected-workflow "{0}"', inputs.expected_workflow) || '' }}             ${{ inputs.expected_head_sha != '' && format('--expected-head-sha {0}', inputs.expected_head_sha) || '' }}
+          ARGS=(--manifest dropbox-manifest.json)
+          if [ -n "$EXPECTED_RUN_ID" ]; then ARGS+=(--expected-run-id "$EXPECTED_RUN_ID"); fi
+          if [ -n "$EXPECTED_RUN_ATTEMPT" ]; then ARGS+=(--expected-run-attempt "$EXPECTED_RUN_ATTEMPT"); fi
+          if [ -n "$EXPECTED_WORKFLOW" ]; then ARGS+=(--expected-workflow "$EXPECTED_WORKFLOW"); fi
+          if [ -n "$EXPECTED_HEAD_SHA" ]; then ARGS+=(--expected-head-sha "$EXPECTED_HEAD_SHA"); fi
+          if [ -n "$EXPECTED_CONCLUSION" ]; then ARGS+=(--expected-conclusion "$EXPECTED_CONCLUSION"); fi
+          python tools/verify_dropbox_evidence_manifest.py "${ARGS[@]}" | tee verification-report.json
 
       - name: Publish verification receipt
         uses: actions/upload-artifact@v4
         with:
           name: dropbox-manifest-verification
-          path: dropbox-manifest.json
+          path: verification-report.json
           if-no-files-found: error
