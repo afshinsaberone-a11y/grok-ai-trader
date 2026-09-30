@@ -178,8 +178,8 @@ jobs:
             mkdir -p "$TARGET"
             gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$ARCHIVE"
             ACTUAL_SIZE="$(stat -c%s "$ARCHIVE")"
-            test "$ACTUAL_SIZE" = "$ARTIFACT_SIZE" \
-              || { echo "DROPBOX_SYNC_FAIL_CLOSED: artifact size mismatch id=$ARTIFACT_ID actual=$ACTUAL_SIZE expected=$ARTIFACT_SIZE"; exit 2; }
+            test "$ACTUAL_SIZE" -gt 0 \
+              || { echo "DROPBOX_SYNC_FAIL_CLOSED: downloaded artifact archive is empty id=$ARTIFACT_ID"; exit 2; }
             ACTUAL_DIGEST="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
             EXPECTED_DIGEST="$(printf '%s' "$ARTIFACT_DIGEST" | sed 's/^sha256://')"
             test "$ACTUAL_DIGEST" = "$EXPECTED_DIGEST" \
@@ -219,10 +219,14 @@ jobs:
                         continue
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(info, "r") as source, destination.open("wb") as target:
-                        target.write(source.read())
+                        while True:
+                            chunk = source.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            target.write(chunk)
             PY
             rm -f "$ARCHIVE"
-            echo "SOURCE_ARTIFACT_VERIFIED id=$ARTIFACT_ID name=$ARTIFACT_NAME sha256=$ACTUAL_DIGEST bytes=$ACTUAL_SIZE"
+            echo "SOURCE_ARTIFACT_VERIFIED id=$ARTIFACT_ID name=$ARTIFACT_NAME sha256=$ACTUAL_DIGEST archive_bytes=$ACTUAL_SIZE recorded_artifact_bytes=$ARTIFACT_SIZE"
           done < artifact-index.tsv
           test -n "$(find incoming/github-artifacts -type f -print -quit)" \
             || { echo "DROPBOX_SYNC_FAIL_CLOSED: verified source artifacts extracted no files"; exit 2; }
