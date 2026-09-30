@@ -1,0 +1,79 @@
+name: ForexAI Dropbox Manifest Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_path:
+        description: "Exact Dropbox path to _SYNC_MANIFEST.json"
+        required: true
+        type: string
+      expected_run_id:
+        description: "Optional expected GitHub Actions run ID"
+        required: false
+        type: string
+      expected_run_attempt:
+        description: "Optional expected GitHub Actions run attempt"
+        required: false
+        type: string
+      expected_workflow:
+        description: "Optional expected source workflow name"
+        required: false
+        type: string
+      expected_head_sha:
+        description: "Optional expected source commit SHA"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Dropbox credential
+        run: |
+          set -euo pipefail
+          test -n "${DROPBOX_ACCESS_TOKEN}" || {
+            echo "DROPBOX_MANIFEST_VERIFY_NOT_CONFIGURED: add GitHub Actions secret DROPBOX_ACCESS_TOKEN"
+            exit 78
+          }
+
+      - name: Download exact Dropbox manifest (read-only)
+        env:
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          test "${MANIFEST_PATH}" = "/ForexAI/"*"/_SYNC_MANIFEST.json" || {
+            echo "DROPBOX_MANIFEST_VERIFY_FAIL_CLOSED: manifest_path must target /ForexAI/.../_SYNC_MANIFEST.json"
+            exit 2
+          }
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path=os.environ["MANIFEST_PATH"]
+          header=json.dumps({"path": path}, separators=(",", ":"))
+          Path("dropbox-api-arg.json").write_text(header, encoding="utf-8")
+          PY
+          curl -fsSL             -X POST             -H "Authorization: Bearer ${DROPBOX_ACCESS_TOKEN}"             -H "Dropbox-API-Arg: @dropbox-api-arg.json"             -o dropbox-manifest.json             https://content.dropboxapi.com/2/files/download
+          test -s dropbox-manifest.json
+
+      - name: Verify manifest provenance and integrity
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/verify_dropbox_evidence_manifest.py
+          python tools/verify_dropbox_evidence_manifest.py             --manifest dropbox-manifest.json             ${{ inputs.expected_run_id != '' && format('--expected-run-id {0}', inputs.expected_run_id) || '' }}             ${{ inputs.expected_run_attempt != '' && format('--expected-run-attempt {0}', inputs.expected_run_attempt) || '' }}             ${{ inputs.expected_workflow != '' && format('--expected-workflow "{0}"', inputs.expected_workflow) || '' }}             ${{ inputs.expected_head_sha != '' && format('--expected-head-sha {0}', inputs.expected_head_sha) || '' }}
+
+      - name: Publish verification receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: dropbox-manifest-verification
+          path: dropbox-manifest.json
+          if-no-files-found: error
