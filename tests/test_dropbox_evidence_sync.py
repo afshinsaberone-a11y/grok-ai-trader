@@ -10,7 +10,14 @@ from tools.dropbox_evidence_sync_v2 import (
     upload_small_bytes,
     verify_or_mark_existing,
 )
-from tools.dropbox_free_tier_policy_v2 import classify, load_policy, priority, select_files
+from tools.dropbox_free_tier_policy_v2 import (
+    classify,
+    classify_workflow_artifact,
+    load_policy,
+    priority,
+    select_files,
+    workflow_key,
+)
 
 
 def test_safe_slug_is_stable():
@@ -198,3 +205,77 @@ def test_manifest_timestamp_is_stable_and_requires_source_timestamp():
         assert "deterministic" in str(exc)
     else:
         raise AssertionError("missing source timestamp must fail closed")
+
+
+
+def test_workflow_key_is_stable():
+    assert workflow_key("ForexAI G13 MT5 Compile + Signal Parity") == "forexai-g13-mt5-compile-signal-parity"
+
+
+def test_workflow_profile_rejects_unrelated_artifact_family(tmp_path):
+    policy = load_policy(__import__("pathlib").Path("config/dropbox_free_tier_policy.json"))
+    allowed = tmp_path / "g13-promotion-manifest-m15"
+    denied = tmp_path / "random-artifact"
+    allowed.mkdir()
+    denied.mkdir()
+    allowed_file = allowed / "g13-promotion-manifest-m15.json"
+    denied_file = denied / "promotion-manifest.json"
+    allowed_file.write_text("{}", encoding="utf-8")
+    denied_file.write_text("{}", encoding="utf-8")
+
+    assert classify_workflow_artifact(
+        allowed_file, tmp_path, "ForexAI G13 Final Promotion M15", policy
+    )[0] is True
+    assert classify_workflow_artifact(
+        denied_file, tmp_path, "ForexAI G13 Final Promotion M15", policy
+    ) == (False, "artifact_family_not_allowed")
+
+
+def test_workflow_profile_rejects_raw_dukascopy_file():
+    policy = load_policy(__import__("pathlib").Path("config/dropbox_free_tier_policy.json"))
+    import tempfile
+    root = __import__("pathlib").Path(tempfile.mkdtemp())
+    artifact = root / "dukascopy-node-cross-check-2026-07-05"
+    artifact.mkdir()
+    raw = artifact / "eurusd-m1-bid-2026-07-05-2026-07-06.csv"
+    report = artifact / "conflict_crossfeed_comparison.csv"
+    raw.write_text("timestamp,bid\n", encoding="utf-8")
+    report.write_text("conflict\n", encoding="utf-8")
+
+    assert classify_workflow_artifact(
+        raw, root, "Dukascopy Cross-Feed Check", policy
+    ) == (False, "workflow_denied_filename")
+    assert classify_workflow_artifact(
+        report, root, "Dukascopy Cross-Feed Check", policy
+    )[0] is True
+
+
+def test_unknown_workflow_profile_fails_closed(tmp_path):
+    policy = load_policy(__import__("pathlib").Path("config/dropbox_free_tier_policy.json"))
+    artifact = tmp_path / "some-artifact"
+    artifact.mkdir()
+    evidence = artifact / "promotion-manifest.json"
+    evidence.write_text("{}", encoding="utf-8")
+
+    try:
+        classify_workflow_artifact(evidence, tmp_path, "Unknown Workflow", policy)
+    except ValueError as exc:
+        assert "unknown Dropbox workflow profile" in str(exc)
+    else:
+        raise AssertionError("unknown workflow must fail closed")
+
+
+def test_select_files_applies_workflow_scope(tmp_path):
+    policy = load_policy(__import__("pathlib").Path("config/dropbox_free_tier_policy.json"))
+    good = tmp_path / "g13-promotion-manifest-m15"
+    bad = tmp_path / "unrelated"
+    good.mkdir()
+    bad.mkdir()
+    (good / "g13-promotion-manifest-m15.json").write_text("{}", encoding="utf-8")
+    (bad / "promotion-manifest.json").write_text("{}", encoding="utf-8")
+
+    selected, excluded = select_files(
+        tmp_path, policy, "ForexAI G13 Final Promotion M15"
+    )
+    assert [p.name for p in selected] == ["g13-promotion-manifest-m15.json"]
+    assert any(x["reason"] == "artifact_family_not_allowed" for x in excluded)
