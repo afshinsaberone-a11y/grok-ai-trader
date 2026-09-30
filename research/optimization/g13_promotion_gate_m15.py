@@ -81,6 +81,8 @@ def validate_provenance(provenance: dict[str, Any], *, target_sha: str | None = 
         assert digest.startswith("sha256:") and len(digest) == 71
         assert all(ch in "0123456789abcdefABCDEF" for ch in digest.split(":", 1)[1])
         assert row.get("local_zip_sha256") == digest.split(":", 1)[1]
+        provenance_sha = str(row.get("provenance_sha256", ""))
+        assert len(provenance_sha) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in provenance_sha)
 
 
 def validate_data_lineage(
