@@ -205,11 +205,11 @@ jobs:
           $zipResponse.EnsureSuccessStatusCode()
           [System.IO.File]::WriteAllBytes($zip, $zipResponse.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
           $zipResponse.Dispose()
-        }
-        finally {
-          $httpClient.Dispose()
-          $httpHandler.Dispose()
-        }
+          }
+          finally {
+            $httpClient.Dispose()
+            $httpHandler.Dispose()
+          }
           $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
           if ($actualDigest -ne $artifact.digest.ToLowerInvariant()) { throw "Promotion artifact digest mismatch: $actualDigest != $($artifact.digest)" }
 
