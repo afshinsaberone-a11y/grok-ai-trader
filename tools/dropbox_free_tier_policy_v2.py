@@ -17,6 +17,38 @@ def load_policy(path: Path) -> dict[str, Any]:
         raise PolicyError("invalid Dropbox policy: " + str(path)) from exc
     if data.get("schema_version") != "forexai.dropbox_free_tier_policy.v2":
         raise PolicyError("unexpected Dropbox free-tier policy schema")
+
+    quota = int(data.get("quota_bytes", 0))
+    reserve = int(data.get("reserve_bytes", 0))
+    run_cap = int(data.get("max_run_upload_bytes", 0))
+    file_cap = int(data.get("max_file_upload_bytes", 0))
+    csv_cap = int(data.get("max_csv_upload_bytes", 0))
+    manifest_cap = int(data.get("max_manifest_bytes", 0))
+    manifest_reserve = int(data.get("manifest_reserve_bytes", 0))
+
+    if quota <= 0:
+        raise PolicyError("quota_bytes must be positive")
+    if reserve < 0 or reserve >= quota:
+        raise PolicyError("reserve_bytes must be >= 0 and smaller than quota_bytes")
+    if run_cap <= 0 or run_cap > quota - reserve:
+        raise PolicyError("max_run_upload_bytes exceeds safe quota budget")
+    if file_cap <= 0 or file_cap > run_cap:
+        raise PolicyError("max_file_upload_bytes exceeds max_run_upload_bytes")
+    if csv_cap <= 0 or csv_cap > file_cap:
+        raise PolicyError("max_csv_upload_bytes exceeds max_file_upload_bytes")
+    if manifest_cap <= 0 or manifest_cap > file_cap:
+        raise PolicyError("max_manifest_bytes exceeds max_file_upload_bytes")
+    if manifest_reserve < 0 or manifest_reserve > quota - reserve:
+        raise PolicyError("manifest_reserve_bytes exceeds safe quota budget")
+    if not isinstance(data.get("allowed_extensions"), list):
+        raise PolicyError("allowed_extensions must be a list")
+    if not isinstance(data.get("denied_extensions"), list):
+        raise PolicyError("denied_extensions must be a list")
+    if set(str(x).lower() for x in data["allowed_extensions"]) & set(
+        str(x).lower() for x in data["denied_extensions"]
+    ):
+        raise PolicyError("allowed_extensions and denied_extensions overlap")
+
     return data
 
 
