@@ -211,3 +211,15 @@ def test_audit_run_id_must_be_positive_when_bound():
             source_metadata_by_role=_source_metadata(),
             audit_run_id=0,
         )
+
+
+def test_provenance_digest_must_be_hex64():
+    metadata = _source_metadata()
+    metadata["validation"]["provenance_sha256"] = "bad"
+    with pytest.raises(AssertionError):
+        validate_lineage(
+            _all(),
+            target_sha="a" * 40,
+            run_ids={"validation": 101, "robustness": 202, "oos": 303},
+            source_metadata_by_role=metadata,
+        )
