@@ -140,6 +140,7 @@ def validate_lineage(
         assert _hex64(metadata["artifact_sha256"])
         assert _hex64(metadata["downloaded_zip_sha256"])
         assert metadata["artifact_sha256"] == metadata["downloaded_zip_sha256"]
+        assert _hex64(metadata["provenance_sha256"])
         assert metadata["expired"] is False
     return {
         "schema_version": SCHEMA,
