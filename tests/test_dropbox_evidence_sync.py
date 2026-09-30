@@ -340,3 +340,21 @@ def test_every_sync_trigger_has_a_workflow_profile():
     assert names
     missing = [name for name in names if workflow_key(name) not in profiles]
     assert missing == []
+
+
+
+def test_select_files_allows_scoped_dukascopy_report_but_not_raw_input(tmp_path):
+    policy = load_policy(__import__("pathlib").Path("config/dropbox_free_tier_policy.json"))
+    artifact = tmp_path / "dukascopy-node-cross-check-2026-07-05"
+    artifact.mkdir()
+    raw = artifact / "eurusd-m1-bid-2026-07-05-2026-07-06.csv"
+    report = artifact / "conflict_crossfeed_comparison.csv"
+    raw.write_text("timestamp,bid\n", encoding="utf-8")
+    report.write_text("conflict\n", encoding="utf-8")
+
+    selected, excluded = select_files(
+        tmp_path, policy, "Dukascopy Cross-Feed Check"
+    )
+    assert report in selected
+    assert raw not in selected
+    assert any(x["path"].endswith(raw.name) for x in excluded)
