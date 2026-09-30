@@ -141,6 +141,15 @@
     "dukascopy-cross-feed-check": {
       "allowed_artifact_prefixes": [
         "dukascopy-node-cross-check-"
+      ],
+      "allowed_filename_tokens": [
+        "crossfeed",
+        "conflict"
+      ],
+      "denied_filename_tokens": [
+        "eurusd-m1-bid",
+        "ticks",
+        "ohlc"
       ]
     },
     "forexai-v29-1-robustness-validation": {
