@@ -25,10 +25,15 @@ on:
         required: false
         default: 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv'
         type: string
-  workflow_run:
-    workflows:
-      - "ForexAI G13 Final Promotion M15"
-    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - 'research/optimization/g13_*.py'
+      - 'research/real_data/*.py'
+      - 'research/optimization/g13_mql5_parity_harness.mq5'
+      - 'artifacts/g13/g13-promotion-manifest-m15.json'
+      - 'artifacts/g13/frozen/g13-candidate-handoff-m15.json'
+      - '.github/workflows/forexai-g13-*.yml'
 concurrency:
   group: g13-mt5-compile-parity
   cancel-in-progress: true
@@ -42,16 +47,64 @@ defaults:
     shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
 
 jobs:
+  resolve-promotion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      promotion_run_id: ${{ steps.resolve.outputs.promotion_run_id }}
+      target_sha: ${{ steps.resolve.outputs.target_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
+      TARGET_SHA: ${{ github.sha }}
+    steps:
+      - name: Resolve exact Promotion run
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            promotion_id="$MANUAL_PROMOTION_RUN_ID"
+            run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$promotion_id")"
+            printf '%s' "$run_json" | python -c 'import json,sys; x=json.load(sys.stdin); target=sys.argv[1]; assert x["name"]=="ForexAI G13 Final Promotion M15"; assert x["conclusion"]=="success"; assert x["head_branch"]=="main"; assert x["head_sha"]==target, (x["id"],x["head_sha"],target); print("MANUAL_PROMOTION_RUN_OK",x["id"],x["head_sha"])' "$TARGET_SHA"
+          else
+            promotion_id=""
+            for attempt in $(seq 1 100); do
+              payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&per_page=50")"
+              state="$(printf '%s' "$payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("head_branch")=="main" and r.get("head_sha")==target and r.get("name")=="ForexAI G13 Final Promotion M15"]; success=[r for r in rs if r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|" if rs else "NOT_STARTED|")))' "$TARGET_SHA")"
+              case "$state" in
+                SUCCESS\|*)
+                  promotion_id="${state#SUCCESS|}"
+                  echo "PROMOTION_READY=true RUN=$promotion_id SHA=$TARGET_SHA"
+                  break
+                  ;;
+                PENDING\|*|NOT_STARTED\|*)
+                  echo "PROMOTION_WAIT attempt=$attempt state=$state SHA=$TARGET_SHA"
+                  sleep 15
+                  ;;
+                FAILED\|*)
+                  echo "PROMOTION_FAILED_FOR_SHA=$TARGET_SHA"
+                  exit 1
+                  ;;
+              esac
+            done
+            if [[ -z "$promotion_id" ]]; then
+              echo "PROMOTION_WAIT_TIMEOUT_FOR_SHA=$TARGET_SHA"
+              exit 1
+            fi
+          fi
+          echo "promotion_run_id=$promotion_id" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+
   compile-and-parity:
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          github.event_name == 'push' ||
-          (github.event.workflow_run.conclusion == 'success' &&
-           github.event.workflow_run.head_branch == 'main') }}
+    needs: resolve-promotion
+    if: needs.resolve-promotion.result == 'success'
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 240
     env:
       PYTHONOPTIMIZE: '0'
+      PROMOTION_RUN_ID: ${{ needs.resolve-promotion.outputs.promotion_run_id }}
+      TARGET_SHA: ${{ needs.resolve-promotion.outputs.target_sha }}
       MT5_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
       MT5_DATA_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_data_root || 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075' }}
       DATA_CSV_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.data_csv || 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv' }}
@@ -61,31 +114,6 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Resolve exact Promotion run
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
-          EVENT_PROMOTION_RUN_ID: ${{ github.event.workflow_run.id }}
-          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:GITHUB_EVENT_NAME -eq 'workflow_run') {
-            $promotionId = [int64]$env:EVENT_PROMOTION_RUN_ID
-          } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
-            $promotionId = [int64]$env:MANUAL_PROMOTION_RUN_ID
-          } else {
-            $payload = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=50" | ConvertFrom-Json
-            $matches = @($payload.workflow_runs | Where-Object { $_.head_sha -eq $env:TARGET_SHA -and $_.conclusion -eq 'success' } | Sort-Object id -Descending)
-            if ($matches.Count -lt 1) { throw "No successful Promotion run for current commit $env:TARGET_SHA" }
-            $promotionId = [int64]$matches[0].id
-          }
-          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$promotionId" | ConvertFrom-Json
-          if ($run.conclusion -ne 'success') { throw "Promotion run $promotionId is not successful" }
-          if ($run.head_branch -ne 'main') { throw "Promotion run $promotionId is not on main" }
-          if ($run.head_sha -ne $env:TARGET_SHA) { throw "Promotion run $promotionId head SHA $($run.head_sha) != target $env:TARGET_SHA" }
-          "PROMOTION_RUN_ID=$promotionId" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "TARGET_SHA=$env:TARGET_SHA" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "PROMOTION_RUN_OK=$promotionId HEAD=$($run.head_sha)"
       - name: Verify local Python runtime
         run: |
           $ErrorActionPreference = 'Stop'
@@ -686,7 +714,7 @@ jobs:
             --parity artifacts/g13-mql5-signal-parity.json `
             --package-root artifacts/g13/mql5 `
             --output artifacts/g13/g13-demo-package-manifest-m15.json `
-            --source-commit "$env:GITHUB_SHA" `
+            --source-commit "$env:TARGET_SHA" `
             --compile-parity-run-id ([int64]$env:GITHUB_RUN_ID)
       - name: Print MT5 parity diagnostics
         if: always()
