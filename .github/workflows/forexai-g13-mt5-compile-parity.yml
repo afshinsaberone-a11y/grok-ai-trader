@@ -123,7 +123,7 @@ jobs:
           TARGET_SHA=$TARGET_SHA
           PROMOTION_ARTIFACT_ID=$artifact_id
           PROMOTION_ARTIFACT_DIGEST=$artifact_digest
-EOF
+          EOF
           echo "promotion_artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
           echo "promotion_artifact_digest=$artifact_digest" >> "$GITHUB_OUTPUT"
           echo "G13_PROMOTION_SOURCE_ZIP_VERIFIED=true ID=$artifact_id DIGEST=$artifact_digest"
