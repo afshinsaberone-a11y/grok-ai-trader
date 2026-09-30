@@ -424,15 +424,20 @@ def generate(manifest_path: Path, handoff_path: Path, out_dir: Path) -> list[Pat
     assert hp['oos_optimization_disabled'] is True
     ids=sorted(int(x) for x in manifest['promoted_candidate_ids'])
     assert len(ids)==15 and len(set(ids))==15
+    manifest_candidates={int(c['candidate_id']):c for c in manifest['candidates']}
+    assert len(manifest_candidates)==15
+    assert set(manifest_candidates)==set(ids)
     cands={int(c['candidate_id']):c for c in handoff['candidates']}
-    hashes=manifest['candidate_config_hashes']
     assert set(cands)>=set(ids)
     out_dir.mkdir(parents=True,exist_ok=True)
     paths=[]
     for cid in ids:
-        c=cands[cid]
-        assert c['config_hash']==hashes[str(cid)]
-        assert c['config_hash']==canonical_hash(c['params'])
+        handoff_candidate=cands[cid]
+        manifest_candidate=manifest_candidates[cid]
+        assert manifest_candidate['config_hash']==handoff_candidate['config_hash']
+        assert manifest_candidate['params']==handoff_candidate['params']
+        assert manifest_candidate['config_hash']==canonical_hash(manifest_candidate['params'])
+        c=handoff_candidate
         path=out_dir/f'ForexAI_G13_Candidate_{cid:02d}.mq5'
         path.write_text(render(c),encoding='utf-8')
         paths.append(path)
