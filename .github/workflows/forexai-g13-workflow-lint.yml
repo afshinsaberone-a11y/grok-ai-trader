@@ -405,6 +405,10 @@ jobs:
               "preflight_run_id",
               "g13-controlled-demo-package-preflight-m15",
               "latest_success_exact",
+              "latest_success_exact \"forexai-g13-mt5-runtime-safety-probe-m15-v2.yml\" \"$MAIN_SHA\"",
+              "latest_success_exact \"forexai-g13-execution-safety-audit-m15.yml\" \"$MAIN_SHA\"",
+              "runtime_head_sha",
+              "safety_head_sha",
               "local target_sha=\"$2\"",
               "github.event.workflow_run.name == 'ForexAI G13 Controlled Demo Package Preflight M15'",
               "download_exact_artifact",
@@ -426,6 +430,9 @@ jobs:
               'promotion["data_lineage"]["target_sha"] == main_head_sha',
               'preflight_run_id',
               'parity_run_id',
+              'runtime_head_sha == main_head_sha',
+              'safety_head_sha == main_head_sha',
+              'parity_head_sha == main_head_sha',
           ]:
               assert token in readiness, f"readiness contract token missing: {token}"
 
