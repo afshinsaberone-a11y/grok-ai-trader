@@ -188,6 +188,7 @@ jobs:
               "def validate_provenance",
               "forexai.g13.promotion_evidence_provenance.m15.v1",
               "local_zip_sha256",
+              "provenance_sha256",
               "workflow_id",
               "workflow_name",
               "head_branch",
@@ -282,6 +283,7 @@ jobs:
               "set(source_metadata_by_role) == set(WORKFLOWS)",
               "assert re.fullmatch(r\"[0-9a-f]{40}\", target_sha)",
               "assert metadata[\"conclusion\"] == \"success\"",
+              "assert _hex64(metadata[\"provenance_sha256\"])",
               "if not __debug__:",
           ]:
               assert token in lineage_audit, f"producer lineage audit token missing: {token}"
@@ -300,6 +302,7 @@ jobs:
               "355473409",
               "356162316",
               "g13-producer-lineage-audit-m15",
+              "provenance_sha256",
           ]:
               # The workflow intentionally uses GitHub CLI/API for exact run/artifact binding.
               assert token in audit_workflow, f"producer lineage workflow token missing: {token}"
