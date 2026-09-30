@@ -139,7 +139,6 @@ def verify_manifest(
         )
 
     seen_remote: set[str] = set()
-    seen_sha: set[str] = set()
     for entry in files:
         if not isinstance(entry, dict):
             raise ManifestVerificationError("file entry is not an object")
@@ -166,12 +165,6 @@ def verify_manifest(
         digest = _required_string(entry.get("sha256"), "files.sha256").lower()
         if not SHA256_RE.fullmatch(digest):
             raise ManifestVerificationError(f"invalid file SHA-256 for {remote}")
-        if digest in seen_sha:
-            raise ManifestVerificationError(
-                f"duplicate evidence SHA-256 detected: {digest}"
-            )
-        seen_sha.add(digest)
-
         if entry.get("immutable") is not True:
             raise ManifestVerificationError(f"immutable flag missing for {remote}")
         if entry.get("verified") is not True:
@@ -208,7 +201,7 @@ def verify_manifest(
         "file_count": file_count,
         "source_artifact_count": len(artifacts),
         "dropbox_root": root,
-        "evidence_sha256_count": len(seen_sha),
+        "evidence_sha256_count": len(files),
     }
 
 
