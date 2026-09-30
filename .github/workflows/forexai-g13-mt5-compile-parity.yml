@@ -182,14 +182,20 @@ jobs:
           Remove-Item -Recurse -Force $artifactDir -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
 
-          $artifactJson = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:PROMOTION_RUN_ID/artifacts" | ConvertFrom-Json
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $apiBase = 'https://api.github.com'
+          $artifactJson = Invoke-RestMethod -Method Get -Uri "$apiBase/repos/$env:GITHUB_REPOSITORY/actions/runs/$env:PROMOTION_RUN_ID/artifacts" -Headers $headers
           $matches = @($artifactJson.artifacts | Where-Object { $_.name -eq 'g13-promotion-manifest-m15' -and -not $_.expired })
           if ($matches.Count -ne 1) { throw "Expected exactly one non-expired Promotion artifact, found $($matches.Count)" }
           $artifact = $matches[0]
           if ($artifact.digest -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw "Invalid Promotion artifact digest: $($artifact.digest)" }
 
           $zip = Join-Path $artifactDir 'promotion.zip'
-          & curl.exe -fsSL -H "Authorization: Bearer $env:GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($artifact.id)/zip" -o $zip
+          Invoke-WebRequest -UseBasicParsing -Method Get -Uri "$apiBase/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($artifact.id)/zip" -Headers $headers -OutFile $zip
           $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
           if ($actualDigest -ne $artifact.digest.ToLowerInvariant()) { throw "Promotion artifact digest mismatch: $actualDigest != $($artifact.digest)" }
 

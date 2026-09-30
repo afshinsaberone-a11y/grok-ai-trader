@@ -152,6 +152,7 @@ jobs:
               "--data-manifest",
               "DATA_MANIFEST_CI",
               "Test-TrustedRealDataset",
+              "Invoke-RestMethod",
               "Resolve exact Promotion run",
               "G13_PROMOTION_ARTIFACT_CONSUMER_OK",
               "PROMOTION_MANIFEST",
@@ -160,6 +161,8 @@ jobs:
           ]
           for token in required_workflow_tokens:
               assert token in workflow, f"missing workflow token: {token}"
+          windows_compile = workflow.split("  compile-and-parity:", 1)[1]
+          assert "gh api" not in windows_compile, "Windows Compile job must not depend on GitHub CLI"
 
           promotion = Path(".github/workflows/forexai-g13-promotion-m15.yml").read_text(encoding="utf-8")
           for token in [
