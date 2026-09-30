@@ -1,7 +1,14 @@
 import hashlib
 import json
 
-from tools.dropbox_evidence_sync_v2 import DropboxSyncError, safe_slug, collect_and_upload
+from tools.dropbox_evidence_sync_v2 import (
+    DropboxSyncError,
+    collect_and_upload,
+    safe_slug,
+    upload_immutable_bytes,
+    upload_small_bytes,
+    verify_or_mark_existing,
+)
 from tools.dropbox_free_tier_policy_v2 import classify, load_policy, priority, select_files
 
 
@@ -69,3 +76,104 @@ def test_sha256_recording_helper_is_deterministic(tmp_path):
     payload.write_text('{"schema":"test","value":1}\n', encoding="utf-8")
     expected = hashlib.sha256(payload.read_bytes()).hexdigest()
     assert len(expected) == 64
+
+
+
+def test_remote_existing_identical_is_reused(monkeypatch):
+    payload = b'{"evidence":true}\n'
+    digest = hashlib.sha256(payload).hexdigest()
+    remote = "/ForexAI/test/evidence.json"
+    metadata = {"id": "id:existing", "rev": "123", "size": len(payload)}
+
+    monkeypatch.setattr(
+        "tools.dropbox_evidence_sync_v2.remote_metadata",
+        lambda value: metadata if value == remote else None,
+    )
+    monkeypatch.setattr(
+        "tools.dropbox_evidence_sync_v2.remote_sha256",
+        lambda value, size: (metadata, digest),
+    )
+
+    reused = verify_or_mark_existing(remote, payload, digest)
+
+    assert reused == metadata
+
+
+def test_remote_existing_different_hash_fails_closed(monkeypatch):
+    payload = b'{"evidence":true}\n'
+    digest = hashlib.sha256(payload).hexdigest()
+    remote = "/ForexAI/test/evidence.json"
+    metadata = {"id": "id:existing", "rev": "123", "size": len(payload)}
+
+    monkeypatch.setattr(
+        "tools.dropbox_evidence_sync_v2.remote_metadata",
+        lambda value: metadata,
+    )
+    monkeypatch.setattr(
+        "tools.dropbox_evidence_sync_v2.remote_sha256",
+        lambda value, size: (metadata, "0" * 64),
+    )
+
+    try:
+        verify_or_mark_existing(remote, payload, digest)
+    except DropboxSyncError as exc:
+        assert "IMMUTABLE_CONFLICT" in str(exc)
+    else:
+        raise AssertionError("remote content mismatch must fail closed")
+
+
+def test_upload_uses_write_once_mode(monkeypatch):
+    calls = {}
+
+    def fake_content_call(endpoint, args, data):
+        calls["endpoint"] = endpoint
+        calls["args"] = args
+        calls["data"] = data
+        return {"id": "id:new", "rev": "456", "size": len(data)}
+
+    monkeypatch.setattr(
+        "tools.dropbox_evidence_sync_v2.content_call",
+        fake_content_call,
+    )
+
+    payload = b"manifest\n"
+    meta = upload_small_bytes(payload, "/ForexAI/test/manifest.json")
+
+    assert meta["id"] == "id:new"
+    assert calls["endpoint"] == "files/upload"
+    assert calls["args"]["mode"] == "add"
+    assert calls["args"]["strict_conflict"] is True
+    assert calls["args"]["autorename"] is False
+    assert calls["data"] == payload
+
+
+def test_upload_immutable_accepts_identical_race(monkeypatch):
+    payload = b"manifest\n"
+    digest = hashlib.sha256(payload).hexdigest()
+    metadata = {"id": "id:raced", "rev": "789", "size": len(payload)}
+    state = {"uploads": 0}
+
+    monkeypatch.setattr(
+        "tools.dropbox_evidence_sync_v2.remote_metadata",
+        lambda value: None if state["uploads"] == 0 else metadata,
+    )
+
+    def fake_content_call(endpoint, args, data):
+        state["uploads"] += 1
+        raise DropboxSyncError("Dropbox content API files/upload HTTP 409: conflict")
+
+    monkeypatch.setattr(
+        "tools.dropbox_evidence_sync_v2.content_call",
+        fake_content_call,
+    )
+    monkeypatch.setattr(
+        "tools.dropbox_evidence_sync_v2.remote_sha256",
+        lambda value, size: (metadata, digest),
+    )
+
+    meta, status = upload_immutable_bytes(
+        "/ForexAI/test/manifest.json", payload, digest
+    )
+
+    assert meta == metadata
+    assert status == "already_present_after_race"
