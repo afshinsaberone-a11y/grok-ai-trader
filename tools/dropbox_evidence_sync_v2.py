@@ -455,20 +455,14 @@ def main() -> int:
             + str(max_manifest_bytes)
         )
     manifest_sha256 = hashlib.sha256(manifest_payload).hexdigest()
-    remote_manifest = args.dropbox_root.rstrip("/") + "/_SYNC_MANIFEST.json"
-    manifest_meta, manifest_status = upload_immutable_bytes(
-        remote_manifest, manifest_payload, manifest_sha256
-    )
 
+    ledger_status = None
+    ledger_meta: dict[str, Any] | None = None
     if args.ledger_out and args.ledger_remote_root:
         ledger_path = Path(args.ledger_out)
         ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        ledger_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        ledger_payload = ledger_path.read_bytes()
-        ledger_sha256 = hashlib.sha256(ledger_payload).hexdigest()
+        ledger_path.write_bytes(manifest_payload)
+        ledger_sha256 = hashlib.sha256(manifest_payload).hexdigest()
         ledger_remote = (
             args.ledger_remote_root.rstrip("/")
             + "/run-manifest__"
@@ -478,8 +472,14 @@ def main() -> int:
             + "__v2.json"
         )
         ledger_meta, ledger_status = upload_immutable_bytes(
-            ledger_remote, ledger_payload, ledger_sha256
+            ledger_remote, manifest_payload, ledger_sha256
         )
+
+    # Final checkpoint: only after payload + central ledger are verified.
+    remote_manifest = args.dropbox_root.rstrip("/") + "/_SYNC_MANIFEST.json"
+    manifest_meta, manifest_status = upload_immutable_bytes(
+        remote_manifest, manifest_payload, manifest_sha256
+    )
 
     print(
         json.dumps(
