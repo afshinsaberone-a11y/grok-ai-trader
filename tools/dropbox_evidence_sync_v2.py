@@ -335,9 +335,8 @@ def collect_and_upload(
         remote = item["remote"]
         ensure_folder(str(Path(remote).parent).replace("\\", "/"))
         meta = item["existing"]
-        status = "already_present"
         if meta is None:
-            meta, status = upload_immutable_bytes(remote, payload, sha256)
+            meta, _ = upload_immutable_bytes(remote, payload, sha256)
         records.append(
             {
                 "local_path": str(local),
@@ -347,11 +346,20 @@ def collect_and_upload(
                 "dropbox_id": meta.get("id"),
                 "dropbox_rev": meta.get("rev"),
                 "dropbox_size": meta.get("size"),
-                "sync_status": status,
+                "verified": True,
                 "immutable": True,
             }
         )
     return records, excluded
+
+
+def stable_manifest_timestamp(run_metadata: dict[str, Any]) -> str:
+    value = run_metadata.get("created_at") or run_metadata.get("updated_at")
+    if not isinstance(value, str) or not value.strip():
+        raise DropboxSyncError(
+            "source run metadata must include deterministic created_at/updated_at"
+        )
+    return value.strip()
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -400,9 +408,7 @@ def main() -> int:
 
     manifest = {
         "schema_version": "forexai.dropbox_evidence_sync.v2",
-        "generated_at_utc": __import__("datetime").datetime.now(
-            __import__("datetime").timezone.utc
-        ).isoformat(),
+        "generated_at_utc": stable_manifest_timestamp(run_metadata),
         "workflow": {
             "name": args.workflow_name,
             "run_id": int(args.run_id),
