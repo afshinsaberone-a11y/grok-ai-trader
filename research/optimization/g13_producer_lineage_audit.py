@@ -7,6 +7,7 @@ if not __debug__:
 import argparse
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -120,6 +121,7 @@ def validate_lineage(
     assert _hex64(oos.get("upstream_data_sha256"))
     assert _hex64(oos.get("upstream_manifest_sha256"))
 
+    assert re.fullmatch(r"[0-9a-f]{40}", target_sha), target_sha
     assert source_metadata_by_role is not None
     if audit_run_id is not None:
         assert isinstance(audit_run_id, int) and audit_run_id > 0
@@ -131,6 +133,7 @@ def validate_lineage(
         assert metadata["head_branch"] == "main"
         assert metadata["head_sha"] == target_sha
         assert metadata["job_name"] == expected["job_name"]
+        assert metadata["conclusion"] == "success"
         assert int(metadata["run_id"]) == run_ids[role]
         assert metadata["artifact_name"] == expected["artifact_name"]
         assert int(metadata["artifact_id"]) > 0
