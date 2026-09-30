@@ -48,6 +48,8 @@
     "Raw and normalized historical datasets must remain outside Dropbox Basic unless explicitly approved for a small sample.",
     "Promotion, OOS, validation, robustness and parity manifests are high-priority evidence.",
     "When projected upload would violate quota or reserve, synchronization must fail closed.",
+    "Remote evidence paths are write-once: existing content must match SHA-256 exactly or synchronization fails closed.",
+    "Replaying the same source run and attempt is idempotent when the remote bytes are identical.",
     "No automatic deletion is permitted by this policy."
   ],
   "allowed_filename_tokens": [
@@ -104,5 +106,6 @@
     "capacity",
     "milestone",
     "report"
-  ]
+  ],
+  "manifest_reserve_bytes": 524288
 }
