@@ -204,6 +204,8 @@ jobs:
               assert len(provenance_files) == 1, (role, provenance_files)
               local_provenance = provenance_files[0]
               (dest / "provenance.json").write_bytes(local_provenance.read_bytes())
+              provenance_sha = hashlib.sha256(local_provenance.read_bytes()).hexdigest()
+              assert re.fullmatch(r"[0-9a-fA-F]{64}", provenance_sha)
 
               source_provenance["sources"][role] = {
                   "run_id": run_id,
@@ -222,6 +224,7 @@ jobs:
                       "created_at": artifact.get("created_at"),
                   },
                   "local_zip_sha256": actual,
+                  "provenance_sha256": provenance_sha,
               }
               print("AUDITED_SOURCE_BOUND", role, run_id, artifact_id, target_sha)
 
