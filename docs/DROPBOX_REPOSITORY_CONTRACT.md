@@ -29,6 +29,14 @@ reproducibility and audit.
     may only be reused when its downloaded bytes have the exact expected SHA-256.
 12. Replaying the same source run and run attempt is idempotent; a divergent payload
     at the same evidence path is a hard integrity conflict.
+13. Source GitHub artifact archives must be verified against the upstream artifact
+    size and SHA-256 digest before extraction or Dropbox upload.
+14. Dropbox admission is workflow-scoped; an artifact family not explicitly mapped
+    to the triggering workflow is not eligible for synchronization.
+11. Synchronized evidence paths are write-once: a destination that already exists
+    may only be reused when its downloaded bytes have the exact expected SHA-256.
+12. Replaying the same source run and run attempt is idempotent; a divergent payload
+    at the same evidence path is a hard integrity conflict.
 
 ## Canonical Dropbox zones
 
@@ -67,6 +75,9 @@ Dataset
 
 A missing edge is an evidence gap, not a reason to infer success.
 
+Before an artifact enters Dropbox, the source archive itself is bound to its GitHub
+artifact ID, archive size, and SHA-256 digest. After extraction, files are admitted
+only when their artifact family is allowed for the triggering workflow.
 ## Dropbox path mapping
 
 ### Dataset
