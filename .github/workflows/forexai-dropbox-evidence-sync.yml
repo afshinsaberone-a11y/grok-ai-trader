@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > run.json
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" > artifacts.json
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" > artifacts-pages.json
           python - <<'PY'
           import json
           run=json.load(open("run.json",encoding="utf-8"))
