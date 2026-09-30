@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > run.json
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" > artifacts.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" > artifacts.json
           python - <<'PY'
           import json
           run=json.load(open("run.json",encoding="utf-8"))
@@ -121,10 +121,40 @@ jobs:
           set -euo pipefail
           rm -rf incoming/github-artifacts
           mkdir -p incoming/github-artifacts
-          gh run download "${RUN_ID}" --repo "$GITHUB_REPOSITORY" --dir incoming/github-artifacts || true
+          python - <<'PY' > artifact-index.tsv
+          import json
+          metadata=json.load(open("run-metadata.json",encoding="utf-8"))
+          artifacts=metadata.get("artifacts",[])
+          if not artifacts:
+              raise SystemExit("DROPBOX_SYNC_FAIL_CLOSED: source run has no live artifacts")
+          for a in artifacts:
+              digest=str(a.get("digest") or "")
+              if not digest.startswith("sha256:") or len(digest) != 71:
+                  raise SystemExit("DROPBOX_SYNC_FAIL_CLOSED: artifact has no valid sha256 digest: " + str(a.get("id")))
+              name=str(a.get("name") or "")
+              if not name:
+                  raise SystemExit("DROPBOX_SYNC_FAIL_CLOSED: artifact name is empty")
+              print(str(int(a["id"])) + "\t" + name + "\t" + digest + "\t" + str(int(a.get("size_in_bytes") or 0)))
+          PY
+          while IFS=$'\t' read -r ARTIFACT_ID ARTIFACT_NAME ARTIFACT_DIGEST ARTIFACT_SIZE; do
+            test -n "$ARTIFACT_ID"
+            ARCHIVE="incoming/github-artifacts/.artifact-$ARTIFACT_ID.zip"
+            TARGET="incoming/github-artifacts/$ARTIFACT_NAME"
+            mkdir -p "$TARGET"
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$ARCHIVE"
+            ACTUAL_SIZE="$(stat -c%s "$ARCHIVE")"
+            test "$ACTUAL_SIZE" = "$ARTIFACT_SIZE" \
+              || { echo "DROPBOX_SYNC_FAIL_CLOSED: artifact size mismatch id=$ARTIFACT_ID actual=$ACTUAL_SIZE expected=$ARTIFACT_SIZE"; exit 2; }
+            ACTUAL_DIGEST="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+            EXPECTED_DIGEST="$(printf '%s' "$ARTIFACT_DIGEST" | sed 's/^sha256://')"
+            test "$ACTUAL_DIGEST" = "$EXPECTED_DIGEST" \
+              || { echo "DROPBOX_SYNC_FAIL_CLOSED: artifact digest mismatch id=$ARTIFACT_ID actual=$ACTUAL_DIGEST expected=$EXPECTED_DIGEST"; exit 2; }
+            unzip -q "$ARCHIVE" -d "$TARGET"
+            rm -f "$ARCHIVE"
+            echo "SOURCE_ARTIFACT_VERIFIED id=$ARTIFACT_ID name=$ARTIFACT_NAME sha256=$ACTUAL_DIGEST bytes=$ACTUAL_SIZE"
+          done < artifact-index.tsv
           test -n "$(find incoming/github-artifacts -type f -print -quit)" \
-            || { echo "DROPBOX_SYNC_FAIL_CLOSED: source run has no downloadable artifacts"; exit 2; }
-
+            || { echo "DROPBOX_SYNC_FAIL_CLOSED: verified source artifacts extracted no files"; exit 2; }
       - name: Validate repository contract and sync utility
         run: |
           set -euo pipefail
