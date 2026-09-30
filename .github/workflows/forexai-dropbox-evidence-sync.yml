@@ -85,9 +85,12 @@ jobs:
           python - <<'PY'
           import json
           run=json.load(open("run.json",encoding="utf-8"))
-          page=json.load(open("artifacts.json",encoding="utf-8"))
+          pages=json.load(open("artifacts-pages.json",encoding="utf-8"))
+          if not isinstance(pages,list):
+              pages=[pages]
           artifacts=[]
-          for a in page.get("artifacts",[]):
+          for page in pages:
+              for a in page.get("artifacts",[]):
               if a.get("expired"):
                   continue
               artifacts.append({
@@ -155,7 +158,43 @@ jobs:
             EXPECTED_DIGEST="$(printf '%s' "$ARTIFACT_DIGEST" | sed 's/^sha256://')"
             test "$ACTUAL_DIGEST" = "$EXPECTED_DIGEST" \
               || { echo "DROPBOX_SYNC_FAIL_CLOSED: artifact digest mismatch id=$ARTIFACT_ID actual=$ACTUAL_DIGEST expected=$EXPECTED_DIGEST"; exit 2; }
-            unzip -q "$ARCHIVE" -d "$TARGET"
+            python - "$ARCHIVE" "$TARGET" <<'PY'
+            import pathlib
+            import stat
+            import sys
+            import zipfile
+
+            archive = pathlib.Path(sys.argv[1])
+            root = pathlib.Path(sys.argv[2]).resolve()
+            with zipfile.ZipFile(archive) as zf:
+                for info in zf.infolist():
+                    name = info.filename
+                    if not name or "\x00" in name or "\\" in name or name.startswith("/"):
+                        raise SystemExit(
+                            "DROPBOX_SYNC_FAIL_CLOSED: unsafe ZIP member: " + repr(name)
+                        )
+                    parts = pathlib.PurePosixPath(name).parts
+                    if ".." in parts:
+                        raise SystemExit(
+                            "DROPBOX_SYNC_FAIL_CLOSED: ZIP path traversal: " + name
+                        )
+                    destination = (root / pathlib.PurePosixPath(name)).resolve()
+                    if destination != root and root not in destination.parents:
+                        raise SystemExit(
+                            "DROPBOX_SYNC_FAIL_CLOSED: ZIP escaped target: " + name
+                        )
+                    mode = (info.external_attr >> 16) & 0o170000
+                    if mode == stat.S_IFLNK:
+                        raise SystemExit(
+                            "DROPBOX_SYNC_FAIL_CLOSED: ZIP symlink rejected: " + name
+                        )
+                    if info.is_dir():
+                        destination.mkdir(parents=True, exist_ok=True)
+                        continue
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(info, "r") as source, destination.open("wb") as target:
+                        target.write(source.read())
+            PY
             rm -f "$ARCHIVE"
             echo "SOURCE_ARTIFACT_VERIFIED id=$ARTIFACT_ID name=$ARTIFACT_NAME sha256=$ACTUAL_DIGEST bytes=$ACTUAL_SIZE"
           done < artifact-index.tsv
