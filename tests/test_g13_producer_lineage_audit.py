@@ -111,8 +111,10 @@ def test_shared_validation_robustness_lineage_passes():
         target_sha="abc123",
         run_ids={"validation": 101, "robustness": 202, "oos": 303},
         source_metadata_by_role=_source_metadata(),
+        audit_run_id=404,
     )
     assert result["status"] == "PASS"
+    assert result["audit_run_id"] == 404
     assert result["shared_pre_oos_dataset"]["data_sha256"] == "a" * 64
     assert result["producer_evidence"]["validation"]["artifact_sha256"] == "a" * 64
     assert result["producer_evidence"]["oos"]["downloaded_zip_sha256"] == "c" * 64
@@ -191,4 +193,15 @@ def test_manifest_identity_mismatch_is_rejected():
             target_sha="abc123",
             run_ids={"validation": 101, "robustness": 202, "oos": 303},
             source_metadata_by_role=_source_metadata(),
+        )
+
+
+def test_audit_run_id_must_be_positive_when_bound():
+    with pytest.raises(AssertionError):
+        validate_lineage(
+            _all(),
+            target_sha="abc123",
+            run_ids={"validation": 101, "robustness": 202, "oos": 303},
+            source_metadata_by_role=_source_metadata(),
+            audit_run_id=0,
         )
