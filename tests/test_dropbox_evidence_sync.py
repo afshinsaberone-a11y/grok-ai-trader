@@ -177,3 +177,10 @@ def test_upload_immutable_accepts_identical_race(monkeypatch):
 
     assert meta == metadata
     assert status == "already_present_after_race"
+
+
+
+def test_policy_manifest_limit_is_exposed():
+    policy = load_policy(__import__("pathlib").Path("config/dropbox_free_tier_policy.json"))
+    assert policy["max_manifest_bytes"] <= policy["max_file_upload_bytes"]
+    assert policy["manifest_reserve_bytes"] > 0
