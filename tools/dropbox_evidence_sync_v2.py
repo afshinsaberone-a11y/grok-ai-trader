@@ -363,6 +363,72 @@ def stable_manifest_timestamp(run_metadata: dict[str, Any]) -> str:
     return value.strip()
 
 
+def validate_run_metadata(
+    metadata: dict[str, Any],
+    *,
+    workflow_name: str,
+    run_id: int,
+    run_attempt: int,
+    head_sha: str,
+    conclusion: str,
+) -> None:
+    if not isinstance(metadata, dict) or not metadata:
+        raise DropboxSyncError("source run metadata is required before any Dropbox write")
+
+    expected = {
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "workflow_name": workflow_name,
+        "head_sha": head_sha,
+        "conclusion": conclusion,
+    }
+    actual = {
+        "run_id": metadata.get("run_id"),
+        "run_attempt": metadata.get("run_attempt"),
+        "workflow_name": metadata.get("workflow_name"),
+        "head_sha": metadata.get("head_sha"),
+        "conclusion": metadata.get("conclusion"),
+    }
+    for key, expected_value in expected.items():
+        if actual.get(key) != expected_value:
+            raise DropboxSyncError(
+                "source run metadata binding mismatch for "
+                + key
+                + ": expected="
+                + repr(expected_value)
+                + " actual="
+                + repr(actual.get(key))
+            )
+
+    stable_manifest_timestamp(metadata)
+
+    artifacts = metadata.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise DropboxSyncError("source run metadata must contain live artifacts")
+
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            raise DropboxSyncError("source artifact metadata entry is not an object")
+        artifact_id = artifact.get("id")
+        artifact_name = artifact.get("name")
+        digest = str(artifact.get("digest") or "")
+        size = artifact.get("size_in_bytes")
+        if not isinstance(artifact_id, int) or artifact_id <= 0:
+            raise DropboxSyncError("source artifact metadata has invalid id")
+        if not isinstance(artifact_name, str) or not artifact_name.strip():
+            raise DropboxSyncError("source artifact metadata has empty name")
+        if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
+            raise DropboxSyncError(
+                "source artifact metadata has invalid SHA-256 digest: "
+                + str(artifact_name)
+            )
+        if not isinstance(size, int) or size < 0:
+            raise DropboxSyncError(
+                "source artifact metadata has invalid size: "
+                + str(artifact_name)
+            )
+
+
 def load_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -383,7 +449,7 @@ def main() -> int:
     parser.add_argument("--head-sha", required=True)
     parser.add_argument("--conclusion", required=True)
     parser.add_argument("--manifest-out", required=True)
-    parser.add_argument("--run-metadata", required=False)
+    parser.add_argument("--run-metadata", required=True)
     parser.add_argument("--ledger-out", required=False)
     parser.add_argument("--ledger-remote-root", required=False)
     parser.add_argument(
@@ -394,6 +460,17 @@ def main() -> int:
 
     policy = load_policy(Path(args.policy))
     source = Path(args.source_dir)
+
+    run_metadata = load_json(Path(args.run_metadata))
+    validate_run_metadata(
+        run_metadata,
+        workflow_name=args.workflow_name,
+        run_id=int(args.run_id),
+        run_attempt=int(args.run_attempt),
+        head_sha=args.head_sha,
+        conclusion=args.conclusion,
+    )
+
     manifest_count = 2 if args.ledger_out and args.ledger_remote_root else 1
     records, excluded = collect_and_upload(
         source,
@@ -402,10 +479,6 @@ def main() -> int:
         workflow_name=args.workflow_name,
         manifest_count=manifest_count,
     )
-
-    run_metadata: dict[str, Any] = {}
-    if args.run_metadata:
-        run_metadata = load_json(Path(args.run_metadata))
 
     max_manifest_bytes = int(policy.get("max_manifest_bytes", 0))
     if max_manifest_bytes <= 0:
@@ -433,6 +506,8 @@ def main() -> int:
             "synthetic_generation": False,
             "hash_algorithm": "SHA-256",
             "source_artifacts_immutable": True,
+            "source_artifact_digest_verified": True,
+            "source_artifact_size_verified": True,
             "remote_paths_write_once": True,
             "idempotent_replay": True,
             "manifest_written_last": True,
