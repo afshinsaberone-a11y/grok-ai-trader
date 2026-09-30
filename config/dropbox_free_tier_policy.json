@@ -50,7 +50,8 @@
     "When projected upload would violate quota or reserve, synchronization must fail closed.",
     "Remote evidence paths are write-once: existing content must match SHA-256 exactly or synchronization fails closed.",
     "Replaying the same source run and attempt is idempotent when the remote bytes are identical.",
-    "No automatic deletion is permitted by this policy."
+    "No automatic deletion is permitted by this policy.",
+    "Workflow-scoped artifact allowlisting is fail-closed: only recognized artifact families for the triggering workflow can enter Dropbox."
   ],
   "allowed_filename_tokens": [
     "manifest",
@@ -108,5 +109,54 @@
     "report"
   ],
   "manifest_reserve_bytes": 524288,
-  "max_manifest_bytes": 1048576
+  "max_manifest_bytes": 1048576,
+  "require_known_workflow_profile": true,
+  "workflow_profiles": {
+    "forexai-g13-final-promotion-m15": {
+      "allowed_artifact_prefixes": [
+        "g13-promotion-manifest-m15"
+      ]
+    },
+    "forexai-g13-mt5-compile-signal-parity": {
+      "allowed_artifact_prefixes": [
+        "g13-mt5-compile-parity-",
+        "g13-mt5-parity-diagnostics-"
+      ]
+    },
+    "forexai-g13-oos-m15-current": {
+      "allowed_artifact_prefixes": [
+        "g13-oos-m15-2026-current"
+      ]
+    },
+    "forexai-g13-agent-evidence-consumer": {
+      "allowed_artifact_prefixes": [
+        "g13-agent-evidence"
+      ]
+    },
+    "forexai-g13-controlled-demo-package-preflight-m15": {
+      "allowed_artifact_prefixes": [
+        "g13-controlled-demo-package-preflight-m15"
+      ]
+    },
+    "dukascopy-cross-feed-check": {
+      "allowed_artifact_prefixes": [
+        "dukascopy-node-cross-check-"
+      ]
+    },
+    "forexai-v29-1-robustness-validation": {
+      "allowed_artifact_prefixes": [
+        "robustness-validation-v29-1-"
+      ]
+    },
+    "forexai-v29-1-robustness-validation-m1": {
+      "allowed_artifact_prefixes": [
+        "robustness-validation-v29-1-m1"
+      ]
+    },
+    "forexai-v29-1-robustness-validation-m15": {
+      "allowed_artifact_prefixes": [
+        "robustness-validation-v29-1-m15"
+      ]
+    }
+  }
 }
