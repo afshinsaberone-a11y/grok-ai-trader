@@ -107,5 +107,6 @@
     "milestone",
     "report"
   ],
-  "manifest_reserve_bytes": 524288
+  "manifest_reserve_bytes": 524288,
+  "max_manifest_bytes": 1048576
 }
