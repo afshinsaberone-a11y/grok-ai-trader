@@ -7,6 +7,7 @@ from tools.dropbox_evidence_sync_v2 import (
     safe_slug,
     upload_immutable_bytes,
     stable_manifest_timestamp,
+    validate_run_metadata,
     upload_small_bytes,
     verify_or_mark_existing,
 )
@@ -279,3 +280,48 @@ def test_select_files_applies_workflow_scope(tmp_path):
     )
     assert [p.name for p in selected] == ["g13-promotion-manifest-m15.json"]
     assert any(x["reason"] == "artifact_family_not_allowed" for x in excluded)
+
+
+
+def test_run_metadata_binding_is_exact():
+    metadata = {
+        "run_id": 123,
+        "run_attempt": 2,
+        "workflow_name": "ForexAI G13 Final Promotion M15",
+        "head_sha": "a" * 40,
+        "conclusion": "success",
+        "created_at": "2026-09-30T18:00:00Z",
+        "artifacts": [
+            {
+                "id": 987,
+                "name": "g13-promotion-manifest-m15",
+                "digest": "sha256:" + ("b" * 64),
+                "size_in_bytes": 1234,
+            }
+        ],
+    }
+
+    validate_run_metadata(
+        metadata,
+        workflow_name="ForexAI G13 Final Promotion M15",
+        run_id=123,
+        run_attempt=2,
+        head_sha="a" * 40,
+        conclusion="success",
+    )
+
+    broken = dict(metadata)
+    broken["head_sha"] = "c" * 40
+    try:
+        validate_run_metadata(
+            broken,
+            workflow_name="ForexAI G13 Final Promotion M15",
+            run_id=123,
+            run_attempt=2,
+            head_sha="a" * 40,
+            conclusion="success",
+        )
+    except DropboxSyncError as exc:
+        assert "binding mismatch" in str(exc)
+    else:
+        raise AssertionError("mismatched run provenance must fail closed")
