@@ -59,6 +59,29 @@ evidence workflows:
 
 It can also be run manually with any source run ID.
 
+
+## Immutability and idempotency hardening
+
+The active v2 synchronizer is write-once at the evidence-path level.
+
+Before writing any destination file, it checks whether the path already exists. If it
+exists, the synchronizer downloads the remote bytes and compares their SHA-256 to the
+local snapshot:
+
+- identical bytes -> the file is reused and the operation is recorded as
+  `already_present`;
+- different bytes or different size -> synchronization fails closed with
+  `IMMUTABLE_CONFLICT`;
+- a race where another writer creates the path first is accepted only when the
+  resulting remote bytes are exactly identical.
+
+Uploads therefore use Dropbox `mode=add` with strict conflict handling rather than
+`overwrite`. A repeated synchronization of the same source run + run attempt is
+safe to replay without silently replacing prior evidence.
+
+The synchronizer also hashes a single in-memory file snapshot before upload, avoiding a
+hash/upload time-of-check vs time-of-use mismatch for the policy-allowed evidence files.
+
 ## Fail-closed behavior
 
 The workflow stops instead of silently producing a partial record when:
@@ -131,6 +154,7 @@ does not treat Dropbox as the primary store for multi-year market datasets.
 
 The free-tier policy:
 - keeps JSON/Markdown/text evidence and small CSV evidence;
+- reserves a bounded budget for generated sync manifests;
 - keeps MQ5/EX5 only for recognized release/compile artifacts;
 - excludes raw/normalized market-data paths and large archive formats;
 - caps the selected payload per Run;
