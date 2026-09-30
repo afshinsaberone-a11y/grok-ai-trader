@@ -102,13 +102,15 @@ GitHub Actions run
 -> download exact run artifacts
 -> calculate SHA-256
 -> upload to Dropbox
--> upload _SYNC_MANIFEST.json last
+-> register the central Run Index manifest
+-> upload _SYNC_MANIFEST.json as the final Dropbox checkpoint
 -> retain a GitHub Actions sync receipt
 
-The remote manifest is the final checkpoint. Its presence means the payload
-upload loop completed before the manifest itself was committed. The same manifest
-is also written to `/ForexAI/09_EVIDENCE_LEDGER/Run_Index` as a central Run Index.
-The manifest is never edited after its first remote write.
+The central Run Index is committed first, followed by the run-local
+`_SYNC_MANIFEST.json` as the final Dropbox checkpoint. Its presence means the
+payload upload loop and central ledger registration completed before the final
+manifest was committed. Both remote records are write-once and are never edited
+after their first identical write.
 
 ## Canonical storage rules
 
