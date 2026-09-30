@@ -152,7 +152,7 @@ jobs:
               "--data-manifest",
               "DATA_MANIFEST_CI",
               "Test-TrustedRealDataset",
-              "Invoke-RestMethod",
+              "HttpClient",
               "Resolve exact Promotion run",
               "G13_PROMOTION_ARTIFACT_CONSUMER_OK",
               "PROMOTION_MANIFEST",
