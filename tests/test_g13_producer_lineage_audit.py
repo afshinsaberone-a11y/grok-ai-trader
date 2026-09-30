@@ -75,6 +75,7 @@ def _source_metadata(downloaded_match: bool = True):
             "artifact_id": 999,
             "artifact_sha256": "a" * 64,
             "downloaded_zip_sha256": "a" * 64,
+            "provenance_sha256": "d" * 64,
             "expired": False,
         },
         "robustness": {
@@ -89,6 +90,7 @@ def _source_metadata(downloaded_match: bool = True):
             "artifact_id": 1000,
             "artifact_sha256": "b" * 64,
             "downloaded_zip_sha256": "b" * 64,
+            "provenance_sha256": "e" * 64,
             "expired": False,
         },
         "oos": {
@@ -103,6 +105,7 @@ def _source_metadata(downloaded_match: bool = True):
             "artifact_id": 1001,
             "artifact_sha256": "c" * 64,
             "downloaded_zip_sha256": "c" * 64 if downloaded_match else "0" * 64,
+            "provenance_sha256": "f" * 64,
             "expired": False,
         },
     }
