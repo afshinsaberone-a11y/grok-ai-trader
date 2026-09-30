@@ -166,6 +166,7 @@ jobs:
           for token in required_workflow_tokens:
               assert token in workflow, f"missing workflow token: {token}"
           windows_compile = workflow.split("  compile-and-parity:", 1)[1]
+          assert "$artifact." not in windows_compile, "Compile job must not reference an undefined Promotion artifact object"
           for forbidden in ["gh api", "HttpClient", "Invoke-RestMethod", "Invoke-WebRequest"]:
               assert forbidden not in windows_compile, f"Windows Compile job must not use raw GitHub/network client: {forbidden}"
 

@@ -270,10 +270,11 @@ jobs:
           "PROMOTION_MANIFEST=$manifest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "PROMOTION_PROVENANCE=$provenance" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "PROMOTION_ATTESTATION=$attestation" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PROMOTION_ARTIFACT_ID=$($artifact.id)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PROMOTION_ARTIFACT_DIGEST=$($artifact.digest)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # The resolver already exported the exact artifact identity to the job environment.
+          # Never dereference an out-of-scope $artifact object here: doing so can silently
+          # overwrite the bound ID/digest with empty values for downstream steps.
           "PROMOTION_ARTIFACT_ZIP_SHA256=$($actualDigest.Substring(7))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "G13_PROMOTION_ARTIFACT_BOUND=true ID=$($artifact.id) DIGEST=$($artifact.digest)"
+          Write-Host "G13_PROMOTION_ARTIFACT_BOUND=true ID=$env:PROMOTION_ARTIFACT_ID DIGEST=$env:PROMOTION_ARTIFACT_DIGEST"
       - name: Verify MT5 toolchain and data folder
         run: |
           $ErrorActionPreference = 'Stop'
