@@ -132,3 +132,19 @@ def test_real_data_and_write_once_flags_are_mandatory():
 def test_duplicate_sha_content_is_allowed():
     report = verify_manifest(sample_manifest())
     assert report["evidence_sha256_count"] == 2
+
+
+
+def test_root_must_bind_run_and_attempt():
+    manifest = sample_manifest()
+    manifest["dropbox_root"] = "/ForexAI/11_GITHUB_ACTIONS/Artifacts/test/999/attempt-1"
+    with pytest.raises(ManifestVerificationError, match="not bound"):
+        verify_manifest(manifest)
+
+
+def test_empty_evidence_payload_fails():
+    manifest = sample_manifest()
+    manifest["files"] = []
+    manifest["file_count"] = 0
+    with pytest.raises(ManifestVerificationError, match="no synchronized evidence"):
+        verify_manifest(manifest)
