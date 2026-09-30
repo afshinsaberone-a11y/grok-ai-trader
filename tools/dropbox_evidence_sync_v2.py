@@ -394,6 +394,10 @@ def main() -> int:
     if args.run_metadata:
         run_metadata = load_json(Path(args.run_metadata))
 
+    max_manifest_bytes = int(policy.get("max_manifest_bytes", 0))
+    if max_manifest_bytes <= 0:
+        raise DropboxSyncError("Dropbox policy max_manifest_bytes must be positive")
+
     manifest = {
         "schema_version": "forexai.dropbox_evidence_sync.v2",
         "generated_at_utc": __import__("datetime").datetime.now(
@@ -437,9 +441,6 @@ def main() -> int:
     )
 
     manifest_payload = manifest_path.read_bytes()
-    max_manifest_bytes = int(policy.get("max_manifest_bytes", 0))
-    if max_manifest_bytes <= 0:
-        raise DropboxSyncError("Dropbox policy max_manifest_bytes must be positive")
     if len(manifest_payload) > max_manifest_bytes:
         raise DropboxSyncError(
             "manifest exceeds Dropbox policy limit: "
