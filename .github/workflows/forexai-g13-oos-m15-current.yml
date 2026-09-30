@@ -45,7 +45,8 @@ jobs:
             research/optimization/g13_robustness_m15.py \
             research/optimization/rsi_divergence_discovery_g13.py \
             research/optimization/execution_contract_v1.py \
-            research/real_data/dukascopy_ingest.py
+            research/real_data/dukascopy_ingest.py \
+            research/optimization/g13_data_provenance.py
 
       - name: Determine latest complete UTC data cutoff
         shell: bash
@@ -91,7 +92,10 @@ jobs:
           DATA="$(find data/real/normalized -type f -name "EURUSD_M1_20250101_${END_TAG}.csv" | sort | head -n1)"
           test -n "$DATA"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
+          M1_MANIFEST="${DATA%.csv}.manifest.json"
+          test -f "$M1_MANIFEST"
           echo "M1_DATASET=$DATA"
+          echo "M1_MANIFEST=$M1_MANIFEST" >> "$GITHUB_ENV"
 
       - name: Build M15 OOS dataset from real M1
         shell: bash
@@ -106,15 +110,33 @@ jobs:
           d=pd.read_csv(src,parse_dates=['timestamp'])
           d['timestamp']=pd.to_datetime(d['timestamp'],utc=True)
           m15=resample_ohlcv(d,'15min')
+          cutoff=pd.Timestamp(os.environ['END_TAG'],tz='UTC')+pd.Timedelta(days=1)
+          m15=m15[(m15['timestamp']>=pd.Timestamp('2026-01-01',tz='UTC'))&(m15['timestamp']<cutoff)].copy()
+          if m15.empty:
+              raise SystemExit('REAL_DATA_REQUIRED: 2026 OOS M15 dataset is empty')
           report=validate_ohlcv(m15,symbol='EURUSD',timeframe='M15')
           if report.status != 'PASS':
               raise SystemExit(f'REAL_DATA_REQUIRED: M15 validation failed: {report.to_dict()}')
-          out=Path(f"data/real/normalized/EURUSD_M15_20250101_{os.environ['END_TAG']}.csv")
+          out=Path(f"data/real/normalized/EURUSD_M15_20260101_{os.environ['END_TAG']}.csv")
           m15.to_csv(out,index=False)
           print(report.to_dict())
           print('M15_DATASET',out,len(m15))
           PY
-          echo "DATA=data/real/normalized/EURUSD_M15_20250101_${END_TAG}.csv" >> "$GITHUB_ENV"
+          echo "DATA=data/real/normalized/EURUSD_M15_20260101_${END_TAG}.csv" >> "$GITHUB_ENV"
+
+      - name: Write immutable OOS data provenance
+        run: |
+          python -m research.optimization.g13_data_provenance \
+            --csv "$DATA" \
+            --role oos \
+            --upstream-manifest "$M1_MANIFEST" \
+            --source "Dukascopy JETTA M1 resampled to M15" \
+            --producer-workflow "$GITHUB_WORKFLOW" \
+            --producer-workflow-file "forexai-g13-oos-m15-current.yml" \
+            --producer-run-id "$GITHUB_RUN_ID" \
+            --producer-job-name "$GITHUB_JOB" \
+            --head-sha "$GITHUB_SHA" \
+            --output artifacts/g13-oos-data-provenance.json
 
       - name: Verify frozen handoff and strict OOS boundary
         run: |
@@ -180,4 +202,5 @@ jobs:
           path: |
             artifacts/g13/frozen/g13-candidate-handoff-m15.json
             artifacts/g13-oos-m15-2026.json
+            artifacts/g13-oos-data-provenance.json
           if-no-files-found: error

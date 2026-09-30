@@ -19,12 +19,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-EXPECTED_VALIDATION_RUN = 34559825574
-EXPECTED_VALIDATION_ARTIFACT = 10184001419
-EXPECTED_ROBUST_RUN = 34679210600
-EXPECTED_ROBUST_ARTIFACT = 10293181701
-EXPECTED_OOS_RUN = 34679937623
-EXPECTED_OOS_ARTIFACT = 10293797420
 
 EXPECTED_SOURCE_JOB_NAMES = {
     "validation": "g13-validation",
@@ -60,29 +54,141 @@ def load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def validate_provenance(provenance: dict[str, Any]) -> None:
+def validate_provenance(provenance: dict[str, Any], *, target_sha: str | None = None) -> None:
     assert provenance["schema_version"] == "forexai.g13.promotion_evidence_provenance.m15.v1"
-    expected = {
-        "validation": (EXPECTED_VALIDATION_RUN, EXPECTED_VALIDATION_ARTIFACT),
-        "robustness": (EXPECTED_ROBUST_RUN, EXPECTED_ROBUST_ARTIFACT),
-        "oos": (EXPECTED_OOS_RUN, EXPECTED_OOS_ARTIFACT),
-    }
-    for key, (run_id, artifact_id) in expected.items():
+    assert set(provenance["sources"]) == set(EXPECTED_SOURCE_WORKFLOW_NAMES)
+    if target_sha is not None:
+        assert provenance.get("target_sha") == target_sha
+    audit_evidence = provenance["audit_evidence"]
+    assert int(audit_evidence["run_id"]) == int(provenance["audit_run_id"])
+    assert audit_evidence["head_sha"] == provenance["target_sha"]
+    assert audit_evidence["artifact_name"] == "g13-producer-lineage-audit-m15"
+    for key in ("artifact_digest",):
+        digest = str(audit_evidence[key])
+        assert digest.startswith("sha256:") and len(digest) == 71
+        assert all(ch in "0123456789abcdefABCDEF" for ch in digest.split(":", 1)[1])
+    for key in ("local_zip_sha256", "report_sha256"):
+        value = str(audit_evidence[key])
+        assert len(value) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in value)
+
+    for key in EXPECTED_SOURCE_WORKFLOW_NAMES:
         row = provenance["sources"][key]
-        assert row["run_id"] == run_id
+        assert isinstance(row.get("run_id"), int) and row["run_id"] > 0
         assert row.get("workflow_name") == EXPECTED_SOURCE_WORKFLOW_NAMES[key]
         assert int(row.get("workflow_id")) == EXPECTED_SOURCE_WORKFLOW_IDS[key]
         assert row.get("head_branch") == "main"
         assert isinstance(row.get("job_id"), int) and row["job_id"] > 0
         assert row.get("job_name") == EXPECTED_SOURCE_JOB_NAMES[key]
         assert row["conclusion"] == "success"
+        assert isinstance(row.get("head_sha"), str) and row["head_sha"]
+        if target_sha is not None:
+            assert row["head_sha"] == target_sha
+
         artifact = row["artifact"]
-        assert artifact["artifact_id"] == artifact_id
+        assert isinstance(artifact.get("artifact_id"), int) and artifact["artifact_id"] > 0
         assert artifact["name"] == EXPECTED_SOURCE_ARTIFACT_NAMES[key]
         assert artifact["expired"] is False
         digest = str(artifact["digest"])
         assert digest.startswith("sha256:") and len(digest) == 71
+        assert all(ch in "0123456789abcdefABCDEF" for ch in digest.split(":", 1)[1])
         assert row.get("local_zip_sha256") == digest.split(":", 1)[1]
+        provenance_sha = str(row.get("provenance_sha256", ""))
+        assert len(provenance_sha) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in provenance_sha)
+
+
+def validate_data_lineage(
+    data_provenance_by_role: dict[str, dict[str, Any]],
+    source_provenance: dict[str, Any],
+    *,
+    target_sha: str,
+) -> dict[str, Any]:
+    assert set(data_provenance_by_role) == {"validation", "robustness", "oos"}
+
+    expected_workflow_files = {
+        "validation": "forexai-g13-validation-m15.yml",
+        "robustness": "forexai-g13-robustness-m15.yml",
+        "oos": "forexai-g13-oos-m15-current.yml",
+    }
+
+    for role, data in data_provenance_by_role.items():
+        assert data["schema_version"] == "forexai.g13.data_provenance.m15.v2"
+        assert data["role"] == role
+        assert data["symbol"] == "EURUSD"
+        assert data["timeframe"] == "M15"
+        digest = str(data.get("data_sha256", ""))
+        assert len(digest) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in digest)
+        producer = data["producer"]
+        source = source_provenance["sources"][role]
+        assert producer["workflow_name"] == source["workflow_name"] == EXPECTED_SOURCE_WORKFLOW_NAMES[role]
+        assert producer["workflow_file"] == expected_workflow_files[role]
+        assert int(producer["run_id"]) == int(source["run_id"])
+        assert producer["head_sha"] == source["head_sha"] == target_sha
+        if producer.get("job_name") is not None:
+            assert producer["job_name"] == source["job_name"]
+
+    validation = data_provenance_by_role["validation"]
+    robustness = data_provenance_by_role["robustness"]
+    oos = data_provenance_by_role["oos"]
+
+    for field in ("data_sha256", "manifest_identity_sha256", "dataset_id", "source", "quality_status", "timezone", "rows", "start", "end"):
+        assert validation.get(field) == robustness.get(field), field
+    assert len(validation["data_manifest_sha256"]) == 64
+    assert len(robustness["data_manifest_sha256"]) == 64
+    assert validation["quality_status"] == "PASS"
+    assert validation["timezone"] == "UTC"
+    assert validation["dataset_id"] == "20220101_20251231"
+    assert len(validation["manifest_identity_sha256"]) == 64
+    assert len(robustness["manifest_identity_sha256"]) == 64
+    assert validation["manifest_data_sha256"] == validation["data_sha256"]
+    assert robustness["manifest_data_sha256"] == robustness["data_sha256"]
+
+    from datetime import datetime, timezone
+    start = datetime.fromisoformat(oos["start"].replace("Z", "+00:00")).astimezone(timezone.utc)
+    end = datetime.fromisoformat(oos["end"].replace("Z", "+00:00")).astimezone(timezone.utc)
+    assert start >= datetime(2026, 1, 1, tzinfo=timezone.utc)
+    assert end < datetime(2027, 1, 1, tzinfo=timezone.utc)
+    assert "Dukascopy" in str(oos.get("source"))
+    assert oos.get("upstream_timeframe") == "M1"
+    for key in ("upstream_data_sha256", "upstream_manifest_sha256"):
+        value = str(oos.get(key, ""))
+        assert len(value) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in value)
+
+    return {
+        "schema_version": "forexai.g13.data_lineage_binding.m15.v1",
+        "status": "PASS",
+        "target_sha": target_sha,
+        "validation": {
+            "data_sha256": validation["data_sha256"],
+            "data_manifest_sha256": validation["data_manifest_sha256"],
+            "manifest_identity_sha256": validation["manifest_identity_sha256"],
+            "dataset_id": validation["dataset_id"],
+            "rows": validation["rows"],
+            "start": validation["start"],
+            "end": validation["end"],
+            "source": validation["source"],
+        },
+        "robustness": {
+            "data_sha256": robustness["data_sha256"],
+            "data_manifest_sha256": robustness["data_manifest_sha256"],
+            "manifest_identity_sha256": robustness["manifest_identity_sha256"],
+            "dataset_id": robustness["dataset_id"],
+            "rows": robustness["rows"],
+            "start": robustness["start"],
+            "end": robustness["end"],
+            "source": robustness["source"],
+        },
+        "oos": {
+            "data_sha256": oos["data_sha256"],
+            "rows": oos["rows"],
+            "start": oos["start"],
+            "end": oos["end"],
+            "source": oos["source"],
+            "upstream_timeframe": oos["upstream_timeframe"],
+            "upstream_source": oos["upstream_source"],
+            "upstream_data_sha256": oos["upstream_data_sha256"],
+            "upstream_manifest_sha256": oos["upstream_manifest_sha256"],
+        },
+    }
 
 
 def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, Any], validation_path: Path) -> None:
@@ -120,17 +226,34 @@ def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, 
         assert canonical_hash(params) == expected_hash
 
 
-def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: Path, provenance_path: Path, validation_path: Path) -> dict[str, Any]:
+def run(
+    handoff_path: Path,
+    robustness_path: Path,
+    oos_path: Path,
+    output_path: Path,
+    provenance_path: Path,
+    validation_path: Path,
+    validation_data_provenance_path: Path,
+    robustness_data_provenance_path: Path,
+    oos_data_provenance_path: Path,
+    target_sha: str,
+) -> dict[str, Any]:
     h = load(handoff_path)
     r = load(robustness_path)
     o = load(oos_path)
     provenance = load(provenance_path)
     validation = load(validation_path)
-    validate_provenance(provenance)
+    data_provenance = {
+        "validation": load(validation_data_provenance_path),
+        "robustness": load(robustness_data_provenance_path),
+        "oos": load(oos_data_provenance_path),
+    }
+    validate_provenance(provenance, target_sha=target_sha)
+    data_lineage = validate_data_lineage(data_provenance, provenance, target_sha=target_sha)
     validate_validation_artifact(validation, h, validation_path)
 
     assert h["schema_version"] == "forexai.g13.candidate_handoff.frozen.v1"
-    assert h["source_validation_run_id"] == EXPECTED_VALIDATION_RUN
+    assert int(h["source_validation_run_id"]) == int(provenance["sources"]["validation"]["run_id"])
     assert h["research_symbol"] == "EURUSD" and h["research_timeframe"] == "M15"
     assert h["validation_qualified_count"] == 16 and len(h["candidates"]) == 16
     assert h["oos_policy"] == {"loaded": False, "status": "HELD_OUT"}
@@ -222,6 +345,7 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
             },
         },
         "evidence_provenance_sha256": canonical_hash(provenance),
+        "data_lineage": data_lineage,
         "counts": {"validation": 16, "robustness": 16, "oos_pass": 15, "promoted": 15, "rejected_at_oos": 1},
         "promoted_candidate_ids": list(PROMOTED_IDS),
         "rejected_candidate_ids": list(REJECTED_IDS),
@@ -241,8 +365,23 @@ def main() -> int:
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--provenance", required=True, type=Path)
     ap.add_argument("--validation", required=True, type=Path)
+    ap.add_argument("--validation-data-provenance", required=True, type=Path)
+    ap.add_argument("--robustness-data-provenance", required=True, type=Path)
+    ap.add_argument("--oos-data-provenance", required=True, type=Path)
+    ap.add_argument("--target-sha", required=True)
     a = ap.parse_args()
-    m = run(a.handoff, a.robustness, a.oos, a.output, a.provenance, a.validation)
+    m = run(
+        a.handoff,
+        a.robustness,
+        a.oos,
+        a.output,
+        a.provenance,
+        a.validation,
+        a.validation_data_provenance,
+        a.robustness_data_provenance,
+        a.oos_data_provenance,
+        a.target_sha,
+    )
     print(json.dumps({"status": m["status"], "promoted_count": m["counts"]["promoted"], "promoted_candidate_ids": m["promoted_candidate_ids"], "ea_generation_allowed": m["decision_policy"]["ea_generation_allowed"]}, sort_keys=True))
     return 0
 

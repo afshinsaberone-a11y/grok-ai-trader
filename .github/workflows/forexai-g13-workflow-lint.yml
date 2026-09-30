@@ -27,10 +27,17 @@ on:
       - 'research/optimization/g13_demo_package_preflight_m15.py'
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'research/optimization/g13_real_data_provenance.py'
+      - 'research/optimization/g13_data_provenance.py'
+      - '.github/workflows/forexai-g13-validation-m15.yml'
+      - '.github/workflows/forexai-g13-robustness-m15.yml'
+      - '.github/workflows/forexai-g13-oos-m15-current.yml'
+      - '.github/workflows/forexai-g13-producer-lineage-audit-m15.yml'
       - 'research/real_data/histdata_ingest.py'
       - 'research/real_data/dukascopy_ingest.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_real_data_provenance.py'
+      - 'tests/test_g13_data_provenance.py'
+      - 'tests/test_g13_producer_lineage_audit.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
   pull_request:
@@ -45,6 +52,10 @@ on:
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'research/optimization/g13_demo_package_preflight_m15.py'
       - 'research/optimization/g13_real_data_provenance.py'
+      - 'research/optimization/g13_data_provenance.py'
+      - '.github/workflows/forexai-g13-validation-m15.yml'
+      - '.github/workflows/forexai-g13-robustness-m15.yml'
+      - '.github/workflows/forexai-g13-oos-m15-current.yml'
       - 'research/real_data/histdata_ingest.py'
       - 'research/real_data/dukascopy_ingest.py'
       - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
@@ -98,6 +109,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
+          ./actionlint .github/workflows/forexai-g13-producer-lineage-audit-m15.yml
 
       - name: Compile all G13 Python gates
         run: |
@@ -131,8 +143,8 @@ jobs:
 
       - name: Compile final promotion gate
         run: |
-          python -m py_compile research/optimization/g13_promotion_gate_m15.py
-          python -m pytest -q tests/test_g13_promotion_gate_provenance.py tests/test_g13_demo_readiness_promotion_binding.py tests/test_g13_demo_package_preflight_binding.py tests/test_g13_demo_package_manifest_builder.py tests/test_g13_real_data_provenance.py
+          python -m py_compile research/optimization/g13_promotion_gate_m15.py research/optimization/g13_data_provenance.py
+          python -m pytest -q tests/test_g13_promotion_gate_provenance.py tests/test_g13_demo_readiness_promotion_binding.py tests/test_g13_demo_package_preflight_binding.py tests/test_g13_demo_package_manifest_builder.py tests/test_g13_real_data_provenance.py tests/test_g13_data_provenance.py tests/test_g13_producer_lineage_audit.py
 
       - name: Validate G13 parity contract wiring
         run: |
@@ -164,12 +176,10 @@ jobs:
           promotion = Path(".github/workflows/forexai-g13-promotion-m15.yml").read_text(encoding="utf-8")
           for token in [
               "source-provenance.json",
-              "Verify downloaded artifact bytes against GitHub digests",
+              "Consume exact successful lineage-audit evidence",
               "--provenance evidence/source-provenance.json",
               "promotion-run-attestation.json",
               "g13-promotion-manifest-m15",
-              "'research/optimization/g13_*.py'",
-              "'.github/workflows/forexai-g13-*.yml'",
           ]:
               assert token in promotion, f"promotion provenance token missing: {token}"
 
@@ -178,13 +188,52 @@ jobs:
               "def validate_provenance",
               "forexai.g13.promotion_evidence_provenance.m15.v1",
               "local_zip_sha256",
+              "provenance_sha256",
               "workflow_id",
               "workflow_name",
               "head_branch",
               "evidence_provenance_sha256",
+              "data_lineage",
+              "forexai.g13.data_lineage_binding.m15.v1",
+              "validate_data_lineage",
+              "--validation-data-provenance",
+              "--robustness-data-provenance",
+              "--oos-data-provenance",
+              "--target-sha",
               "promotion_run_attestation.m15.v1",
           ]:
               assert token in gate, f"promotion gate provenance token missing: {token}"
+
+          promotion_workflow = Path(".github/workflows/forexai-g13-promotion-m15.yml").read_text(encoding="utf-8")
+          for token in [
+              "target_sha:",
+              "audit_run_id:",
+              "TARGET_SHA:",
+              "AUDIT_RUN_ID:",
+              "MAIN_HEAD_SHA",
+              "assert audit_run.get(\"head_sha\") == target_sha",
+              "assert int(audit_report[\"audit_run_id\"]) == audit_run_id",
+              "test \"$TARGET_SHA\" = \"$MAIN_HEAD_SHA\"",
+              "PROMOTION_TARGET_CURRENT_MAIN_OK",
+              "ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}",
+              "Consume exact successful lineage-audit evidence",
+              "g13-producer-lineage-audit-m15",
+              "audit_evidence",
+              "report_sha256",
+              "provenance_sha256",
+              "assert run.get(\"head_sha\") == target_sha",
+              "g13-validation-data-provenance.json",
+              "g13-robustness-data-provenance.json",
+              "g13-oos-data-provenance.json",
+              "VALIDATION_DATA_PROVENANCE",
+              "ROBUSTNESS_DATA_PROVENANCE",
+              "OOS_DATA_PROVENANCE",
+              "--validation-data-provenance",
+              "--robustness-data-provenance",
+              "--oos-data-provenance",
+              "--target-sha",
+          ]:
+              assert token in promotion_workflow, f"Promotion data-lineage wiring token missing: {token}"
 
           for workflow_name in [
               ".github/workflows/forexai-g13-promotion-m15.yml",
@@ -225,6 +274,63 @@ jobs:
           ]:
               assert token in builder, f"package manifest builder token missing: {token}"
 
+          lineage_audit = Path("research/optimization/g13_producer_lineage_audit.py").read_text(encoding="utf-8")
+          for token in [
+              "forexai.g13.producer_lineage_audit.m15.v1",
+              "shared_pre_oos_dataset",
+              "oos_dataset",
+              "target_sha",
+              "Dukascopy",
+              "workflow_file",
+              "assert source_metadata_by_role is not None",
+              "set(source_metadata_by_role) == set(WORKFLOWS)",
+              "assert re.fullmatch(r\"[0-9a-f]{40}\", target_sha)",
+              "assert metadata[\"conclusion\"] == \"success\"",
+              "assert _hex64(metadata[\"provenance_sha256\"])",
+              "if not __debug__:",
+          ]:
+              assert token in lineage_audit, f"producer lineage audit token missing: {token}"
+
+          audit_workflow = Path(".github/workflows/forexai-g13-producer-lineage-audit-m15.yml").read_text(encoding="utf-8")
+          for token in [
+              "g13-validation-data-provenance.json",
+              "g13-robustness-data-provenance.json",
+              "g13-oos-data-provenance.json",
+              "verify artifact bytes",
+              "status=success",
+              "echo \"TARGET_SHA=$TARGET_SHA\"",
+              "expected_workflow_name",
+              "--audit-run-id \"$GITHUB_RUN_ID\"",
+              "355468598",
+              "355473409",
+              "356162316",
+              "g13-producer-lineage-audit-m15",
+              "provenance_sha256",
+          ]:
+              # The workflow intentionally uses GitHub CLI/API for exact run/artifact binding.
+              assert token in audit_workflow, f"producer lineage workflow token missing: {token}"
+
+          data_provenance = Path("research/optimization/g13_data_provenance.py").read_text(encoding="utf-8")
+          for token in [
+              "forexai.g13.data_provenance.m15.v2",
+              "data_sha256",
+              "manifest_identity_sha256",
+              "producer",
+              "upstream_manifest_sha256",
+              "producer_workflow_file",
+              "if not __debug__:",
+          ]:
+              assert token in data_provenance, f"producer data provenance token missing: {token}"
+
+          validation_workflow = Path(".github/workflows/forexai-g13-validation-m15.yml").read_text(encoding="utf-8")
+          robustness_workflow = Path(".github/workflows/forexai-g13-robustness-m15.yml").read_text(encoding="utf-8")
+          oos_workflow = Path(".github/workflows/forexai-g13-oos-m15-current.yml").read_text(encoding="utf-8")
+          continuation = "research/optimization/cost_aware_gate_v14.py " + "\\" + "\n            research/optimization/g13_data_provenance.py"
+          assert continuation in validation_workflow, "validation provenance helper must remain in py_compile continuation"
+          assert continuation in robustness_workflow, "robustness provenance helper must remain in py_compile continuation"
+          oos_continuation = "research/real_data/dukascopy_ingest.py " + "\\" + "\n            research/optimization/g13_data_provenance.py"
+          assert oos_continuation in oos_workflow, "OOS provenance helper must remain in py_compile continuation"
+
           provenance = Path("research/optimization/g13_real_data_provenance.py").read_text(encoding="utf-8")
           for token in [
               "if not __debug__:",
@@ -244,6 +350,23 @@ jobs:
               "downloaded_zip_sha256",
           ]:
               assert token in preflight, f"preflight provenance token missing: {token}"
+
+          for workflow_path, role, output_name in [
+              (".github/workflows/forexai-g13-validation-m15.yml", "validation", "artifacts/g13-validation-data-provenance.json"),
+              (".github/workflows/forexai-g13-robustness-m15.yml", "robustness", "artifacts/g13-robustness-data-provenance.json"),
+              (".github/workflows/forexai-g13-oos-m15-current.yml", "oos", "artifacts/g13-oos-data-provenance.json"),
+          ]:
+              producer_workflow = Path(workflow_path).read_text(encoding="utf-8")
+              assert "research/optimization/g13_data_provenance.py" in producer_workflow, f"data provenance helper missing: {workflow_path}"
+              assert f"--role {role}" in producer_workflow, f"data provenance role missing: {workflow_path}"
+              assert output_name in producer_workflow, f"data provenance output missing: {workflow_path}"
+              assert "--producer-run-id \"$GITHUB_RUN_ID\"" in producer_workflow
+              assert "--head-sha \"$GITHUB_SHA\"" in producer_workflow
+              assert f"--producer-workflow-file \"{workflow_path.split('/')[-1]}\"" in producer_workflow
+              if role == "oos":
+                  assert "--upstream-manifest \"$M1_MANIFEST\"" in producer_workflow
+              else:
+                  assert "--manifest \"$DATA_MANIFEST\"" in producer_workflow
 
           package_preflight_workflow = Path(".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
           for token in [
@@ -282,6 +405,10 @@ jobs:
               "preflight_run_id",
               "g13-controlled-demo-package-preflight-m15",
               "latest_success_exact",
+              "latest_success_exact \"forexai-g13-mt5-runtime-safety-probe-m15-v2.yml\" \"$MAIN_SHA\"",
+              "latest_success_exact \"forexai-g13-execution-safety-audit-m15.yml\" \"$MAIN_SHA\"",
+              "runtime_head_sha",
+              "safety_head_sha",
               "local target_sha=\"$2\"",
               "github.event.workflow_run.name == 'ForexAI G13 Controlled Demo Package Preflight M15'",
               "download_exact_artifact",
@@ -299,8 +426,13 @@ jobs:
               '"status": "READY_FOR_CONTROLLED_DEMO_AUDIT"',
               'def validate_promotion_binding',
               'promotion_manifest_sha256',
+              'data_lineage',
+              'promotion["data_lineage"]["target_sha"] == main_head_sha',
               'preflight_run_id',
               'parity_run_id',
+              'runtime_head_sha == main_head_sha',
+              'safety_head_sha == main_head_sha',
+              'parity_head_sha == main_head_sha',
           ]:
               assert token in readiness, f"readiness contract token missing: {token}"
 

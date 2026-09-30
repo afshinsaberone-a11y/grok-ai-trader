@@ -93,8 +93,8 @@ jobs:
             promotion_id="${MANUAL_PROMOTION_RUN_ID}"
             preflight_id="${MANUAL_PREFLIGHT_RUN_ID}"
           else
-            runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")"
-            safety_id="$(latest_success "forexai-g13-execution-safety-audit-m15.yml")"
+            runtime_id="$(latest_success_exact "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml" "$MAIN_SHA")"
+            safety_id="$(latest_success_exact "forexai-g13-execution-safety-audit-m15.yml" "$MAIN_SHA")"
             parity_id="$(latest_success "forexai-g13-mt5-compile-parity.yml")"
             promotion_id="$(latest_success_exact "forexai-g13-promotion-m15.yml" "$MAIN_SHA")"
             preflight_id="$(latest_success_exact "forexai-g13-controlled-demo-package-preflight-m15.yml" "$MAIN_SHA")"
@@ -114,7 +114,7 @@ jobs:
             json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")"
             python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); assert x["head_branch"]=="main", (x["id"],x["head_branch"]); print(x["id"],x["head_sha"])' <<< "$json"
             sha="$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")"
-            if [ "$key" = "PROMOTION" ] || [ "$key" = "PARITY" ] || [ "$key" = "PREFLIGHT" ]; then
+            if [ "$key" = "PROMOTION" ] || [ "$key" = "PARITY" ] || [ "$key" = "PREFLIGHT" ] || [ "$key" = "RUNTIME" ] || [ "$key" = "SAFETY" ]; then
               [ "$sha" = "$MAIN_SHA" ] || { echo "$key run head SHA mismatch: $sha != $MAIN_SHA"; exit 1; }
             fi
             echo "${key}_HEAD_SHA=$sha" >> "$GITHUB_ENV"
