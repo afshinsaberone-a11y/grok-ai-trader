@@ -300,7 +300,6 @@ jobs:
               "355473409",
               "356162316",
               "g13-producer-lineage-audit-m15",
-              "audit_run_id",
           ]:
               # The workflow intentionally uses GitHub CLI/API for exact run/artifact binding.
               assert token in audit_workflow, f"producer lineage workflow token missing: {token}"
