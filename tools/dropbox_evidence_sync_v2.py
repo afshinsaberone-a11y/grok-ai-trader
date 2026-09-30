@@ -199,6 +199,8 @@ def remote_sha256(remote: str, expected_size: int) -> tuple[dict[str, Any], str]
     metadata = remote_metadata(remote)
     if metadata is None:
         raise DropboxSyncError("remote evidence disappeared during integrity check: " + remote)
+    if metadata.get(".tag") not in (None, "file"):
+        raise DropboxSyncError("IMMUTABLE_CONFLICT: remote path is not a file: " + remote)
     remote_size = int(metadata.get("size") or 0)
     if remote_size != expected_size:
         raise DropboxSyncError(
@@ -422,6 +424,8 @@ def main() -> int:
             "quota_bytes": int(policy.get("quota_bytes", 0)),
             "reserve_bytes": int(policy.get("reserve_bytes", 0)),
             "max_run_upload_bytes": int(policy.get("max_run_upload_bytes", 0)),
+            "max_manifest_bytes": max_manifest_bytes,
+            "manifest_reserve_bytes": int(policy.get("manifest_reserve_bytes", 0)),
         },
     }
 
@@ -433,6 +437,16 @@ def main() -> int:
     )
 
     manifest_payload = manifest_path.read_bytes()
+    max_manifest_bytes = int(policy.get("max_manifest_bytes", 0))
+    if max_manifest_bytes <= 0:
+        raise DropboxSyncError("Dropbox policy max_manifest_bytes must be positive")
+    if len(manifest_payload) > max_manifest_bytes:
+        raise DropboxSyncError(
+            "manifest exceeds Dropbox policy limit: "
+            + str(len(manifest_payload))
+            + " > "
+            + str(max_manifest_bytes)
+        )
     manifest_sha256 = hashlib.sha256(manifest_payload).hexdigest()
     remote_manifest = args.dropbox_root.rstrip("/") + "/_SYNC_MANIFEST.json"
     manifest_meta, manifest_status = upload_immutable_bytes(
