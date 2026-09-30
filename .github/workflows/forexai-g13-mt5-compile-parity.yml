@@ -58,7 +58,7 @@ jobs:
       MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
       TARGET_SHA: ${{ github.sha }}
     steps:
-      - name: Resolve and await exact Promotion
+      - name: Resolve exact Promotion run
         id: resolve
         shell: bash
         run: |
