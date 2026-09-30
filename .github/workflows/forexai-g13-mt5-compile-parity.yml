@@ -119,10 +119,10 @@ jobs:
             exit 1
           fi
           cat > "$stage_dir/source-artifact.env" <<EOF
-PROMOTION_RUN_ID=$PROMOTION_RUN_ID
-TARGET_SHA=$TARGET_SHA
-PROMOTION_ARTIFACT_ID=$artifact_id
-PROMOTION_ARTIFACT_DIGEST=$artifact_digest
+          PROMOTION_RUN_ID=$PROMOTION_RUN_ID
+          TARGET_SHA=$TARGET_SHA
+          PROMOTION_ARTIFACT_ID=$artifact_id
+          PROMOTION_ARTIFACT_DIGEST=$artifact_digest
 EOF
           echo "promotion_artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
           echo "promotion_artifact_digest=$artifact_digest" >> "$GITHUB_OUTPUT"
