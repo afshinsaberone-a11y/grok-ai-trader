@@ -52,6 +52,50 @@ def load_policy(path: Path) -> dict[str, Any]:
     return data
 
 
+def workflow_key(workflow_name: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", workflow_name.strip().lower()).strip("-") or "workflow"
+
+
+def workflow_profile(workflow_name: str, policy: dict[str, Any]) -> dict[str, Any]:
+    profiles = policy.get("workflow_profiles") or {}
+    if not profiles:
+        return {}
+    key = workflow_key(workflow_name)
+    profile = profiles.get(key)
+    if not isinstance(profile, dict):
+        if policy.get("require_known_workflow_profile", False):
+            raise PolicyError("unknown Dropbox workflow profile: " + key)
+        return {}
+    prefixes = profile.get("allowed_artifact_prefixes")
+    if not isinstance(prefixes, list) or not prefixes:
+        raise PolicyError("workflow profile has no allowed_artifact_prefixes: " + key)
+    return profile
+
+
+def artifact_root(path: Path, source_dir: Path) -> str:
+    relative = path.relative_to(source_dir)
+    parts = relative.parts
+    return parts[0].lower() if parts else ""
+
+
+def classify_workflow_artifact(
+    path: Path,
+    source_dir: Path,
+    workflow_name: str,
+    policy: dict[str, Any],
+) -> tuple[bool, str]:
+    profile = workflow_profile(workflow_name, policy)
+    if not profile:
+        return True, "profile_not_configured"
+
+    root = artifact_root(path, source_dir)
+    prefixes = [str(x).lower() for x in profile["allowed_artifact_prefixes"]]
+    if not any(root.startswith(prefix) for prefix in prefixes):
+        return False, "artifact_family_not_allowed"
+    return True, "artifact_family_allowed"
+
+
 def priority(path: Path, policy: dict[str, Any]) -> int:
     filename = path.name.lower()
     critical = [str(x).lower() for x in policy.get("critical_filename_tokens", [])]
@@ -102,15 +146,27 @@ def classify(path: Path, policy: dict[str, Any]) -> tuple[bool, str]:
     return True, "allowed"
 
 
-def select_files(source_dir: Path, policy: dict[str, Any]) -> tuple[list[Path], list[dict[str, Any]]]:
+def select_files(
+    source_dir: Path,
+    policy: dict[str, Any],
+    workflow_name: str | None = None,
+) -> tuple[list[Path], list[dict[str, Any]]]:
     if not source_dir.is_dir():
         raise PolicyError("source directory does not exist: " + str(source_dir))
 
     accepted: list[Path] = []
     excluded: list[dict[str, Any]] = []
 
-    for path in sorted(p for p in source_dir.rglob("*") if p.is_file()):
+    paths = sorted(p for p in source_dir.rglob("*") if p.is_file())
+    if paths and policy.get("require_known_workflow_profile", False) and not workflow_name:
+        raise PolicyError("workflow_name is required for workflow-scoped Dropbox selection")
+
+    for path in paths:
         keep, reason = classify(path, policy)
+        if keep and workflow_name:
+            keep, reason = classify_workflow_artifact(
+                path, source_dir, workflow_name, policy
+            )
         if keep:
             accepted.append(path)
         else:
