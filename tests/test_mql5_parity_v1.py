@@ -77,3 +77,15 @@ def test_parity_rejects_runtime_trace_authority_tokens():
         assert "runtime_trace_observational_only" in str(exc)
     else:
         raise AssertionError("runtime trace must not contain capital authority events")
+
+
+def test_parity_requires_fail_closed_runtime_trace():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("if(!runtime_trace_healthy) return;", "if(runtime_trace_healthy) return;")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_trace_fail_closed" in str(exc)
+    else:
+        raise AssertionError("runtime trace failure must block new orders")
