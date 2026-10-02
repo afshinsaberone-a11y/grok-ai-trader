@@ -224,40 +224,36 @@ void TraceSuccessfulEntry(const string trade_id,
   active_trace_trade_id = trade_id;
 
   ulong deal_ticket = trade.ResultDeal();
+  ulong order_ticket = trade.ResultOrder();
   uint retcode = trade.ResultRetcode();
-  double fill_price = is_buy
-      ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
-      : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+  double fill_price = trade.ResultPrice();
   if(deal_ticket > 0 && HistoryDealSelect(deal_ticket))
     fill_price = HistoryDealGetDouble(deal_ticket, DEAL_PRICE);
 
   string side = is_buy ? "BUY" : "SELL";
-  string submitted_fields = StringFormat(
-      "\"side\":\"%s\",\"retcode\":%u",
-      side, retcode
-  );
-  TraceLifecycle(trade_id, "ORDER_SUBMITTED", submitted_fields);
 
   string accepted_fields = StringFormat(
-      "\"side\":\"%s\",\"retcode\":%u,\"deal_ticket\":\"%I64d\"",
-      side, retcode, (long)deal_ticket
+      "\"side\":\"%s\",\"retcode\":%u,\"order_ticket\":\"%I64d\","
+      "\"deal_ticket\":\"%I64d\"",
+      side, retcode, (long)order_ticket, (long)deal_ticket
   );
   TraceLifecycle(trade_id, "ACCEPTED", accepted_fields);
 
   string filled_fields = StringFormat(
-      "\"side\":\"%s\",\"deal_ticket\":\"%I64d\","
+      "\"side\":\"%s\",\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\","
       "\"fill_price\":%.10f,\"requested_volume\":%.8f,"
       "\"requested_sl\":%.10f,\"requested_tp\":%.10f",
-      side, (long)deal_ticket, fill_price, requested_volume,
-      requested_sl, requested_tp
+      side, (long)order_ticket, (long)deal_ticket, fill_price,
+      requested_volume, requested_sl, requested_tp
   );
   TraceLifecycle(trade_id, "FILLED", filled_fields);
 
   if(PositionsByMagic() > 0)
   {
     string open_fields = StringFormat(
-        "\"side\":\"%s\",\"deal_ticket\":\"%I64d\",\"position_count\":%d",
-        side, (long)deal_ticket, PositionsByMagic()
+        "\"side\":\"%s\",\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\","
+        "\"position_count\":%d",
+        side, (long)order_ticket, (long)deal_ticket, PositionsByMagic()
     );
     TraceLifecycle(trade_id, "OPEN", open_fields);
   }
@@ -362,12 +358,12 @@ void TimeStopStale()
     int bars = iBarShift(_Symbol, PERIOD_CURRENT, opened, false);
     if(bars >= MaxHoldBars)
     {
+      ulong position_id = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
       bool submitted = trade.PositionClose(ticket);
       if(!submitted) continue;
       uint rc = trade.ResultRetcode();
       if(rc != TRADE_RETCODE_DONE && rc != TRADE_RETCODE_DONE_PARTIAL)
         continue;
-      ulong position_id = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
       string trace_trade_id = RecoverTraceTradeId(position_id);
       if(StringLen(trace_trade_id) > 0)
       {
@@ -605,6 +601,15 @@ bool SendBuy(double sl, double tp, const string cmt)
   string trace_trade_id = BuildTraceTradeId(true, iTime(_Symbol, PERIOD_CURRENT, 1));
   bool submitted = trade.Buy(vol, _Symbol, ask, sl, tp, cmt);
   if(!submitted) return false;
+  TraceLifecycle(
+      trace_trade_id,
+      "ORDER_SUBMITTED",
+      StringFormat(
+          ""side":"BUY","requested_volume":%.8f,"requested_price":%.10f,"
+          ""requested_sl":%.10f,"requested_tp":%.10f,"order_ticket":"%I64d"",
+          vol, ask, sl, tp, (long)trade.ResultOrder()
+      )
+  );
   if(!TradeExecutionAccepted()) return false;
   TraceSuccessfulEntry(trace_trade_id, true, sl, tp, vol);
   trades_today++;
@@ -622,6 +627,15 @@ bool SendSell(double sl, double tp, const string cmt)
   string trace_trade_id = BuildTraceTradeId(false, iTime(_Symbol, PERIOD_CURRENT, 1));
   bool submitted = trade.Sell(vol, _Symbol, bid, sl, tp, cmt);
   if(!submitted) return false;
+  TraceLifecycle(
+      trace_trade_id,
+      "ORDER_SUBMITTED",
+      StringFormat(
+          ""side":"SELL","requested_volume":%.8f,"requested_price":%.10f,"
+          ""requested_sl":%.10f,"requested_tp":%.10f,"order_ticket":"%I64d"",
+          vol, bid, sl, tp, (long)trade.ResultOrder()
+      )
+  );
   if(!TradeExecutionAccepted()) return false;
   TraceSuccessfulEntry(trace_trade_id, false, sl, tp, vol);
   trades_today++;
@@ -815,7 +829,7 @@ void OnTick()
 // Trading permissions require SYMBOL_TRADE_MODE and MARKET+SL+TP order flags.
 // Protective closes are counted only after broker ResultRetcode confirmation.
 // Runtime timestamps retain broker/server time; UTC is derived/cross-checked from broker time and the observed server-GMT offset.
-// FOREXAI-RUNTIME-TRACE-V1: MQL5 emits advisory ORDER_SUBMITTED/ACCEPTED/FILLED/OPEN/MANAGED/CLOSED events only; telemetry failure blocks new orders.
+// FOREXAI-RUNTIME-TRACE-V1: MQL5 emits advisory ORDER_SUBMITTED before result verification, then ACCEPTED/FILLED/OPEN after broker confirmation.
 // GRK-SAFETY-CONTRACT-051
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only. Daily profit/loss halt.
