@@ -97,7 +97,9 @@ def test_mql5_trace_is_ingested_but_has_no_authority(tmp_path: Path):
         json.dumps(_record("ORDER_SUBMITTED", 1)) + "\n" +
         json.dumps(_record("ACCEPTED", 2)) + "\n" +
         json.dumps(_record("FILLED", 3)) + "\n" +
-        json.dumps(_record("OPEN", 4)) + "\n",
+        json.dumps(_record("OPEN", 4)) + "\n" +
+        json.dumps(_record("MANAGED", 5)) + "\n" +
+        json.dumps(_record("CLOSED", 6)) + "\n",
         encoding="utf-8",
     )
     ledger = _authorized_ledger(tmp_path / "ledger.jsonl")
@@ -105,7 +107,7 @@ def test_mql5_trace_is_ingested_but_has_no_authority(tmp_path: Path):
     assert result["status"] == "PASS"
     assert result["mql5_trace_is_advisory"] is True
     assert result["capital_authorization_via_trace"] is False
-    assert ledger.state_of("T1") == "OPEN"
+    assert ledger.state_of("T1") == "CLOSED"
 
 
 def test_invalid_source_fails_closed(tmp_path: Path):
