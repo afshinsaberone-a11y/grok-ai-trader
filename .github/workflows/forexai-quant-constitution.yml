@@ -28,6 +28,8 @@ on:
       - "tests/test_runtime_authorization_envelope_v1.py"
       - "tools/replay_kernel_v1.py"
       - "tests/test_replay_kernel_v1.py"
+      - "tools/runtime_trace_bridge_v1.py"
+      - "tests/test_runtime_trace_bridge_v1.py"
   workflow_dispatch:
 
 permissions:
@@ -51,4 +53,4 @@ jobs:
       - name: Run constitution tests
         run: |
           pip install -r requirements.txt
-          pytest -q tests/test_quant_constitution.py tests/test_canonical_backtest_v1.py tests/test_trade_ledger_v1.py tests/test_capital_firewall_v1.py
+          pytest -q tests/test_quant_constitution.py tests/test_canonical_backtest_v1.py tests/test_trade_ledger_v1.py tests/test_capital_firewall_v1.py tests/test_replay_kernel_v1.py tests/test_runtime_trace_bridge_v1.py
