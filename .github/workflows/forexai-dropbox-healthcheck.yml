@@ -26,21 +26,15 @@ jobs:
             exit 78
           fi
 
-      - name: Diagnose token shape (non-secret)
+      - name: Diagnose Dropbox auth mode (non-secret)
         run: |
           set -euo pipefail
-          token="${DROPBOX_ACCESS_TOKEN}"
-          echo "token_present=true"
-          echo "token_length=${#token}"
-          if [[ "$token" == sl.* ]]; then
-            echo "token_kind=short_lived_sl_prefix"
+          if [ -n "${DROPBOX_REFRESH_TOKEN}" ]; then
+            echo "auth_mode=refresh_token"
+          elif [ -n "${DROPBOX_ACCESS_TOKEN}" ]; then
+            echo "auth_mode=access_token"
           else
-            echo "token_kind=non_sl_prefix"
-          fi
-          if [[ "$token" =~ [[:space:]] ]]; then
-            echo "token_contains_whitespace=true"
-          else
-            echo "token_contains_whitespace=false"
+            echo "auth_mode=missing"
           fi
 
       - name: Validate local Dropbox repository contract
