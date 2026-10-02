@@ -33,6 +33,7 @@ REQUIRED_INVARIANTS = {
     "duplicate_request_cannot_create_duplicate_exposure == true",
     "restart_does_not_clear_safety_state == true",
     "mql5_execution_semantic_parity_audit == PASS",
+    "deterministic_replay_digest_stable == true",
 }
 
 
