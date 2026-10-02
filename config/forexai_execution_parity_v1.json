@@ -57,8 +57,9 @@
         "CLOSED"
       ],
       "capital_authority_events_forbidden": true,
-      "utc_timestamp_source": "TimeGMT",
-      "broker_timestamp_source": "TimeCurrent"
+      "utc_timestamp_source": "TimeGMT cross-checked against TimeCurrent and broker_utc_offset_seconds",
+      "broker_timestamp_source": "TimeCurrent",
+      "ledger_canonicalization": "broker_timestamp minus broker_utc_offset_seconds"
     }
   },
   "risk": {
