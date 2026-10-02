@@ -34,7 +34,11 @@ def _record(state: str, index: int):
         "idempotency_key": f"K{index}",
         "timestamp_utc": f"2026-10-02T18:{index:02d}:00+00:00",
         "state": state,
-        "payload": {"index": index},
+        "payload": {
+            "index": index,
+            "broker_timestamp": f"2026-10-02T18:{index:02d}:00",
+            "broker_utc_offset_seconds": 0,
+        },
     }
 
 
@@ -96,3 +100,21 @@ def test_mql5_trace_cannot_emit_capital_authority_events(tmp_path: Path):
     trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
     with pytest.raises(RuntimeTraceError, match="AUTHORITY_EVENT_FORBIDDEN"):
         ingest_trace_file(trace, TradeLedger(tmp_path / "ledger.jsonl"))
+
+
+def test_broker_time_mismatch_fails_closed(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    row = _record("ORDER_SUBMITTED", 1)
+    row["payload"]["broker_timestamp"] = "2026-10-02T18:01:30"
+    trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeTraceError, match="UTC_BROKER_TIME_MISMATCH"):
+        ingest_trace_file(trace, _authorized_ledger(tmp_path / "ledger.jsonl"))
+
+
+def test_broker_offset_must_be_integer_and_bounded(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    row = _record("ORDER_SUBMITTED", 1)
+    row["payload"]["broker_utc_offset_seconds"] = 25 * 60 * 60
+    trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeTraceError, match="BROKER_OFFSET_OUT_OF_RANGE"):
+        ingest_trace_file(trace, _authorized_ledger(tmp_path / "ledger.jsonl"))
