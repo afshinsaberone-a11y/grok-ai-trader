@@ -1,0 +1,38 @@
+name: ForexAI MQL5 Execution Parity
+
+on:
+  push:
+    paths:
+      - "ea/GRK_Hybrid_Regime_EA.mq5"
+      - "config/forexai_execution_parity_v1.json"
+      - "tools/validate_mql5_parity_v1.py"
+      - "tests/test_mql5_parity_v1.py"
+  pull_request:
+    paths:
+      - "ea/GRK_Hybrid_Regime_EA.mq5"
+      - "config/forexai_execution_parity_v1.json"
+      - "tools/validate_mql5_parity_v1.py"
+      - "tests/test_mql5_parity_v1.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Static MQL5 parity audit
+        run: python tools/validate_mql5_parity_v1.py
+
+      - name: Parity regression tests
+        run: |
+          pip install pytest
+          pytest -q tests/test_mql5_parity_v1.py
