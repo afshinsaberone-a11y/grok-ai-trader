@@ -25,6 +25,59 @@ def _authorized_ledger(path: Path) -> TradeLedger:
 
 
 def _record(state: str, index: int):
+    payload = {
+        "broker_timestamp": f"2026-10-02T18:{index:02d}:00",
+        "broker_utc_offset_seconds": 0,
+    }
+    if state == "ORDER_SUBMITTED":
+        payload.update({
+            "side": "BUY",
+            "requested_volume": 1,
+            "requested_price": 1.1,
+            "requested_sl": 1.09,
+            "requested_tp": 1.12,
+            "order_ticket": "O1",
+        })
+    elif state == "ACCEPTED":
+        payload.update({
+            "side": "BUY",
+            "retcode": 10009,
+            "order_ticket": "O1",
+            "deal_ticket": "D1",
+        })
+    elif state == "FILLED":
+        payload.update({
+            "side": "BUY",
+            "order_ticket": "O1",
+            "deal_ticket": "D1",
+            "fill_price": 1.1,
+            "requested_volume": 1,
+            "requested_sl": 1.09,
+            "requested_tp": 1.12,
+        })
+    elif state == "OPEN":
+        payload.update({
+            "side": "BUY",
+            "order_ticket": "O1",
+            "deal_ticket": "D1",
+            "position_count": 1,
+        })
+    elif state == "MANAGED":
+        payload.update({
+            "reason": "MAX_HOLD_BARS",
+            "position_ticket": "P1",
+            "position_id": "P1",
+        })
+    elif state == "CLOSED":
+        payload.update({
+            "deal_ticket": "D1",
+            "position_id": "P1",
+            "exit_price": 1.11,
+            "volume": 1,
+            "profit": 0.01,
+            "swap": 0,
+            "commission": 0,
+        })
     return {
         "schema": "forexai.runtime_trace.v1",
         "source": "MQL5",
@@ -34,11 +87,7 @@ def _record(state: str, index: int):
         "idempotency_key": f"K{index}",
         "timestamp_utc": f"2026-10-02T18:{index:02d}:00+00:00",
         "state": state,
-        "payload": {
-            "index": index,
-            "broker_timestamp": f"2026-10-02T18:{index:02d}:00",
-            "broker_utc_offset_seconds": 0,
-        },
+        "payload": payload,
     }
 
 
@@ -100,6 +149,34 @@ def test_mql5_trace_cannot_emit_capital_authority_events(tmp_path: Path):
     trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
     with pytest.raises(RuntimeTraceError, match="AUTHORITY_EVENT_FORBIDDEN"):
         ingest_trace_file(trace, TradeLedger(tmp_path / "ledger.jsonl"))
+
+
+def test_event_type_must_match_observational_state(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    row = _record("ORDER_SUBMITTED", 1)
+    row["event_type"] = "closed"
+    trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeTraceError, match="EVENT_TYPE_STATE_MISMATCH"):
+        ingest_trace_file(trace, _authorized_ledger(tmp_path / "ledger.jsonl"))
+
+
+def test_state_payload_is_required(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    row = _record("FILLED", 1)
+    del row["payload"]["deal_ticket"]
+    trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeTraceError, match="STATE_PAYLOAD_MISSING:FILLED"):
+        ingest_trace_file(trace, _authorized_ledger(tmp_path / "ledger.jsonl"))
+
+
+def test_unknown_payload_field_fails_closed(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    row = _record("ORDER_SUBMITTED", 1)
+    row["payload"]["unexpected"] = "must-not-pass"
+    trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeTraceError, match="PAYLOAD_UNKNOWN_FIELDS"):
+        ingest_trace_file(trace, _authorized_ledger(tmp_path / "ledger.jsonl"))
+
 
 
 def test_broker_time_mismatch_fails_closed(tmp_path: Path):
