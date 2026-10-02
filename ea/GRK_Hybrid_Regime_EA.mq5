@@ -370,7 +370,7 @@ void TimeStopStale()
         TraceLifecycle(
             trace_trade_id,
             "MANAGED",
-            StringFormat(""reason":"MAX_HOLD_BARS","position_ticket":"%I64d","position_id":"%I64d"",
+            StringFormat("\"reason\":\"MAX_HOLD_BARS\",\"position_ticket\":\"%I64d\",\"position_id\":\"%I64d\"",
                          (long)ticket, (long)position_id)
         );
       }
@@ -605,8 +605,8 @@ bool SendBuy(double sl, double tp, const string cmt)
       trace_trade_id,
       "ORDER_SUBMITTED",
       StringFormat(
-          ""side":"BUY","requested_volume":%.8f,"requested_price":%.10f,"
-          ""requested_sl":%.10f,"requested_tp":%.10f,"order_ticket":"%I64d"",
+          "\"side\":\"BUY\",\"requested_volume\":%.8f,\"requested_price\":%.10f,"
+          "\"requested_sl\":%.10f,\"requested_tp\":%.10f,\"order_ticket\":\"%I64d\"",
           vol, ask, sl, tp, (long)trade.ResultOrder()
       )
   );
@@ -631,8 +631,8 @@ bool SendSell(double sl, double tp, const string cmt)
       trace_trade_id,
       "ORDER_SUBMITTED",
       StringFormat(
-          ""side":"SELL","requested_volume":%.8f,"requested_price":%.10f,"
-          ""requested_sl":%.10f,"requested_tp":%.10f,"order_ticket":"%I64d"",
+          "\"side\":\"SELL\",\"requested_volume\":%.8f,\"requested_price\":%.10f,"
+          "\"requested_sl\":%.10f,\"requested_tp\":%.10f,\"order_ticket\":\"%I64d\"",
           vol, bid, sl, tp, (long)trade.ResultOrder()
       )
   );
@@ -780,9 +780,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
           trace_trade_id,
           "CLOSED",
           StringFormat(
-              ""deal_ticket":"%I64d","position_id":"%I64d","
-              ""exit_price":%.10f,"volume":%.8f,"profit":%.8f,"
-              ""swap":%.8f,"commission":%.8f",
+              "\"deal_ticket\":\"%I64d\",\"position_id\":\"%I64d\","
+              "\"exit_price\":%.10f,\"volume\":%.8f,\"profit\":%.8f,"
+              "\"swap\":%.8f,\"commission\":%.8f",
               (long)trans.deal, (long)position_id, exit_price, volume,
               deal_profit, swap, commission
           )
