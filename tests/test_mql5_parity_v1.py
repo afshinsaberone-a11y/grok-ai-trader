@@ -89,3 +89,23 @@ def test_parity_requires_fail_closed_runtime_trace():
         assert "runtime_trace_fail_closed" in str(exc)
     else:
         raise AssertionError("runtime trace failure must block new orders")
+
+
+def test_runtime_trace_submission_is_recorded_before_result_verification():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    submit = source.index('TraceLifecycle(', source.index('bool SendBuy'))
+    result_check = source.index('if(!TradeExecutionAccepted()) return false;', submit)
+    assert submit < result_check
+    assert '"ORDER_SUBMITTED"' in source[submit:result_check]
+
+
+def test_parity_requires_result_order_evidence():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("trade.ResultOrder()", "trade.ResultOrderRemoved()")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "order_ticket_verified" in str(exc)
+    else:
+        raise AssertionError("broker order ticket must be recorded")
