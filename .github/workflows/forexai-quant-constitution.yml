@@ -6,6 +6,8 @@ on:
       - "config/forexai_quant_constitution_v1.json"
       - "tools/validate_quant_constitution.py"
       - "tests/test_quant_constitution.py"
+      - "research/optimization/canonical_backtest_v1.py"
+      - "tests/test_canonical_backtest_v1.py"
   pull_request:
     paths:
       - "config/forexai_quant_constitution_v1.json"
@@ -34,4 +36,4 @@ jobs:
       - name: Run constitution tests
         run: |
           pip install -r requirements.txt
-          pytest -q tests/test_quant_constitution.py
+          pytest -q tests/test_quant_constitution.py tests/test_canonical_backtest_v1.py
