@@ -35,7 +35,14 @@
     ],
     "runtime_clock": "broker_server_time",
     "ledger_normalization_required": true,
-    "restart_safety_state_persistence": true
+    "restart_safety_state_persistence": true,
+    "trade_permission_checks": [
+      "SYMBOL_TRADE_MODE",
+      "SYMBOL_ORDER_MODE"
+    ],
+    "protective_close_success_requires": [
+      "trade_result_retcode"
+    ]
   },
   "risk": {
     "max_authorized_risk_fraction": 0.006,
