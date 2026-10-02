@@ -119,6 +119,33 @@ def test_invalid_source_fails_closed(tmp_path: Path):
         ingest_trace_file(trace, TradeLedger(tmp_path / "ledger.jsonl"))
 
 
+def test_invalid_later_record_does_not_partially_commit_earlier_trace(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    valid = _record("ORDER_SUBMITTED", 1)
+    invalid = _record("ACCEPTED", 2)
+    invalid["payload"].pop("deal_ticket")
+    trace.write_text(
+        json.dumps(valid) + "\n" + json.dumps(invalid) + "\n",
+        encoding="utf-8",
+    )
+    ledger_path = tmp_path / "ledger.jsonl"
+    ledger = _authorized_ledger(ledger_path)
+    before = len(ledger.events)
+    with pytest.raises(RuntimeTraceError, match="STATE_PAYLOAD_MISSING:ACCEPTED"):
+        ingest_trace_file(trace, ledger)
+    reloaded = TradeLedger(ledger_path)
+    assert len(reloaded.events) == before
+    assert reloaded.state_of("T1") == "AUTHORIZED"
+
+
+def test_trace_cannot_initialize_authority_from_empty_ledger(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(json.dumps(_record("ORDER_SUBMITTED", 1)) + "\n", encoding="utf-8")
+    ledger = TradeLedger(tmp_path / "ledger.jsonl")
+    with pytest.raises(RuntimeTraceError, match="TRANSITION_PRECHECK_FAILED"):
+        ingest_trace_file(trace, ledger)
+
+
 def test_duplicate_trace_is_idempotent(tmp_path: Path):
     trace = tmp_path / "trace.jsonl"
     row = _record("ORDER_SUBMITTED", 1)
