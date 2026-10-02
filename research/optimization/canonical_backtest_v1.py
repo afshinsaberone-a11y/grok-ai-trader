@@ -100,31 +100,30 @@ def run_canonical_backtest(
     entry_i = -1
     entry_price = stop = target = risk_distance = 0.0
 
-    for i in range(len(d)):
+    for i in range(len(d) - 1):
         if position == 0:
-            if i >= len(d) - 1:
-                break
             if trade_start is not None and d.index[i] < trade_start:
                 continue
             if signal[i] not in (-1, 1) or not np.isfinite(atr[i]) or atr[i] <= 0:
                 continue
 
+            # Signal is read from the fully closed bar i; fill is bar i+1 open.
             position = int(signal[i])
             entry_i = i + 1
             risk_distance = float(params["atr_mult"]) * float(atr[i])
             entry_price = apply_entry_cost(open_px[entry_i], position, cfg)
             stop = entry_price - position * risk_distance
             target = entry_price + position * float(params["rr"]) * risk_distance
-            current_i = entry_i
-        else:
-            current_i = i
-
-        if position == 0 or current_i < entry_i:
+            # The first holding bar is the actual fill bar, evaluated on the
+            # next loop iteration (i == entry_i).
             continue
 
-        # Evaluate the actual fill bar as the first holding bar.
-        age = current_i - entry_i + 1
-        i = current_i
+        # Once a position exists, i is the actual holding bar. This includes
+        # the fill bar itself and never evaluates pre-entry candles.
+        if i < entry_i:
+            continue
+
+        age = i - entry_i + 1
         hit_sl = (low[i] <= stop) if position == 1 else (high[i] >= stop)
         hit_tp = (high[i] >= target) if position == 1 else (low[i] <= target)
 
