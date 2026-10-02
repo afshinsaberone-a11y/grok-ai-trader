@@ -65,24 +65,11 @@ def build_runtime_envelope(
         required_risk=required_risk,
         now_utc=now_utc,
     )
-    auth = firewall._authorization(trade_id, authorization_id)
-    reservations = [
-        event for event in firewall._events(trade_id, "CAPITAL_RESERVATION_CREATED")
-        if event.payload.get("reservation_id") == reservation_id
-        and event.payload.get("authorization_id") == authorization_id
-    ]
-    if len(reservations) != 1:
-        raise AuthorizationError("RUNTIME_RESERVATION_NOT_FOUND_OR_AMBIGUOUS")
-
-    released = [
-        event for event in firewall._events(trade_id, "CAPITAL_RESERVATION_RELEASED")
-        if event.payload.get("reservation_id") == reservation_id
-        and event.payload.get("authorization_id") == authorization_id
-    ]
-    if released:
-        raise AuthorizationError("RUNTIME_RESERVATION_ALREADY_RELEASED")
-
-    amount = float(reservations[0].payload["amount"])
+    auth = firewall.get_authorization(trade_id, authorization_id)
+    try:
+        amount, _ = firewall.active_reservation(trade_id, authorization_id, reservation_id)
+    except Exception as exc:
+        raise AuthorizationError(str(exc)) from exc
     if amount < required_risk:
         raise AuthorizationError("RUNTIME_RESERVATION_BELOW_REQUIRED_RISK")
 
