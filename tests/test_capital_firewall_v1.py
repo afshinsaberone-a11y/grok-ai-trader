@@ -291,3 +291,17 @@ def test_revoke_retry_is_idempotent(tmp_path: Path):
     firewall.revoke_authorization(**kwargs)
     firewall.revoke_authorization(**kwargs)
     assert len([e for e in ledger.events if e.event_type == "CAPITAL_AUTHORIZATION_REVOKED"]) == 1
+
+
+def test_non_finite_authorized_risk_is_rejected(tmp_path: Path):
+    ledger = TradeLedger(tmp_path / "ledger.jsonl")
+    _risk_reserved(ledger)
+    firewall = CapitalFirewall(ledger)
+    with pytest.raises(AuthorizationError, match="AUTHORIZED_RISK_MUST_BE_POSITIVE"):
+        firewall.issue_authorization(
+            trade_id="T1", authorization_id="AUTH-NAN", authorized_risk=float("nan"),
+            issued_at_utc="2026-10-02T18:00:00+00:00",
+            expires_at_utc="2026-10-02T19:00:00+00:00",
+            proof={**PROOF_KEYS, "risk_authorization_id": "AUTH-NAN"},
+            event_id="auth-nan", idempotency_key="auth-nan",
+        )
