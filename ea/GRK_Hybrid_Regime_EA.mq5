@@ -37,6 +37,7 @@ input int    NewsBlackoutStart  = -1;
 input int    NewsBlackoutEnd    = -1;
 input int    MaxHoldBars        = 30;
 input long   Magic              = 2026051;
+input string TraceFileName      = "";
 
 CTrade trade;
 int adx_h, ma_h, htf_ma_h, atr_h, bb_h;
@@ -48,6 +49,199 @@ int last_regime_stable = 0;
 int regime_same_count = 0;
 datetime day_stamp = 0;
 double day_start_equity = 0;
+string active_trace_trade_id = "";
+
+string TraceFile()
+{
+  if(StringLen(TraceFileName) > 0)
+    return TraceFileName;
+  return StringFormat("ForexAI_RuntimeTrace_%I64d_%s.jsonl", Magic, _Symbol);
+}
+
+string TraceIsoUtc(const datetime value)
+{
+  MqlDateTime t;
+  TimeToStruct(value, t);
+  return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d+00:00",
+                      t.year, t.mon, t.day, t.hour, t.min, t.sec);
+}
+
+string TraceBrokerIso(const datetime value)
+{
+  MqlDateTime t;
+  TimeToStruct(value, t);
+  return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d",
+                      t.year, t.mon, t.day, t.hour, t.min, t.sec);
+}
+
+string TraceJsonEscape(string value)
+{
+  StringReplace(value, "\\", "\\\\");
+  StringReplace(value, "\"", "\\\"");
+  StringReplace(value, "\r", "\\r");
+  StringReplace(value, "\n", "\\n");
+  return value;
+}
+
+void TraceLifecycle(const string trade_id,
+                    const string state,
+                    const string payload_fields)
+{
+  if(StringLen(trade_id) == 0 || StringLen(state) == 0)
+    return;
+
+  int handle = FileOpen(
+      TraceFile(),
+      FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON |
+      FILE_SHARE_READ | FILE_SHARE_WRITE
+  );
+  if(handle == INVALID_HANDLE)
+    return;
+
+  FileSeek(handle, 0, SEEK_END);
+
+  string broker_ts = TraceBrokerIso(TimeCurrent());
+  string payload = StringFormat(
+      "\"broker_timestamp\":\"%s\"",
+      TraceJsonEscape(broker_ts)
+  );
+  if(StringLen(payload_fields) > 0)
+    payload += "," + payload_fields;
+
+  string event_id = "MQL5-" + trade_id + "-" + state;
+  string row = StringFormat(
+      "{\"schema\":\"forexai.runtime_trace.v1\","
+      "\"source\":\"MQL5\","
+      "\"trade_id\":\"%s\","
+      "\"event_id\":\"%s\","
+      "\"event_type\":\"%s\","
+      "\"idempotency_key\":\"%s\","
+      "\"timestamp_utc\":\"%s\","
+      "\"state\":\"%s\","
+      "\"payload\":{%s}}\n",
+      TraceJsonEscape(trade_id),
+      TraceJsonEscape(event_id),
+      TraceJsonEscape(state),
+      TraceJsonEscape(event_id),
+      TraceIsoUtc(TimeGMT()),
+      TraceJsonEscape(state),
+      payload
+  );
+
+  FileWriteString(handle, row);
+  FileFlush(handle);
+  FileClose(handle);
+}
+
+string BuildTraceTradeId(const bool is_buy, const datetime signal_bar_time)
+{
+  string side = is_buy ? "B" : "S";
+  return StringFormat(
+      "T-%I64d-%s-%I64d-%s",
+      Magic, _Symbol, (long)signal_bar_time, side
+  );
+}
+
+datetime SignalBarForEntryTime(const datetime entry_time)
+{
+  int shift = iBarShift(_Symbol, PERIOD_CURRENT, entry_time, false);
+  if(shift < 0)
+    return 0;
+  int signal_shift = shift + 1;
+  if(iBars(_Symbol, PERIOD_CURRENT) <= signal_shift)
+    return 0;
+  return iTime(_Symbol, PERIOD_CURRENT, signal_shift);
+}
+
+string RecoverTraceTradeId(const ulong position_id)
+{
+  if(StringLen(active_trace_trade_id) > 0)
+    return active_trace_trade_id;
+
+  if(position_id == 0 || !HistorySelect(0, TimeCurrent()))
+    return "";
+
+  datetime earliest = 0;
+  long direction = -1;
+  int total = HistoryDealsTotal();
+  for(int i=0; i<total; ++i)
+  {
+    ulong deal_ticket = HistoryDealGetTicket(i);
+    if(deal_ticket == 0)
+      continue;
+    if((ulong)HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID) != position_id)
+      continue;
+    if(HistoryDealGetString(deal_ticket, DEAL_SYMBOL) != _Symbol)
+      continue;
+    if((long)HistoryDealGetInteger(deal_ticket, DEAL_MAGIC) != Magic)
+      continue;
+
+    long entry = HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+    if(entry != DEAL_ENTRY_IN)
+      continue;
+
+    datetime deal_time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
+    if(earliest == 0 || deal_time < earliest)
+    {
+      earliest = deal_time;
+      direction = HistoryDealGetInteger(deal_ticket, DEAL_TYPE);
+    }
+  }
+
+  if(earliest == 0 || direction < 0)
+    return "";
+
+  datetime signal_bar = SignalBarForEntryTime(earliest);
+  return BuildTraceTradeId(direction == DEAL_TYPE_BUY, signal_bar);
+}
+
+void TraceSuccessfulEntry(const string trade_id,
+                           const bool is_buy,
+                           const double requested_sl,
+                           const double requested_tp,
+                           const double requested_volume)
+{
+  active_trace_trade_id = trade_id;
+
+  ulong deal_ticket = trade.ResultDeal();
+  uint retcode = trade.ResultRetcode();
+  double fill_price = is_buy
+      ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
+      : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+  if(deal_ticket > 0 && HistoryDealSelect(deal_ticket))
+    fill_price = HistoryDealGetDouble(deal_ticket, DEAL_PRICE);
+
+  string side = is_buy ? "BUY" : "SELL";
+  string submitted_fields = StringFormat(
+      "\"side\":\"%s\",\"retcode\":%u",
+      side, retcode
+  );
+  TraceLifecycle(trade_id, "ORDER_SUBMITTED", submitted_fields);
+
+  string accepted_fields = StringFormat(
+      "\"side\":\"%s\",\"retcode\":%u,\"deal_ticket\":\"%I64d\"",
+      side, retcode, (long)deal_ticket
+  );
+  TraceLifecycle(trade_id, "ACCEPTED", accepted_fields);
+
+  string filled_fields = StringFormat(
+      "\"side\":\"%s\",\"deal_ticket\":\"%I64d\","
+      "\"fill_price\":%.10f,\"requested_volume\":%.8f,"
+      "\"requested_sl\":%.10f,\"requested_tp\":%.10f",
+      side, (long)deal_ticket, fill_price, requested_volume,
+      requested_sl, requested_tp
+  );
+  TraceLifecycle(trade_id, "FILLED", filled_fields);
+
+  if(PositionsByMagic() > 0)
+  {
+    string open_fields = StringFormat(
+        "\"side\":\"%s\",\"deal_ticket\":\"%I64d\",\"position_count\":%d",
+        side, (long)deal_ticket, PositionsByMagic()
+    );
+    TraceLifecycle(trade_id, "OPEN", open_fields);
+  }
+}
 
 string SafetyKey(const string suffix)
 {
@@ -152,6 +346,17 @@ void TimeStopStale()
       uint rc = trade.ResultRetcode();
       if(rc != TRADE_RETCODE_DONE && rc != TRADE_RETCODE_DONE_PARTIAL)
         continue;
+      ulong position_id = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+      string trace_trade_id = RecoverTraceTradeId(position_id);
+      if(StringLen(trace_trade_id) > 0)
+      {
+        TraceLifecycle(
+            trace_trade_id,
+            "MANAGED",
+            StringFormat(""reason":"MAX_HOLD_BARS","position_ticket":"%I64d","position_id":"%I64d"",
+                         (long)ticket, (long)position_id)
+        );
+      }
     }
   }
 }
@@ -376,9 +581,11 @@ bool SendBuy(double sl, double tp, const string cmt)
   if(!StopsValid(sl, tp, true)) return false;
   double vol = PositionSize(sl, true);
   if(vol <= 0) return false;
+  string trace_trade_id = BuildTraceTradeId(true, iTime(_Symbol, PERIOD_CURRENT, 1));
   bool submitted = trade.Buy(vol, _Symbol, ask, sl, tp, cmt);
   if(!submitted) return false;
   if(!TradeExecutionAccepted()) return false;
+  TraceSuccessfulEntry(trace_trade_id, true, sl, tp, vol);
   trades_today++;
   return true;
 }
@@ -391,9 +598,11 @@ bool SendSell(double sl, double tp, const string cmt)
   if(!StopsValid(sl, tp, false)) return false;
   double vol = PositionSize(sl, false);
   if(vol <= 0) return false;
+  string trace_trade_id = BuildTraceTradeId(false, iTime(_Symbol, PERIOD_CURRENT, 1));
   bool submitted = trade.Sell(vol, _Symbol, bid, sl, tp, cmt);
   if(!submitted) return false;
   if(!TradeExecutionAccepted()) return false;
+  TraceSuccessfulEntry(trace_trade_id, false, sl, tp, vol);
   trades_today++;
   return true;
 }
@@ -520,6 +729,32 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
     if(consec_losses >= ConsecutiveHalt) halt_bars_left = HaltCooldownBars;
   }
   else consec_losses = 0;
+
+  if(PositionsByMagic() == 0)
+  {
+    ulong position_id = (ulong)HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID);
+    string trace_trade_id = RecoverTraceTradeId(position_id);
+    if(StringLen(trace_trade_id) > 0)
+    {
+      double exit_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+      double volume = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
+      double commission = HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+      double swap = HistoryDealGetDouble(trans.deal, DEAL_SWAP);
+      double deal_profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
+      TraceLifecycle(
+          trace_trade_id,
+          "CLOSED",
+          StringFormat(
+              ""deal_ticket":"%I64d","position_id":"%I64d","
+              ""exit_price":%.10f,"volume":%.8f,"profit":%.8f,"
+              ""swap":%.8f,"commission":%.8f",
+              (long)trans.deal, (long)position_id, exit_price, volume,
+              deal_profit, swap, commission
+          )
+      );
+      active_trace_trade_id = "";
+    }
+  }
   PersistSafetyState();
 }
 
@@ -557,7 +792,8 @@ void OnTick()
 // Filling mode is selected from the symbol; stop validation includes stops+freeze constraints.
 // Trading permissions require SYMBOL_TRADE_MODE and MARKET+SL+TP order flags.
 // Protective closes are counted only after broker ResultRetcode confirmation.
-// Runtime timestamps use broker/server time and must be normalized by the ledger.
+// Runtime timestamps use broker/server time; trace UTC ordering uses TimeGMT and payload retains broker time.
+// FOREXAI-RUNTIME-TRACE-V1: MQL5 emits advisory ORDER_SUBMITTED/ACCEPTED/FILLED/OPEN/MANAGED/CLOSED events only.
 // GRK-SAFETY-CONTRACT-051
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only. Daily profit/loss halt.
