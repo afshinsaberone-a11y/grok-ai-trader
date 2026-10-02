@@ -42,7 +42,24 @@
     ],
     "protective_close_success_requires": [
       "trade_result_retcode"
-    ]
+    ],
+    "runtime_trace": {
+      "enabled": true,
+      "schema": "forexai.runtime_trace.v1",
+      "file_scope": "FILE_COMMON",
+      "authority": "advisory_only",
+      "lifecycle_states": [
+        "ORDER_SUBMITTED",
+        "ACCEPTED",
+        "FILLED",
+        "OPEN",
+        "MANAGED",
+        "CLOSED"
+      ],
+      "capital_authority_events_forbidden": true,
+      "utc_timestamp_source": "TimeGMT",
+      "broker_timestamp_source": "TimeCurrent"
+    }
   },
   "risk": {
     "max_authorized_risk_fraction": 0.006,
@@ -54,6 +71,8 @@
     "research_and_live_must_share_expiry": true,
     "research_and_live_must_share_position_limit": true,
     "failed_trade_submission_must_not_count_as_trade": true,
-    "restart_safety_state_required": true
+    "restart_safety_state_required": true,
+    "runtime_trace_emission_required": true,
+    "runtime_trace_cannot_grant_authority": true
   }
 }
