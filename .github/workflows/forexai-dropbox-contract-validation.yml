@@ -49,7 +49,7 @@ jobs:
             tools/dropbox_free_tier_policy.py \
             tools/dropbox_free_tier_policy_v2.py \
             tools/dropbox_healthcheck.py \
-            tools/validate_dropbox_contract.py
+            tools/validate_dropbox_contract.py \
             tools/verify_dropbox_evidence_manifest.py
 
       - name: Run Dropbox contract tests
@@ -57,5 +57,5 @@ jobs:
           set -euo pipefail
           python -m pytest -q \
             tests/test_dropbox_contract.py \
-            tests/test_dropbox_evidence_sync.py
+            tests/test_dropbox_evidence_sync.py \
             tests/test_dropbox_manifest_verifier.py
