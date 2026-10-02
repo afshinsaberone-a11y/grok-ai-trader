@@ -168,18 +168,27 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
         for trade_id in {record["trade_id"] for record in records}
     }
     existing_by_key = {event.idempotency_key: event for event in ledger.events}
+    staged_by_key: dict[str, tuple[str, str | None, str, dict[str, Any]]] = {}
     for record in records:
-        existing = existing_by_key.get(record["idempotency_key"])
-        if existing is not None:
+        payload = {
+            "runtime_trace_schema": record["schema"],
+            "runtime_source": record["source"],
+            **record["payload"],
+        }
+        key = record["idempotency_key"]
+        existing = existing_by_key.get(key)
+        staged = staged_by_key.get(key)
+        if existing is not None or staged is not None:
+            prior = existing if existing is not None else staged
+            prior_trade = prior.trade_id if existing is not None else prior[0]
+            prior_state = prior.state if existing is not None else prior[1]
+            prior_type = prior.event_type if existing is not None else prior[2]
+            prior_payload = prior.payload if existing is not None else prior[3]
             semantics_match = (
-                existing.trade_id == record["trade_id"]
-                and existing.state == record["state"]
-                and existing.event_type == record["event_type"]
-                and existing.payload == {
-                    "runtime_trace_schema": record["schema"],
-                    "runtime_source": record["source"],
-                    **record["payload"],
-                }
+                prior_trade == record["trade_id"]
+                and prior_state == record["state"]
+                and prior_type == record["event_type"]
+                and prior_payload == payload
             )
             if not semantics_match:
                 raise RuntimeTraceError("RUNTIME_TRACE_IDEMPOTENCY_SEMANTICS_CONFLICT")
@@ -188,17 +197,18 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
         state = record["state"]
         current = simulated_states.get(record["trade_id"])
         if current is None:
-            if state != "PROPOSED" and state not in OBSERVATIONAL_STATES:
-                raise RuntimeTraceError(
-                    f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{state}"
-                )
-        elif state not in ALLOWED_TRANSITIONS[current]:
+            raise RuntimeTraceError(
+                f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{state}"
+            )
+        if state not in ALLOWED_TRANSITIONS[current]:
             raise RuntimeTraceError(
                 f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{state}"
             )
 
         simulated_states[record["trade_id"]] = state
-        existing_by_key[record["idempotency_key"]] = None
+        staged_by_key[key] = (
+            record["trade_id"], record["state"], record["event_type"], payload
+        )
 
     ingested = []
     for record in records:
