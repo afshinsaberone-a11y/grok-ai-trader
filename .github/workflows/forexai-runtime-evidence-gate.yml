@@ -9,6 +9,8 @@ on:
       - "tools/replay_kernel_v1.py"
       - "tools/trade_ledger_v1.py"
       - "tests/test_runtime_evidence_gate_v1.py"
+      - "tools/fault_injection_v1.py"
+      - "tests/test_fault_injection_v1.py"
   pull_request:
     paths:
       - "tools/runtime_evidence_gate_v1.py"
