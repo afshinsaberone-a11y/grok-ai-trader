@@ -36,6 +36,7 @@ REQUIRED_INVARIANTS = {
     "deterministic_replay_digest_stable == true",
     "mql5_runtime_trace_cannot_grant_authority == true",
     "runtime_evidence_gate_requires_trace_replay_reconciliation_pass == true",
+    "restart_uncertain_state_blocks_new_risk == true",
 }
 
 
