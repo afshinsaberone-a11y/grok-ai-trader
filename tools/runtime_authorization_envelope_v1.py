@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -127,7 +128,14 @@ def verify_runtime_envelope(
 
     authorized = float(envelope["authorized_risk"])
     reserved = float(envelope["reserved_risk"])
-    if authorized <= 0 or reserved <= 0 or reserved > authorized or authorized > 0.006:
+    if (
+        not math.isfinite(authorized)
+        or not math.isfinite(reserved)
+        or authorized <= 0
+        or reserved <= 0
+        or reserved > authorized
+        or authorized > 0.006
+    ):
         raise AuthorizationError("RUNTIME_ENVELOPE_RISK_INVALID")
 
     return {
