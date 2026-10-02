@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 from typing import Any, Mapping
 
 from tools.trade_ledger_v1 import LedgerError, TradeLedger
@@ -176,7 +177,7 @@ class CapitalFirewall:
     ) -> RiskAuthorization:
         if not authorization_id or not trade_id:
             raise AuthorizationError("AUTHORIZATION_IDENTITY_MISSING")
-        if not isinstance(authorized_risk, (int, float)) or authorized_risk <= 0:
+        if not isinstance(authorized_risk, (int, float)) or not math.isfinite(float(authorized_risk)) or authorized_risk <= 0:
             raise AuthorizationError("AUTHORIZED_RISK_MUST_BE_POSITIVE")
         if authorized_risk > self.max_authorized_risk:
             raise AuthorizationError("AUTHORIZED_RISK_EXCEEDS_GLOBAL_CAP")
@@ -304,7 +305,7 @@ class CapitalFirewall:
         self._assert_authorization_current(auth, now_utc)
         if self.ledger.state_of(trade_id) != "AUTHORIZED":
             raise ReservationError("TRADE_MUST_BE_AUTHORIZED_BEFORE_RESERVATION")
-        if not isinstance(amount, (int, float)) or amount <= 0:
+        if not isinstance(amount, (int, float)) or not math.isfinite(float(amount)) or amount <= 0:
             raise ReservationError("RESERVATION_AMOUNT_MUST_BE_POSITIVE")
         if amount > auth.authorized_risk:
             raise ReservationError("RESERVATION_EXCEEDS_AUTHORIZED_RISK")
