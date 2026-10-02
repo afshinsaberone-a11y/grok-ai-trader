@@ -26,6 +26,8 @@ on:
       - "config/forexai_runtime_authorization_envelope_v1.json"
       - "tools/runtime_authorization_envelope_v1.py"
       - "tests/test_runtime_authorization_envelope_v1.py"
+      - "tools/replay_kernel_v1.py"
+      - "tests/test_replay_kernel_v1.py"
   workflow_dispatch:
 
 permissions:
