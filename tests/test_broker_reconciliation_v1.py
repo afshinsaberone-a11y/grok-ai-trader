@@ -52,6 +52,14 @@ def test_missing_broker_field_fails_closed():
         normalize_snapshot(bad)
 
 
+
+def test_unknown_broker_field_fails_closed():
+    bad = _snapshot()
+    bad["unexpected_field"] = "must-not-pass"
+    with pytest.raises(BrokerSnapshotError, match="UNKNOWN_FIELDS"):
+        normalize_snapshot(bad)
+
+
 def test_matching_snapshot_reconciles(tmp_path: Path):
     ledger = _closed_ledger(tmp_path / "ledger.jsonl")
     result = reconcile(
