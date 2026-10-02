@@ -13,6 +13,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from tools.dropbox_oauth import get_access_token
+
 from tools.dropbox_free_tier_policy_v2 import load_policy, select_files, workflow_key
 
 API_URL = "https://api.dropboxapi.com/2"
@@ -26,10 +28,10 @@ class DropboxSyncError(RuntimeError):
 
 
 def token() -> str:
-    value = os.environ.get("DROPBOX_ACCESS_TOKEN", "").strip()
-    if not value:
-        raise DropboxSyncError("DROPBOX_ACCESS_TOKEN is required")
-    return value
+    try:
+        return get_access_token()
+    except Exception as exc:
+        raise DropboxSyncError(str(exc)) from exc
 
 
 def api_json(endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
