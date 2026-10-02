@@ -8,6 +8,22 @@ from tools.runtime_trace_bridge_v1 import RuntimeTraceError, ingest_trace_file
 from tools.trade_ledger_v1 import TradeLedger
 
 
+def _authorized_ledger(path: Path) -> TradeLedger:
+    ledger = TradeLedger(path)
+    states = ["PROPOSED", "VALIDATED", "RISK_RESERVED", "AUTHORIZED"]
+    for idx, state in enumerate(states, start=1):
+        ledger.append(
+            trade_id="T1",
+            state=state,
+            event_type=state.lower(),
+            payload={"idx": idx},
+            idempotency_key=f"seed-{idx}",
+            event_id=f"seed-e{idx}",
+            timestamp_utc=f"2026-10-02T17:{idx:02d}:00+00:00",
+        )
+    return ledger
+
+
 def _record(state: str, index: int):
     return {
         "schema": "forexai.runtime_trace.v1",
@@ -25,16 +41,18 @@ def _record(state: str, index: int):
 def test_mql5_trace_is_ingested_but_has_no_authority(tmp_path: Path):
     trace = tmp_path / "trace.jsonl"
     trace.write_text(
-        json.dumps(_record("PROPOSED", 1)) + "\n" +
-        json.dumps(_record("VALIDATED", 2)) + "\n",
+        json.dumps(_record("ORDER_SUBMITTED", 1)) + "\n" +
+        json.dumps(_record("ACCEPTED", 2)) + "\n" +
+        json.dumps(_record("FILLED", 3)) + "\n" +
+        json.dumps(_record("OPEN", 4)) + "\n",
         encoding="utf-8",
     )
-    ledger = TradeLedger(tmp_path / "ledger.jsonl")
+    ledger = _authorized_ledger(tmp_path / "ledger.jsonl")
     result = ingest_trace_file(trace, ledger)
     assert result["status"] == "PASS"
     assert result["mql5_trace_is_advisory"] is True
     assert result["capital_authorization_via_trace"] is False
-    assert ledger.state_of("T1") == "VALIDATED"
+    assert ledger.state_of("T1") == "OPEN"
 
 
 def test_invalid_source_fails_closed(tmp_path: Path):
@@ -48,12 +66,12 @@ def test_invalid_source_fails_closed(tmp_path: Path):
 
 def test_duplicate_trace_is_idempotent(tmp_path: Path):
     trace = tmp_path / "trace.jsonl"
-    row = _record("PROPOSED", 1)
+    row = _record("ORDER_SUBMITTED", 1)
     trace.write_text(json.dumps(row) + "\n" + json.dumps(row) + "\n", encoding="utf-8")
-    ledger = TradeLedger(tmp_path / "ledger.jsonl")
+    ledger = _authorized_ledger(tmp_path / "ledger.jsonl")
     result = ingest_trace_file(trace, ledger)
     assert result["ingested_events"] == ["E1", "E1"]
-    assert len(ledger.events) == 1
+    assert len([e for e in ledger.events if e.event_id == "E1"]) == 1
 
 
 def test_malformed_trace_fails_closed(tmp_path: Path):
