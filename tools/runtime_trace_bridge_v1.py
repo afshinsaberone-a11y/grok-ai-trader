@@ -26,6 +26,18 @@ FORBIDDEN_AUTHORITY_EVENT_TYPES = {
     "RECONCILED",
     "RECONCILIATION_EXCEPTION",
 }
+STATE_REQUIRED_PAYLOAD_FIELDS = {
+    "ORDER_SUBMITTED": {"side", "requested_volume", "requested_price", "requested_sl", "requested_tp", "order_ticket"},
+    "ACCEPTED": {"side", "retcode", "order_ticket", "deal_ticket"},
+    "FILLED": {"side", "order_ticket", "deal_ticket", "fill_price", "requested_volume", "requested_sl", "requested_tp"},
+    "OPEN": {"side", "order_ticket", "deal_ticket", "position_count"},
+    "MANAGED": {"reason", "position_ticket", "position_id"},
+    "CLOSED": {"deal_ticket", "position_id", "exit_price", "volume", "profit", "swap", "commission"},
+}
+ALLOWED_PAYLOAD_FIELDS = {"broker_timestamp", "broker_utc_offset_seconds"} | {
+    field for fields in STATE_REQUIRED_PAYLOAD_FIELDS.values() for field in fields
+}
+
 REQUIRED_FIELDS = {
     "schema",
     "source",
@@ -91,14 +103,29 @@ def normalize_trace(record: Mapping[str, Any]) -> dict[str, Any]:
     if str(record["source"]).upper() != "MQL5":
         raise RuntimeTraceError("RUNTIME_TRACE_SOURCE_NOT_MQL5")
     state = record["state"]
-    if state is not None and state not in STATES:
+    if state is None:
+        raise RuntimeTraceError("RUNTIME_TRACE_STATE_MISSING")
+    if state not in STATES:
         raise RuntimeTraceError("RUNTIME_TRACE_UNKNOWN_STATE")
-    if state is not None and state not in OBSERVATIONAL_STATES:
+    if state not in OBSERVATIONAL_STATES:
         raise RuntimeTraceError("RUNTIME_TRACE_CANNOT_GRANT_AUTHORITY")
-    if str(record["event_type"]) in FORBIDDEN_AUTHORITY_EVENT_TYPES:
+    event_type = str(record["event_type"]).upper()
+    if event_type in FORBIDDEN_AUTHORITY_EVENT_TYPES:
         raise RuntimeTraceError("RUNTIME_TRACE_AUTHORITY_EVENT_FORBIDDEN")
+    if event_type != state:
+        raise RuntimeTraceError("RUNTIME_TRACE_EVENT_TYPE_STATE_MISMATCH")
     if not isinstance(record["payload"], dict):
         raise RuntimeTraceError("RUNTIME_TRACE_PAYLOAD_MUST_BE_OBJECT")
+
+    payload = record["payload"]
+    extra_payload = sorted(set(payload) - ALLOWED_PAYLOAD_FIELDS)
+    if extra_payload:
+        raise RuntimeTraceError(f"RUNTIME_TRACE_PAYLOAD_UNKNOWN_FIELDS:{extra_payload}")
+    missing_payload = sorted(STATE_REQUIRED_PAYLOAD_FIELDS[state] - set(payload))
+    if missing_payload:
+        raise RuntimeTraceError(
+            f"RUNTIME_TRACE_STATE_PAYLOAD_MISSING:{state}:{missing_payload}"
+        )
 
     return {
         "schema": TRACE_SCHEMA,
