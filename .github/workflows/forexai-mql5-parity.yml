@@ -16,6 +16,9 @@ on:
       - "config/forexai_execution_parity_v1.json"
       - "tools/validate_mql5_parity_v1.py"
       - "tests/test_mql5_parity_v1.py"
+      - "config/forexai_runtime_authorization_envelope_v1.json"
+      - "tools/runtime_authorization_envelope_v1.py"
+      - "tests/test_runtime_authorization_envelope_v1.py"
   workflow_dispatch:
 
 permissions:
