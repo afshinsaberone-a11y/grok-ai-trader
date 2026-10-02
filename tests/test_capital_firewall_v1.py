@@ -257,3 +257,37 @@ def test_authorization_retry_after_state_advance_is_safe(tmp_path: Path):
     )
     assert replay.authorization_id == "AUTH1"
     assert len([e for e in ledger.events if e.event_type == "CAPITAL_AUTHORIZATION_ISSUED"]) == 1
+
+
+def test_revoked_authorization_cannot_execute(tmp_path: Path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.revoke_authorization(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        reason="manual_safety_stop",
+        now_utc="2026-10-02T18:04:00+00:00",
+        event_id="revoke-event",
+        idempotency_key="revoke-key",
+    )
+    with pytest.raises(AuthorizationError, match="AUTHORIZATION_NOT_ACTIVE"):
+        firewall.assert_execution_allowed(
+            trade_id="T1",
+            authorization_id="AUTH1",
+            required_risk=0.005,
+            now_utc="2026-10-02T18:05:00+00:00",
+        )
+
+
+def test_revoke_retry_is_idempotent(tmp_path: Path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    kwargs = dict(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        reason="manual_safety_stop",
+        now_utc="2026-10-02T18:04:00+00:00",
+        event_id="revoke-event",
+        idempotency_key="revoke-key",
+    )
+    firewall.revoke_authorization(**kwargs)
+    firewall.revoke_authorization(**kwargs)
+    assert len([e for e in ledger.events if e.event_type == "CAPITAL_AUTHORIZATION_REVOKED"]) == 1
