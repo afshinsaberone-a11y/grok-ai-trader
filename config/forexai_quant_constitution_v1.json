@@ -14,20 +14,61 @@
   ],
   "capabilities": {
     "research": {
-      "allow": ["create_hypothesis", "create_candidate", "run_research", "analyze_failure"],
-      "deny": ["read_pristine_oos", "approve_self", "authorize_capital", "send_order", "modify_constitution"]
+      "allow": [
+        "create_hypothesis",
+        "create_candidate",
+        "run_research",
+        "analyze_failure"
+      ],
+      "deny": [
+        "read_pristine_oos",
+        "approve_self",
+        "authorize_capital",
+        "send_order",
+        "modify_constitution"
+      ]
     },
     "validation": {
-      "allow": ["validate_candidate", "attack_candidate", "produce_evidence", "reproduce_candidate"],
-      "deny": ["modify_candidate_after_freeze", "read_pristine_oos_before_final_evaluation", "authorize_capital", "send_order", "modify_constitution"]
+      "allow": [
+        "validate_candidate",
+        "attack_candidate",
+        "produce_evidence",
+        "reproduce_candidate"
+      ],
+      "deny": [
+        "modify_candidate_after_freeze",
+        "read_pristine_oos_before_final_evaluation",
+        "authorize_capital",
+        "send_order",
+        "modify_constitution"
+      ]
     },
     "risk": {
-      "allow": ["evaluate_risk", "reserve_capital", "issue_authorization", "revoke_authorization"],
-      "deny": ["modify_historical_evidence", "modify_research_history", "change_constitution"]
+      "allow": [
+        "evaluate_risk",
+        "reserve_capital",
+        "issue_authorization",
+        "revoke_authorization"
+      ],
+      "deny": [
+        "modify_historical_evidence",
+        "modify_research_history",
+        "change_constitution"
+      ]
     },
     "execution": {
-      "allow": ["submit_authorized_order", "reconcile_broker_state", "manage_protective_state"],
-      "deny": ["create_strategy", "approve_strategy", "increase_authorized_risk", "modify_historical_evidence", "change_constitution"]
+      "allow": [
+        "submit_authorized_order",
+        "reconcile_broker_state",
+        "manage_protective_state"
+      ],
+      "deny": [
+        "create_strategy",
+        "approve_strategy",
+        "increase_authorized_risk",
+        "modify_historical_evidence",
+        "change_constitution"
+      ]
     }
   },
   "hard_boundaries": {
@@ -42,7 +83,9 @@
       "default_authorized_risk": 0,
       "unauthorized_exposure_must_equal": 0,
       "risk_must_not_exceed_authorization": true,
-      "expired_authorization_must_not_execute": true
+      "expired_authorization_must_not_execute": true,
+      "max_authorized_risk": 0.006,
+      "risk_unit": "equity_fraction"
     },
     "evidence": {
       "frozen_history_is_append_only": true,
@@ -74,15 +117,42 @@
     "RECONCILED"
   ],
   "forbidden_direct_transitions": [
-    ["HYPOTHESIS", "AUTHORIZED"],
-    ["HYPOTHESIS", "FILLED"],
-    ["MODEL", "RISK_RESERVED"],
-    ["MODEL", "AUTHORIZED"],
-    ["DECISION_PROPOSAL", "FILLED"],
-    ["RISK_REQUEST", "FILLED"],
-    ["PROPOSED", "FILLED"],
-    ["CLOSED", "OPEN"],
-    ["RETIRED", "PRODUCTION"]
+    [
+      "HYPOTHESIS",
+      "AUTHORIZED"
+    ],
+    [
+      "HYPOTHESIS",
+      "FILLED"
+    ],
+    [
+      "MODEL",
+      "RISK_RESERVED"
+    ],
+    [
+      "MODEL",
+      "AUTHORIZED"
+    ],
+    [
+      "DECISION_PROPOSAL",
+      "FILLED"
+    ],
+    [
+      "RISK_REQUEST",
+      "FILLED"
+    ],
+    [
+      "PROPOSED",
+      "FILLED"
+    ],
+    [
+      "CLOSED",
+      "OPEN"
+    ],
+    [
+      "RETIRED",
+      "PRODUCTION"
+    ]
   ],
   "invariants": [
     "unauthorized_exposure == 0",
