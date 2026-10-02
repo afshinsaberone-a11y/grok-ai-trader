@@ -102,7 +102,7 @@ def test_runtime_trace_submission_is_recorded_before_result_verification():
 def test_parity_rejects_malformed_runtime_trace_string_literals():
     source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
     contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
-    broken = source.replace('StringFormat("\\"side\\":', 'StringFormat(""side":', 1)
+    broken = source.replace('\\\"side', '"side', 1)
     try:
         audit_source(broken, contract)
     except Exception as exc:
