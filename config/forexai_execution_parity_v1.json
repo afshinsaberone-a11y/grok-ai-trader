@@ -5,8 +5,14 @@
   "research": {
     "signal_bar": "fully_closed",
     "entry": "next_bar_open",
-    "entry_cost_model": {"spread_pips": 0.5, "slippage_pips": 0.2, "adverse_pips_per_side": 0.7},
-    "exit_cost_model": {"adverse_pips_per_side": 0.7},
+    "entry_cost_model": {
+      "spread_pips": 0.5,
+      "slippage_pips": 0.2,
+      "adverse_pips_per_side": 0.7
+    },
+    "exit_cost_model": {
+      "adverse_pips_per_side": 0.7
+    },
     "same_bar_resolution": "SL first (conservative)",
     "expiry_bars": 30,
     "max_positions": 1
@@ -18,11 +24,18 @@
     "broker_costs_are_observed": true,
     "max_hold_bars": 30,
     "max_positions": 1,
-    "execution_success_requires": ["trade_result_retcode", "deal_ticket"],
+    "execution_success_requires": [
+      "trade_result_retcode",
+      "deal_ticket"
+    ],
     "filling_mode": "symbol_native",
-    "stop_constraints": ["trade_stops_level", "trade_freeze_level"],
+    "stop_constraints": [
+      "trade_stops_level",
+      "trade_freeze_level"
+    ],
     "runtime_clock": "broker_server_time",
-    "ledger_normalization_required": true
+    "ledger_normalization_required": true,
+    "restart_safety_state_persistence": true
   },
   "risk": {
     "max_authorized_risk_fraction": 0.006,
@@ -33,6 +46,7 @@
     "semantic_execution_identity_required": true,
     "research_and_live_must_share_expiry": true,
     "research_and_live_must_share_position_limit": true,
-    "failed_trade_submission_must_not_count_as_trade": true
+    "failed_trade_submission_must_not_count_as_trade": true,
+    "restart_safety_state_required": true
   }
 }
