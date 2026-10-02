@@ -27,6 +27,7 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         raise ParityError("MQL5_SOURCE_EMPTY")
 
     checks: dict[str, bool] = {}
+    checks["mql5_trace_string_literal_sanity"] = not bool(re.search(r'StringFormat\(\s*""', source)) and not bool(re.search(r'^\s+""[A-Za-z_]', source, re.MULTILINE))
     checks["risk_guard_060_percent"] = bool(re.search(r"if\s*\(\s*RiskPercent\s*>\s*0\.6\s*\)\s*return\s+INIT_FAILED", source))
     checks["max_positions_one"] = bool(re.search(r"input\s+int\s+MaxPositions\s*=\s*1\s*;", source)) and bool(re.search(r"if\s*\(\s*MaxPositions\s*!=\s*1\s*\)\s*return\s+INIT_FAILED", source))
     checks["max_hold_bars_30"] = bool(re.search(r"input\s+int\s+MaxHoldBars\s*=\s*30\s*;", source))
