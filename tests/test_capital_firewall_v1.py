@@ -154,3 +154,60 @@ def test_unresolved_reconciliation_blocks_reservation(tmp_path: Path):
             event_id="reserve-blocked",
             idempotency_key="reserve-blocked-key",
         )
+
+
+def test_reservation_retry_is_idempotent(tmp_path: Path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    kwargs = dict(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        amount=0.005,
+        reservation_id="R1",
+        now_utc="2026-10-02T18:02:00+00:00",
+        event_id="reserve-event",
+        idempotency_key="reserve-key",
+    )
+    firewall.reserve(**kwargs)
+    firewall.reserve(**kwargs)
+    assert len([e for e in ledger.events if e.event_type == "CAPITAL_RESERVATION_CREATED"]) == 1
+
+
+def test_release_requires_closed_or_reconciled_state(tmp_path: Path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.reserve(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        amount=0.005,
+        reservation_id="R1",
+        now_utc="2026-10-02T18:02:00+00:00",
+        event_id="reserve-event",
+        idempotency_key="reserve-key",
+    )
+    with pytest.raises(ReservationError, match="CLOSED_OR_RECONCILED"):
+        firewall.release(
+            trade_id="T1",
+            authorization_id="AUTH1",
+            reservation_id="R1",
+            now_utc="2026-10-02T18:03:00+00:00",
+            event_id="release-event",
+            idempotency_key="release-key",
+        )
+
+
+def test_authorization_retry_is_idempotent(tmp_path: Path):
+    ledger = TradeLedger(tmp_path / "ledger.jsonl")
+    _risk_reserved(ledger)
+    firewall = CapitalFirewall(ledger)
+    kwargs = dict(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        authorized_risk=0.005,
+        issued_at_utc="2026-10-02T18:00:00+00:00",
+        expires_at_utc="2026-10-02T19:00:00+00:00",
+        proof=PROOF_KEYS,
+        event_id="auth-event",
+        idempotency_key="auth-key",
+    )
+    firewall.issue_authorization(**kwargs)
+    firewall.issue_authorization(**kwargs)
+    assert len([e for e in ledger.events if e.event_type == "CAPITAL_AUTHORIZATION_ISSUED"]) == 1
