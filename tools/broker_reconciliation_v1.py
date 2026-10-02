@@ -29,6 +29,8 @@ REQUIRED_FIELDS = {
     "broker_order_id",
     "broker_deal_id",
 }
+ALLOWED_FIELDS = REQUIRED_FIELDS | {"timestamp_utc"}
+
 
 
 def _decimal_string(value: Any) -> str:
@@ -55,9 +57,13 @@ def _utc_timestamp(value: Any) -> str:
 
 
 def normalize_snapshot(snapshot: Mapping[str, Any]) -> dict[str, Any]:
-    missing = sorted(REQUIRED_FIELDS - set(snapshot))
+    provided = set(snapshot)
+    missing = sorted(REQUIRED_FIELDS - provided)
+    extra = sorted(provided - ALLOWED_FIELDS)
     if missing:
         raise BrokerSnapshotError(f"BROKER_SNAPSHOT_MISSING_FIELDS:{missing}")
+    if extra:
+        raise BrokerSnapshotError(f"BROKER_SNAPSHOT_UNKNOWN_FIELDS:{extra}")
     normalized = {
         "symbol": str(snapshot["symbol"]),
         "status": str(snapshot["status"]).upper(),
