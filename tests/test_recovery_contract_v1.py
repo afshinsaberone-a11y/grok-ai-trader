@@ -39,7 +39,7 @@ def test_authorized_trade_requires_explicit_resume(tmp_path: Path):
         _ledger(tmp_path / "ledger.jsonl",
                 ["PROPOSED", "VALIDATED", "RISK_RESERVED", "AUTHORIZED"]).path
     )
-    assert report.status == "PASS"
+    assert report.status == "BLOCKED"
     assert report.items[0].posture == "RECOVERABLE"
     assert report.risk_blocked is True
     assert "EXPLICIT_RESTART_RESUME_NO_NEW_RISK" in report.items[0].action
@@ -53,7 +53,7 @@ def test_active_runtime_requires_reconciliation(tmp_path: Path):
              "ORDER_SUBMITTED", "ACCEPTED", "FILLED", "OPEN"],
         ).path
     )
-    assert report.status == "PASS"
+    assert report.status == "BLOCKED"
     assert report.items[0].posture == "RUNTIME_ACTIVE"
     assert report.risk_blocked is True
     assert "BROKER_RECONCILIATION_AND_RUNTIME_REPLAY_NO_NEW_RISK" in report.items[0].action
