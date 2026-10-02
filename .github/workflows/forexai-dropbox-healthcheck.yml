@@ -26,6 +26,23 @@ jobs:
             exit 78
           fi
 
+      - name: Diagnose token shape (non-secret)
+        run: |
+          set -euo pipefail
+          token="${DROPBOX_ACCESS_TOKEN}"
+          echo "token_present=true"
+          echo "token_length=${#token}"
+          if [[ "$token" == sl.* ]]; then
+            echo "token_kind=short_lived_sl_prefix"
+          else
+            echo "token_kind=non_sl_prefix"
+          fi
+          if [[ "$token" =~ [[:space:]] ]]; then
+            echo "token_contains_whitespace=true"
+          else
+            echo "token_contains_whitespace=false"
+          fi
+
       - name: Validate local Dropbox repository contract
         run: |
           set -euo pipefail
