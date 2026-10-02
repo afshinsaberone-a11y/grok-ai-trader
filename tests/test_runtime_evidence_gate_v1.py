@@ -29,13 +29,42 @@ def _trace(path: Path, deal: str = "D1"):
     rows = []
     for idx, state in enumerate(states, start=1):
         payload = {
-            "index": idx,
             "broker_timestamp": f"2026-10-02T19:{idx:02d}:00",
             "broker_utc_offset_seconds": 0,
         }
-        if state == "FILLED":
-            payload["deal_ticket"] = deal
-            payload["order_ticket"] = "O1"
+        if state == "ORDER_SUBMITTED":
+            payload.update({
+                "side": "BUY",
+                "requested_volume": 1,
+                "requested_price": 1.1,
+                "requested_sl": 1.09,
+                "requested_tp": 1.12,
+                "order_ticket": "O1",
+            })
+        elif state == "ACCEPTED":
+            payload.update({"side": "BUY", "retcode": 10009, "order_ticket": "O1", "deal_ticket": deal})
+        elif state == "FILLED":
+            payload.update({
+                "side": "BUY",
+                "order_ticket": "O1",
+                "deal_ticket": deal,
+                "fill_price": 1.1,
+                "requested_volume": 1,
+                "requested_sl": 1.09,
+                "requested_tp": 1.12,
+            })
+        elif state == "OPEN":
+            payload.update({"side": "BUY", "order_ticket": "O1", "deal_ticket": deal, "position_count": 1})
+        elif state == "CLOSED":
+            payload.update({
+                "deal_ticket": deal,
+                "position_id": "P1",
+                "exit_price": 1.11,
+                "volume": 1,
+                "profit": 0.01,
+                "swap": 0,
+                "commission": 0,
+            })
         rows.append({
             "schema": "forexai.runtime_trace.v1",
             "source": "MQL5",
