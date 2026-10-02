@@ -96,8 +96,11 @@ def verify_runtime_evidence(
 
     fill_payload = fills[0].payload
     fill_deal = str(fill_payload.get("deal_ticket", ""))
+    fill_order = str(fill_payload.get("order_ticket", ""))
     if not fill_deal:
         raise RuntimeEvidenceError("RUNTIME_EVIDENCE_FILL_DEAL_TICKET_MISSING")
+    if not fill_order:
+        raise RuntimeEvidenceError("RUNTIME_EVIDENCE_FILL_ORDER_TICKET_MISSING")
 
     try:
         expected = normalize_snapshot(expected_snapshot)
@@ -107,6 +110,8 @@ def verify_runtime_evidence(
 
     if str(observed["broker_deal_id"]) != fill_deal:
         raise RuntimeEvidenceError("RUNTIME_EVIDENCE_DEAL_TICKET_MISMATCH")
+    if str(observed["broker_order_id"]) != fill_order:
+        raise RuntimeEvidenceError("RUNTIME_EVIDENCE_ORDER_TICKET_MISMATCH")
 
     result = reconcile(
         ledger,
