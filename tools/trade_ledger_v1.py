@@ -162,6 +162,9 @@ class TradeLedger:
             raise LedgerError(f"LEDGER_UNKNOWN_STATE:{state}")
 
         body_payload = dict(payload)
+        existing_event = next((event for event in self._events if event.event_id == event_id), None)
+        if existing_event is not None and existing_event.idempotency_key != idempotency_key:
+            raise LedgerError("EVENT_ID_REUSED_WITH_DIFFERENT_IDEMPOTENCY")
         existing = self._by_idempotency.get(idempotency_key)
         body = {
             "sequence": len(self._events) + 1,
@@ -331,6 +334,8 @@ class TradeLedger:
                 raise LedgerIntegrityError("LEDGER_HASH_MISMATCH")
             if event.idempotency_key in self._by_idempotency:
                 raise LedgerIntegrityError("LEDGER_DUPLICATE_IDEMPOTENCY_KEY")
+            if any(existing.event_id == event.event_id for existing in self._events):
+                raise LedgerIntegrityError("LEDGER_DUPLICATE_EVENT_ID")
             if event.state is not None and event.state not in STATES:
                 raise LedgerIntegrityError("LEDGER_UNKNOWN_STATE")
             self._events.append(event)
