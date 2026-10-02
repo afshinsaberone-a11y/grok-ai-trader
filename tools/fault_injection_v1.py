@@ -42,13 +42,18 @@ def tamper_ledger_payload(path: str | Path, needle: str, replacement: str) -> No
 
 def mutate_trace_offset(trace_path: str | Path, offset: int) -> None:
     path = Path(trace_path)
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    rows = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
     if not rows:
         raise ValueError("FAULT_INJECTION_TRACE_EMPTY")
     rows[0]["payload"]["broker_utc_offset_seconds"] = offset
-    path.write_text("
-".join(json.dumps(row) for row in rows) + "
-", encoding="utf-8")
+    path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
 
 
 def assert_ledger_tamper_is_detected(path: str | Path) -> None:
@@ -60,7 +65,8 @@ def assert_ledger_tamper_is_detected(path: str | Path) -> None:
 
 
 def assert_trace_fault_is_detected(path: str | Path) -> None:
-    ledger = TradeLedger(Path(path).with_name("fault-trace-ledger.jsonl"))
+    ledger_path = Path(path).with_name("fault-trace-ledger.jsonl")
+    ledger = TradeLedger(ledger_path)
     try:
         ingest_trace_file(path, ledger)
     except RuntimeTraceError:
