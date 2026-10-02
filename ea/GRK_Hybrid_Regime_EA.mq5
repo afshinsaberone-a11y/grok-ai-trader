@@ -101,9 +101,10 @@ void TraceLifecycle(const string trade_id,
   FileSeek(handle, 0, SEEK_END);
 
   string broker_ts = TraceBrokerIso(TimeCurrent());
+  long broker_utc_offset_seconds = (long)(TimeCurrent() - TimeGMT());
   string payload = StringFormat(
-      "\"broker_timestamp\":\"%s\"",
-      TraceJsonEscape(broker_ts)
+      "\"broker_timestamp\":\"%s\",\"broker_utc_offset_seconds\":%I64d",
+      TraceJsonEscape(broker_ts), broker_utc_offset_seconds
   );
   if(StringLen(payload_fields) > 0)
     payload += "," + payload_fields;
@@ -792,7 +793,7 @@ void OnTick()
 // Filling mode is selected from the symbol; stop validation includes stops+freeze constraints.
 // Trading permissions require SYMBOL_TRADE_MODE and MARKET+SL+TP order flags.
 // Protective closes are counted only after broker ResultRetcode confirmation.
-// Runtime timestamps use broker/server time; trace UTC ordering uses TimeGMT and payload retains broker time.
+// Runtime timestamps retain broker/server time; UTC is derived/cross-checked from broker time and the observed server-GMT offset.
 // FOREXAI-RUNTIME-TRACE-V1: MQL5 emits advisory ORDER_SUBMITTED/ACCEPTED/FILLED/OPEN/MANAGED/CLOSED events only.
 // GRK-SAFETY-CONTRACT-051
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
