@@ -35,6 +35,7 @@ REQUIRED_INVARIANTS = {
     "mql5_execution_semantic_parity_audit == PASS",
     "deterministic_replay_digest_stable == true",
     "mql5_runtime_trace_cannot_grant_authority == true",
+    "runtime_evidence_gate_requires_trace_replay_reconciliation_pass == true",
 }
 
 
