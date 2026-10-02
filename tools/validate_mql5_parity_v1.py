@@ -39,12 +39,14 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["failed_submission_not_counted"] = bool(re.search(r"bool\s+submitted\s*=\s*trade\.(?:Buy|Sell)\([\s\S]*?\);[\s\S]*?if\(!submitted\)\s*return\s+false;[\s\S]*?if\(!TradeExecutionAccepted\(\)\)\s*return\s+false;[\s\S]*?trades_today\+\+;", source))
     checks["freeze_level_checked"] = "SYMBOL_TRADE_FREEZE_LEVEL" in source and "MathMax(stops, freeze)" in source
     checks["broker_clock_explicit"] = "TimeCurrent()" in source and "Runtime timestamps use broker/server time" in source
+    checks["restart_state_persistence"] = "GlobalVariableSet" in source and "GlobalVariableGet" in source and "LoadSafetyState" in source and "PersistSafetyState" in source
 
     expected = {
         "max_positions_one": contract["live_mql5"]["max_positions"] == 1,
         "max_hold_bars_30": contract["live_mql5"]["max_hold_bars"] == 30,
         "native_symbol_filling": contract["live_mql5"]["filling_mode"] == "symbol_native",
         "semantic_execution_identity": contract["parity_policy"]["semantic_execution_identity_required"] is True,
+        "restart_safety_state_required": contract["parity_policy"]["restart_safety_state_required"] is True,
     }
     for key, value in expected.items():
         checks[f"contract_{key}"] = bool(value)
