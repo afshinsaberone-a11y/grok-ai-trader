@@ -46,6 +46,7 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["runtime_trace_common_file_write"] = "FileOpen(" in source and "FILE_COMMON" in source and "FileWriteString" in source and "FileFlush" in source
     checks["runtime_trace_utc_timestamp"] = "TimeGMT()" in source and "timestamp_utc" in source
     checks["runtime_trace_broker_timestamp"] = "TimeCurrent()" in source and "broker_timestamp" in source
+    checks["runtime_trace_broker_offset_evidence"] = "broker_utc_offset_seconds" in source and "TimeCurrent() - TimeGMT()" in source
     checks["runtime_trace_lifecycle"] = all(token in source for token in (
         '"ORDER_SUBMITTED"', '"ACCEPTED"', '"FILLED"', '"OPEN"', '"MANAGED"', '"CLOSED"'
     ))
