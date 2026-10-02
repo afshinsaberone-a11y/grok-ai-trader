@@ -32,12 +32,6 @@ def test_constitution_rejects_capital_authority_overlap():
     try:
         validate(value)
     except ConstitutionError as exc:
-        assert "CAPABILITY_ALLOW_DENY_OVERLAP" not in str(exc)
-        raise
-    # Research already denies capital authorization, so the overlap must be rejected.
-    try:
-        validate(value)
-    except ConstitutionError as exc:
         assert "CAPABILITY_ALLOW_DENY_OVERLAP:research" in str(exc)
     else:
         raise AssertionError("research capital capability must be denied")
