@@ -38,3 +38,18 @@ def test_parity_requires_restart_safe_state():
         assert "restart_state_persistence" in str(exc)
     else:
         raise AssertionError("restart safety persistence must fail closed")
+
+
+def test_parity_requires_trade_permissions_and_close_verification():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("TradeModeAllows", "TradeModeRemoved").replace(
+        "Protective closes are counted only after broker ResultRetcode confirmation.",
+        "Protective closes use best effort."
+    )
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "trade_mode_permission_checked" in str(exc) or "close_retcode_verified" in str(exc)
+    else:
+        raise AssertionError("trade permission and close-result checks must fail closed")
