@@ -35,6 +35,7 @@ def _trace(path: Path, deal: str = "D1"):
         }
         if state == "FILLED":
             payload["deal_ticket"] = deal
+            payload["order_ticket"] = "O1"
         rows.append({
             "schema": "forexai.runtime_trace.v1",
             "source": "MQL5",
@@ -139,4 +140,23 @@ def test_trace_sequence_is_required(tmp_path: Path):
             observed_snapshot=_snapshot(),
             reconciliation_idempotency_key="recon-1",
             reconciliation_event_id="recon-e1",
+        )
+
+
+def test_order_ticket_mismatch_fails_closed(tmp_path: Path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    _seed_ledger(ledger_path)
+    trace_path = tmp_path / "trace.jsonl"
+    _trace(trace_path)
+    observed = _snapshot()
+    observed["broker_order_id"] = "O2"
+    with pytest.raises(RuntimeEvidenceError, match="ORDER_TICKET_MISMATCH"):
+        verify_runtime_evidence(
+            ledger_path=ledger_path,
+            trace_path=trace_path,
+            trade_id="T1",
+            expected_snapshot=observed,
+            observed_snapshot=observed,
+            reconciliation_idempotency_key="recon-2",
+            reconciliation_event_id="recon-e2",
         )
