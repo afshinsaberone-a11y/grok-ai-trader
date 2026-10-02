@@ -10,15 +10,19 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from tools.dropbox_oauth import get_access_token
+
 API_URL = "https://api.dropboxapi.com/2"
 ROOT = "/ForexAI"
 
 
 def token() -> str:
-    value = os.environ.get("DROPBOX_ACCESS_TOKEN", "").strip()
-    if not value:
-        raise RuntimeError("DROPBOX_ACCESS_TOKEN is required")
-    return value
+    try:
+        return get_access_token()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def call(endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
