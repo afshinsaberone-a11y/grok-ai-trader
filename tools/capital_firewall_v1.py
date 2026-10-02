@@ -125,6 +125,10 @@ class CapitalFirewall:
         if len(events) != 1:
             raise AuthorizationError("AUTHORIZATION_NOT_FOUND_OR_AMBIGUOUS")
         payload = events[0].payload
+        revoked = any(
+            event.payload.get("authorization_id") == authorization_id
+            for event in self._events(trade_id, "CAPITAL_AUTHORIZATION_REVOKED")
+        )
         return RiskAuthorization(
             authorization_id=authorization_id,
             trade_id=trade_id,
@@ -132,7 +136,7 @@ class CapitalFirewall:
             issued_at_utc=str(payload["issued_at_utc"]),
             expires_at_utc=str(payload["expires_at_utc"]),
             proof=dict(payload["proof"]),
-            status=str(payload.get("status", "ACTIVE")),
+            status="REVOKED" if revoked else str(payload.get("status", "ACTIVE")),
         )
 
     def _assert_authorization_current(
