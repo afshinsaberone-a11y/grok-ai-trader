@@ -99,6 +99,17 @@ def test_runtime_trace_submission_is_recorded_before_result_verification():
     assert '"ORDER_SUBMITTED"' in source[submit:result_check]
 
 
+def test_parity_rejects_malformed_runtime_trace_string_literals():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace('StringFormat("\\"side\\":', 'StringFormat(""side":', 1)
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "mql5_trace_string_literal_sanity" in str(exc)
+    else:
+        raise AssertionError("malformed MQL5 trace string literals must fail closed")
+
 def test_parity_requires_result_order_evidence():
     source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
     contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
