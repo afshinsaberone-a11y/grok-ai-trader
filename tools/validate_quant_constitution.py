@@ -32,6 +32,7 @@ REQUIRED_INVARIANTS = {
     "production_cannot_mutate_frozen_evidence == true",
     "duplicate_request_cannot_create_duplicate_exposure == true",
     "restart_does_not_clear_safety_state == true",
+    "mql5_execution_semantic_parity_audit == PASS",
 }
 
 
