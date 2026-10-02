@@ -79,6 +79,15 @@ class CapitalFirewall:
             if event.trade_id == trade_id and event.event_type == event_type
         ]
 
+    def _event_by_idempotency(self, trade_id: str, idempotency_key: str) -> Any | None:
+        matches = [
+            event for event in self.ledger.events
+            if event.trade_id == trade_id and event.idempotency_key == idempotency_key
+        ]
+        if len(matches) > 1:
+            raise CapitalFirewallError("IDEMPOTENCY_KEY_NOT_UNIQUE")
+        return matches[0] if matches else None
+
     def _authorization(self, trade_id: str, authorization_id: str) -> RiskAuthorization:
         events = [
             event for event in self._events(trade_id, "CAPITAL_AUTHORIZATION_ISSUED")
@@ -158,6 +167,12 @@ class CapitalFirewall:
         if proof_dict["authorization_expiry"] != expires_at_utc:
             raise AuthorizationError("PROOF_AUTHORIZATION_EXPIRY_MISMATCH")
 
+        existing = self._event_by_idempotency(trade_id, idempotency_key)
+        if existing is not None:
+            if existing.event_type != "CAPITAL_AUTHORIZATION_ISSUED":
+                raise AuthorizationError("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_OPERATION")
+            return self._authorization(trade_id, authorization_id)
+
         payload = {
             "authorization_id": authorization_id,
             "authorized_risk": float(authorized_risk),
@@ -187,6 +202,11 @@ class CapitalFirewall:
         idempotency_key: str,
     ) -> None:
         self.ledger.assert_no_unresolved_reconciliation()
+        existing = self._event_by_idempotency(trade_id, idempotency_key)
+        if existing is not None:
+            if existing.event_type != "TRADE_AUTHORIZED":
+                raise AuthorizationError("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_OPERATION")
+            return
         auth = self._authorization(trade_id, authorization_id)
         self._assert_authorization_current(auth, now_utc)
         if self.ledger.state_of(trade_id) != "RISK_RESERVED":
@@ -226,8 +246,23 @@ class CapitalFirewall:
         if amount > auth.authorized_risk:
             raise ReservationError("RESERVATION_EXCEEDS_AUTHORIZED_RISK")
         existing = self._events(trade_id, "CAPITAL_RESERVATION_CREATED")
-        if any(event.payload.get("reservation_id") == reservation_id for event in existing):
-            raise ReservationError("RESERVATION_ID_ALREADY_EXISTS")
+        same_reservation = [
+            event for event in existing
+            if event.payload.get("reservation_id") == reservation_id
+        ]
+        if same_reservation:
+            prior = same_reservation[0]
+            if (
+                prior.payload.get("authorization_id") != authorization_id
+                or float(prior.payload.get("amount")) != float(amount)
+            ):
+                raise ReservationError("RESERVATION_ID_REUSED_WITH_DIFFERENT_SEMANTICS")
+            return
+        prior_by_key = self._event_by_idempotency(trade_id, idempotency_key)
+        if prior_by_key is not None:
+            if prior_by_key.event_type != "CAPITAL_RESERVATION_CREATED":
+                raise ReservationError("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_OPERATION")
+            return
         if self._active_reserved_amount(trade_id, authorization_id) + float(amount) > auth.authorized_risk:
             raise ReservationError("ACTIVE_RESERVATIONS_EXCEED_AUTHORIZATION")
         self.ledger.append(
@@ -275,8 +310,15 @@ class CapitalFirewall:
         idempotency_key: str,
     ) -> None:
         self.ledger.assert_no_unresolved_reconciliation()
+        prior_by_key = self._event_by_idempotency(trade_id, idempotency_key)
+        if prior_by_key is not None:
+            if prior_by_key.event_type != "CAPITAL_RESERVATION_RELEASED":
+                raise ReservationError("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_OPERATION")
+            return
         auth = self._authorization(trade_id, authorization_id)
         _parse_utc(now_utc)
+        if self.ledger.state_of(trade_id) not in {"CLOSED", "RECONCILED"}:
+            raise ReservationError("RESERVATION_RELEASE_REQUIRES_CLOSED_OR_RECONCILED_TRADE")
         reservations = [
             event for event in self._events(trade_id, "CAPITAL_RESERVATION_CREATED")
             if event.payload.get("reservation_id") == reservation_id
