@@ -11,6 +11,8 @@ def test_constitution_passes():
     result = validate(load(CONSTITUTION))
     assert result["status"] == "PASS"
     assert result["capital_default_authorized_risk"] == 0
+    assert result["capital_max_authorized_risk"] == 0.006
+    assert result["capital_risk_unit"] == "equity_fraction"
     assert result["oos"]["discovery_read"] is False
     assert result["oos"]["optimization_read"] is False
 
@@ -35,3 +37,14 @@ def test_constitution_rejects_capital_authority_overlap():
         assert "CAPABILITY_ALLOW_DENY_OVERLAP:research" in str(exc)
     else:
         raise AssertionError("research capital capability must be denied")
+
+
+def test_constitution_rejects_higher_authorization_cap():
+    value = load(CONSTITUTION)
+    value["hard_boundaries"]["capital"]["max_authorized_risk"] = 0.01
+    try:
+        validate(value)
+    except ConstitutionError as exc:
+        assert "CAPITAL_MAX_AUTHORIZED_RISK_MUST_BE_0_006" in str(exc)
+    else:
+        raise AssertionError("capital authorization ceiling must fail closed")
