@@ -42,6 +42,19 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["close_retcode_verified"] = "trade.PositionClose(ticket)" in source and "TRADE_RETCODE_DONE" in source and "Protective closes are counted only after broker ResultRetcode confirmation." in source
     checks["broker_clock_explicit"] = "TimeCurrent()" in source and "Runtime timestamps use broker/server time" in source
     checks["restart_state_persistence"] = "GlobalVariableSet" in source and "GlobalVariableGet" in source and "LoadSafetyState" in source and "PersistSafetyState" in source
+    checks["runtime_trace_schema"] = "forexai.runtime_trace.v1" in source and "FOREXAI-RUNTIME-TRACE-V1" in source
+    checks["runtime_trace_common_file_write"] = "FileOpen(" in source and "FILE_COMMON" in source and "FileWriteString" in source and "FileFlush" in source
+    checks["runtime_trace_utc_timestamp"] = "TimeGMT()" in source and "timestamp_utc" in source
+    checks["runtime_trace_broker_timestamp"] = "TimeCurrent()" in source and "broker_timestamp" in source
+    checks["runtime_trace_lifecycle"] = all(token in source for token in (
+        '"ORDER_SUBMITTED"', '"ACCEPTED"', '"FILLED"', '"OPEN"', '"MANAGED"', '"CLOSED"'
+    ))
+    checks["runtime_trace_observational_only"] = (
+        "CAPITAL_AUTHORIZATION_ISSUED" not in source
+        and "CAPITAL_AUTHORIZATION_REVOKED" not in source
+        and "TRADE_AUTHORIZED" not in source
+        and "CAPITAL_RESERVATION_CREATED" not in source
+    )
 
     expected = {
         "max_positions_one": contract["live_mql5"]["max_positions"] == 1,
@@ -49,6 +62,10 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         "native_symbol_filling": contract["live_mql5"]["filling_mode"] == "symbol_native",
         "semantic_execution_identity": contract["parity_policy"]["semantic_execution_identity_required"] is True,
         "restart_safety_state_required": contract["parity_policy"]["restart_safety_state_required"] is True,
+        "runtime_trace_emission_required": contract["parity_policy"]["runtime_trace_emission_required"] is True
+            and contract["live_mql5"]["runtime_trace"]["enabled"] is True,
+        "runtime_trace_cannot_grant_authority": contract["parity_policy"]["runtime_trace_cannot_grant_authority"] is True
+            and contract["live_mql5"]["runtime_trace"]["capital_authority_events_forbidden"] is True,
     }
     for key, value in expected.items():
         checks[f"contract_{key}"] = bool(value)
