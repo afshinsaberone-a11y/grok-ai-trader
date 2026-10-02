@@ -148,7 +148,7 @@ void TraceLifecycle(const string trade_id,
 
   uint written = FileWriteString(handle, row);
   FileFlush(handle);
-  if(written == 0)
+  if(written != StringLen(row))
     runtime_trace_healthy = false;
   FileClose(handle);
 }
