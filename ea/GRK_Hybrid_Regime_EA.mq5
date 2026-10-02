@@ -49,6 +49,40 @@ int regime_same_count = 0;
 datetime day_stamp = 0;
 double day_start_equity = 0;
 
+string SafetyKey(const string suffix)
+{
+  return "ForexAI.v1." + IntegerToString((int)Magic) + "." + _Symbol + "." + suffix;
+}
+
+void PersistSafetyState()
+{
+  GlobalVariableSet(SafetyKey("consec_losses"), (double)consec_losses);
+  GlobalVariableSet(SafetyKey("halt_bars_left"), (double)halt_bars_left);
+  GlobalVariableSet(SafetyKey("trades_today"), (double)trades_today);
+  GlobalVariableSet(SafetyKey("day_stamp"), (double)day_stamp);
+  GlobalVariableSet(SafetyKey("day_start_equity"), day_start_equity);
+}
+
+void LoadSafetyState()
+{
+  bool found = GlobalVariableCheck(SafetyKey("day_stamp"));
+  if(!found)
+  {
+    consec_losses = 0;
+    halt_bars_left = 0;
+    trades_today = 0;
+    day_stamp = TimeCurrent();
+    day_start_equity = AccountInfoDouble(ACCOUNT_EQUITY);
+    PersistSafetyState();
+    return;
+  }
+
+  consec_losses = (int)GlobalVariableGet(SafetyKey("consec_losses"));
+  halt_bars_left = (int)GlobalVariableGet(SafetyKey("halt_bars_left"));
+  trades_today = (int)GlobalVariableGet(SafetyKey("trades_today"));
+  day_stamp = (datetime)GlobalVariableGet(SafetyKey("day_stamp"));
+  day_start_equity = GlobalVariableGet(SafetyKey("day_start_equity"));
+}
 int OnInit()
 {
   if(RiskPercent > 0.6) return INIT_FAILED;
@@ -71,13 +105,14 @@ int OnInit()
   trade.SetExpertMagicNumber((ulong)Magic);
   trade.SetDeviationInPoints(20);
   trade.SetTypeFillingBySymbol(_Symbol);
-  day_start_equity = AccountInfoDouble(ACCOUNT_EQUITY);
-  day_stamp = TimeCurrent();
+  LoadSafetyState();
+  RollDayIfNeeded();
   return INIT_SUCCEEDED;
 }
 
 void OnDeinit(const int reason)
 {
+  PersistSafetyState();
   if(adx_h!=INVALID_HANDLE)    IndicatorRelease(adx_h);
   if(ma_h!=INVALID_HANDLE)     IndicatorRelease(ma_h);
   if(htf_ma_h!=INVALID_HANDLE) IndicatorRelease(htf_ma_h);
@@ -176,6 +211,8 @@ void RollDayIfNeeded()
     day_start_equity = AccountInfoDouble(ACCOUNT_EQUITY);
     consec_losses = 0;
     trades_today = 0;
+    halt_bars_left = 0;
+    PersistSafetyState();
   }
 }
 
@@ -460,6 +497,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
     if(consec_losses >= ConsecutiveHalt) halt_bars_left = HaltCooldownBars;
   }
   else consec_losses = 0;
+  PersistSafetyState();
 }
 
 void OnTick()
@@ -481,6 +519,7 @@ void OnTick()
   if(halt_bars_left > 0)
   {
     halt_bars_left--;
+    PersistSafetyState();
     return;
   }
 
