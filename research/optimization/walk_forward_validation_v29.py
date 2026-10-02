@@ -119,6 +119,8 @@ def _validation_gate(metrics: dict[str, Any]) -> bool:
         and float(metrics.get("total_R", 0.0)) > 0
         and int(metrics.get("trades", 0)) >= 100
         and float(metrics.get("max_dd_pct", 100.0)) <= 35.0
+        and metrics.get("entries_equal_exits") is True
+        and metrics.get("open_position_at_end") is False
     )
 
 
