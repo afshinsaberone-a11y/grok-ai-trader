@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from tools.trade_ledger_v1 import STATES, LedgerError, TradeLedger
+from tools.trade_ledger_v1 import ALLOWED_TRANSITIONS, STATES, LedgerError, TradeLedger
 
 
 TRACE_SCHEMA = "forexai.runtime_trace.v1"
@@ -147,7 +147,7 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
     except (OSError, UnicodeError) as exc:
         raise RuntimeTraceError(f"RUNTIME_TRACE_READ_FAIL:{exc}") from exc
 
-    ingested = []
+    records: list[dict[str, Any]] = []
     for line_number, line in enumerate(lines, start=1):
         if not line.strip():
             raise RuntimeTraceError(f"RUNTIME_TRACE_BLANK_LINE:{line_number}")
@@ -155,7 +155,53 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
             raw = json.loads(line)
         except json.JSONDecodeError as exc:
             raise RuntimeTraceError(f"RUNTIME_TRACE_JSON_INVALID:{line_number}") from exc
-        record = normalize_trace(raw)
+        try:
+            records.append(normalize_trace(raw))
+        except RuntimeTraceError as exc:
+            raise RuntimeTraceError(f"RUNTIME_TRACE_INVALID_RECORD:{line_number}:{exc}") from exc
+
+    # Preflight the entire batch against durable state before mutating the ledger.
+    # This prevents malformed/reordered later records from partially committing
+    # earlier observations into the authoritative ledger.
+    simulated_states = {
+        trade_id: ledger.state_of(trade_id)
+        for trade_id in {record["trade_id"] for record in records}
+    }
+    existing_by_key = {event.idempotency_key: event for event in ledger.events}
+    for record in records:
+        existing = existing_by_key.get(record["idempotency_key"])
+        if existing is not None:
+            semantics_match = (
+                existing.trade_id == record["trade_id"]
+                and existing.state == record["state"]
+                and existing.event_type == record["event_type"]
+                and existing.payload == {
+                    "runtime_trace_schema": record["schema"],
+                    "runtime_source": record["source"],
+                    **record["payload"],
+                }
+            )
+            if not semantics_match:
+                raise RuntimeTraceError("RUNTIME_TRACE_IDEMPOTENCY_SEMANTICS_CONFLICT")
+            continue
+
+        state = record["state"]
+        current = simulated_states.get(record["trade_id"])
+        if current is None:
+            if state != "PROPOSED" and state not in OBSERVATIONAL_STATES:
+                raise RuntimeTraceError(
+                    f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{state}"
+                )
+        elif state not in ALLOWED_TRANSITIONS[current]:
+            raise RuntimeTraceError(
+                f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{state}"
+            )
+
+        simulated_states[record["trade_id"]] = state
+        existing_by_key[record["idempotency_key"]] = None
+
+    ingested = []
+    for record in records:
         try:
             event = ledger.append(
                 trade_id=record["trade_id"],
@@ -172,7 +218,7 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
             )
         except LedgerError as exc:
             raise RuntimeTraceError(
-                f"RUNTIME_TRACE_LEDGER_REJECTED:{line_number}:{exc}"
+                f"RUNTIME_TRACE_LEDGER_REJECTED:{exc}"
             ) from exc
         ingested.append(event.event_id)
 
