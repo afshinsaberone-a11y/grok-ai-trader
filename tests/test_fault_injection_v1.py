@@ -34,8 +34,7 @@ def _trace(path: Path):
       "timestamp_utc":"2026-10-02T18:01:00+00:00","state":"ORDER_SUBMITTED",
       "payload":{"broker_timestamp":"2026-10-02T18:01:00","broker_utc_offset_seconds":0}
     }
-    path.write_text(json.dumps(row)+"
-",encoding="utf-8")
+    path.write_text(json.dumps(row)+"\n",encoding="utf-8")
 
 
 def _snapshot():
