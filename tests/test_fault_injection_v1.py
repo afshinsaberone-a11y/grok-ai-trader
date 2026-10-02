@@ -44,6 +44,12 @@ def _trace(path: Path):
         "payload": {
             "broker_timestamp": "2026-10-02T18:01:00",
             "broker_utc_offset_seconds": 0,
+            "side": "BUY",
+            "requested_volume": 1,
+            "requested_price": 1.1,
+            "requested_sl": 1.09,
+            "requested_tp": 1.12,
+            "order_ticket": "O1",
         },
     }
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
