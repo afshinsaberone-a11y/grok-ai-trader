@@ -50,6 +50,20 @@ int regime_same_count = 0;
 datetime day_stamp = 0;
 double day_start_equity = 0;
 string active_trace_trade_id = "";
+bool runtime_trace_healthy = true;
+
+bool EnsureRuntimeTraceReady()
+{
+  int handle = FileOpen(
+      TraceFile(),
+      FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON |
+      FILE_SHARE_READ | FILE_SHARE_WRITE
+  );
+  if(handle == INVALID_HANDLE)
+    return false;
+  FileClose(handle);
+  return true;
+}
 
 string TraceFile()
 {
@@ -96,7 +110,10 @@ void TraceLifecycle(const string trade_id,
       FILE_SHARE_READ | FILE_SHARE_WRITE
   );
   if(handle == INVALID_HANDLE)
+  {
+    runtime_trace_healthy = false;
     return;
+  }
 
   FileSeek(handle, 0, SEEK_END);
 
@@ -129,8 +146,10 @@ void TraceLifecycle(const string trade_id,
       payload
   );
 
-  FileWriteString(handle, row);
+  uint written = FileWriteString(handle, row);
   FileFlush(handle);
+  if(written == 0)
+    runtime_trace_healthy = false;
   FileClose(handle);
 }
 
@@ -300,6 +319,7 @@ int OnInit()
   trade.SetExpertMagicNumber((ulong)Magic);
   trade.SetDeviationInPoints(20);
   trade.SetTypeFillingBySymbol(_Symbol);
+  if(!EnsureRuntimeTraceReady()) return INIT_FAILED;
   LoadSafetyState();
   RollDayIfNeeded();
   return INIT_SUCCEEDED;
@@ -762,6 +782,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 void OnTick()
 {
   TimeStopStale();
+  if(!runtime_trace_healthy) return;
   if(!SpreadOk()) return;
   if(!SessionOk()) return;
   if(!NewsBlackoutOk()) return;
@@ -794,7 +815,7 @@ void OnTick()
 // Trading permissions require SYMBOL_TRADE_MODE and MARKET+SL+TP order flags.
 // Protective closes are counted only after broker ResultRetcode confirmation.
 // Runtime timestamps retain broker/server time; UTC is derived/cross-checked from broker time and the observed server-GMT offset.
-// FOREXAI-RUNTIME-TRACE-V1: MQL5 emits advisory ORDER_SUBMITTED/ACCEPTED/FILLED/OPEN/MANAGED/CLOSED events only.
+// FOREXAI-RUNTIME-TRACE-V1: MQL5 emits advisory ORDER_SUBMITTED/ACCEPTED/FILLED/OPEN/MANAGED/CLOSED events only; telemetry failure blocks new orders.
 // GRK-SAFETY-CONTRACT-051
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only. Daily profit/loss halt.
