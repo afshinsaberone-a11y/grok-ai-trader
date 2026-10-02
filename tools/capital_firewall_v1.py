@@ -145,9 +145,6 @@ class CapitalFirewall:
         event_id: str,
         idempotency_key: str,
     ) -> RiskAuthorization:
-        self.ledger.assert_no_unresolved_reconciliation()
-        if self.ledger.state_of(trade_id) != "RISK_RESERVED":
-            raise AuthorizationError("TRADE_MUST_BE_RISK_RESERVED_BEFORE_AUTHORIZATION")
         if not authorization_id or not trade_id:
             raise AuthorizationError("AUTHORIZATION_IDENTITY_MISSING")
         if not isinstance(authorized_risk, (int, float)) or authorized_risk <= 0:
@@ -187,6 +184,10 @@ class CapitalFirewall:
                 raise AuthorizationError(str(exc)) from exc
             return self._authorization(trade_id, authorization_id)
 
+        self.ledger.assert_no_unresolved_reconciliation()
+        if self.ledger.state_of(trade_id) != "RISK_RESERVED":
+            raise AuthorizationError("TRADE_MUST_BE_RISK_RESERVED_BEFORE_AUTHORIZATION")
+
         self.ledger.append(
             trade_id=trade_id,
             state=None,
@@ -207,9 +208,8 @@ class CapitalFirewall:
         event_id: str,
         idempotency_key: str,
     ) -> None:
-        self.ledger.assert_no_unresolved_reconciliation()
-        existing = self._event_by_idempotency(trade_id, idempotency_key)
         auth = self._authorization(trade_id, authorization_id)
+        existing = self._event_by_idempotency(trade_id, idempotency_key)
         auth_payload = {
             "authorization_id": authorization_id,
             "authorization_expires_at": auth.expires_at_utc,
@@ -221,6 +221,7 @@ class CapitalFirewall:
             except CapitalFirewallError as exc:
                 raise AuthorizationError(str(exc)) from exc
             return
+        self.ledger.assert_no_unresolved_reconciliation()
         self._assert_authorization_current(auth, now_utc)
         if self.ledger.state_of(trade_id) != "RISK_RESERVED":
             raise AuthorizationError("TRADE_STATE_NOT_READY_FOR_AUTHORIZATION")
@@ -245,28 +246,12 @@ class CapitalFirewall:
         event_id: str,
         idempotency_key: str,
     ) -> None:
-        self.ledger.assert_no_unresolved_reconciliation()
         auth = self._authorization(trade_id, authorization_id)
-        self._assert_authorization_current(auth, now_utc)
-        if self.ledger.state_of(trade_id) != "AUTHORIZED":
-            raise ReservationError("TRADE_MUST_BE_AUTHORIZED_BEFORE_RESERVATION")
-        if not isinstance(amount, (int, float)) or amount <= 0:
-            raise ReservationError("RESERVATION_AMOUNT_MUST_BE_POSITIVE")
-        if amount > auth.authorized_risk:
-            raise ReservationError("RESERVATION_EXCEEDS_AUTHORIZED_RISK")
-        existing = self._events(trade_id, "CAPITAL_RESERVATION_CREATED")
+        existing_events = self._events(trade_id, "CAPITAL_RESERVATION_CREATED")
         same_reservation = [
-            event for event in existing
+            event for event in existing_events
             if event.payload.get("reservation_id") == reservation_id
         ]
-        if same_reservation:
-            prior = same_reservation[0]
-            if (
-                prior.payload.get("authorization_id") != authorization_id
-                or float(prior.payload.get("amount")) != float(amount)
-            ):
-                raise ReservationError("RESERVATION_ID_REUSED_WITH_DIFFERENT_SEMANTICS")
-            return
         reservation_payload = {
             "reservation_id": reservation_id,
             "authorization_id": authorization_id,
@@ -274,12 +259,26 @@ class CapitalFirewall:
             "expires_at_utc": auth.expires_at_utc,
         }
         prior_by_key = self._event_by_idempotency(trade_id, idempotency_key)
+        if same_reservation:
+            prior = same_reservation[0]
+            if prior.payload != reservation_payload:
+                raise ReservationError("RESERVATION_ID_REUSED_WITH_DIFFERENT_SEMANTICS")
+            return
         if prior_by_key is not None:
             try:
                 self._assert_idempotent_semantics(prior_by_key, event_type="CAPITAL_RESERVATION_CREATED", payload=reservation_payload)
             except CapitalFirewallError as exc:
                 raise ReservationError(str(exc)) from exc
             return
+
+        self.ledger.assert_no_unresolved_reconciliation()
+        self._assert_authorization_current(auth, now_utc)
+        if self.ledger.state_of(trade_id) != "AUTHORIZED":
+            raise ReservationError("TRADE_MUST_BE_AUTHORIZED_BEFORE_RESERVATION")
+        if not isinstance(amount, (int, float)) or amount <= 0:
+            raise ReservationError("RESERVATION_AMOUNT_MUST_BE_POSITIVE")
+        if amount > auth.authorized_risk:
+            raise ReservationError("RESERVATION_EXCEEDS_AUTHORIZED_RISK")
         if self._active_reserved_amount(trade_id, authorization_id) + float(amount) > auth.authorized_risk:
             raise ReservationError("ACTIVE_RESERVATIONS_EXCEED_AUTHORIZATION")
         self.ledger.append(
