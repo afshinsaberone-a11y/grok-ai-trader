@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.execution_parity.v1",
+  "purpose": "Machine-readable contract linking research execution semantics to the MQL5 runtime adapter.",
+  "research": {
+    "signal_bar": "fully_closed",
+    "entry": "next_bar_open",
+    "entry_cost_model": {"spread_pips": 0.5, "slippage_pips": 0.2, "adverse_pips_per_side": 0.7},
+    "exit_cost_model": {"adverse_pips_per_side": 0.7},
+    "same_bar_resolution": "SL first (conservative)",
+    "expiry_bars": 30,
+    "max_positions": 1
+  },
+  "live_mql5": {
+    "signal_bar": "fully_closed",
+    "entry": "first_market_price_after_new_bar",
+    "entry_price_equality_with_research_open": false,
+    "broker_costs_are_observed": true,
+    "max_hold_bars": 30,
+    "max_positions": 1,
+    "execution_success_requires": ["trade_result_retcode", "deal_ticket"],
+    "filling_mode": "symbol_native",
+    "stop_constraints": ["trade_stops_level", "trade_freeze_level"],
+    "runtime_clock": "broker_server_time",
+    "ledger_normalization_required": true
+  },
+  "risk": {
+    "max_authorized_risk_fraction": 0.006,
+    "default_ea_risk_percent": 0.5
+  },
+  "parity_policy": {
+    "market_price_identity_not_required": true,
+    "semantic_execution_identity_required": true,
+    "research_and_live_must_share_expiry": true,
+    "research_and_live_must_share_position_limit": true,
+    "failed_trade_submission_must_not_count_as_trade": true
+  }
+}
