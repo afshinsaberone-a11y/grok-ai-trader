@@ -30,6 +30,9 @@ jobs:
     timeout-minutes: 30
     env:
       DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
+      DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+      DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+      DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,8 +40,14 @@ jobs:
       - name: Verify Dropbox credential is configured
         run: |
           set -euo pipefail
-          if [ -z "${DROPBOX_ACCESS_TOKEN}" ]; then
-            echo "DROPBOX_SYNC_NOT_CONFIGURED: add GitHub Actions secret DROPBOX_ACCESS_TOKEN"
+          if [ -n "${DROPBOX_REFRESH_TOKEN}" ]; then
+            test -n "${DROPBOX_APP_KEY}" || { echo "DROPBOX_SYNC_NOT_CONFIGURED: DROPBOX_APP_KEY missing for refresh-token mode"; exit 78; }
+            test -n "${DROPBOX_APP_SECRET}" || { echo "DROPBOX_SYNC_NOT_CONFIGURED: DROPBOX_APP_SECRET missing for refresh-token mode"; exit 78; }
+            echo "auth_configuration=refresh_token"
+          elif [ -n "${DROPBOX_ACCESS_TOKEN}" ]; then
+            echo "auth_configuration=access_token"
+          else
+            echo "DROPBOX_SYNC_NOT_CONFIGURED: configure either DROPBOX_ACCESS_TOKEN or DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET"
             exit 78
           fi
 
