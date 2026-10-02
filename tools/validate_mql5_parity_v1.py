@@ -40,7 +40,7 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["freeze_level_checked"] = "SYMBOL_TRADE_FREEZE_LEVEL" in source and "MathMax(stops, freeze)" in source
     checks["trade_mode_permission_checked"] = "SYMBOL_TRADE_MODE" in source and "SYMBOL_ORDER_MODE" in source and "TradeModeAllows" in source
     checks["close_retcode_verified"] = "trade.PositionClose(ticket)" in source and "TRADE_RETCODE_DONE" in source and "Protective closes are counted only after broker ResultRetcode confirmation." in source
-    checks["broker_clock_explicit"] = "TimeCurrent()" in source and "Runtime timestamps use broker/server time" in source
+    checks["broker_clock_explicit"] = "TimeCurrent()" in source and "broker_timestamp" in source and "TimeGMT()" in source
     checks["restart_state_persistence"] = "GlobalVariableSet" in source and "GlobalVariableGet" in source and "LoadSafetyState" in source and "PersistSafetyState" in source
     checks["runtime_trace_schema"] = "forexai.runtime_trace.v1" in source and "FOREXAI-RUNTIME-TRACE-V1" in source
     checks["runtime_trace_common_file_write"] = "FileOpen(" in source and "FILE_COMMON" in source and "FileWriteString" in source and "FileFlush" in source
