@@ -265,6 +265,65 @@ class CapitalFirewall:
             timestamp_utc=now_utc,
         )
 
+    def revoke_authorization(
+        self,
+        *,
+        trade_id: str,
+        authorization_id: str,
+        reason: str,
+        now_utc: str,
+        event_id: str,
+        idempotency_key: str,
+    ) -> None:
+        """Revoke an authorization without changing the trade lifecycle state.
+
+        Revocation is a risk-plane event: it immediately makes the authorization
+        non-executable while preserving the trade state for cancellation, recovery,
+        or reconciliation by the execution plane. Retries are semantic-idempotent.
+        """
+        if not reason or not reason.strip():
+            raise AuthorizationError("REVOCATION_REASON_MISSING")
+        auth = self._authorization(trade_id, authorization_id)
+        _parse_utc(now_utc)
+
+        payload = {
+            "authorization_id": authorization_id,
+            "reason": reason,
+            "revoked_at_utc": now_utc,
+        }
+        existing = self._event_by_idempotency(trade_id, idempotency_key)
+        if existing is not None:
+            try:
+                self._assert_idempotent_semantics(
+                    existing,
+                    event_type="CAPITAL_AUTHORIZATION_REVOKED",
+                    payload=payload,
+                )
+            except CapitalFirewallError as exc:
+                raise AuthorizationError(str(exc)) from exc
+            return
+
+        if auth.status == "REVOKED":
+            raise AuthorizationError("AUTHORIZATION_ALREADY_REVOKED")
+
+        self.ledger.assert_no_unresolved_reconciliation()
+        if self.ledger.state_of(trade_id) not in {
+            "AUTHORIZED",
+            "ORDER_SUBMITTED",
+            "ACCEPTED",
+        }:
+            raise AuthorizationError("AUTHORIZATION_REVOCATION_NOT_ALLOWED_IN_STATE")
+
+        self.ledger.append(
+            trade_id=trade_id,
+            state=None,
+            event_type="CAPITAL_AUTHORIZATION_REVOKED",
+            payload=payload,
+            idempotency_key=idempotency_key,
+            event_id=event_id,
+            timestamp_utc=now_utc,
+        )
+
     def reserve(
         self,
         *,
