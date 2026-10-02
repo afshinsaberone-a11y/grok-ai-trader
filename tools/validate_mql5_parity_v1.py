@@ -36,6 +36,7 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["native_symbol_filling"] = "trade.SetTypeFillingBySymbol(_Symbol);" in source
     checks["retcode_verified"] = "trade.ResultRetcode()" in source and "TRADE_RETCODE_DONE" in source
     checks["deal_ticket_verified"] = "trade.ResultDeal()" in source
+    checks["order_ticket_verified"] = "trade.ResultOrder()" in source
     checks["failed_submission_not_counted"] = bool(re.search(r"bool\s+submitted\s*=\s*trade\.(?:Buy|Sell)\([\s\S]*?\);[\s\S]*?if\(!submitted\)\s*return\s+false;[\s\S]*?if\(!TradeExecutionAccepted\(\)\)\s*return\s+false;[\s\S]*?trades_today\+\+;", source))
     checks["freeze_level_checked"] = "SYMBOL_TRADE_FREEZE_LEVEL" in source and "MathMax(stops, freeze)" in source
     checks["trade_mode_permission_checked"] = "SYMBOL_TRADE_MODE" in source and "SYMBOL_ORDER_MODE" in source and "TradeModeAllows" in source
