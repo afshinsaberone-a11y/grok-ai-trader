@@ -235,11 +235,25 @@ def test_authorization_idempotency_rejects_semantic_mismatch(tmp_path: Path):
 
 
 def test_authorization_retry_after_state_advance_is_safe(tmp_path: Path):
-    ledger, firewall = _authorized_firewall(tmp_path)
-    auth = firewall.issue_authorization(
+    ledger = TradeLedger(tmp_path / "ledger.jsonl")
+    _risk_reserved(ledger)
+    firewall = CapitalFirewall(ledger)
+    firewall.issue_authorization(
         trade_id="T1", authorization_id="AUTH1", authorized_risk=0.005,
         issued_at_utc="2026-10-02T18:00:00+00:00",
         expires_at_utc="2026-10-02T19:00:00+00:00",
-        proof=PROOF_KEYS, event_id="duplicate-auth-event", idempotency_key="duplicate-auth-key",
-    ) if not any(e.event_type == "CAPITAL_AUTHORIZATION_ISSUED" and e.idempotency_key == "duplicate-auth-key" for e in ledger.events) else None
-    assert firewall.ledger.state_of("T1") == "AUTHORIZED"
+        proof=PROOF_KEYS, event_id="auth-event", idempotency_key="auth-key",
+    )
+    firewall.authorize_trade(
+        trade_id="T1", authorization_id="AUTH1",
+        now_utc="2026-10-02T18:01:00+00:00",
+        event_id="authorized-event", idempotency_key="authorized-key",
+    )
+    replay = firewall.issue_authorization(
+        trade_id="T1", authorization_id="AUTH1", authorized_risk=0.005,
+        issued_at_utc="2026-10-02T18:00:00+00:00",
+        expires_at_utc="2026-10-02T19:00:00+00:00",
+        proof=PROOF_KEYS, event_id="different-event-id", idempotency_key="auth-key",
+    )
+    assert replay.authorization_id == "AUTH1"
+    assert len([e for e in ledger.events if e.event_type == "CAPITAL_AUTHORIZATION_ISSUED"]) == 1
