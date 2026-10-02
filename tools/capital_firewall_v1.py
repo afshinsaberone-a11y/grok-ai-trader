@@ -92,6 +92,31 @@ class CapitalFirewall:
         if existing.event_type != event_type or existing.payload != dict(payload):
             raise CapitalFirewallError("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_SEMANTICS")
 
+    def get_authorization(self, trade_id: str, authorization_id: str) -> RiskAuthorization:
+        return self._authorization(trade_id, authorization_id)
+
+    def active_reservation(
+        self,
+        trade_id: str,
+        authorization_id: str,
+        reservation_id: str,
+    ) -> tuple[float, str]:
+        reservations = [
+            event for event in self._events(trade_id, "CAPITAL_RESERVATION_CREATED")
+            if event.payload.get("reservation_id") == reservation_id
+            and event.payload.get("authorization_id") == authorization_id
+        ]
+        if len(reservations) != 1:
+            raise ReservationError("RESERVATION_NOT_FOUND_OR_AMBIGUOUS")
+        released = [
+            event for event in self._events(trade_id, "CAPITAL_RESERVATION_RELEASED")
+            if event.payload.get("reservation_id") == reservation_id
+            and event.payload.get("authorization_id") == authorization_id
+        ]
+        if released:
+            raise ReservationError("RESERVATION_ALREADY_RELEASED")
+        return float(reservations[0].payload["amount"]), str(reservations[0].payload["expires_at_utc"])
+
     def _authorization(self, trade_id: str, authorization_id: str) -> RiskAuthorization:
         events = [
             event for event in self._events(trade_id, "CAPITAL_AUTHORIZATION_ISSUED")
