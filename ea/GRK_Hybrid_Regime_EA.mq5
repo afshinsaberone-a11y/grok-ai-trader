@@ -35,7 +35,7 @@ input int    FridayCutoffHour   = 16;
 input int    MinAtrSpreadMult   = 6;
 input int    NewsBlackoutStart  = -1;
 input int    NewsBlackoutEnd    = -1;
-input int    MaxHoldBars        = 48;
+input int    MaxHoldBars        = 30;
 input long   Magic              = 2026051;
 
 CTrade trade;
@@ -70,6 +70,7 @@ int OnInit()
 
   trade.SetExpertMagicNumber((ulong)Magic);
   trade.SetDeviationInPoints(20);
+  trade.SetTypeFillingBySymbol(_Symbol);
   day_start_equity = AccountInfoDouble(ACCOUNT_EQUITY);
   day_stamp = TimeCurrent();
   return INIT_SUCCEEDED;
@@ -108,7 +109,7 @@ void TimeStopStale()
     if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
     if((long)PositionGetInteger(POSITION_MAGIC)!=Magic) continue;
     datetime opened = (datetime)PositionGetInteger(POSITION_TIME);
-    int bars = iBarShift(_Symbol, PERIOD_CURRENT, opened, true);
+    int bars = iBarShift(_Symbol, PERIOD_CURRENT, opened, false);
     if(bars >= MaxHoldBars)
       trade.PositionClose(ticket);
   }
@@ -284,9 +285,10 @@ bool StopsValid(double sl, double tp, bool is_buy)
 {
   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
   int stops = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+  int freeze = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-  double min_dist = stops * point;
+  double min_dist = MathMax(stops, freeze) * point;
   if(min_dist <= 0) min_dist = 10 * point;
   if(is_buy)
   {
@@ -301,6 +303,13 @@ bool StopsValid(double sl, double tp, bool is_buy)
   return true;
 }
 
+bool TradeExecutionAccepted()
+{
+  uint rc = trade.ResultRetcode();
+  ulong deal = trade.ResultDeal();
+  return (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_DONE_PARTIAL) && deal > 0;
+}
+
 bool SendBuy(double sl, double tp, const string cmt)
 {
   if(trades_today >= MaxTradesPerDay) return false;
@@ -308,9 +317,11 @@ bool SendBuy(double sl, double tp, const string cmt)
   if(!StopsValid(sl, tp, true)) return false;
   double vol = PositionSize(sl, true);
   if(vol <= 0) return false;
-  bool ok = trade.Buy(vol, _Symbol, ask, sl, tp, cmt);
-  if(ok) trades_today++;
-  return ok;
+  bool submitted = trade.Buy(vol, _Symbol, ask, sl, tp, cmt);
+  if(!submitted) return false;
+  if(!TradeExecutionAccepted()) return false;
+  trades_today++;
+  return true;
 }
 
 bool SendSell(double sl, double tp, const string cmt)
@@ -320,9 +331,11 @@ bool SendSell(double sl, double tp, const string cmt)
   if(!StopsValid(sl, tp, false)) return false;
   double vol = PositionSize(sl, false);
   if(vol <= 0) return false;
-  bool ok = trade.Sell(vol, _Symbol, bid, sl, tp, cmt);
-  if(ok) trades_today++;
-  return ok;
+  bool submitted = trade.Sell(vol, _Symbol, bid, sl, tp, cmt);
+  if(!submitted) return false;
+  if(!TradeExecutionAccepted()) return false;
+  trades_today++;
+  return true;
 }
 
 bool SqueezeThenExpand()
@@ -476,6 +489,11 @@ void OnTick()
   else if(rg == 2) TrySqueezeBreak();
   else if(rg == -1) TryRangeFade();
 }
+// FOREXAI-EXECUTION-CONTRACT-V1
+// Signal uses closed bar data; EA enters on the next bar's live market price.
+// MaxHoldBars=30; actual execution is accepted only after ResultRetcode+ResultDeal verification.
+// Filling mode is selected from the symbol; stop validation includes stops+freeze constraints.
+// Runtime timestamps use broker/server time and must be normalized by the ledger.
 // GRK-SAFETY-CONTRACT-051
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only. Daily profit/loss halt.
