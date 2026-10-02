@@ -61,3 +61,20 @@ def test_malformed_trace_fails_closed(tmp_path: Path):
     trace.write_text("{not-json}\n", encoding="utf-8")
     with pytest.raises(RuntimeTraceError, match="JSON_INVALID"):
         ingest_trace_file(trace, TradeLedger(tmp_path / "ledger.jsonl"))
+
+
+def test_mql5_trace_cannot_grant_authorized_state(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    row = _record("AUTHORIZED", 1)
+    trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeTraceError, match="CANNOT_GRANT_AUTHORITY"):
+        ingest_trace_file(trace, TradeLedger(tmp_path / "ledger.jsonl"))
+
+
+def test_mql5_trace_cannot_emit_capital_authority_events(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    row = _record("FILLED", 1)
+    row["event_type"] = "CAPITAL_AUTHORIZATION_ISSUED"
+    trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeTraceError, match="AUTHORITY_EVENT_FORBIDDEN"):
+        ingest_trace_file(trace, TradeLedger(tmp_path / "ledger.jsonl"))
