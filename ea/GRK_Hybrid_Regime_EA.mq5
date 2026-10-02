@@ -146,7 +146,13 @@ void TimeStopStale()
     datetime opened = (datetime)PositionGetInteger(POSITION_TIME);
     int bars = iBarShift(_Symbol, PERIOD_CURRENT, opened, false);
     if(bars >= MaxHoldBars)
-      trade.PositionClose(ticket);
+    {
+      bool submitted = trade.PositionClose(ticket);
+      if(!submitted) continue;
+      uint rc = trade.ResultRetcode();
+      if(rc != TRADE_RETCODE_DONE && rc != TRADE_RETCODE_DONE_PARTIAL)
+        continue;
+    }
   }
 }
 
@@ -318,6 +324,21 @@ double PositionSize(double sl_price, bool is_buy)
   return NormalizeVol(risk_money / (sl_points / tick_sz * tick_val));
 }
 
+bool TradeModeAllows(const bool is_buy)
+{
+  int trade_mode = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+  if(trade_mode == SYMBOL_TRADE_MODE_DISABLED || trade_mode == SYMBOL_TRADE_MODE_CLOSEONLY)
+    return false;
+  if(is_buy && trade_mode == SYMBOL_TRADE_MODE_SHORTONLY)
+    return false;
+  if(!is_buy && trade_mode == SYMBOL_TRADE_MODE_LONGONLY)
+    return false;
+
+  int order_mode = (int)SymbolInfoInteger(_Symbol, SYMBOL_ORDER_MODE);
+  int required = SYMBOL_ORDER_MARKET | SYMBOL_ORDER_SL | SYMBOL_ORDER_TP;
+  return (order_mode & required) == required;
+}
+
 bool StopsValid(double sl, double tp, bool is_buy)
 {
   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -349,6 +370,7 @@ bool TradeExecutionAccepted()
 
 bool SendBuy(double sl, double tp, const string cmt)
 {
+  if(!TradeModeAllows(true)) return false;
   if(trades_today >= MaxTradesPerDay) return false;
   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
   if(!StopsValid(sl, tp, true)) return false;
@@ -363,6 +385,7 @@ bool SendBuy(double sl, double tp, const string cmt)
 
 bool SendSell(double sl, double tp, const string cmt)
 {
+  if(!TradeModeAllows(false)) return false;
   if(trades_today >= MaxTradesPerDay) return false;
   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
   if(!StopsValid(sl, tp, false)) return false;
@@ -532,6 +555,8 @@ void OnTick()
 // Signal uses closed bar data; EA enters on the next bar's live market price.
 // MaxHoldBars=30; actual execution is accepted only after ResultRetcode+ResultDeal verification.
 // Filling mode is selected from the symbol; stop validation includes stops+freeze constraints.
+// Trading permissions require SYMBOL_TRADE_MODE and MARKET+SL+TP order flags.
+// Protective closes are counted only after broker ResultRetcode confirmation.
 // Runtime timestamps use broker/server time and must be normalized by the ledger.
 // GRK-SAFETY-CONTRACT-051
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
