@@ -90,7 +90,7 @@ def verify_runtime_evidence(
     if positions != sorted(positions):
         raise RuntimeEvidenceError("RUNTIME_EVIDENCE_TRACE_LIFECYCLE_ORDER_INVALID")
 
-    fills = _trade_events(ledger, trade_id, "FILLED")
+    fills = [event for event in events if event.state == "FILLED"]
     if len(fills) != 1:
         raise RuntimeEvidenceError("RUNTIME_EVIDENCE_FILL_EVENT_NOT_UNIQUE")
 
