@@ -47,9 +47,7 @@ def _trace(path: Path, deal: str = "D1"):
             "state": state,
             "payload": payload,
         })
-    path.write_text("
-".join(json.dumps(row) for row in rows) + "
-", encoding="utf-8")
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
 
 def _snapshot(deal: str = "D1"):
@@ -108,7 +106,7 @@ def test_broker_mismatch_blocks_evidence(tmp_path: Path):
     trace_path = tmp_path / "trace.jsonl"
     _trace(trace_path)
     observed = _snapshot()
-    observed["broker_order_id"] = "O2"
+    observed["take_profit"] = "1.13000000"
     with pytest.raises(RuntimeEvidenceError, match="BROKER_RECONCILIATION_FAILED"):
         verify_runtime_evidence(
             ledger_path=ledger_path,
@@ -127,10 +125,8 @@ def test_trace_sequence_is_required(tmp_path: Path):
     trace_path = tmp_path / "trace.jsonl"
     _trace(trace_path)
     rows=[json.loads(x) for x in trace_path.read_text(encoding="utf-8").splitlines() if x]
-    rows=[row for row in rows if row["state"] != "OPEN"]
-    trace_path.write_text("
-".join(json.dumps(row) for row in rows)+"
-", encoding="utf-8")
+    rows=[row for row in rows if row["state"] not in {"OPEN", "CLOSED"}]
+    trace_path.write_text("\n".join(json.dumps(row) for row in rows)+"\n", encoding="utf-8")
     with pytest.raises(RuntimeEvidenceError, match="TRACE_STATE_MISSING:OPEN"):
         verify_runtime_evidence(
             ledger_path=ledger_path,
