@@ -59,7 +59,9 @@
       "capital_authority_events_forbidden": true,
       "utc_timestamp_source": "TimeGMT cross-checked against TimeCurrent and broker_utc_offset_seconds",
       "broker_timestamp_source": "TimeCurrent",
-      "ledger_canonicalization": "broker_timestamp minus broker_utc_offset_seconds"
+      "ledger_canonicalization": "broker_timestamp minus broker_utc_offset_seconds",
+      "failure_policy": "BLOCK_NEW_ORDERS",
+      "existing_position_management": "CONTINUE_PROTECTIVE_CLOSES"
     }
   },
   "risk": {
@@ -74,6 +76,7 @@
     "failed_trade_submission_must_not_count_as_trade": true,
     "restart_safety_state_required": true,
     "runtime_trace_emission_required": true,
-    "runtime_trace_cannot_grant_authority": true
+    "runtime_trace_cannot_grant_authority": true,
+    "runtime_trace_failure_blocks_new_orders": true
   }
 }
