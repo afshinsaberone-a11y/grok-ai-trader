@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from research.real_data.research_pipeline import load_real_dataset
+from research.optimization.canonical_backtest_v1 import run_canonical_backtest
 from strategies.grok_ai_trader import GrokHybridStrategy
 
 OOS_START = pd.Timestamp("2026-01-01", tz="UTC")
@@ -49,8 +50,14 @@ def _frame(df: pd.DataFrame) -> pd.DataFrame:
 def _result(df: pd.DataFrame, params: dict[str, float]) -> dict[str, Any]:
     if df.empty:
         raise RuntimeError("V29_EMPTY_SPLIT")
-    strategy = GrokHybridStrategy(risk_pct=0.005, atr_mult=params["atr_mult"], rr=params["rr"])
-    return strategy.backtest_simple(df, symbol="EURUSD")
+    metrics, _ = run_canonical_backtest(
+        df,
+        params,
+        lambda value: GrokHybridStrategy().generate_signals(value),
+        symbol="EURUSD",
+        risk_fraction=0.005,
+    )
+    return metrics
 
 
 def _windows() -> list[Window]:
@@ -156,6 +163,17 @@ def run(path: str | Path, timeframe: str, output: str | Path) -> dict[str, Any]:
         "selection_period": {"start": str(DISCOVERY_START), "end": str(DISCOVERY_END)},
         "validation_period": {"start": str(VALIDATION_START), "end": str(OOS_START)},
         "walk_forward_protocol": {"train_days": 365, "test_days": 90, "step_days": 90, "window_count": len(_windows())},
+        "execution_model": {
+            "contract": "forexai.execution.v1",
+            "entry": "next_bar_open",
+            "cost_pips_per_side": 0.7,
+            "round_trip_cost_pips": 1.4,
+            "stops_anchor_to_actual_entry": True,
+            "same_bar_resolution": "SL first (conservative)",
+            "expiry_bars": 30,
+            "opposite_signal_exit": "next_bar_open",
+            "one_position_at_a_time": True,
+        },
         "candidate_count": len(candidates),
         "selected_candidate": selected,
         "validation": {"metrics": validation_metrics, "pass": validation_pass},
