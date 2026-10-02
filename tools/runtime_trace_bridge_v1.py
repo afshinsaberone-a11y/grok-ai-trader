@@ -16,6 +16,16 @@ from tools.trade_ledger_v1 import STATES, LedgerError, TradeLedger
 
 
 TRACE_SCHEMA = "forexai.runtime_trace.v1"
+OBSERVATIONAL_STATES = {"ORDER_SUBMITTED", "ACCEPTED", "FILLED", "OPEN", "MANAGED", "CLOSED"}
+FORBIDDEN_AUTHORITY_EVENT_TYPES = {
+    "CAPITAL_AUTHORIZATION_ISSUED",
+    "CAPITAL_AUTHORIZATION_REVOKED",
+    "CAPITAL_RESERVATION_CREATED",
+    "CAPITAL_RESERVATION_RELEASED",
+    "TRADE_AUTHORIZED",
+    "RECONCILED",
+    "RECONCILIATION_EXCEPTION",
+}
 REQUIRED_FIELDS = {
     "schema",
     "source",
@@ -57,6 +67,10 @@ def normalize_trace(record: Mapping[str, Any]) -> dict[str, Any]:
     state = record["state"]
     if state is not None and state not in STATES:
         raise RuntimeTraceError("RUNTIME_TRACE_UNKNOWN_STATE")
+    if state is not None and state not in OBSERVATIONAL_STATES:
+        raise RuntimeTraceError("RUNTIME_TRACE_CANNOT_GRANT_AUTHORITY")
+    if str(record["event_type"]) in FORBIDDEN_AUTHORITY_EVENT_TYPES:
+        raise RuntimeTraceError("RUNTIME_TRACE_AUTHORITY_EVENT_FORBIDDEN")
     if not isinstance(record["payload"], dict):
         raise RuntimeTraceError("RUNTIME_TRACE_PAYLOAD_MUST_BE_OBJECT")
 
