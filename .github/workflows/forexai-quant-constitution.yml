@@ -1,0 +1,37 @@
+name: ForexAI Quant Constitution
+
+on:
+  push:
+    paths:
+      - "config/forexai_quant_constitution_v1.json"
+      - "tools/validate_quant_constitution.py"
+      - "tests/test_quant_constitution.py"
+  pull_request:
+    paths:
+      - "config/forexai_quant_constitution_v1.json"
+      - "tools/validate_quant_constitution.py"
+      - "tests/test_quant_constitution.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  constitution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Validate constitution
+        run: python tools/validate_quant_constitution.py
+
+      - name: Run constitution tests
+        run: |
+          pip install -r requirements.txt
+          pytest -q tests/test_quant_constitution.py
