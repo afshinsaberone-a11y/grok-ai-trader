@@ -8,7 +8,7 @@ reconciliation.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -43,14 +43,40 @@ class RuntimeTraceError(RuntimeError):
     """Runtime trace cannot be trusted for ingestion."""
 
 
-def _normalize_timestamp(value: Any) -> str:
+def _parse_timestamp(value: Any) -> datetime:
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError as exc:
         raise RuntimeTraceError("RUNTIME_TRACE_TIMESTAMP_INVALID") from exc
     if parsed.tzinfo is None:
         raise RuntimeTraceError("RUNTIME_TRACE_TIMESTAMP_MUST_BE_TIMEZONE_AWARE")
-    return parsed.astimezone(timezone.utc).isoformat()
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_timestamp(value: Any, payload: Mapping[str, Any]) -> str:
+    parsed_utc = _parse_timestamp(value)
+    if "broker_timestamp" not in payload:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_TIMESTAMP_MISSING")
+    if "broker_utc_offset_seconds" not in payload:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_OFFSET_MISSING")
+
+    try:
+        broker = datetime.fromisoformat(str(payload["broker_timestamp"]))
+    except ValueError as exc:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_TIMESTAMP_INVALID") from exc
+    if broker.tzinfo is not None:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_TIMESTAMP_MUST_BE_NAIVE")
+
+    offset = payload["broker_utc_offset_seconds"]
+    if isinstance(offset, bool) or not isinstance(offset, int):
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_OFFSET_INVALID")
+    if abs(offset) > 24 * 60 * 60:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_OFFSET_OUT_OF_RANGE")
+
+    canonical_utc = (broker - timedelta(seconds=offset)).replace(tzinfo=timezone.utc)
+    if canonical_utc != parsed_utc:
+        raise RuntimeTraceError("RUNTIME_TRACE_UTC_BROKER_TIME_MISMATCH")
+    return canonical_utc.isoformat()
 
 
 def normalize_trace(record: Mapping[str, Any]) -> dict[str, Any]:
@@ -81,7 +107,7 @@ def normalize_trace(record: Mapping[str, Any]) -> dict[str, Any]:
         "event_id": str(record["event_id"]),
         "event_type": str(record["event_type"]),
         "idempotency_key": str(record["idempotency_key"]),
-        "timestamp_utc": _normalize_timestamp(record["timestamp_utc"]),
+        "timestamp_utc": _normalize_timestamp(record["timestamp_utc"], record["payload"]),
         "state": state,
         "payload": dict(record["payload"]),
     }
