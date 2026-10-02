@@ -78,6 +78,8 @@ def validate(value: dict[str, Any]) -> dict[str, Any]:
     capital = value["hard_boundaries"]["capital"]
     _require(capital["default_authorized_risk"] == 0, "CAPITAL_DEFAULT_AUTHORIZATION_MUST_BE_ZERO")
     _require(capital["unauthorized_exposure_must_equal"] == 0, "UNAUTHORIZED_EXPOSURE_MUST_EQUAL_ZERO")
+    _require(capital.get("risk_unit") == "equity_fraction", "CAPITAL_RISK_UNIT_MUST_BE_EQUITY_FRACTION")
+    _require(capital.get("max_authorized_risk") == 0.006, "CAPITAL_MAX_AUTHORIZED_RISK_MUST_BE_0_006")
     _require(capital["risk_must_not_exceed_authorization"] is True, "RISK_CAP_INVARIANT_REQUIRED")
     _require(capital["expired_authorization_must_not_execute"] is True, "AUTH_EXPIRY_INVARIANT_REQUIRED")
 
@@ -131,6 +133,8 @@ def validate(value: dict[str, Any]) -> dict[str, Any]:
         "forbidden_transition_count": len(transitions),
         "oos": oos,
         "capital_default_authorized_risk": capital["default_authorized_risk"],
+        "capital_max_authorized_risk": capital["max_authorized_risk"],
+        "capital_risk_unit": capital["risk_unit"],
     }
 
 
