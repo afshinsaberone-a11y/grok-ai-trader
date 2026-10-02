@@ -56,6 +56,7 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         and "TRADE_AUTHORIZED" not in source
         and "CAPITAL_RESERVATION_CREATED" not in source
     )
+    checks["runtime_trace_fail_closed"] = "runtime_trace_healthy" in source and "if(!runtime_trace_healthy) return;" in source and "EnsureRuntimeTraceReady" in source
 
     expected = {
         "max_positions_one": contract["live_mql5"]["max_positions"] == 1,
@@ -67,6 +68,9 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
             and contract["live_mql5"]["runtime_trace"]["enabled"] is True,
         "runtime_trace_cannot_grant_authority": contract["parity_policy"]["runtime_trace_cannot_grant_authority"] is True
             and contract["live_mql5"]["runtime_trace"]["capital_authority_events_forbidden"] is True,
+        "runtime_trace_failure_blocks_new_orders": contract["parity_policy"]["runtime_trace_failure_blocks_new_orders"] is True
+            and contract["live_mql5"]["runtime_trace"]["failure_policy"] == "BLOCK_NEW_ORDERS"
+            and contract["live_mql5"]["runtime_trace"]["existing_position_management"] == "CONTINUE_PROTECTIVE_CLOSES",
     }
     for key, value in expected.items():
         checks[f"contract_{key}"] = bool(value)
