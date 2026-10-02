@@ -141,3 +141,19 @@ def verify_runtime_envelope(
         "expires_at_utc": expires,
         "envelope_hash": supplied_hash,
     }
+
+
+def verify_runtime_envelope_current(
+    firewall: CapitalFirewall,
+    envelope: Mapping[str, Any],
+    *,
+    now_utc: str,
+) -> dict[str, Any]:
+    verified = verify_runtime_envelope(envelope, now_utc=now_utc)
+    firewall.assert_execution_allowed(
+        trade_id=str(envelope["trade_id"]),
+        authorization_id=str(envelope["authorization_id"]),
+        required_risk=float(envelope["reserved_risk"]),
+        now_utc=now_utc,
+    )
+    return verified | {"current_firewall_authority": "PASS"}
