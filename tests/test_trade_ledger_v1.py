@@ -84,6 +84,28 @@ def test_forbidden_transition_is_rejected(tmp_path: Path):
         )
 
 
+def test_event_id_collision_is_rejected(tmp_path: Path):
+    path = tmp_path / "ledger.jsonl"
+    ledger = TradeLedger(path)
+    ledger.append(
+        trade_id="T1",
+        state="PROPOSED",
+        event_type="proposal",
+        payload={"x": 1},
+        idempotency_key="k-1",
+        event_id="event-1",
+    )
+    with pytest.raises(LedgerError, match="EVENT_ID_REUSED_WITH_DIFFERENT_IDEMPOTENCY"):
+        ledger.append(
+            trade_id="T1",
+            state="VALIDATED",
+            event_type="validated",
+            payload={"x": 2},
+            idempotency_key="k-2",
+            event_id="event-1",
+        )
+
+
 def test_chain_survives_restart(tmp_path: Path):
     path = tmp_path / "ledger.jsonl"
     first = TradeLedger(path)
