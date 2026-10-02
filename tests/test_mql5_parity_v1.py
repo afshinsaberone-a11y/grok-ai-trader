@@ -53,3 +53,27 @@ def test_parity_requires_trade_permissions_and_close_verification():
         assert "trade_mode_permission_checked" in str(exc) or "close_retcode_verified" in str(exc)
     else:
         raise AssertionError("trade permission and close-result checks must fail closed")
+
+
+def test_parity_requires_runtime_trace_emitter():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("FOREXAI-RUNTIME-TRACE-V1", "FOREXAI-RUNTIME-TRACE-REMOVED")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_trace_schema" in str(exc)
+    else:
+        raise AssertionError("runtime trace emission must fail closed when removed")
+
+
+def test_parity_rejects_runtime_trace_authority_tokens():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source + "\nstring forbidden_authority = \"CAPITAL_AUTHORIZATION_ISSUED\";\n"
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_trace_observational_only" in str(exc)
+    else:
+        raise AssertionError("runtime trace must not contain capital authority events")
