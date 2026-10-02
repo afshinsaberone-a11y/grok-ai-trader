@@ -90,9 +90,12 @@ def recover_from_ledger(path: str | Path) -> RecoveryReport:
         elif state in TERMINAL_STATES:
             posture, action = "STABLE", "NO_ACTION"
         elif state in RECOVERABLE_STATES:
-            posture, action = "RECOVERABLE", "REQUIRE_EXPLICIT_RESTART_RESUME"
+            posture, action = "RECOVERABLE", "REQUIRE_EXPLICIT_RESTART_RESUME_NO_NEW_RISK"
+            unresolved.add(trade_id)
         elif state in ACTIVE_RUNTIME_STATES:
-            posture, action = "RUNTIME_ACTIVE", "REQUIRE_BROKER_RECONCILIATION_AND_RUNTIME_REPLAY"
+            posture, action = "RUNTIME_ACTIVE", "REQUIRE_BROKER_RECONCILIATION_AND_RUNTIME_REPLAY_NO_NEW_RISK"
+            if state != "RECONCILED":
+                unresolved.add(trade_id)
         else:
             posture, action = "BLOCKED", "MANUAL_REVIEW_REQUIRED"
             unresolved.add(trade_id)
