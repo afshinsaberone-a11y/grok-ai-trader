@@ -26,3 +26,15 @@ def test_parity_rejects_hardcoded_noncanonical_expiry():
         assert "max_hold_bars_30" in str(exc)
     else:
         raise AssertionError("noncanonical MQL5 expiry must fail closed")
+
+
+def test_parity_requires_restart_safe_state():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("GlobalVariableSet", "TerminalVariableSet")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "restart_state_persistence" in str(exc)
+    else:
+        raise AssertionError("restart safety persistence must fail closed")
