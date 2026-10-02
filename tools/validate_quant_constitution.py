@@ -34,6 +34,7 @@ REQUIRED_INVARIANTS = {
     "restart_does_not_clear_safety_state == true",
     "mql5_execution_semantic_parity_audit == PASS",
     "deterministic_replay_digest_stable == true",
+    "mql5_runtime_trace_cannot_grant_authority == true",
 }
 
 
