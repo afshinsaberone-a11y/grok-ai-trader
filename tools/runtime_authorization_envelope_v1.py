@@ -1,0 +1,156 @@
+"""Runtime authorization envelope v1.
+
+The envelope is the narrow contract between the capital firewall and an execution
+adapter. It contains only execution-authority facts and immutable provenance.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+from tools.capital_firewall_v1 import CapitalFirewall, AuthorizationError
+
+
+ENVELOPE_SCHEMA = "forexai.runtime_authorization_envelope.v1"
+
+
+def _canonical(value: Mapping[str, Any]) -> str:
+    return json.dumps(dict(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def envelope_hash(value: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class RuntimeAuthorizationEnvelope:
+    schema: str
+    trade_id: str
+    authorization_id: str
+    reservation_id: str
+    authorized_risk: float
+    reserved_risk: float
+    expires_at_utc: str
+    proof: dict[str, Any]
+    envelope_hash: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": self.schema,
+            "trade_id": self.trade_id,
+            "authorization_id": self.authorization_id,
+            "reservation_id": self.reservation_id,
+            "authorized_risk": self.authorized_risk,
+            "reserved_risk": self.reserved_risk,
+            "expires_at_utc": self.expires_at_utc,
+            "proof": self.proof,
+            "envelope_hash": self.envelope_hash,
+        }
+
+
+def build_runtime_envelope(
+    firewall: CapitalFirewall,
+    *,
+    trade_id: str,
+    authorization_id: str,
+    reservation_id: str,
+    required_risk: float,
+    now_utc: str,
+) -> RuntimeAuthorizationEnvelope:
+    firewall.assert_execution_allowed(
+        trade_id=trade_id,
+        authorization_id=authorization_id,
+        required_risk=required_risk,
+        now_utc=now_utc,
+    )
+    auth = firewall._authorization(trade_id, authorization_id)
+    reservations = [
+        event for event in firewall._events(trade_id, "CAPITAL_RESERVATION_CREATED")
+        if event.payload.get("reservation_id") == reservation_id
+        and event.payload.get("authorization_id") == authorization_id
+    ]
+    if len(reservations) != 1:
+        raise AuthorizationError("RUNTIME_RESERVATION_NOT_FOUND_OR_AMBIGUOUS")
+
+    released = [
+        event for event in firewall._events(trade_id, "CAPITAL_RESERVATION_RELEASED")
+        if event.payload.get("reservation_id") == reservation_id
+        and event.payload.get("authorization_id") == authorization_id
+    ]
+    if released:
+        raise AuthorizationError("RUNTIME_RESERVATION_ALREADY_RELEASED")
+
+    amount = float(reservations[0].payload["amount"])
+    if amount < required_risk:
+        raise AuthorizationError("RUNTIME_RESERVATION_BELOW_REQUIRED_RISK")
+
+    raw = {
+        "schema": ENVELOPE_SCHEMA,
+        "trade_id": trade_id,
+        "authorization_id": authorization_id,
+        "reservation_id": reservation_id,
+        "authorized_risk": auth.authorized_risk,
+        "reserved_risk": amount,
+        "expires_at_utc": auth.expires_at_utc,
+        "proof": auth.proof,
+    }
+    return RuntimeAuthorizationEnvelope(
+        **raw,
+        envelope_hash=envelope_hash(raw),
+    )
+
+
+def verify_runtime_envelope(
+    envelope: Mapping[str, Any],
+    *,
+    now_utc: str,
+    expected_trade_id: str | None = None,
+) -> dict[str, Any]:
+    if envelope.get("schema") != ENVELOPE_SCHEMA:
+        raise AuthorizationError("RUNTIME_ENVELOPE_SCHEMA_MISMATCH")
+    required = {
+        "schema",
+        "trade_id",
+        "authorization_id",
+        "reservation_id",
+        "authorized_risk",
+        "reserved_risk",
+        "expires_at_utc",
+        "proof",
+        "envelope_hash",
+    }
+    if set(envelope) != required:
+        raise AuthorizationError("RUNTIME_ENVELOPE_FIELDS_MISMATCH")
+    if expected_trade_id is not None and envelope["trade_id"] != expected_trade_id:
+        raise AuthorizationError("RUNTIME_TRADE_ID_MISMATCH")
+
+    supplied_hash = envelope["envelope_hash"]
+    raw = {k: envelope[k] for k in required if k != "envelope_hash"}
+    if envelope_hash(raw) != supplied_hash:
+        raise AuthorizationError("RUNTIME_ENVELOPE_HASH_MISMATCH")
+
+    expires = str(envelope["expires_at_utc"])
+    from tools.capital_firewall_v1 import _expired, _parse_utc
+
+    _parse_utc(now_utc)
+    if _expired(expires, now_utc):
+        raise AuthorizationError("RUNTIME_ENVELOPE_EXPIRED")
+
+    authorized = float(envelope["authorized_risk"])
+    reserved = float(envelope["reserved_risk"])
+    if authorized <= 0 or reserved <= 0 or reserved > authorized or authorized > 0.006:
+        raise AuthorizationError("RUNTIME_ENVELOPE_RISK_INVALID")
+
+    return {
+        "schema": ENVELOPE_SCHEMA,
+        "status": "PASS",
+        "trade_id": str(envelope["trade_id"]),
+        "authorization_id": str(envelope["authorization_id"]),
+        "reservation_id": str(envelope["reservation_id"]),
+        "authorized_risk": authorized,
+        "reserved_risk": reserved,
+        "expires_at_utc": expires,
+        "envelope_hash": supplied_hash,
+    }
