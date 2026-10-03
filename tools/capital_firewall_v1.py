@@ -126,10 +126,13 @@ class CapitalFirewall:
         if len(events) != 1:
             raise AuthorizationError("AUTHORIZATION_NOT_FOUND_OR_AMBIGUOUS")
         payload = events[0].payload
-        revoked = any(
-            event.payload.get("authorization_id") == authorization_id
-            for event in self._events(trade_id, "CAPITAL_AUTHORIZATION_REVOKED")
-        )
+        revocations = [
+            event for event in self._events(trade_id, "CAPITAL_AUTHORIZATION_REVOKED")
+            if event.payload.get("authorization_id") == authorization_id
+        ]
+        if len(revocations) > 1:
+            raise AuthorizationError("AUTHORIZATION_REVOCATION_AMBIGUOUS")
+        revoked = bool(revocations)
         return RiskAuthorization(
             authorization_id=authorization_id,
             trade_id=trade_id,
@@ -284,7 +287,9 @@ class CapitalFirewall:
         if not reason or not reason.strip():
             raise AuthorizationError("REVOCATION_REASON_MISSING")
         auth = self._authorization(trade_id, authorization_id)
-        _parse_utc(now_utc)
+        now = _parse_utc(now_utc)
+        if now < _parse_utc(auth.issued_at_utc):
+            raise AuthorizationError("REVOCATION_TIMESTAMP_BEFORE_ISSUANCE")
 
         payload = {
             "authorization_id": authorization_id,
