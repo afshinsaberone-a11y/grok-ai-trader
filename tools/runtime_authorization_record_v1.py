@@ -37,6 +37,7 @@ FIELDS_BEFORE_HASH = (
     "strategy_id",
     "model_id",
     "policy_version",
+    "risk_authorization_id",
     "authorization_expiry",
     "input_hash",
     "execution_contract_version",
@@ -129,6 +130,7 @@ def build_mql5_authorization_record(
         "strategy_id": _safe_field("strategy_id", proof["strategy_id"]),
         "model_id": _safe_field("model_id", proof["model_id"]),
         "policy_version": _safe_field("policy_version", proof["policy_version"]),
+        "risk_authorization_id": _safe_field("risk_authorization_id", proof["risk_authorization_id"]),
         "authorization_expiry": proof_expiry,
         "input_hash": _safe_field("input_hash", proof["input_hash"]),
         "execution_contract_version": _safe_field(
