@@ -452,6 +452,7 @@ void LoadSafetyState()
 int OnInit()
 {
   if(RiskPercent > 0.6) return INIT_FAILED;
+  if(!RequireRuntimeAuthorization) return INIT_FAILED;
   if(MaxPositions != 1) return INIT_FAILED;
   if(DailyLossLimit <= 0 || ATR_SL_Mult <= 0 || RR_Target < 1.0) return INIT_FAILED;
   if(MaxTradesPerDay < 1) return INIT_FAILED;
