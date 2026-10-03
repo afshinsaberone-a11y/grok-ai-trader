@@ -55,6 +55,20 @@ class RuntimeTraceError(RuntimeError):
     """Runtime trace cannot be trusted for ingestion."""
 
 
+def _assert_finite_payload(value: Any) -> None:
+    if isinstance(value, float):
+        if not (value == value and abs(value) != float("inf")):
+            raise RuntimeTraceError("RUNTIME_TRACE_PAYLOAD_NONFINITE")
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            _assert_finite_payload(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _assert_finite_payload(item)
+
+
 def _parse_timestamp(value: Any) -> datetime:
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -118,6 +132,7 @@ def normalize_trace(record: Mapping[str, Any]) -> dict[str, Any]:
         raise RuntimeTraceError("RUNTIME_TRACE_PAYLOAD_MUST_BE_OBJECT")
 
     payload = record["payload"]
+    _assert_finite_payload(payload)
     extra_payload = sorted(set(payload) - ALLOWED_PAYLOAD_FIELDS)
     if extra_payload:
         raise RuntimeTraceError(f"RUNTIME_TRACE_PAYLOAD_UNKNOWN_FIELDS:{extra_payload}")
@@ -221,6 +236,9 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
         staged_by_key[key] = staged
         staged_by_event[event_key] = staged
 
+    if not records:
+        raise RuntimeTraceError("RUNTIME_TRACE_EMPTY")
+    
     ingested = []
     for record in records:
         try:
