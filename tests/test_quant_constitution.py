@@ -28,6 +28,17 @@ def test_constitution_rejects_oos_discovery_access():
         raise AssertionError("OOS discovery access must fail closed")
 
 
+def test_constitution_requires_nonfinite_risk_invariant():
+    value = load(CONSTITUTION)
+    value["invariants"] = [
+        item for item in value["invariants"]
+        if item != "nonfinite_risk_input_must_be_rejected == true"
+    ]
+    with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
+        validate(value)
+
+
+
 def test_constitution_rejects_capital_authority_overlap():
     value = load(CONSTITUTION)
     value["capabilities"]["research"]["allow"].append("authorize_capital")
