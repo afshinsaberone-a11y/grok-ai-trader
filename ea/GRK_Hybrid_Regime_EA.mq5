@@ -119,10 +119,7 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
 {
   runtime_authorization_healthy = false;
   if(!RequireRuntimeAuthorization)
-  {
-    runtime_authorization_healthy = true;
-    return true;
-  }
+    return false;
 
   if(StringLen(trade_id) == 0) return false;
   string expected_side = is_buy ? "B" : "S";
@@ -205,13 +202,9 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
   if(supplied_hash != expected_hash)
     return false;
 
-  if(StringLen(parts[9]) == 0 || StringLen(parts[10]) == 0 ||
-     StringLen(parts[11]) == 0 || StringLen(parts[12]) == 0 ||
-     StringLen(parts[13]) == 0 || StringLen(parts[14]) == 0 ||
-     StringLen(parts[15]) == 0 || StringLen(parts[16]) == 0 ||
-     StringLen(parts[17]) == 0 || StringLen(parts[18]) == 0 ||
-     StringLen(parts[19]) == 0)
-    return false;
+  for(int i = 13; i <= 21; ++i)
+    if(StringLen(parts[i]) == 0)
+      return false;
 
   if(GlobalVariableCheck(AuthorizationConsumedKey(parts[2], parts[3], parts[4])))
     return false;
