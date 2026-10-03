@@ -87,3 +87,17 @@ def test_constitution_requires_current_firewall_materialization_and_fresh_record
     ]
     with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
         validate(value)
+
+
+def test_constitution_requires_current_execution_admission_invariants():
+    value = load(CONSTITUTION)
+    required = {
+        "broker_submission_requires_current_execution_admission == true",
+        "execution_admission_rejects_stale_or_revoked_authority == true",
+        "execution_admission_cannot_grant_capital_authority == true",
+    }
+    value["invariants"] = [
+        item for item in value["invariants"] if item not in required
+    ]
+    with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
+        validate(value)
