@@ -1,4 +1,5 @@
 """Tests for the deterministic MQL5 authorization record."""
+import json
 from pathlib import Path
 
 import pytest
@@ -187,3 +188,18 @@ def test_atomic_record_writer_publishes_complete_record(tmp_path: Path):
     )
     assert parsed["integrity_hash"] == record["integrity_hash"]
     assert not list(tmp_path.glob(target.name + ".*.tmp"))
+
+
+def test_record_json_contract_matches_reference_fields():
+    root = Path(__file__).resolve().parents[1]
+    contract = json.loads(
+        (root / "config" / "forexai_mql5_authorization_record_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert tuple(contract["fields"]) == FIELDS
+    assert contract["freshness"]["max_record_age_seconds"] == MAX_RECORD_AGE_SECONDS
+    assert contract["risk"]["required_relation"] == (
+        "0 < reserved_risk <= authorized_risk <= 0.006"
+    )
+    assert contract["required_execution_contract_version"] == "forexai.execution.v1"
