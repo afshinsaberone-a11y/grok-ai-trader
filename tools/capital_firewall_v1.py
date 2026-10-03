@@ -252,10 +252,6 @@ class CapitalFirewall:
             "proof": proof_dict,
             "status": "ACTIVE",
         }
-        aggregate = self._total_authorized_risk_at(issued_at_utc)
-        if aggregate + float(authorized_risk) > self.max_authorized_risk:
-            raise AuthorizationError("TOTAL_AUTHORIZED_RISK_EXCEEDS_GLOBAL_CAP")
-
         existing = self._event_by_idempotency(trade_id, idempotency_key)
         if existing is not None:
             try:
@@ -263,6 +259,10 @@ class CapitalFirewall:
             except CapitalFirewallError as exc:
                 raise AuthorizationError(str(exc)) from exc
             return self._authorization(trade_id, authorization_id)
+
+        aggregate = self._total_authorized_risk_at(issued_at_utc)
+        if aggregate + float(authorized_risk) > self.max_authorized_risk:
+            raise AuthorizationError("TOTAL_AUTHORIZED_RISK_EXCEEDS_GLOBAL_CAP")
 
         self.ledger.assert_no_unresolved_reconciliation()
         if self.ledger.state_of(trade_id) != "RISK_RESERVED":
