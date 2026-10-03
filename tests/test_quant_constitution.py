@@ -101,3 +101,11 @@ def test_constitution_requires_current_execution_admission_invariants():
     ]
     with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
         validate(value)
+
+
+def test_constitution_requires_bounded_mql5_authorization_state_keys():
+    value = load(CONSTITUTION)
+    required = "mql5_authorization_state_keys_must_fit_terminal_global_variable_limit == true"
+    value["invariants"] = [item for item in value["invariants"] if item != required]
+    with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
+        validate(value)
