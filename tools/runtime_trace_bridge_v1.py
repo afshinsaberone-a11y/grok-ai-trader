@@ -168,7 +168,9 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
         for trade_id in {record["trade_id"] for record in records}
     }
     existing_by_key = {event.idempotency_key: event for event in ledger.events}
+    existing_by_event = {event.event_id: event for event in ledger.events}
     staged_by_key: dict[str, tuple[str, str | None, str, dict[str, Any]]] = {}
+    staged_by_event: dict[str, tuple[str, str | None, str, dict[str, Any]]] = {}
     for record in records:
         payload = {
             "runtime_trace_schema": record["schema"],
@@ -176,8 +178,11 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
             **record["payload"],
         }
         key = record["idempotency_key"]
+        event_key = record["event_id"]
         existing = existing_by_key.get(key)
         staged = staged_by_key.get(key)
+        existing_event = existing_by_event.get(event_key)
+        staged_event = staged_by_event.get(event_key)
         if existing is not None or staged is not None:
             prior = existing if existing is not None else staged
             prior_trade = prior.trade_id if existing is not None else prior[0]
@@ -194,6 +199,12 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
                 raise RuntimeTraceError("RUNTIME_TRACE_IDEMPOTENCY_SEMANTICS_CONFLICT")
             continue
 
+        if existing_event is not None or staged_event is not None:
+            prior = existing_event if existing_event is not None else staged_event
+            prior_key = prior.idempotency_key if existing_event is not None else None
+            if prior_key != key:
+                raise RuntimeTraceError("RUNTIME_TRACE_EVENT_ID_CONFLICT")
+
         state = record["state"]
         current = simulated_states.get(record["trade_id"])
         if current is None:
@@ -206,9 +217,9 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
             )
 
         simulated_states[record["trade_id"]] = state
-        staged_by_key[key] = (
-            record["trade_id"], record["state"], record["event_type"], payload
-        )
+        staged = (record["trade_id"], record["state"], record["event_type"], payload)
+        staged_by_key[key] = staged
+        staged_by_event[event_key] = staged
 
     ingested = []
     for record in records:
