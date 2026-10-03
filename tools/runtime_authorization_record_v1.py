@@ -15,7 +15,7 @@ from tools.capital_firewall_v1 import AuthorizationError
 from tools.runtime_authorization_envelope_v1 import (
     ENVELOPE_SCHEMA,
     REQUIRED_PROOF_FIELDS,
-    verify_runtime_envelope,
+    verify_runtime_envelope_current,
 )
 
 RECORD_PREFIX = "FOREXAI-AUTH-V1"
@@ -33,6 +33,8 @@ FIELDS_BEFORE_HASH = (
     "reserved_risk",
     "expires_at_utc",
     "expires_at_epoch_utc",
+    "record_issued_at_utc",
+    "record_issued_at_epoch_utc",
     "snapshot_id",
     "decision_id",
     "strategy_id",
@@ -80,17 +82,23 @@ def record_hash(body: str) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest().upper()
 
 
+MAX_RECORD_AGE_SECONDS = 10
+
+
 def build_mql5_authorization_record(
+    firewall: Any,
     envelope: Mapping[str, Any],
     *,
     now_utc: str,
     expected_trade_id: str | None = None,
 ) -> dict[str, str]:
-    verify_runtime_envelope(
+    verify_runtime_envelope_current(
+        firewall,
         envelope,
         now_utc=now_utc,
-        expected_trade_id=expected_trade_id,
     )
+    if expected_trade_id is not None and envelope.get("trade_id") != expected_trade_id:
+        raise AuthorizationError("MQL5_AUTH_RECORD_TRADE_ID_MISMATCH")
 
     if envelope.get("schema") != ENVELOPE_SCHEMA:
         raise AuthorizationError("MQL5_AUTH_RECORD_ENVELOPE_SCHEMA_MISMATCH")
@@ -128,6 +136,8 @@ def build_mql5_authorization_record(
         "reserved_risk": f"{reserved:.12f}",
         "expires_at_utc": expires,
         "expires_at_epoch_utc": str(int(expiry_dt.timestamp())),
+        "record_issued_at_utc": _safe_field("record_issued_at_utc", now_utc),
+        "record_issued_at_epoch_utc": str(int(now.timestamp())),
         "snapshot_id": _safe_field("snapshot_id", proof["snapshot_id"]),
         "decision_id": _safe_field("decision_id", proof["decision_id"]),
         "strategy_id": _safe_field("strategy_id", proof["strategy_id"]),
