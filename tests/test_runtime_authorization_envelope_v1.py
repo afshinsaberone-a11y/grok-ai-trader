@@ -93,6 +93,23 @@ def test_tampered_envelope_is_rejected(tmp_path: Path):
         verify_runtime_envelope(envelope, now_utc="2026-10-02T18:03:00+00:00")
 
 
+def test_malformed_envelope_risk_is_rejected_as_authorization_error(tmp_path: Path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    envelope = {
+        "schema": "forexai.runtime_authorization_envelope.v1",
+        "trade_id": "T1",
+        "authorization_id": "AUTH1",
+        "reservation_id": "R1",
+        "authorized_risk": "not-a-number",
+        "reserved_risk": 0.001,
+        "expires_at_utc": "2026-10-02T19:00:00+00:00",
+        "proof": dict(PROOF_KEYS),
+        "envelope_hash": "invalid",
+    }
+    with pytest.raises(AuthorizationError, match="RUNTIME_ENVELOPE_HASH_MISMATCH"):
+        verify_runtime_envelope(envelope, now_utc="2026-10-02T18:03:00+00:00")
+
+
 def test_expired_envelope_is_rejected(tmp_path: Path):
     ledger, firewall = _authorized_firewall(tmp_path)
     firewall.reserve(
