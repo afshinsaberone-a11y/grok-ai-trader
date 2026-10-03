@@ -77,7 +77,10 @@
       "trade_id_mismatch_policy": "BLOCK_NEW_ORDERS",
       "risk_cap": 0.006,
       "required_execution_contract_version": "forexai.execution.v1",
-      "max_record_age_seconds": 10
+      "max_record_age_seconds": 10,
+      "single_attempt_lock_before_submission": true,
+      "single_attempt_lock_uses_atomic_terminal_global_variable": true,
+      "consumption_persistence_is_fail_closed": true
     },
     "runtime_trace": {
       "enabled": true,
