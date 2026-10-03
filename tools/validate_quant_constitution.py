@@ -46,6 +46,7 @@ REQUIRED_INVARIANTS = {
     "broker_submission_requires_current_execution_admission == true",
     "execution_admission_rejects_stale_or_revoked_authority == true",
     "execution_admission_cannot_grant_capital_authority == true",
+    "authorization_identity_must_bind_symbol_and_timeframe == true",
 }
 
 
@@ -107,6 +108,8 @@ def validate(value: dict[str, Any]) -> dict[str, Any]:
     proof = value["required_trade_proof"]
     required_proof = {
         "snapshot_id",
+        "symbol",
+        "timeframe",
         "decision_id",
         "strategy_id",
         "model_id",
