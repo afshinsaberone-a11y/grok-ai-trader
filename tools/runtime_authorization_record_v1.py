@@ -31,6 +31,8 @@ FIELDS_BEFORE_HASH = (
     "trade_id",
     "authorization_id",
     "reservation_id",
+    "symbol",
+    "timeframe",
     "authorized_risk",
     "reserved_risk",
     "expires_at_utc",
@@ -112,6 +114,8 @@ def build_mql5_authorization_record(
     reserved = _risk(envelope.get("reserved_risk"), "reserved_risk")
     if reserved > authorized:
         raise AuthorizationError("MQL5_AUTH_RECORD_RISK_RELATION_INVALID")
+    symbol = _safe_field("symbol", proof["symbol"])
+    timeframe = _safe_field("timeframe", proof["timeframe"])
 
     expires = _safe_field("expires_at_utc", str(envelope.get("expires_at_utc")))
     expiry_dt = _parse_utc(expires)
@@ -134,6 +138,8 @@ def build_mql5_authorization_record(
         "trade_id": _safe_field("trade_id", str(envelope["trade_id"])),
         "authorization_id": _safe_field("authorization_id", str(envelope["authorization_id"])),
         "reservation_id": _safe_field("reservation_id", str(envelope["reservation_id"])),
+        "symbol": symbol,
+        "timeframe": timeframe,
         "authorized_risk": f"{authorized:.12f}",
         "reserved_risk": f"{reserved:.12f}",
         "expires_at_utc": expires,
