@@ -221,8 +221,8 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
     return false;
 
   long now_epoch = (long)TimeGMT();
-  long expiry_epoch = StringToInteger(parts[8]);
-  long issued_epoch = StringToInteger(parts[10]);
+  long expiry_epoch = StringToInteger(parts[10]);
+  long issued_epoch = StringToInteger(parts[12]);
   if(expiry_epoch <= 0 || issued_epoch <= 0)
     return false;
   if(now_epoch >= expiry_epoch)
@@ -231,18 +231,18 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
     return false;
   if(now_epoch - issued_epoch > RuntimeAuthorizationMaxAgeSeconds)
     return false;
-  if(parts[16] != parts[3])
+  if(parts[18] != parts[3])
     return false;
-  if(parts[17] != parts[7])
+  if(parts[19] != parts[9])
     return false;
-  if(parts[19] != "forexai.execution.v1")
+  if(parts[21] != "forexai.execution.v1")
     return false;
 
   string body = parts[0];
-  for(int i = 1; i < 20; ++i)
+  for(int i = 1; i < 22; ++i)
     body += "|" + parts[i];
 
-  string supplied_hash = parts[20];
+  string supplied_hash = parts[22];
   if(!StringToUpper(supplied_hash)) return false;
   string expected_hash = Sha256Hex(body);
   if(supplied_hash != expected_hash)
