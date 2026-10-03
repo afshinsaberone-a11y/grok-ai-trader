@@ -303,6 +303,20 @@ def test_authorization_retry_is_idempotent(tmp_path: Path):
     assert len([e for e in ledger.events if e.event_type == "CAPITAL_AUTHORIZATION_ISSUED"]) == 1
 
 
+def test_authorization_id_reuse_with_new_idempotency_is_rejected(tmp_path: Path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    with pytest.raises(AuthorizationError, match="AUTHORIZATION_ID_REUSED_WITH_DIFFERENT_IDEMPOTENCY"):
+        firewall.issue_authorization(
+            trade_id="T1",
+            authorization_id="AUTH1",
+            authorized_risk=0.005,
+            issued_at_utc="2026-10-02T18:00:00+00:00",
+            expires_at_utc="2026-10-02T19:00:00+00:00",
+            proof=PROOF_KEYS,
+            event_id="auth-event-new",
+            idempotency_key="auth-key-new",
+        )
+
 def test_authorization_idempotency_rejects_semantic_mismatch(tmp_path: Path):
     ledger = TradeLedger(tmp_path / "ledger.jsonl")
     _risk_reserved(ledger)
