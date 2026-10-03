@@ -148,8 +148,11 @@ def verify_runtime_envelope(
     if _expired(expires, now_utc):
         raise AuthorizationError("RUNTIME_ENVELOPE_EXPIRED")
 
-    authorized = float(envelope["authorized_risk"])
-    reserved = float(envelope["reserved_risk"])
+    try:
+        authorized = float(envelope["authorized_risk"])
+        reserved = float(envelope["reserved_risk"])
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise AuthorizationError("RUNTIME_ENVELOPE_RISK_INVALID") from exc
     if (
         not math.isfinite(authorized)
         or not math.isfinite(reserved)
