@@ -155,3 +155,27 @@ def test_execution_admission_config_matches_implementation_contract():
         "take_profit",
         "execution_contract_version",
     ]
+
+
+def test_execution_admission_is_observational_and_cannot_grant_authority(tmp_path: Path):
+    ledger, firewall, envelope, request = _authorized_case(tmp_path)
+    before = [
+        (event.event_type, event.payload)
+        for event in ledger.events
+        if event.event_type.startswith("CAPITAL_AUTHORIZATION")
+        or event.event_type == "TRADE_AUTHORIZED"
+    ]
+    result = check_execution_admission(
+        firewall,
+        envelope,
+        request=request,
+        now_utc="2026-10-02T18:03:00+00:00",
+    )
+    after = [
+        (event.event_type, event.payload)
+        for event in ledger.events
+        if event.event_type.startswith("CAPITAL_AUTHORIZATION")
+        or event.event_type == "TRADE_AUTHORIZED"
+    ]
+    assert result["status"] == "PASS"
+    assert after == before
