@@ -79,7 +79,17 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         and "issued_epoch > now_epoch" in source
         and "now_epoch - issued_epoch > RuntimeAuthorizationMaxAgeSeconds" in source
     )
-    checks["runtime_authorization_consumed"] = "AuthorizationConsumedKey" in source and "MarkRuntimeAuthorizationConsumed" in source
+    checks["runtime_authorization_consumed"] = (
+        "AuthorizationConsumedKey" in source
+        and "MarkRuntimeAuthorizationConsumed" in source
+        and "GlobalVariablesFlush()" in source
+    )
+    checks["runtime_authorization_single_attempt"] = (
+        "AuthorizationAttemptKey" in source
+        and "BeginRuntimeAuthorizationAttempt" in source
+        and "GlobalVariableSetOnCondition" in source
+        and "if(!BeginRuntimeAuthorizationAttempt(trace_trade_id" in source
+    )
 
     expected = {
         "max_positions_one": contract["live_mql5"]["max_positions"] == 1,
@@ -111,6 +121,11 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         ),
         "runtime_authorization_freshness": (
             contract["live_mql5"]["runtime_authorization"]["max_record_age_seconds"] == 10
+        ),
+        "runtime_authorization_single_attempt": (
+            contract["live_mql5"]["runtime_authorization"]["single_attempt_lock_before_submission"] is True
+            and contract["live_mql5"]["runtime_authorization"]["single_attempt_lock_uses_atomic_terminal_global_variable"] is True
+            and contract["live_mql5"]["runtime_authorization"]["consumption_persistence_is_fail_closed"] is True
         ),
     }
     for key, value in expected.items():
