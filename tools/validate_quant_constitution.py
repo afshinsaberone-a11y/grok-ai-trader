@@ -50,6 +50,7 @@ REQUIRED_INVARIANTS = {
     "mql5_authorization_must_be_single_attempt_before_submission == true",
     "authorization_consumption_persistence_failure_blocks_new_risk == true",
     "mql5_authorization_state_keys_must_fit_terminal_global_variable_limit == true",
+    "authorization_lifetime_must_not_exceed_86400_seconds == true",
 }
 
 
@@ -98,6 +99,10 @@ def validate(value: dict[str, Any]) -> dict[str, Any]:
     _require(capital["unauthorized_exposure_must_equal"] == 0, "UNAUTHORIZED_EXPOSURE_MUST_EQUAL_ZERO")
     _require(capital.get("risk_unit") == "equity_fraction", "CAPITAL_RISK_UNIT_MUST_BE_EQUITY_FRACTION")
     _require(capital.get("max_authorized_risk") == 0.006, "CAPITAL_MAX_AUTHORIZED_RISK_MUST_BE_0_006")
+    _require(
+        capital.get("max_authorization_lifetime_seconds") == 86400,
+        "CAPITAL_MAX_AUTHORIZATION_LIFETIME_MUST_BE_86400",
+    )
     _require(capital["risk_must_not_exceed_authorization"] is True, "RISK_CAP_INVARIANT_REQUIRED")
     _require(capital["expired_authorization_must_not_execute"] is True, "AUTH_EXPIRY_INVARIANT_REQUIRED")
 
