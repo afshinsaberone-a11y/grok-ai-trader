@@ -74,3 +74,16 @@ def test_constitution_requires_mql5_runtime_authorization_invariants():
     ]
     with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
         validate(value)
+
+
+def test_constitution_requires_current_firewall_materialization_and_fresh_record():
+    value = load(CONSTITUTION)
+    required = {
+        "mql5_authorization_record_materialization_must_verify_current_firewall == true",
+        "mql5_authorization_record_must_be_fresh_within_10_seconds == true",
+    }
+    value["invariants"] = [
+        item for item in value["invariants"] if item not in required
+    ]
+    with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
+        validate(value)
