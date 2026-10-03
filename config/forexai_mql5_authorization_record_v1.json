@@ -9,6 +9,7 @@
     "hash": "SHA-256",
     "hash_scope": "all_fields_before_final_hash_field_joined_by_delimiter"
   },
+  "required_execution_contract_version": "forexai.execution.v1",
   "fields": [
     "record_prefix",
     "schema",
