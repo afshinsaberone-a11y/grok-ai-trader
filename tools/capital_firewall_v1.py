@@ -253,6 +253,13 @@ class CapitalFirewall:
             "status": "ACTIVE",
         }
         existing = self._event_by_idempotency(trade_id, idempotency_key)
+        if existing is None:
+            prior_authorizations = [
+                event for event in self._events(trade_id, "CAPITAL_AUTHORIZATION_ISSUED")
+                if event.payload.get("authorization_id") == authorization_id
+            ]
+            if prior_authorizations:
+                raise AuthorizationError("AUTHORIZATION_ID_REUSED_WITH_DIFFERENT_IDEMPOTENCY")
         if existing is not None:
             try:
                 self._assert_idempotent_semantics(existing, event_type="CAPITAL_AUTHORIZATION_ISSUED", payload=payload)
