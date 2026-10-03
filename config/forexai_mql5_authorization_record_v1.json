@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.mql5_authorization_record.v1",
+  "purpose": "Deterministic local transport record consumed by the MQL5 EA before an order request.",
+  "format": {
+    "encoding": "UTF-8",
+    "delimiter": "|",
+    "record_prefix": "FOREXAI-AUTH-V1",
+    "hash": "SHA-256",
+    "hash_scope": "all_fields_before_final_hash_field_joined_by_delimiter"
+  },
+  "required_execution_contract_version": "forexai.execution.v1",
+  ,"freshness": {
+    "max_record_age_seconds": 10
+  },
+  "fields": [
+    "record_prefix",
+    "schema",
+    "trade_id",
+    "authorization_id",
+    "reservation_id",
+    "symbol",
+    "timeframe",
+    "authorized_risk",
+    "reserved_risk",
+    "expires_at_utc",
+    "expires_at_epoch_utc",
+    "record_issued_at_utc",
+    "record_issued_at_epoch_utc",
+    "snapshot_id",
+    "decision_id",
+    "strategy_id",
+    "model_id",
+    "policy_version",
+    "risk_authorization_id",
+    "authorization_expiry",
+    "input_hash",
+    "execution_contract_version",
+    "integrity_hash"
+  ],
+  "execution_identity": {
+    "required_fields": [
+      "symbol",
+      "timeframe"
+    ],
+    "must_match_capital_authorization_proof": true,
+    "ea_symbol_must_match_record_symbol": true,
+    "ea_timeframe_must_match_record_timeframe": true
+  },
+  "risk": {
+    "unit": "equity_fraction",
+    "required_relation": "0 < reserved_risk <= authorized_risk <= 0.006",
+    "ea_must_cap_requested_risk_to_reserved_risk": true
+  },
+  "execution_rules": {
+    "missing_record_blocks_new_orders": true,
+    "malformed_record_blocks_new_orders": true,
+    "hash_mismatch_blocks_new_orders": true,
+    "trade_id_mismatch_blocks_new_orders": true,
+    "expired_record_blocks_new_orders": true,
+    "proof_expiry_mismatch_blocks_new_orders": true,
+    "future_record_timestamp_blocks_new_orders": true,
+    "stale_record_blocks_new_orders": true,
+    "record_consumed_after_successful_entry": true,
+    "single_attempt_lock_before_submission": true,
+    "single_attempt_lock_uses_atomic_terminal_global_variable": true,
+    "authorization_record_must_be_materialized_from_current_firewall": true,
+    "consumption_persistence_is_fail_closed": true,
+    "protective_position_management_continues_without_record": true
+  },
+  "security_boundary": {
+    "integrity_only": true,
+    "authenticity": "not_cryptographic_signature",
+    "authority": "Capital Firewall remains authoritative; this record is a local execution-adapter binding.",
+    "filesystem_tamper_attack": "requires stronger authenticated transport outside this record format"
+  }
+}

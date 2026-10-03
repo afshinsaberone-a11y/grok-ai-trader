@@ -1,0 +1,72 @@
+name: ForexAI Quant Constitution
+
+on:
+  push:
+    paths:
+      - "config/forexai_quant_constitution_v1.json"
+      - "tools/validate_quant_constitution.py"
+      - "tests/test_quant_constitution.py"
+      - "research/optimization/canonical_backtest_v1.py"
+      - "tests/test_canonical_backtest_v1.py"
+      - "tools/trade_ledger_v1.py"
+      - "tests/test_trade_ledger_v1.py"
+      - "tools/capital_firewall_v1.py"
+      - "tests/test_capital_firewall_v1.py"
+      - "ea/GRK_Hybrid_Regime_EA.mq5"
+      - "config/forexai_execution_parity_v1.json"
+      - "config/forexai_mql5_authorization_record_v1.json"
+      - "tools/runtime_authorization_record_v1.py"
+      - "tests/test_runtime_authorization_record_v1.py"
+  pull_request:
+    paths:
+      - "config/forexai_quant_constitution_v1.json"
+      - "tools/validate_quant_constitution.py"
+      - "tests/test_quant_constitution.py"
+      - "research/optimization/canonical_backtest_v1.py"
+      - "tests/test_canonical_backtest_v1.py"
+      - "tools/trade_ledger_v1.py"
+      - "tests/test_trade_ledger_v1.py"
+      - "tools/capital_firewall_v1.py"
+      - "tests/test_capital_firewall_v1.py"
+      - "config/forexai_runtime_authorization_envelope_v1.json"
+      - "tools/runtime_authorization_envelope_v1.py"
+      - "tests/test_runtime_authorization_envelope_v1.py"
+      - "ea/GRK_Hybrid_Regime_EA.mq5"
+      - "config/forexai_execution_parity_v1.json"
+      - "config/forexai_mql5_authorization_record_v1.json"
+      - "tools/runtime_authorization_record_v1.py"
+      - "tests/test_runtime_authorization_record_v1.py"
+      - "tools/replay_kernel_v1.py"
+      - "tests/test_replay_kernel_v1.py"
+      - "tools/runtime_trace_bridge_v1.py"
+      - "tests/test_runtime_trace_bridge_v1.py"
+      - "tools/runtime_evidence_gate_v1.py"
+      - "tests/test_runtime_evidence_gate_v1.py"
+      - "tools/fault_injection_v1.py"
+      - "tests/test_fault_injection_v1.py"
+      - "tools/recovery_contract_v1.py"
+      - "tests/test_recovery_contract_v1.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  constitution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Validate constitution
+        run: python tools/validate_quant_constitution.py
+
+      - name: Run constitution tests
+        run: |
+          pip install -r requirements.txt
+          pytest -q tests/test_quant_constitution.py tests/test_canonical_backtest_v1.py tests/test_trade_ledger_v1.py tests/test_capital_firewall_v1.py tests/test_replay_kernel_v1.py tests/test_runtime_trace_bridge_v1.py tests/test_runtime_evidence_gate_v1.py tests/test_fault_injection_v1.py tests/test_recovery_contract_v1.py
