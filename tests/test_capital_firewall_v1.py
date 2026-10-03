@@ -278,6 +278,46 @@ def test_revoked_authorization_cannot_execute(tmp_path: Path):
         )
 
 
+def test_revocation_before_issuance_is_rejected(tmp_path: Path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    with pytest.raises(AuthorizationError, match="REVOCATION_TIMESTAMP_BEFORE_ISSUANCE"):
+        firewall.revoke_authorization(
+            trade_id="T1",
+            authorization_id="AUTH1",
+            reason="invalid_time",
+            now_utc="2026-10-02T17:59:59+00:00",
+            event_id="revoke-before-issue",
+            idempotency_key="revoke-before-issue-key",
+        )
+
+
+def test_multiple_revocation_events_create_ambiguous_authority(tmp_path: Path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.revoke_authorization(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        reason="stop-1",
+        now_utc="2026-10-02T18:04:00+00:00",
+        event_id="revoke-1",
+        idempotency_key="revoke-1-key",
+    )
+    ledger.append(
+        trade_id="T1",
+        state=None,
+        event_type="CAPITAL_AUTHORIZATION_REVOKED",
+        payload={
+            "authorization_id": "AUTH1",
+            "reason": "stop-2",
+            "revoked_at_utc": "2026-10-02T18:05:00+00:00",
+        },
+        idempotency_key="revoke-2-key",
+        event_id="revoke-2",
+        timestamp_utc="2026-10-02T18:05:00+00:00",
+    )
+    with pytest.raises(AuthorizationError, match="AUTHORIZATION_REVOCATION_AMBIGUOUS"):
+        firewall.get_authorization("T1", "AUTH1")
+
+
 def test_revoke_retry_is_idempotent(tmp_path: Path):
     ledger, firewall = _authorized_firewall(tmp_path)
     kwargs = dict(
