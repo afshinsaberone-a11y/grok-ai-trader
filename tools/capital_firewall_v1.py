@@ -14,6 +14,8 @@ from typing import Any, Mapping
 
 from tools.trade_ledger_v1 import LedgerError, TradeLedger
 
+MAX_AUTHORIZATION_LIFETIME_SECONDS = 86400
+
 REQUIRED_PROOF = {
     "snapshot_id",
     "symbol",
@@ -233,6 +235,8 @@ class CapitalFirewall:
         expires = _parse_utc(expires_at_utc)
         if expires <= issued:
             raise AuthorizationError("AUTHORIZATION_EXPIRY_MUST_BE_AFTER_ISSUANCE")
+        if (expires - issued).total_seconds() > MAX_AUTHORIZATION_LIFETIME_SECONDS:
+            raise AuthorizationError("AUTHORIZATION_LIFETIME_EXCEEDS_MAXIMUM")
         if _expired(expires_at_utc, issued_at_utc):
             raise AuthorizationError("AUTHORIZATION_ALREADY_EXPIRED")
 
