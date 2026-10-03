@@ -62,7 +62,10 @@
     "future_record_timestamp_blocks_new_orders": true,
     "stale_record_blocks_new_orders": true,
     "record_consumed_after_successful_entry": true,
+    "single_attempt_lock_before_submission": true,
+    "single_attempt_lock_uses_atomic_terminal_global_variable": true,
     "authorization_record_must_be_materialized_from_current_firewall": true,
+    "consumption_persistence_is_fail_closed": true,
     "protective_position_management_continues_without_record": true
   },
   "security_boundary": {
