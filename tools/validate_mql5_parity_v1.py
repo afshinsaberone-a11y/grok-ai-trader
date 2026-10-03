@@ -90,6 +90,12 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         and "GlobalVariableSetOnCondition" in source
         and "if(!BeginRuntimeAuthorizationAttempt(trace_trade_id" in source
     )
+    checks["runtime_authorization_state_key_bounded"] = (
+        "AuthorizationIdentityDigest" in source
+        and "StringSubstr(digest, 0, 32)" in source
+        and '"ForexAI.v1.a.c."' in source
+        and '"ForexAI.v1.a.t."' in source
+    )
 
     expected = {
         "max_positions_one": contract["live_mql5"]["max_positions"] == 1,
@@ -126,6 +132,11 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
             contract["live_mql5"]["runtime_authorization"]["single_attempt_lock_before_submission"] is True
             and contract["live_mql5"]["runtime_authorization"]["single_attempt_lock_uses_atomic_terminal_global_variable"] is True
             and contract["live_mql5"]["runtime_authorization"]["consumption_persistence_is_fail_closed"] is True
+        ),
+        "runtime_authorization_state_key_bounded": (
+            contract["live_mql5"]["runtime_authorization"]["terminal_global_variable_name_max_length"] == 63
+            and contract["live_mql5"]["runtime_authorization"]["state_key_digest_algorithm"] == "SHA-256"
+            and contract["live_mql5"]["runtime_authorization"]["state_key_digest_characters"] == 32
         ),
     }
     for key, value in expected.items():
