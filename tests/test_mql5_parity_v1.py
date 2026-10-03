@@ -168,3 +168,15 @@ def test_parity_requires_consumed_authorization_persistence():
         assert "runtime_authorization_consumed" in str(exc)
     else:
         raise AssertionError("successful entry must consume its authorization record")
+
+
+def test_parity_requires_pinned_runtime_execution_contract_version():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace('"forexai.execution.v1"', '"forexai.execution.forged.v1"')
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_authorization_execution_contract_version" in str(exc)
+    else:
+        raise AssertionError("runtime authorization must pin the execution contract version")
