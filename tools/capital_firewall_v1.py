@@ -85,6 +85,44 @@ class CapitalFirewall:
             if event.trade_id == trade_id and event.event_type == event_type
         ]
 
+    def _total_authorized_risk_at(self, as_of_utc: str) -> float:
+        as_of = _parse_utc(as_of_utc)
+        pairs = sorted({
+            (event.trade_id, str(event.payload.get("authorization_id")))
+            for event in self.ledger.events
+            if event.event_type == "CAPITAL_AUTHORIZATION_ISSUED"
+            and event.payload.get("authorization_id")
+        })
+        total = 0.0
+        for trade_id, authorization_id in pairs:
+            issued_events = [
+                event for event in self._events(trade_id, "CAPITAL_AUTHORIZATION_ISSUED")
+                if event.payload.get("authorization_id") == authorization_id
+            ]
+            if len(issued_events) != 1:
+                raise CapitalFirewallError("AUTHORIZATION_ISSUE_AMBIGUOUS")
+            payload = issued_events[0].payload
+            issued_at = _parse_utc(str(payload["issued_at_utc"]))
+            expires_at = _parse_utc(str(payload["expires_at_utc"]))
+            if not (issued_at <= as_of < expires_at):
+                continue
+            revoked_before = [
+                event for event in self._events(trade_id, "CAPITAL_AUTHORIZATION_REVOKED")
+                if event.payload.get("authorization_id") == authorization_id
+                and _parse_utc(str(event.payload["revoked_at_utc"])) <= as_of
+            ]
+            if len(revoked_before) > 1:
+                raise CapitalFirewallError("AUTHORIZATION_REVOCATION_AMBIGUOUS")
+            if revoked_before:
+                continue
+            risk = float(payload["authorized_risk"])
+            if not math.isfinite(risk) or risk <= 0:
+                raise CapitalFirewallError("AUTHORIZED_RISK_PERSISTED_NONFINITE")
+            total += risk
+        if not math.isfinite(total):
+            raise CapitalFirewallError("TOTAL_AUTHORIZED_RISK_NONFINITE")
+        return total
+
     def _event_by_idempotency(self, trade_id: str, idempotency_key: str) -> Any | None:
         matches = [
             event for event in self.ledger.events
@@ -214,6 +252,10 @@ class CapitalFirewall:
             "proof": proof_dict,
             "status": "ACTIVE",
         }
+        aggregate = self._total_authorized_risk_at(issued_at_utc)
+        if aggregate + float(authorized_risk) > self.max_authorized_risk:
+            raise AuthorizationError("TOTAL_AUTHORIZED_RISK_EXCEEDS_GLOBAL_CAP")
+
         existing = self._event_by_idempotency(trade_id, idempotency_key)
         if existing is not None:
             try:
