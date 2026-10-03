@@ -180,3 +180,15 @@ def test_parity_requires_pinned_runtime_execution_contract_version():
         assert "runtime_authorization_execution_contract_version" in str(exc)
     else:
         raise AssertionError("runtime authorization must pin the execution contract version")
+
+
+def test_parity_rejects_disablable_runtime_authorization_input():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("if(!RequireRuntimeAuthorization) return INIT_FAILED;", "if(RequireRuntimeAuthorization) return INIT_FAILED;")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_authorization_fail_closed" in str(exc)
+    else:
+        raise AssertionError("runtime authorization must not be user-disableable")
