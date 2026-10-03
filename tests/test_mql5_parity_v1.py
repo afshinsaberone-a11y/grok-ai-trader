@@ -240,3 +240,15 @@ def test_parity_requires_fail_closed_consumption_persistence():
         assert "runtime_authorization_consumed" in str(exc)
     else:
         raise AssertionError("authorization consumption persistence must be verified")
+
+
+def test_parity_requires_bounded_authorization_state_keys():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("StringSubstr(digest, 0, 32)", "digest")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_authorization_state_key_bounded" in str(exc)
+    else:
+        raise AssertionError("authorization state keys must remain within MQL5 limits")
