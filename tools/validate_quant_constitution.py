@@ -49,6 +49,7 @@ REQUIRED_INVARIANTS = {
     "authorization_identity_must_bind_symbol_and_timeframe == true",
     "mql5_authorization_must_be_single_attempt_before_submission == true",
     "authorization_consumption_persistence_failure_blocks_new_risk == true",
+    "mql5_authorization_state_keys_must_fit_terminal_global_variable_limit == true",
 }
 
 
