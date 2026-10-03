@@ -60,6 +60,13 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         and "CAPITAL_RESERVATION_CREATED" not in source
     )
     checks["runtime_trace_fail_closed"] = "runtime_trace_healthy" in source and "if(!runtime_trace_healthy) return;" in source and "EnsureRuntimeTraceReady" in source
+    checks["runtime_authorization_record_schema"] = "forexai.mql5_authorization_record.v1" in source and "FOREXAI-AUTH-V1" in source
+    checks["runtime_authorization_sha256"] = "CRYPT_HASH_SHA256" in source and "Sha256Hex" in source
+    checks["runtime_authorization_common_file"] = "FILE_COMMON" in source and "AuthorizationFile()" in source and "FileReadString" in source
+    checks["runtime_authorization_fail_closed"] = "RequireRuntimeAuthorization" in source and "VerifyRuntimeAuthorization" in source and "if(!VerifyRuntimeAuthorization(trace_trade_id" in source
+    checks["runtime_authorization_risk_cap"] = "authorized > 0.006" in source and "risk_fraction = MathMin(risk_fraction, runtime_reserved_risk)" in source
+    checks["runtime_authorization_expiry"] = "TimeGMT()" in source and "expiry_epoch" in source and "runtime_authorization_expiry_epoch" in source
+    checks["runtime_authorization_consumed"] = "AuthorizationConsumedKey" in source and "MarkRuntimeAuthorizationConsumed" in source
 
     expected = {
         "max_positions_one": contract["live_mql5"]["max_positions"] == 1,
@@ -74,6 +81,14 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         "runtime_trace_failure_blocks_new_orders": contract["parity_policy"]["runtime_trace_failure_blocks_new_orders"] is True
             and contract["live_mql5"]["runtime_trace"]["failure_policy"] == "BLOCK_NEW_ORDERS"
             and contract["live_mql5"]["runtime_trace"]["existing_position_management"] == "CONTINUE_PROTECTIVE_CLOSES",
+        "runtime_authorization_required": contract["parity_policy"]["runtime_authorization_required"] is True
+            and contract["live_mql5"]["runtime_authorization"]["enabled"] is True
+            and contract["live_mql5"]["runtime_authorization"]["missing_record_policy"] == "BLOCK_NEW_ORDERS",
+        "runtime_authorization_fail_closed": contract["parity_policy"]["runtime_authorization_fail_closed"] is True
+            and contract["live_mql5"]["runtime_authorization"]["expired_record_policy"] == "BLOCK_NEW_ORDERS"
+            and contract["live_mql5"]["runtime_authorization"]["trade_id_mismatch_policy"] == "BLOCK_NEW_ORDERS",
+        "runtime_authorization_risk_cap_enforced": contract["parity_policy"]["runtime_authorization_risk_cap_enforced"] is True
+            and contract["live_mql5"]["runtime_authorization"]["risk_cap"] == 0.006,
     }
     for key, value in expected.items():
         checks[f"contract_{key}"] = bool(value)
