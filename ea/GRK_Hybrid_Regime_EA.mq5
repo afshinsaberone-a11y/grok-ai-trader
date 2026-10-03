@@ -40,6 +40,7 @@ input long   Magic              = 2026051;
 input string TraceFileName      = "";
 input bool   RequireRuntimeAuthorization = true;
 input string AuthorizationFileName = "";
+const long RuntimeAuthorizationMaxAgeSeconds = 10;
 
 CTrade trade;
 int adx_h, ma_h, htf_ma_h, atr_h, bb_h;
@@ -144,7 +145,7 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
   string parts[];
   ushort sep = StringGetCharacter("|", 0);
   int count = StringSplit(line, sep, parts);
-  if(count != 19)
+  if(count != 21)
     return false;
 
   for(int i = 0; i < count; ++i)
@@ -168,21 +169,29 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
      DoubleToString(reserved, 12) != parts[6])
     return false;
 
+  long now_epoch = (long)TimeGMT();
   long expiry_epoch = StringToInteger(parts[8]);
-  if(expiry_epoch <= 0 || (long)TimeGMT() >= expiry_epoch)
+  long issued_epoch = StringToInteger(parts[10]);
+  if(expiry_epoch <= 0 || issued_epoch <= 0)
     return false;
-  if(parts[14] != parts[3])
+  if(now_epoch >= expiry_epoch)
     return false;
-  if(parts[7] != parts[15])
+  if(issued_epoch > now_epoch)
     return false;
-  if(parts[17] != "forexai.execution.v1")
+  if(now_epoch - issued_epoch > RuntimeAuthorizationMaxAgeSeconds)
+    return false;
+  if(parts[16] != parts[3])
+    return false;
+  if(parts[17] != parts[7])
+    return false;
+  if(parts[19] != "forexai.execution.v1")
     return false;
 
   string body = parts[0];
-  for(int i = 1; i < 18; ++i)
+  for(int i = 1; i < 20; ++i)
     body += "|" + parts[i];
 
-  string supplied_hash = parts[18];
+  string supplied_hash = parts[20];
   if(!StringToUpper(supplied_hash)) return false;
   string expected_hash = Sha256Hex(body);
   if(supplied_hash != expected_hash)
@@ -192,7 +201,8 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
      StringLen(parts[11]) == 0 || StringLen(parts[12]) == 0 ||
      StringLen(parts[13]) == 0 || StringLen(parts[14]) == 0 ||
      StringLen(parts[15]) == 0 || StringLen(parts[16]) == 0 ||
-     StringLen(parts[17]) == 0)
+     StringLen(parts[17]) == 0 || StringLen(parts[18]) == 0 ||
+     StringLen(parts[19]) == 0)
     return false;
 
   if(GlobalVariableCheck(AuthorizationConsumedKey(parts[2], parts[3], parts[4])))
