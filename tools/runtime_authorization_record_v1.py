@@ -7,6 +7,8 @@ layer only; the Capital Firewall remains the authoritative source of permission.
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -168,11 +170,32 @@ def write_mql5_authorization_record(
     path: str | Path,
     record: Mapping[str, str],
 ) -> None:
-    Path(path).write_text(
-        serialize_mql5_authorization_record(record),
-        encoding="utf-8",
-        newline="\n",
-    )
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = serialize_mql5_authorization_record(record)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=target.parent,
+            prefix=target.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, target)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 
