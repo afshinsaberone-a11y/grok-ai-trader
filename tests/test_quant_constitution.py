@@ -61,3 +61,16 @@ def test_constitution_rejects_higher_authorization_cap():
         assert "CAPITAL_MAX_AUTHORIZED_RISK_MUST_BE_0_006" in str(exc)
     else:
         raise AssertionError("capital authorization ceiling must fail closed")
+
+
+def test_constitution_requires_mql5_runtime_authorization_invariants():
+    value = load(CONSTITUTION)
+    required = {
+        "mql5_new_order_requires_runtime_authorization_record == true",
+        "runtime_authorization_record_cannot_increase_authorized_risk == true",
+    }
+    value["invariants"] = [
+        item for item in value["invariants"] if item not in required
+    ]
+    with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
+        validate(value)
