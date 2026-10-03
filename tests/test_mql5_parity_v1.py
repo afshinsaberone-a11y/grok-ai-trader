@@ -137,7 +137,7 @@ def test_parity_requires_runtime_authorization_record_binding():
 def test_parity_requires_runtime_authorization_fail_closed():
     source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
     contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
-    broken = source.replace("VerifyRuntimeAuthorization(trace_trade_id, true)", "RuntimeAuthorizationRemoved(trace_trade_id, true)")
+    broken = source.replace("VerifyRuntimeAuthorization", "RuntimeAuthorizationRemoved")
     try:
         audit_source(broken, contract)
     except Exception as exc:
