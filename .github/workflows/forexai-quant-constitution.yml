@@ -12,6 +12,11 @@ on:
       - "tests/test_trade_ledger_v1.py"
       - "tools/capital_firewall_v1.py"
       - "tests/test_capital_firewall_v1.py"
+      - "ea/GRK_Hybrid_Regime_EA.mq5"
+      - "config/forexai_execution_parity_v1.json"
+      - "config/forexai_mql5_authorization_record_v1.json"
+      - "tools/runtime_authorization_record_v1.py"
+      - "tests/test_runtime_authorization_record_v1.py"
   pull_request:
     paths:
       - "config/forexai_quant_constitution_v1.json"
@@ -26,6 +31,11 @@ on:
       - "config/forexai_runtime_authorization_envelope_v1.json"
       - "tools/runtime_authorization_envelope_v1.py"
       - "tests/test_runtime_authorization_envelope_v1.py"
+      - "ea/GRK_Hybrid_Regime_EA.mq5"
+      - "config/forexai_execution_parity_v1.json"
+      - "config/forexai_mql5_authorization_record_v1.json"
+      - "tools/runtime_authorization_record_v1.py"
+      - "tests/test_runtime_authorization_record_v1.py"
       - "tools/replay_kernel_v1.py"
       - "tests/test_replay_kernel_v1.py"
       - "tools/runtime_trace_bridge_v1.py"
