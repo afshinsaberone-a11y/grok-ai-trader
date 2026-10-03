@@ -39,6 +39,8 @@ REQUIRED_INVARIANTS = {
     "restart_uncertain_state_blocks_new_risk == true",
     "nonfinite_risk_input_must_be_rejected == true",
     "aggregate_authorized_risk <= global_cap == true",
+    "mql5_new_order_requires_runtime_authorization_record == true",
+    "runtime_authorization_record_cannot_increase_authorized_risk == true",
 }
 
 
