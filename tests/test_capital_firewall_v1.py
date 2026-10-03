@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall, ReservationError
+from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall, MAX_AUTHORIZATION_LIFETIME_SECONDS, ReservationError
 from tools.trade_ledger_v1 import TradeLedger
 
 
@@ -477,4 +477,29 @@ def test_non_finite_authorized_risk_is_rejected(tmp_path: Path):
             expires_at_utc="2026-10-02T19:00:00+00:00",
             proof={**PROOF_KEYS, "risk_authorization_id": "AUTH-NAN"},
             event_id="auth-nan", idempotency_key="auth-nan",
+        )
+
+
+def test_authorization_lifetime_cannot_exceed_terminal_state_persistence_window(tmp_path: Path):
+    ledger = TradeLedger(tmp_path / "ledger.jsonl")
+    _risk_reserved(ledger)
+    firewall = CapitalFirewall(ledger)
+    from datetime import timedelta
+
+    issued = "2026-10-02T18:00:00+00:00"
+    expiry = (
+        "2026-10-03T18:00:01+00:00"
+        if MAX_AUTHORIZATION_LIFETIME_SECONDS == 86400
+        else issued
+    )
+    with pytest.raises(AuthorizationError, match="AUTHORIZATION_LIFETIME_EXCEEDS_MAXIMUM"):
+        firewall.issue_authorization(
+            trade_id="T1",
+            authorization_id="AUTH-LONG",
+            authorized_risk=0.005,
+            issued_at_utc=issued,
+            expires_at_utc=expiry,
+            proof={**PROOF_KEYS, "risk_authorization_id": "AUTH-LONG", "authorization_expiry": expiry},
+            event_id="auth-long-event",
+            idempotency_key="auth-long-key",
         )
