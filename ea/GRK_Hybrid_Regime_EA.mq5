@@ -130,7 +130,8 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
 
   int handle = FileOpen(
       AuthorizationFile(),
-      FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ
+      FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ,
+      '|', CP_UTF8
   );
   if(handle == INVALID_HANDLE)
     return false;
@@ -143,7 +144,7 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
   string parts[];
   ushort sep = StringGetCharacter("|", 0);
   int count = StringSplit(line, sep, parts);
-  if(count != 18)
+  if(count != 19)
     return false;
 
   for(int i = 0; i < count; ++i)
@@ -170,23 +171,26 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
   long expiry_epoch = StringToInteger(parts[8]);
   if(expiry_epoch <= 0 || (long)TimeGMT() >= expiry_epoch)
     return false;
-  if(parts[7] != parts[14])
+  if(parts[14] != parts[3])
     return false;
-  if(parts[3] != parts[14] && StringLen(parts[3]) == 0)
+  if(parts[7] != parts[15])
     return false;
 
   string body = parts[0];
-  for(int i = 1; i < 17; ++i)
+  for(int i = 1; i < 18; ++i)
     body += "|" + parts[i];
 
+  string supplied_hash = parts[18];
+  if(!StringToUpper(supplied_hash)) return false;
   string expected_hash = Sha256Hex(body);
-  if(StringToUpper(parts[17]) != expected_hash)
+  if(supplied_hash != expected_hash)
     return false;
 
   if(StringLen(parts[9]) == 0 || StringLen(parts[10]) == 0 ||
      StringLen(parts[11]) == 0 || StringLen(parts[12]) == 0 ||
-     StringLen(parts[13]) == 0 || StringLen(parts[15]) == 0 ||
-     StringLen(parts[16]) == 0)
+     StringLen(parts[13]) == 0 || StringLen(parts[14]) == 0 ||
+     StringLen(parts[15]) == 0 || StringLen(parts[16]) == 0 ||
+     StringLen(parts[17]) == 0)
     return false;
 
   if(GlobalVariableCheck(AuthorizationConsumedKey(parts[2], parts[3], parts[4])))
