@@ -15,6 +15,18 @@ from tools.capital_firewall_v1 import CapitalFirewall, AuthorizationError
 
 
 ENVELOPE_SCHEMA = "forexai.runtime_authorization_envelope.v1"
+REQUIRED_PROOF_FIELDS = {
+    "snapshot_id",
+    "decision_id",
+    "strategy_id",
+    "model_id",
+    "policy_version",
+    "risk_authorization_id",
+    "authorization_expiry",
+    "input_hash",
+    "execution_contract_version",
+}
+
 
 
 def _canonical(value: Mapping[str, Any]) -> str:
@@ -122,6 +134,8 @@ def verify_runtime_envelope(
     proof = envelope["proof"]
     if not isinstance(proof, dict):
         raise AuthorizationError("RUNTIME_ENVELOPE_PROOF_INVALID")
+    if set(proof) != REQUIRED_PROOF_FIELDS:
+        raise AuthorizationError("RUNTIME_ENVELOPE_PROOF_SCHEMA_MISMATCH")
     if proof.get("risk_authorization_id") != envelope["authorization_id"]:
         raise AuthorizationError("RUNTIME_ENVELOPE_PROOF_AUTHORIZATION_ID_MISMATCH")
     if proof.get("authorization_expiry") != envelope["expires_at_utc"]:
