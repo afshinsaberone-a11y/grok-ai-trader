@@ -8,6 +8,8 @@ on:
       - "config/forexai_execution_parity_v1.json"
       - "tools/capital_firewall_v1.py"
       - "tools/runtime_authorization_envelope_v1.py"
+      - "config/forexai_mql5_authorization_record_v1.json"
+      - "tools/runtime_authorization_record_v1.py"
       - "tools/trade_ledger_v1.py"
   pull_request:
     paths:
@@ -59,6 +61,7 @@ jobs:
           assert admission["request_fields"] == [
               "trade_id",
               "symbol",
+              "timeframe",
               "side",
               "volume",
               "risk_fraction",
