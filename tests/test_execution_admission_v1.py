@@ -125,7 +125,7 @@ def test_execution_admission_rejects_unresolved_reconciliation(tmp_path: Path):
         event_id="recon-event",
         timestamp_utc="2026-10-02T18:03:15+00:00",
     )
-    with pytest.raises(AuthorizationError):
+    with pytest.raises(AuthorizationError, match="UNRESOLVED_RECONCILIATION_BLOCKS_NEW_RISK:T1"):
         check_execution_admission(
             firewall,
             envelope,
