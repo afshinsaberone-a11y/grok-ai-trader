@@ -13,6 +13,7 @@
     "request_fields": [
       "trade_id",
       "symbol",
+      "timeframe",
       "side",
       "volume",
       "risk_fraction",
