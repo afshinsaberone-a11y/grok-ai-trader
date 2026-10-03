@@ -61,6 +61,8 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     )
     checks["runtime_trace_fail_closed"] = "runtime_trace_healthy" in source and "if(!runtime_trace_healthy) return;" in source and "EnsureRuntimeTraceReady" in source
     checks["runtime_authorization_record_schema"] = "forexai.mql5_authorization_record.v1" in source and "FOREXAI-AUTH-V1" in source
+    checks["runtime_authorization_symbol_binding"] = "parts[5] != _Symbol" in source and "parts[5]" in source
+    checks["runtime_authorization_timeframe_binding"] = "parts[6] != current_timeframe" in source and "EnumToString(_Period)" in source
     checks["runtime_authorization_sha256"] = "CRYPT_HASH_SHA256" in source and "Sha256Hex" in source
     checks["runtime_authorization_common_file"] = "FILE_COMMON" in source and "AuthorizationFile()" in source and "FileReadString" in source
     checks["runtime_authorization_fail_closed"] = (
@@ -103,6 +105,9 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         "runtime_authorization_execution_contract_version": (
             contract["live_mql5"]["runtime_authorization"]["required_execution_contract_version"]
             == "forexai.execution.v1"
+        ),
+        "runtime_authorization_execution_identity": (
+            contract["live_mql5"]["runtime_authorization"]["execution_identity_fields"] == ["symbol", "timeframe"]
         ),
         "runtime_authorization_freshness": (
             contract["live_mql5"]["runtime_authorization"]["max_record_age_seconds"] == 10
