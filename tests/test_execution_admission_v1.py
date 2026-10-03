@@ -32,6 +32,7 @@ def _authorized_case(tmp_path: Path):
     request = {
         "trade_id": "T1",
         "symbol": "EURUSD",
+        "timeframe": "M15",
         "side": "BUY",
         "volume": 0.10,
         "risk_fraction": 0.004,
@@ -53,6 +54,7 @@ def test_execution_admission_passes_current_authority(tmp_path: Path):
     assert result["status"] == "PASS"
     assert result["current_firewall_authority"] == "PASS"
     assert result["request_hash"]
+    assert result["timeframe"] == "M15"
 
 
 def test_execution_admission_rejects_risk_over_reservation(tmp_path: Path):
@@ -148,6 +150,7 @@ def test_execution_admission_config_matches_implementation_contract():
     assert contract["request_fields"] == [
         "trade_id",
         "symbol",
+        "timeframe",
         "side",
         "volume",
         "risk_fraction",
@@ -179,3 +182,27 @@ def test_execution_admission_is_observational_and_cannot_grant_authority(tmp_pat
     ]
     assert result["status"] == "PASS"
     assert after == before
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("symbol", "XAUUSD", "EXECUTION_ADMISSION_SYMBOL_MISMATCH"),
+        ("timeframe", "M5", "EXECUTION_ADMISSION_TIMEFRAME_MISMATCH"),
+    ],
+)
+def test_execution_admission_rejects_wrong_execution_identity(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    error: str,
+):
+    _ledger, firewall, envelope, request = _authorized_case(tmp_path)
+    request[field] = value
+    with pytest.raises(AuthorizationError, match=error):
+        check_execution_admission(
+            firewall,
+            envelope,
+            request=request,
+            now_utc="2026-10-02T18:03:00+00:00",
+        )
