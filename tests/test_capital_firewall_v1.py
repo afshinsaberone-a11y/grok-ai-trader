@@ -106,6 +106,52 @@ def test_aggregate_authorization_risk_cannot_exceed_global_cap(tmp_path: Path):
         )
 
 
+def test_same_authorization_retry_is_not_blocked_by_new_global_usage(tmp_path: Path):
+    ledger = TradeLedger(tmp_path / "ledger.jsonl")
+    _risk_reserved(ledger)
+    firewall = CapitalFirewall(ledger)
+    kwargs = dict(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        authorized_risk=0.005,
+        issued_at_utc="2026-10-02T18:00:00+00:00",
+        expires_at_utc="2026-10-02T19:00:00+00:00",
+        proof=PROOF_KEYS,
+        event_id="auth-event-1",
+        idempotency_key="auth-key-1",
+    )
+    firewall.issue_authorization(**kwargs)
+
+    # A new trade now consumes the remaining global capacity.
+    for idx, state in enumerate(
+        ["PROPOSED", "VALIDATED", "RISK_RESERVED"], start=20
+    ):
+        ledger.append(
+            trade_id="T2",
+            state=state,
+            event_type=state.lower(),
+            payload={"idx": idx},
+            idempotency_key=f"t2-{idx}",
+            event_id=f"t2-e{idx}",
+            timestamp_utc="2026-10-02T18:01:00+00:00",
+        )
+    with pytest.raises(AuthorizationError, match="TOTAL_AUTHORIZED_RISK_EXCEEDS_GLOBAL_CAP"):
+        firewall.issue_authorization(
+            trade_id="T2",
+            authorization_id="AUTH2",
+            authorized_risk=0.002,
+            issued_at_utc="2026-10-02T18:01:00+00:00",
+            expires_at_utc="2026-10-02T19:00:00+00:00",
+            proof={**PROOF_KEYS, "risk_authorization_id": "AUTH2"},
+            event_id="auth-event-2",
+            idempotency_key="auth-key-2",
+        )
+
+    # Retrying the existing semantic request must remain idempotent.
+    replay = firewall.issue_authorization(**kwargs)
+    assert replay.authorization_id == "AUTH1"
+
+
 def test_no_authorization_means_no_execution(tmp_path: Path):
     ledger = TradeLedger(tmp_path / "ledger.jsonl")
     _risk_reserved(ledger)
