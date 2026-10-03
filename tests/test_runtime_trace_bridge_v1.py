@@ -176,6 +176,23 @@ def test_duplicate_trace_is_idempotent(tmp_path: Path):
     assert len([e for e in ledger.events if e.event_id == "E1"]) == 1
 
 
+def test_empty_trace_fails_closed(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text("", encoding="utf-8")
+    with pytest.raises(RuntimeTraceError, match="RUNTIME_TRACE_EMPTY"):
+        ingest_trace_file(trace, _authorized_ledger(tmp_path / "ledger.jsonl"))
+
+
+def test_nonfinite_payload_fails_closed(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    row = _record("ORDER_SUBMITTED", 1)
+    row["payload"]["requested_price"] = float("nan")
+    trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeTraceError, match="PAYLOAD_NONFINITE"):
+        ingest_trace_file(trace, _authorized_ledger(tmp_path / "ledger.jsonl"))
+
+
+
 def test_malformed_trace_fails_closed(tmp_path: Path):
     trace = tmp_path / "trace.jsonl"
     trace.write_text("{not-json}\n", encoding="utf-8")
