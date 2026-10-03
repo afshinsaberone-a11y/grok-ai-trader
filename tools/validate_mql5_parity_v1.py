@@ -65,6 +65,7 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["runtime_authorization_common_file"] = "FILE_COMMON" in source and "AuthorizationFile()" in source and "FileReadString" in source
     checks["runtime_authorization_fail_closed"] = "RequireRuntimeAuthorization" in source and "VerifyRuntimeAuthorization" in source and "if(!VerifyRuntimeAuthorization(trace_trade_id" in source
     checks["runtime_authorization_risk_cap"] = "authorized > 0.006" in source and "risk_fraction = MathMin(risk_fraction, runtime_reserved_risk)" in source
+    checks["runtime_authorization_execution_contract_version"] = '"forexai.execution.v1"' in source
     checks["runtime_authorization_expiry"] = "TimeGMT()" in source and "expiry_epoch" in source and "runtime_authorization_expiry_epoch" in source
     checks["runtime_authorization_consumed"] = "AuthorizationConsumedKey" in source and "MarkRuntimeAuthorizationConsumed" in source
 
@@ -89,6 +90,10 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
             and contract["live_mql5"]["runtime_authorization"]["trade_id_mismatch_policy"] == "BLOCK_NEW_ORDERS",
         "runtime_authorization_risk_cap_enforced": contract["parity_policy"]["runtime_authorization_risk_cap_enforced"] is True
             and contract["live_mql5"]["runtime_authorization"]["risk_cap"] == 0.006,
+        "runtime_authorization_execution_contract_version": (
+            contract["live_mql5"]["runtime_authorization"]["required_execution_contract_version"]
+            == "forexai.execution.v1"
+        ),
     }
     for key, value in expected.items():
         checks[f"contract_{key}"] = bool(value)
