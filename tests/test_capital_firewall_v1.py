@@ -77,7 +77,6 @@ def test_aggregate_authorization_risk_cannot_exceed_global_cap(tmp_path: Path):
         idempotency_key="auth-key-1",
     )
 
-    _risk_reserved(ledger)
     # Build a second independent trade lifecycle up to RISK_RESERVED.
     for idx, state in enumerate(
         ["PROPOSED", "VALIDATED", "RISK_RESERVED"], start=10
