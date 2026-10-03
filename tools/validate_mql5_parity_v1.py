@@ -63,7 +63,12 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["runtime_authorization_record_schema"] = "forexai.mql5_authorization_record.v1" in source and "FOREXAI-AUTH-V1" in source
     checks["runtime_authorization_sha256"] = "CRYPT_HASH_SHA256" in source and "Sha256Hex" in source
     checks["runtime_authorization_common_file"] = "FILE_COMMON" in source and "AuthorizationFile()" in source and "FileReadString" in source
-    checks["runtime_authorization_fail_closed"] = "RequireRuntimeAuthorization" in source and "VerifyRuntimeAuthorization" in source and "if(!VerifyRuntimeAuthorization(trace_trade_id" in source
+    checks["runtime_authorization_fail_closed"] = (
+        "RequireRuntimeAuthorization" in source
+        and "VerifyRuntimeAuthorization" in source
+        and "if(!VerifyRuntimeAuthorization(trace_trade_id" in source
+        and "if(!RequireRuntimeAuthorization) return INIT_FAILED;" in source
+    )
     checks["runtime_authorization_risk_cap"] = "authorized > 0.006" in source and "risk_fraction = MathMin(risk_fraction, runtime_reserved_risk)" in source
     checks["runtime_authorization_execution_contract_version"] = '"forexai.execution.v1"' in source
     checks["runtime_authorization_expiry"] = "TimeGMT()" in source and "expiry_epoch" in source and "runtime_authorization_expiry_epoch" in source
