@@ -38,6 +38,8 @@ input int    NewsBlackoutEnd    = -1;
 input int    MaxHoldBars        = 30;
 input long   Magic              = 2026051;
 input string TraceFileName      = "";
+input bool   RequireRuntimeAuthorization = true;
+input string AuthorizationFileName = "";
 
 CTrade trade;
 int adx_h, ma_h, htf_ma_h, atr_h, bb_h;
@@ -51,6 +53,12 @@ datetime day_stamp = 0;
 double day_start_equity = 0;
 string active_trace_trade_id = "";
 bool runtime_trace_healthy = true;
+bool runtime_authorization_healthy = false;
+string runtime_authorization_id = "";
+string runtime_reservation_id = "";
+double runtime_authorized_risk = 0.0;
+double runtime_reserved_risk = 0.0;
+long runtime_authorization_expiry_epoch = 0;
 
 bool EnsureRuntimeTraceReady()
 {
@@ -65,6 +73,144 @@ bool EnsureRuntimeTraceReady()
   return true;
 }
 
+string AuthorizationFile()
+{
+  if(StringLen(AuthorizationFileName) > 0)
+    return AuthorizationFileName;
+  return StringFormat("ForexAI_Authorization_%I64d_%s.auth", Magic, _Symbol);
+}
+
+string Sha256Hex(const string value)
+{
+  uchar data[];
+  uchar key[];
+  uchar digest[];
+  int count = StringToCharArray(value, data, 0, StringLen(value), CP_UTF8);
+  if(count <= 0) return "";
+  ArrayResize(data, count);
+  int size = CryptEncode(CRYPT_HASH_SHA256, data, key, digest);
+  if(size <= 0) return "";
+
+  string hex = "";
+  for(int i = 0; i < size; ++i)
+    hex += StringFormat("%02X", digest[i]);
+  return hex;
+}
+
+bool AuthorizationFieldSafe(const string value)
+{
+  if(StringLen(value) <= 0) return false;
+  return StringFind(value, "|") < 0
+      && StringFind(value, "\n") < 0
+      && StringFind(value, "\r") < 0;
+}
+
+string AuthorizationConsumedKey(const string trade_id,
+                                const string authorization_id,
+                                const string reservation_id)
+{
+  return "ForexAI.v1.authz.consumed." + IntegerToString((int)Magic)
+       + "." + _Symbol + "." + trade_id + "." + authorization_id
+       + "." + reservation_id;
+}
+
+bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
+{
+  runtime_authorization_healthy = false;
+  if(!RequireRuntimeAuthorization)
+  {
+    runtime_authorization_healthy = true;
+    return true;
+  }
+
+  if(StringLen(trade_id) == 0) return false;
+  string expected_side = is_buy ? "B" : "S";
+  if(StringLen(trade_id) < 1 || StringSubstr(trade_id, StringLen(trade_id)-1, 1) != expected_side)
+    return false;
+
+  int handle = FileOpen(
+      AuthorizationFile(),
+      FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ
+  );
+  if(handle == INVALID_HANDLE)
+    return false;
+
+  string line = FileReadString(handle);
+  FileClose(handle);
+  if(StringLen(line) <= 0)
+    return false;
+
+  string parts[];
+  ushort sep = StringGetCharacter("|", 0);
+  int count = StringSplit(line, sep, parts);
+  if(count != 18)
+    return false;
+
+  for(int i = 0; i < count; ++i)
+    if(!AuthorizationFieldSafe(parts[i]))
+      return false;
+
+  if(parts[0] != "FOREXAI-AUTH-V1" ||
+     parts[1] != "forexai.mql5_authorization_record.v1")
+    return false;
+
+  if(parts[2] != trade_id)
+    return false;
+
+  double authorized = StringToDouble(parts[5]);
+  double reserved = StringToDouble(parts[6]);
+  if(!MathIsValidNumber(authorized) || !MathIsValidNumber(reserved))
+    return false;
+  if(authorized <= 0 || reserved <= 0 || reserved > authorized || authorized > 0.006)
+    return false;
+  if(DoubleToString(authorized, 12) != parts[5] ||
+     DoubleToString(reserved, 12) != parts[6])
+    return false;
+
+  long expiry_epoch = StringToInteger(parts[8]);
+  if(expiry_epoch <= 0 || (long)TimeGMT() >= expiry_epoch)
+    return false;
+  if(parts[7] != parts[14])
+    return false;
+  if(parts[3] != parts[14] && StringLen(parts[3]) == 0)
+    return false;
+
+  string body = parts[0];
+  for(int i = 1; i < 17; ++i)
+    body += "|" + parts[i];
+
+  string expected_hash = Sha256Hex(body);
+  if(StringToUpper(parts[17]) != expected_hash)
+    return false;
+
+  if(StringLen(parts[9]) == 0 || StringLen(parts[10]) == 0 ||
+     StringLen(parts[11]) == 0 || StringLen(parts[12]) == 0 ||
+     StringLen(parts[13]) == 0 || StringLen(parts[15]) == 0 ||
+     StringLen(parts[16]) == 0)
+    return false;
+
+  if(GlobalVariableCheck(AuthorizationConsumedKey(parts[2], parts[3], parts[4])))
+    return false;
+
+  runtime_authorization_id = parts[3];
+  runtime_reservation_id = parts[4];
+  runtime_authorized_risk = authorized;
+  runtime_reserved_risk = reserved;
+  runtime_authorization_expiry_epoch = expiry_epoch;
+  runtime_authorization_healthy = true;
+  return true;
+}
+
+void MarkRuntimeAuthorizationConsumed(const string trade_id)
+{
+  if(!RequireRuntimeAuthorization || !runtime_authorization_healthy)
+    return;
+  string key = AuthorizationConsumedKey(
+      trade_id, runtime_authorization_id, runtime_reservation_id
+  );
+  GlobalVariableSet(key, 1.0);
+}
+ 
 string TraceFile()
 {
   if(StringLen(TraceFileName) > 0)
@@ -234,17 +380,20 @@ void TraceSuccessfulEntry(const string trade_id,
 
   string accepted_fields = StringFormat(
       "\"side\":\"%s\",\"retcode\":%u,\"order_ticket\":\"%I64d\","
-      "\"deal_ticket\":\"%I64d\"",
-      side, retcode, (long)order_ticket, (long)deal_ticket
+      "\"deal_ticket\":\"%I64d\",\"authorization_id\":\"%s\",\"reservation_id\":\"%s\"",
+      side, retcode, (long)order_ticket, (long)deal_ticket,
+      TraceJsonEscape(runtime_authorization_id), TraceJsonEscape(runtime_reservation_id)
   );
   TraceLifecycle(trade_id, "ACCEPTED", accepted_fields);
 
   string filled_fields = StringFormat(
       "\"side\":\"%s\",\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\","
       "\"fill_price\":%.10f,\"requested_volume\":%.8f,"
-      "\"requested_sl\":%.10f,\"requested_tp\":%.10f",
+      "\"requested_sl\":%.10f,\"requested_tp\":%.10f,"
+      "\"authorization_id\":\"%s\",\"reservation_id\":\"%s\"",
       side, (long)order_ticket, (long)deal_ticket, fill_price,
-      requested_volume, requested_sl, requested_tp
+      requested_volume, requested_sl, requested_tp,
+      TraceJsonEscape(runtime_authorization_id), TraceJsonEscape(runtime_reservation_id)
   );
   TraceLifecycle(trade_id, "FILLED", filled_fields);
 
@@ -253,7 +402,8 @@ void TraceSuccessfulEntry(const string trade_id,
     string open_fields = StringFormat(
         "\"side\":\"%s\",\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\","
         "\"position_count\":%d",
-        side, (long)order_ticket, (long)deal_ticket, PositionsByMagic()
+        side, (long)order_ticket, (long)deal_ticket, PositionsByMagic(),
+        TraceJsonEscape(runtime_authorization_id), TraceJsonEscape(runtime_reservation_id)
     );
     TraceLifecycle(trade_id, "OPEN", open_fields);
   }
@@ -539,7 +689,13 @@ double PositionSize(double sl_price, bool is_buy)
   double price = is_buy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
                         : SymbolInfoDouble(_Symbol, SYMBOL_BID);
   double sl_points = MathAbs(price - sl_price);
-  double risk_money = AccountInfoDouble(ACCOUNT_EQUITY) * EffectiveRiskPercent() / 100.0;
+  double risk_fraction = EffectiveRiskPercent() / 100.0;
+  if(RequireRuntimeAuthorization)
+  {
+    if(!runtime_authorization_healthy) return 0;
+    risk_fraction = MathMin(risk_fraction, runtime_reserved_risk);
+  }
+  double risk_money = AccountInfoDouble(ACCOUNT_EQUITY) * risk_fraction;
   double tick_val = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
   double tick_sz  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
   if(sl_points <= 0 || tick_val <= 0 || tick_sz <= 0) return 0;
@@ -599,6 +755,7 @@ bool SendBuy(double sl, double tp, const string cmt)
   double vol = PositionSize(sl, true);
   if(vol <= 0) return false;
   string trace_trade_id = BuildTraceTradeId(true, iTime(_Symbol, PERIOD_CURRENT, 1));
+  if(!VerifyRuntimeAuthorization(trace_trade_id, true)) return false;
   bool submitted = trade.Buy(vol, _Symbol, ask, sl, tp, cmt);
   if(!submitted) return false;
   TraceLifecycle(
@@ -612,6 +769,7 @@ bool SendBuy(double sl, double tp, const string cmt)
   );
   if(!TradeExecutionAccepted()) return false;
   TraceSuccessfulEntry(trace_trade_id, true, sl, tp, vol);
+  MarkRuntimeAuthorizationConsumed(trace_trade_id);
   trades_today++;
   return true;
 }
@@ -625,6 +783,7 @@ bool SendSell(double sl, double tp, const string cmt)
   double vol = PositionSize(sl, false);
   if(vol <= 0) return false;
   string trace_trade_id = BuildTraceTradeId(false, iTime(_Symbol, PERIOD_CURRENT, 1));
+  if(!VerifyRuntimeAuthorization(trace_trade_id, false)) return false;
   bool submitted = trade.Sell(vol, _Symbol, bid, sl, tp, cmt);
   if(!submitted) return false;
   TraceLifecycle(
@@ -638,6 +797,7 @@ bool SendSell(double sl, double tp, const string cmt)
   );
   if(!TradeExecutionAccepted()) return false;
   TraceSuccessfulEntry(trace_trade_id, false, sl, tp, vol);
+  MarkRuntimeAuthorizationConsumed(trace_trade_id);
   trades_today++;
   return true;
 }
@@ -830,6 +990,7 @@ void OnTick()
 // Protective closes are counted only after broker ResultRetcode confirmation.
 // Runtime timestamps retain broker/server time; UTC is derived/cross-checked from broker time and the observed server-GMT offset.
 // FOREXAI-RUNTIME-TRACE-V1: MQL5 emits advisory ORDER_SUBMITTED before result verification, then ACCEPTED/FILLED/OPEN after broker confirmation.
+// FOREXAI-AUTHORIZATION-V1: New orders require a matching, unexpired MQL5 authorization record with SHA-256 integrity binding; execution risk is capped by reserved_risk.
 // GRK-SAFETY-CONTRACT-051
 // Hard StopLoss on every order. No averaging-up / recovery sizing. Risk<=0.6.
 // No grid. No martingale. Closed-bar entries only. Daily profit/loss halt.
