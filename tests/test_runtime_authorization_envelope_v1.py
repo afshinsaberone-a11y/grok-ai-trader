@@ -10,7 +10,7 @@ from tools.runtime_authorization_envelope_v1 import (
     verify_runtime_envelope_current,
 )
 from tools.trade_ledger_v1 import TradeLedger
-from tests.test_capital_firewall_v1 import _authorized_firewall, _risk_reserved
+from tests.test_capital_firewall_v1 import PROOF_KEYS, _authorized_firewall, _risk_reserved
 
 
 def test_build_and_verify_runtime_envelope(tmp_path: Path):
