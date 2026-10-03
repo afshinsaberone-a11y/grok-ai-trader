@@ -119,6 +119,14 @@ def verify_runtime_envelope(
     if envelope_hash(raw) != supplied_hash:
         raise AuthorizationError("RUNTIME_ENVELOPE_HASH_MISMATCH")
 
+    proof = envelope["proof"]
+    if not isinstance(proof, dict):
+        raise AuthorizationError("RUNTIME_ENVELOPE_PROOF_INVALID")
+    if proof.get("risk_authorization_id") != envelope["authorization_id"]:
+        raise AuthorizationError("RUNTIME_ENVELOPE_PROOF_AUTHORIZATION_ID_MISMATCH")
+    if proof.get("authorization_expiry") != envelope["expires_at_utc"]:
+        raise AuthorizationError("RUNTIME_ENVELOPE_PROOF_EXPIRY_MISMATCH")
+
     expires = str(envelope["expires_at_utc"])
     from tools.capital_firewall_v1 import _expired, _parse_utc
 
@@ -158,9 +166,30 @@ def verify_runtime_envelope_current(
     now_utc: str,
 ) -> dict[str, Any]:
     verified = verify_runtime_envelope(envelope, now_utc=now_utc)
+    trade_id = str(envelope["trade_id"])
+    authorization_id = str(envelope["authorization_id"])
+    reservation_id = str(envelope["reservation_id"])
+    auth = firewall.get_authorization(trade_id, authorization_id)
+    if float(envelope["authorized_risk"]) != auth.authorized_risk:
+        raise AuthorizationError("RUNTIME_ENVELOPE_AUTHORIZED_RISK_MISMATCH")
+    if dict(envelope["proof"]) != auth.proof:
+        raise AuthorizationError("RUNTIME_ENVELOPE_PROOF_FIREWALL_MISMATCH")
+
+    try:
+        reserved_amount, reservation_expiry = firewall.active_reservation(
+            trade_id, authorization_id, reservation_id
+        )
+    except Exception as exc:
+        raise AuthorizationError("RUNTIME_ENVELOPE_RESERVATION_NOT_CURRENT") from exc
+
+    if float(envelope["reserved_risk"]) != reserved_amount:
+        raise AuthorizationError("RUNTIME_ENVELOPE_RESERVED_RISK_MISMATCH")
+    if str(envelope["expires_at_utc"]) != reservation_expiry:
+        raise AuthorizationError("RUNTIME_ENVELOPE_RESERVATION_EXPIRY_MISMATCH")
+
     firewall.assert_execution_allowed(
-        trade_id=str(envelope["trade_id"]),
-        authorization_id=str(envelope["authorization_id"]),
+        trade_id=trade_id,
+        authorization_id=authorization_id,
         required_risk=float(envelope["reserved_risk"]),
         now_utc=now_utc,
     )
