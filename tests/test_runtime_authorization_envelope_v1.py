@@ -178,7 +178,7 @@ def test_current_envelope_rejects_rehashed_forged_risk_and_proof(tmp_path: Path)
     ).to_dict()
 
     from tools.runtime_authorization_envelope_v1 import envelope_hash
-    envelope["authorized_risk"] = 0.004
+    envelope["authorized_risk"] = 0.0055
     forged_proof = dict(envelope["proof"])
     forged_proof["decision_id"] = "FORGED"
     envelope["proof"] = forged_proof
