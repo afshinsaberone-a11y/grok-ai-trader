@@ -43,6 +43,9 @@ REQUIRED_INVARIANTS = {
     "runtime_authorization_record_cannot_increase_authorized_risk == true",
     "mql5_authorization_record_materialization_must_verify_current_firewall == true",
     "mql5_authorization_record_must_be_fresh_within_10_seconds == true",
+    "broker_submission_requires_current_execution_admission == true",
+    "execution_admission_rejects_stale_or_revoked_authority == true",
+    "execution_admission_cannot_grant_capital_authority == true",
 }
 
 
