@@ -19,6 +19,8 @@
     "trade_id",
     "authorization_id",
     "reservation_id",
+    "symbol",
+    "timeframe",
     "authorized_risk",
     "reserved_risk",
     "expires_at_utc",
@@ -36,6 +38,15 @@
     "execution_contract_version",
     "integrity_hash"
   ],
+  "execution_identity": {
+    "required_fields": [
+      "symbol",
+      "timeframe"
+    ],
+    "must_match_capital_authorization_proof": true,
+    "ea_symbol_must_match_record_symbol": true,
+    "ea_timeframe_must_match_record_timeframe": true
+  },
   "risk": {
     "unit": "equity_fraction",
     "required_relation": "0 < reserved_risk <= authorized_risk <= 0.006",
