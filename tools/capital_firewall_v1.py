@@ -16,6 +16,8 @@ from tools.trade_ledger_v1 import LedgerError, TradeLedger
 
 REQUIRED_PROOF = {
     "snapshot_id",
+    "symbol",
+    "timeframe",
     "decision_id",
     "strategy_id",
     "model_id",
