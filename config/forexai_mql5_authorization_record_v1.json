@@ -23,6 +23,8 @@
     "reserved_risk",
     "expires_at_utc",
     "expires_at_epoch_utc",
+    "record_issued_at_utc",
+    "record_issued_at_epoch_utc",
     "snapshot_id",
     "decision_id",
     "strategy_id",
@@ -46,7 +48,10 @@
     "trade_id_mismatch_blocks_new_orders": true,
     "expired_record_blocks_new_orders": true,
     "proof_expiry_mismatch_blocks_new_orders": true,
+    "future_record_timestamp_blocks_new_orders": true,
+    "stale_record_blocks_new_orders": true,
     "record_consumed_after_successful_entry": true,
+    "authorization_record_must_be_materialized_from_current_firewall": true,
     "protective_position_management_continues_without_record": true
   },
   "security_boundary": {
