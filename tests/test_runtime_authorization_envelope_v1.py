@@ -272,3 +272,11 @@ def test_current_envelope_check_detects_revoked_authorization(tmp_path: Path):
             envelope,
             now_utc="2026-10-02T18:05:00+00:00",
         )
+
+
+def test_runtime_envelope_proof_schema_matches_capital_firewall():
+    from tools.capital_firewall_v1 import REQUIRED_PROOF
+    from tools.runtime_authorization_envelope_v1 import REQUIRED_PROOF_FIELDS
+
+    assert REQUIRED_PROOF_FIELDS == frozenset(REQUIRED_PROOF)
+    assert {"symbol", "timeframe"} <= REQUIRED_PROOF_FIELDS
