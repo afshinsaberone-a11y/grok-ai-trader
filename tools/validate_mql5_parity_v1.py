@@ -72,6 +72,11 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["runtime_authorization_risk_cap"] = "authorized > 0.006" in source and "risk_fraction = MathMin(risk_fraction, runtime_reserved_risk)" in source
     checks["runtime_authorization_execution_contract_version"] = '"forexai.execution.v1"' in source
     checks["runtime_authorization_expiry"] = "TimeGMT()" in source and "expiry_epoch" in source and "runtime_authorization_expiry_epoch" in source
+    checks["runtime_authorization_freshness"] = (
+        "RuntimeAuthorizationMaxAgeSeconds = 10" in source
+        and "issued_epoch > now_epoch" in source
+        and "now_epoch - issued_epoch > RuntimeAuthorizationMaxAgeSeconds" in source
+    )
     checks["runtime_authorization_consumed"] = "AuthorizationConsumedKey" in source and "MarkRuntimeAuthorizationConsumed" in source
 
     expected = {
@@ -98,6 +103,9 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         "runtime_authorization_execution_contract_version": (
             contract["live_mql5"]["runtime_authorization"]["required_execution_contract_version"]
             == "forexai.execution.v1"
+        ),
+        "runtime_authorization_freshness": (
+            contract["live_mql5"]["runtime_authorization"]["max_record_age_seconds"] == 10
         ),
     }
     for key, value in expected.items():
