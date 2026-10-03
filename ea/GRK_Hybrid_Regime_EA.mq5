@@ -106,22 +106,32 @@ bool AuthorizationFieldSafe(const string value)
       && StringFind(value, "\r") < 0;
 }
 
+string AuthorizationIdentityDigest(const string trade_id,
+                                  const string authorization_id,
+                                  const string reservation_id)
+{
+  string material = IntegerToString((int)Magic) + "|" + _Symbol + "|"
+                  + trade_id + "|" + authorization_id + "|" + reservation_id;
+  string digest = Sha256Hex(material);
+  if(StringLen(digest) < 32)
+    return "";
+  return StringSubstr(digest, 0, 32);
+}
+
 string AuthorizationConsumedKey(const string trade_id,
                                 const string authorization_id,
                                 const string reservation_id)
 {
-  return "ForexAI.v1.authz.consumed." + IntegerToString((int)Magic)
-       + "." + _Symbol + "." + trade_id + "." + authorization_id
-       + "." + reservation_id;
+  string digest = AuthorizationIdentityDigest(trade_id, authorization_id, reservation_id);
+  return "ForexAI.v1.a.c." + digest;
 }
 
 string AuthorizationAttemptKey(const string trade_id,
                                const string authorization_id,
                                const string reservation_id)
 {
-  return "ForexAI.v1.authz.attempt." + IntegerToString((int)Magic)
-       + "." + _Symbol + "." + trade_id + "." + authorization_id
-       + "." + reservation_id;
+  string digest = AuthorizationIdentityDigest(trade_id, authorization_id, reservation_id);
+  return "ForexAI.v1.a.t." + digest;
 }
 
 bool BeginRuntimeAuthorizationAttempt(const string trade_id)
