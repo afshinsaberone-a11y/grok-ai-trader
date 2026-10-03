@@ -80,7 +80,10 @@
       "max_record_age_seconds": 10,
       "single_attempt_lock_before_submission": true,
       "single_attempt_lock_uses_atomic_terminal_global_variable": true,
-      "consumption_persistence_is_fail_closed": true
+      "consumption_persistence_is_fail_closed": true,
+      "terminal_global_variable_name_max_length": 63,
+      "state_key_digest_algorithm": "SHA-256",
+      "state_key_digest_characters": 32
     },
     "runtime_trace": {
       "enabled": true,
