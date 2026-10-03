@@ -115,6 +115,42 @@ string AuthorizationConsumedKey(const string trade_id,
        + "." + reservation_id;
 }
 
+string AuthorizationAttemptKey(const string trade_id,
+                               const string authorization_id,
+                               const string reservation_id)
+{
+  return "ForexAI.v1.authz.attempt." + IntegerToString((int)Magic)
+       + "." + _Symbol + "." + trade_id + "." + authorization_id
+       + "." + reservation_id;
+}
+
+bool BeginRuntimeAuthorizationAttempt(const string trade_id)
+{
+  if(!runtime_authorization_healthy)
+    return false;
+
+  string key = AuthorizationAttemptKey(
+      trade_id, runtime_authorization_id, runtime_reservation_id
+  );
+  if(GlobalVariableCheck(key))
+    return false;
+
+  if(GlobalVariableSetOnCondition(key, 1.0, 0.0))
+    return true;
+
+  if(GlobalVariableCheck(key))
+    return false;
+
+  if(GlobalVariableSet(key, 0.0) == 0)
+    return false;
+
+  if(!GlobalVariableSetOnCondition(key, 1.0, 0.0))
+    return false;
+
+  GlobalVariablesFlush();
+  return true;
+}
+
 bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
 {
   runtime_authorization_healthy = false;
@@ -208,6 +244,8 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
 
   if(GlobalVariableCheck(AuthorizationConsumedKey(parts[2], parts[3], parts[4])))
     return false;
+  if(GlobalVariableCheck(AuthorizationAttemptKey(parts[2], parts[3], parts[4])))
+    return false;
 
   runtime_authorization_id = parts[3];
   runtime_reservation_id = parts[4];
@@ -218,14 +256,27 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
   return true;
 }
 
-void MarkRuntimeAuthorizationConsumed(const string trade_id)
+bool MarkRuntimeAuthorizationConsumed(const string trade_id)
 {
   if(!RequireRuntimeAuthorization || !runtime_authorization_healthy)
-    return;
+    return false;
   string key = AuthorizationConsumedKey(
       trade_id, runtime_authorization_id, runtime_reservation_id
   );
-  GlobalVariableSet(key, 1.0);
+  if(GlobalVariableSet(key, 1.0) == 0 || !GlobalVariableCheck(key))
+  {
+    runtime_authorization_healthy = false;
+    PersistSafetyState();
+    return false;
+  }
+  GlobalVariablesFlush();
+  if(!GlobalVariableCheck(key))
+  {
+    runtime_authorization_healthy = false;
+    PersistSafetyState();
+    return false;
+  }
+  return true;
 }
  
 string TraceFile()
@@ -774,8 +825,14 @@ bool SendBuy(double sl, double tp, const string cmt)
   if(vol <= 0) return false;
   string trace_trade_id = BuildTraceTradeId(true, iTime(_Symbol, PERIOD_CURRENT, 1));
   if(!VerifyRuntimeAuthorization(trace_trade_id, true)) return false;
+  if(!BeginRuntimeAuthorizationAttempt(trace_trade_id)) return false;
   bool submitted = trade.Buy(vol, _Symbol, ask, sl, tp, cmt);
-  if(!submitted) return false;
+  if(!submitted)
+  {
+    runtime_authorization_healthy = false;
+    PersistSafetyState();
+    return false;
+  }
   TraceLifecycle(
       trace_trade_id,
       "ORDER_SUBMITTED",
@@ -785,7 +842,12 @@ bool SendBuy(double sl, double tp, const string cmt)
           vol, ask, sl, tp, (long)trade.ResultOrder()
       )
   );
-  if(!TradeExecutionAccepted()) return false;
+  if(!TradeExecutionAccepted())
+  {
+    runtime_authorization_healthy = false;
+    PersistSafetyState();
+    return false;
+  }
   TraceSuccessfulEntry(trace_trade_id, true, sl, tp, vol);
   MarkRuntimeAuthorizationConsumed(trace_trade_id);
   trades_today++;
@@ -802,8 +864,14 @@ bool SendSell(double sl, double tp, const string cmt)
   if(vol <= 0) return false;
   string trace_trade_id = BuildTraceTradeId(false, iTime(_Symbol, PERIOD_CURRENT, 1));
   if(!VerifyRuntimeAuthorization(trace_trade_id, false)) return false;
+  if(!BeginRuntimeAuthorizationAttempt(trace_trade_id)) return false;
   bool submitted = trade.Sell(vol, _Symbol, bid, sl, tp, cmt);
-  if(!submitted) return false;
+  if(!submitted)
+  {
+    runtime_authorization_healthy = false;
+    PersistSafetyState();
+    return false;
+  }
   TraceLifecycle(
       trace_trade_id,
       "ORDER_SUBMITTED",
@@ -813,7 +881,12 @@ bool SendSell(double sl, double tp, const string cmt)
           vol, bid, sl, tp, (long)trade.ResultOrder()
       )
   );
-  if(!TradeExecutionAccepted()) return false;
+  if(!TradeExecutionAccepted())
+  {
+    runtime_authorization_healthy = false;
+    PersistSafetyState();
+    return false;
+  }
   TraceSuccessfulEntry(trace_trade_id, false, sl, tp, vol);
   MarkRuntimeAuthorizationConsumed(trace_trade_id);
   trades_today++;
