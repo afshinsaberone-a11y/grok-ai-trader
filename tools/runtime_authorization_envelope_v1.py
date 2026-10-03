@@ -11,21 +11,11 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from tools.capital_firewall_v1 import CapitalFirewall, AuthorizationError
+from tools.capital_firewall_v1 import CapitalFirewall, AuthorizationError, REQUIRED_PROOF
 
 
 ENVELOPE_SCHEMA = "forexai.runtime_authorization_envelope.v1"
-REQUIRED_PROOF_FIELDS = {
-    "snapshot_id",
-    "decision_id",
-    "strategy_id",
-    "model_id",
-    "policy_version",
-    "risk_authorization_id",
-    "authorization_expiry",
-    "input_hash",
-    "execution_contract_version",
-}
+REQUIRED_PROOF_FIELDS = frozenset(REQUIRED_PROOF)
 
 
 
