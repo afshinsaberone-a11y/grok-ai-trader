@@ -49,6 +49,7 @@ def check_execution_admission(
     required = {
         "trade_id",
         "symbol",
+        "timeframe",
         "side",
         "volume",
         "risk_fraction",
@@ -63,6 +64,10 @@ def check_execution_admission(
         raise AuthorizationError("EXECUTION_ADMISSION_TRADE_ID_MISMATCH")
     if not isinstance(request["symbol"], str) or not request["symbol"]:
         raise AuthorizationError("EXECUTION_ADMISSION_SYMBOL_INVALID")
+    if request["timeframe"] != envelope["proof"]["timeframe"]:
+        raise AuthorizationError("EXECUTION_ADMISSION_TIMEFRAME_MISMATCH")
+    if request["symbol"] != envelope["proof"]["symbol"]:
+        raise AuthorizationError("EXECUTION_ADMISSION_SYMBOL_MISMATCH")
     if request["side"] not in {"BUY", "SELL"}:
         raise AuthorizationError("EXECUTION_ADMISSION_SIDE_INVALID")
     if request["execution_contract_version"] != "forexai.execution.v1":
@@ -83,6 +88,7 @@ def check_execution_admission(
         "authorization_id": current["authorization_id"],
         "reservation_id": current["reservation_id"],
         "symbol": request["symbol"],
+        "timeframe": request["timeframe"],
         "side": request["side"],
         "volume": volume,
         "risk_fraction": risk_fraction,
