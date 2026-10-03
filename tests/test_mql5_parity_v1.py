@@ -120,3 +120,51 @@ def test_parity_requires_result_order_evidence():
         assert "order_ticket_verified" in str(exc)
     else:
         raise AssertionError("broker order ticket must be recorded")
+
+
+def test_parity_requires_runtime_authorization_record_binding():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("FOREXAI-AUTH-V1", "FOREXAI-AUTH-REMOVED")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_authorization_record_schema" in str(exc)
+    else:
+        raise AssertionError("runtime authorization record must be required")
+
+
+def test_parity_requires_runtime_authorization_fail_closed():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("VerifyRuntimeAuthorization(trace_trade_id, true)", "RuntimeAuthorizationRemoved(trace_trade_id, true)")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_authorization_fail_closed" in str(exc)
+    else:
+        raise AssertionError("missing runtime authorization gate must fail closed")
+
+
+def test_parity_requires_runtime_authorization_risk_cap():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("runtime_reserved_risk)", "runtime_reserved_risk_removed)")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_authorization_risk_cap" in str(exc)
+    else:
+        raise AssertionError("EA risk must remain capped by reserved authorization risk")
+
+
+def test_parity_requires_consumed_authorization_persistence():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("MarkRuntimeAuthorizationConsumed", "MarkRuntimeAuthorizationRemoved")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_authorization_consumed" in str(exc)
+    else:
+        raise AssertionError("successful entry must consume its authorization record")
