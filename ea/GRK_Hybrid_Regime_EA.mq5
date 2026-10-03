@@ -175,6 +175,8 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
     return false;
   if(parts[7] != parts[15])
     return false;
+  if(parts[17] != "forexai.execution.v1")
+    return false;
 
   string body = parts[0];
   for(int i = 1; i < 18; ++i)
