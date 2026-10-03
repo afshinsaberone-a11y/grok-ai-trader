@@ -24,6 +24,7 @@
     "strategy_id",
     "model_id",
     "policy_version",
+    "risk_authorization_id",
     "authorization_expiry",
     "input_hash",
     "execution_contract_version",
