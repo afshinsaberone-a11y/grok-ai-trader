@@ -109,3 +109,10 @@ def test_constitution_requires_bounded_mql5_authorization_state_keys():
     value["invariants"] = [item for item in value["invariants"] if item != required]
     with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
         validate(value)
+
+
+def test_constitution_requires_24_hour_authorization_lifetime_cap():
+    value = load(CONSTITUTION)
+    value["hard_boundaries"]["capital"]["max_authorization_lifetime_seconds"] = 172800
+    with pytest.raises(ConstitutionError, match="CAPITAL_MAX_AUTHORIZATION_LIFETIME_MUST_BE_86400"):
+        validate(value)
