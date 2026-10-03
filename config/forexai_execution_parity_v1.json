@@ -53,7 +53,8 @@
       "expired_record_policy": "BLOCK_NEW_ORDERS",
       "trade_id_mismatch_policy": "BLOCK_NEW_ORDERS",
       "risk_cap": 0.006,
-      "required_execution_contract_version": "forexai.execution.v1"
+      "required_execution_contract_version": "forexai.execution.v1",
+      "max_record_age_seconds": 10
     },
     "runtime_trace": {
       "enabled": true,
