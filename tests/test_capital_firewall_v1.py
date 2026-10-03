@@ -62,6 +62,51 @@ def _authorized_firewall(tmp_path: Path) -> tuple[TradeLedger, CapitalFirewall]:
     return ledger, firewall
 
 
+def test_aggregate_authorization_risk_cannot_exceed_global_cap(tmp_path: Path):
+    ledger = TradeLedger(tmp_path / "ledger.jsonl")
+    _risk_reserved(ledger)
+    firewall = CapitalFirewall(ledger)
+    firewall.issue_authorization(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        authorized_risk=0.005,
+        issued_at_utc="2026-10-02T18:00:00+00:00",
+        expires_at_utc="2026-10-02T19:00:00+00:00",
+        proof=PROOF_KEYS,
+        event_id="auth-event-1",
+        idempotency_key="auth-key-1",
+    )
+
+    _risk_reserved(ledger)
+    # Build a second independent trade lifecycle up to RISK_RESERVED.
+    for idx, state in enumerate(
+        ["PROPOSED", "VALIDATED", "RISK_RESERVED"], start=10
+    ):
+        ledger.append(
+            trade_id="T2",
+            state=state,
+            event_type=state.lower(),
+            payload={"idx": idx},
+            idempotency_key=f"t2-{idx}",
+            event_id=f"t2-e{idx}",
+            timestamp_utc="2026-10-02T18:00:00+00:00",
+        )
+
+    proof2 = dict(PROOF_KEYS)
+    proof2["risk_authorization_id"] = "AUTH2"
+    with pytest.raises(AuthorizationError, match="TOTAL_AUTHORIZED_RISK_EXCEEDS_GLOBAL_CAP"):
+        firewall.issue_authorization(
+            trade_id="T2",
+            authorization_id="AUTH2",
+            authorized_risk=0.002,
+            issued_at_utc="2026-10-02T18:01:00+00:00",
+            expires_at_utc="2026-10-02T19:00:00+00:00",
+            proof=proof2,
+            event_id="auth-event-2",
+            idempotency_key="auth-key-2",
+        )
+
+
 def test_no_authorization_means_no_execution(tmp_path: Path):
     ledger = TradeLedger(tmp_path / "ledger.jsonl")
     _risk_reserved(ledger)
