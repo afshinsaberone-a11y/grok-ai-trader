@@ -1,4 +1,5 @@
 """Tests for the current-authority pre-submit execution admission gate."""
+import json
 from pathlib import Path
 
 import pytest
@@ -129,3 +130,28 @@ def test_execution_admission_rejects_unresolved_reconciliation(tmp_path: Path):
             request=request,
             now_utc="2026-10-02T18:03:16+00:00",
         )
+
+
+def test_execution_admission_config_matches_implementation_contract():
+    root = Path(__file__).resolve().parents[1]
+    contract = json.loads(
+        (root / "config" / "forexai_execution_parity_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )["execution_admission"]
+    assert contract["schema"] == "forexai.execution_admission.v1"
+    assert contract["authority"] == "CapitalFirewall"
+    assert contract["verify_current_state_immediately_before_submit"] is True
+    assert contract["reconciliation_must_be_clear"] is True
+    assert contract["risk_cap"] == 0.006
+    assert contract["execution_contract_version"] == "forexai.execution.v1"
+    assert contract["request_fields"] == [
+        "trade_id",
+        "symbol",
+        "side",
+        "volume",
+        "risk_fraction",
+        "stop_loss",
+        "take_profit",
+        "execution_contract_version",
+    ]
