@@ -216,3 +216,27 @@ def test_parity_requires_authorization_timeframe_binding():
         assert "runtime_authorization_timeframe_binding" in str(exc)
     else:
         raise AssertionError("runtime authorization must bind to the chart timeframe")
+
+
+def test_parity_requires_single_attempt_authorization_lock():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("GlobalVariableSetOnCondition", "GlobalVariableSetRemoved")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_authorization_single_attempt" in str(exc)
+    else:
+        raise AssertionError("authorization must be single-attempt and atomically locked")
+
+
+def test_parity_requires_fail_closed_consumption_persistence():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace("GlobalVariablesFlush()", "GlobalVariablesFlushRemoved()")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_authorization_consumed" in str(exc)
+    else:
+        raise AssertionError("authorization consumption persistence must be verified")
