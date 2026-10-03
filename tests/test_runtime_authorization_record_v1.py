@@ -12,6 +12,7 @@ from tools.runtime_authorization_record_v1 import (
     parse_mql5_authorization_record,
     record_hash,
     serialize_mql5_authorization_record,
+    write_mql5_authorization_record,
 )
 from tests.test_capital_firewall_v1 import _authorized_firewall
 
@@ -172,3 +173,17 @@ def test_record_materialization_requires_current_firewall_authority(tmp_path: Pa
             now_utc="2026-10-02T18:03:31+00:00",
             expected_trade_id="T1",
         )
+
+
+def test_atomic_record_writer_publishes_complete_record(tmp_path: Path):
+    record = _record(tmp_path)
+    target = tmp_path / "ForexAI_Authorization_T1.auth"
+    write_mql5_authorization_record(target, record)
+    serialized = target.read_text(encoding="utf-8")
+    parsed = parse_mql5_authorization_record(
+        serialized,
+        now_utc=record["record_issued_at_utc"],
+        expected_trade_id="T1",
+    )
+    assert parsed["integrity_hash"] == record["integrity_hash"]
+    assert not list(tmp_path.glob(target.name + ".*.tmp"))
