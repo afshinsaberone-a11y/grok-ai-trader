@@ -9,6 +9,8 @@ from tools.trade_ledger_v1 import TradeLedger
 
 PROOF_KEYS = {
     "snapshot_id": "S1",
+    "symbol": "EURUSD",
+    "timeframe": "M15",
     "decision_id": "D1",
     "strategy_id": "STRAT1",
     "model_id": "MODEL1",
