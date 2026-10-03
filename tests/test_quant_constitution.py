@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from tools.validate_quant_constitution import ConstitutionError, load, validate
 
 
