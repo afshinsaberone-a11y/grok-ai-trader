@@ -21,6 +21,7 @@ from tools.runtime_authorization_envelope_v1 import (
 RECORD_PREFIX = "FOREXAI-AUTH-V1"
 RECORD_SCHEMA = "forexai.mql5_authorization_record.v1"
 GLOBAL_MAX_RISK = 0.006
+REQUIRED_EXECUTION_CONTRACT_VERSION = "forexai.execution.v1"
 
 FIELDS_BEFORE_HASH = (
     "record_prefix",
@@ -110,6 +111,8 @@ def build_mql5_authorization_record(
         raise AuthorizationError("MQL5_AUTH_RECORD_PROOF_EXPIRY_MISMATCH")
     if proof["risk_authorization_id"] != envelope["authorization_id"]:
         raise AuthorizationError("MQL5_AUTH_RECORD_PROOF_AUTHORIZATION_MISMATCH")
+    if proof["execution_contract_version"] != REQUIRED_EXECUTION_CONTRACT_VERSION:
+        raise AuthorizationError("MQL5_AUTH_RECORD_EXECUTION_CONTRACT_VERSION_MISMATCH")
 
     now = _parse_utc(now_utc)
     if expiry_dt <= now:
