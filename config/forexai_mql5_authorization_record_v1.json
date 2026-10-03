@@ -10,6 +10,9 @@
     "hash_scope": "all_fields_before_final_hash_field_joined_by_delimiter"
   },
   "required_execution_contract_version": "forexai.execution.v1",
+  ,"freshness": {
+    "max_record_age_seconds": 10
+  },
   "fields": [
     "record_prefix",
     "schema",
