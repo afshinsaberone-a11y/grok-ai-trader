@@ -43,6 +43,17 @@
     "protective_close_success_requires": [
       "trade_result_retcode"
     ],
+    "runtime_authorization": {
+      "enabled": true,
+      "record_schema": "forexai.mql5_authorization_record.v1",
+      "record_prefix": "FOREXAI-AUTH-V1",
+      "record_scope": "FILE_COMMON",
+      "hash": "SHA-256",
+      "missing_record_policy": "BLOCK_NEW_ORDERS",
+      "expired_record_policy": "BLOCK_NEW_ORDERS",
+      "trade_id_mismatch_policy": "BLOCK_NEW_ORDERS",
+      "risk_cap": 0.006
+    },
     "runtime_trace": {
       "enabled": true,
       "schema": "forexai.runtime_trace.v1",
@@ -77,6 +88,9 @@
     "restart_safety_state_required": true,
     "runtime_trace_emission_required": true,
     "runtime_trace_cannot_grant_authority": true,
-    "runtime_trace_failure_blocks_new_orders": true
+    "runtime_trace_failure_blocks_new_orders": true,
+    "runtime_authorization_required": true,
+    "runtime_authorization_fail_closed": true,
+    "runtime_authorization_risk_cap_enforced": true
   }
 }
