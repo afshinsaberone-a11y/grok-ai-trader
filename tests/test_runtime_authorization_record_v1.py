@@ -7,7 +7,9 @@ from tools.capital_firewall_v1 import AuthorizationError
 from tools.runtime_authorization_envelope_v1 import build_runtime_envelope
 from tools.runtime_authorization_record_v1 import (
     FIELDS,
+    MAX_RECORD_AGE_SECONDS,
     build_mql5_authorization_record,
+    parse_mql5_authorization_record,
     record_hash,
     serialize_mql5_authorization_record,
 )
@@ -34,6 +36,7 @@ def _record(tmp_path: Path):
         now_utc="2026-10-02T18:03:00+00:00",
     ).to_dict()
     return build_mql5_authorization_record(
+        firewall,
         envelope,
         now_utc="2026-10-02T18:03:00+00:00",
         expected_trade_id="T1",
@@ -99,7 +102,73 @@ def test_expired_envelope_cannot_be_materialized(tmp_path: Path):
     ).to_dict()
     with pytest.raises(AuthorizationError, match="RUNTIME_ENVELOPE_EXPIRED"):
         build_mql5_authorization_record(
+            firewall,
             envelope,
             now_utc="2026-10-03T00:00:00+00:00",
+            expected_trade_id="T1",
+        )
+
+
+
+def test_reference_parser_rejects_stale_record(tmp_path: Path):
+    record = _record(tmp_path)
+    import datetime as dt
+
+    issued = dt.datetime.fromisoformat(record["record_issued_at_utc"])
+    stale_time = issued + dt.timedelta(seconds=MAX_RECORD_AGE_SECONDS + 1)
+    serialized = serialize_mql5_authorization_record(record)
+    with pytest.raises(AuthorizationError, match="MQL5_AUTH_RECORD_TOO_OLD"):
+        parse_mql5_authorization_record(
+            serialized,
+            now_utc=stale_time.isoformat(),
+            expected_trade_id="T1",
+        )
+
+
+def test_reference_parser_rejects_future_record_timestamp(tmp_path: Path):
+    record = _record(tmp_path)
+    record["record_issued_at_epoch_utc"] = str(int(record["record_issued_at_epoch_utc"]) + 30)
+    record["integrity_hash"] = record_hash("|".join(record[name] for name in FIELDS[:-1]))
+    serialized = serialize_mql5_authorization_record(record)
+    with pytest.raises(AuthorizationError, match="MQL5_AUTH_RECORD_ISSUED_EPOCH_MISMATCH"):
+        parse_mql5_authorization_record(
+            serialized,
+            now_utc="2026-10-02T18:03:00+00:00",
+            expected_trade_id="T1",
+        )
+
+
+def test_record_materialization_requires_current_firewall_authority(tmp_path: Path):
+    _ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.reserve(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        amount=0.005,
+        reservation_id="R1",
+        now_utc="2026-10-02T18:02:00+00:00",
+        event_id="reserve-event",
+        idempotency_key="reserve-key",
+    )
+    envelope = build_runtime_envelope(
+        firewall,
+        trade_id="T1",
+        authorization_id="AUTH1",
+        reservation_id="R1",
+        required_risk=0.005,
+        now_utc="2026-10-02T18:03:00+00:00",
+    ).to_dict()
+    firewall.revoke_authorization(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        reason="safety_stop",
+        now_utc="2026-10-02T18:03:30+00:00",
+        event_id="revoke-event",
+        idempotency_key="revoke-key",
+    )
+    with pytest.raises(AuthorizationError, match="AUTHORIZATION_NOT_ACTIVE"):
+        build_mql5_authorization_record(
+            firewall,
+            envelope,
+            now_utc="2026-10-02T18:03:31+00:00",
             expected_trade_id="T1",
         )
