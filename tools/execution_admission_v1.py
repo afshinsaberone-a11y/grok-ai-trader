@@ -11,7 +11,7 @@ import json
 import math
 from typing import Any, Mapping
 
-from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall
+from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall, LedgerError
 from tools.runtime_authorization_envelope_v1 import verify_runtime_envelope_current
 
 SCHEMA = "forexai.execution_admission.v1"
@@ -40,11 +40,14 @@ def check_execution_admission(
     request: Mapping[str, Any],
     now_utc: str,
 ) -> dict[str, Any]:
-    current = verify_runtime_envelope_current(
-        firewall,
-        envelope,
-        now_utc=now_utc,
-    )
+    try:
+        current = verify_runtime_envelope_current(
+            firewall,
+            envelope,
+            now_utc=now_utc,
+        )
+    except LedgerError as exc:
+        raise AuthorizationError(str(exc)) from exc
 
     required = {
         "trade_id",
