@@ -145,7 +145,7 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
   string parts[];
   ushort sep = StringGetCharacter("|", 0);
   int count = StringSplit(line, sep, parts);
-  if(count != 21)
+  if(count != 23)
     return false;
 
   for(int i = 0; i < count; ++i)
@@ -159,14 +159,22 @@ bool VerifyRuntimeAuthorization(const string trade_id, const bool is_buy)
   if(parts[2] != trade_id)
     return false;
 
-  double authorized = StringToDouble(parts[5]);
-  double reserved = StringToDouble(parts[6]);
+  if(parts[5] != _Symbol)
+    return false;
+
+  string current_timeframe = EnumToString(_Period);
+  StringReplace(current_timeframe, "PERIOD_", "");
+  if(parts[6] != current_timeframe)
+    return false;
+
+  double authorized = StringToDouble(parts[7]);
+  double reserved = StringToDouble(parts[8]);
   if(!MathIsValidNumber(authorized) || !MathIsValidNumber(reserved))
     return false;
   if(authorized <= 0 || reserved <= 0 || reserved > authorized || authorized > 0.006)
     return false;
-  if(DoubleToString(authorized, 12) != parts[5] ||
-     DoubleToString(reserved, 12) != parts[6])
+  if(DoubleToString(authorized, 12) != parts[7] ||
+     DoubleToString(reserved, 12) != parts[8])
     return false;
 
   long now_epoch = (long)TimeGMT();
