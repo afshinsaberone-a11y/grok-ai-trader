@@ -69,7 +69,12 @@ class CapitalFirewall:
     """Deterministic authorization/reservation guard over a TradeLedger."""
 
     def __init__(self, ledger: TradeLedger, *, max_authorized_risk: float = 0.006):
-        if max_authorized_risk <= 0 or max_authorized_risk > 0.006:
+        if (
+            not isinstance(max_authorized_risk, (int, float))
+            or not math.isfinite(float(max_authorized_risk))
+            or max_authorized_risk <= 0
+            or max_authorized_risk > 0.006
+        ):
             raise ValueError("MAX_AUTHORIZED_RISK_OUT_OF_POLICY")
         self.ledger = ledger
         self.max_authorized_risk = float(max_authorized_risk)
@@ -398,7 +403,12 @@ class CapitalFirewall:
         self._assert_authorization_current(auth, now_utc)
         if self.ledger.state_of(trade_id) != "AUTHORIZED":
             raise AuthorizationError("EXECUTION_REQUIRES_AUTHORIZED_STATE")
-        if required_risk <= 0 or required_risk > auth.authorized_risk:
+        if (
+            not isinstance(required_risk, (int, float))
+            or not math.isfinite(float(required_risk))
+            or required_risk <= 0
+            or required_risk > auth.authorized_risk
+        ):
             raise AuthorizationError("EXECUTION_RISK_EXCEEDS_AUTHORIZATION")
         active = self._active_reserved_amount(trade_id, authorization_id)
         if active < required_risk:
