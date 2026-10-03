@@ -38,6 +38,7 @@ REQUIRED_INVARIANTS = {
     "runtime_evidence_gate_requires_trace_replay_reconciliation_pass == true",
     "restart_uncertain_state_blocks_new_risk == true",
     "nonfinite_risk_input_must_be_rejected == true",
+    "aggregate_authorized_risk <= global_cap == true",
 }
 
 
