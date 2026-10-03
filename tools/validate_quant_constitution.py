@@ -41,6 +41,8 @@ REQUIRED_INVARIANTS = {
     "aggregate_authorized_risk <= global_cap == true",
     "mql5_new_order_requires_runtime_authorization_record == true",
     "runtime_authorization_record_cannot_increase_authorized_risk == true",
+    "mql5_authorization_record_materialization_must_verify_current_firewall == true",
+    "mql5_authorization_record_must_be_fresh_within_10_seconds == true",
 }
 
 
