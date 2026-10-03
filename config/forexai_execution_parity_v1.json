@@ -83,7 +83,8 @@
       "consumption_persistence_is_fail_closed": true,
       "terminal_global_variable_name_max_length": 63,
       "state_key_digest_algorithm": "SHA-256",
-      "state_key_digest_characters": 32
+      "state_key_digest_characters": 32,
+      "max_authorization_lifetime_seconds": 86400
     },
     "runtime_trace": {
       "enabled": true,
