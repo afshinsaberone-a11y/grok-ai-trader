@@ -173,3 +173,59 @@ def write_mql5_authorization_record(
         encoding="utf-8",
         newline="\n",
     )
+
+
+
+def parse_mql5_authorization_record(
+    serialized: str,
+    *,
+    now_utc: str,
+    expected_trade_id: str | None = None,
+) -> dict[str, str]:
+    lines = serialized.splitlines()
+    if len(lines) != 1 or not lines[0]:
+        raise AuthorizationError("MQL5_AUTH_RECORD_LINE_INVALID")
+    parts = lines[0].split("|")
+    if len(parts) != len(FIELDS):
+        raise AuthorizationError("MQL5_AUTH_RECORD_FIELDS_MISMATCH")
+    for name, value in zip(FIELDS, parts):
+        _safe_field(name, value)
+
+    if parts[0] != RECORD_PREFIX or parts[1] != RECORD_SCHEMA:
+        raise AuthorizationError("MQL5_AUTH_RECORD_SCHEMA_MISMATCH")
+    if expected_trade_id is not None and parts[2] != expected_trade_id:
+        raise AuthorizationError("MQL5_AUTH_RECORD_TRADE_ID_MISMATCH")
+
+    authorized = _risk(parts[5], "authorized_risk")
+    reserved = _risk(parts[6], "reserved_risk")
+    if reserved > authorized:
+        raise AuthorizationError("MQL5_AUTH_RECORD_RISK_RELATION_INVALID")
+
+    expires = parts[7]
+    expiry_epoch = int(parts[8])
+    issued_at = _parse_utc(parts[9])
+    issued_epoch = int(parts[10])
+    now = _parse_utc(now_utc)
+    if expiry_epoch != int(_parse_utc(expires).timestamp()):
+        raise AuthorizationError("MQL5_AUTH_RECORD_EXPIRY_EPOCH_MISMATCH")
+    if issued_epoch != int(issued_at.timestamp()):
+        raise AuthorizationError("MQL5_AUTH_RECORD_ISSUED_EPOCH_MISMATCH")
+    now_epoch = int(now.timestamp())
+    if issued_epoch > now_epoch:
+        raise AuthorizationError("MQL5_AUTH_RECORD_ISSUED_IN_FUTURE")
+    if now_epoch - issued_epoch > MAX_RECORD_AGE_SECONDS:
+        raise AuthorizationError("MQL5_AUTH_RECORD_TOO_OLD")
+    if expiry_epoch <= now_epoch:
+        raise AuthorizationError("MQL5_AUTH_RECORD_EXPIRED")
+
+    if parts[16] != parts[3]:
+        raise AuthorizationError("MQL5_AUTH_RECORD_PROOF_AUTHORIZATION_MISMATCH")
+    if parts[17] != parts[7]:
+        raise AuthorizationError("MQL5_AUTH_RECORD_PROOF_EXPIRY_MISMATCH")
+    if parts[19] != REQUIRED_EXECUTION_CONTRACT_VERSION:
+        raise AuthorizationError("MQL5_AUTH_RECORD_EXECUTION_CONTRACT_VERSION_MISMATCH")
+
+    body = "|".join(parts[:-1])
+    if parts[-1].upper() != record_hash(body):
+        raise AuthorizationError("MQL5_AUTH_RECORD_HASH_MISMATCH")
+    return dict(zip(FIELDS, parts))
