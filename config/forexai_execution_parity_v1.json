@@ -2,6 +2,25 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema_version": "forexai.execution_parity.v1",
   "purpose": "Machine-readable contract linking research execution semantics to the MQL5 runtime adapter.",
+  "execution_admission": {
+    "schema": "forexai.execution_admission.v1",
+    "required": true,
+    "authority": "CapitalFirewall",
+    "verify_current_state_immediately_before_submit": true,
+    "reconciliation_must_be_clear": true,
+    "execution_contract_version": "forexai.execution.v1",
+    "risk_cap": 0.006,
+    "request_fields": [
+      "trade_id",
+      "symbol",
+      "side",
+      "volume",
+      "risk_fraction",
+      "stop_loss",
+      "take_profit",
+      "execution_contract_version"
+    ]
+  },
   "research": {
     "signal_bar": "fully_closed",
     "entry": "next_bar_open",
