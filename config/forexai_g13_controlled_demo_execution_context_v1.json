@@ -1,0 +1,13 @@
+{
+  "schema_version": "forexai.g13.controlled_demo_execution_context.v1",
+  "account_mode": "DEMO",
+  "explicit_demo_authorization": true,
+  "kill_switch": "ALLOW",
+  "live_enabled": false,
+  "one_position_guard": true,
+  "symbol": "EURUSD",
+  "timeframe": "M15",
+  "validator": "research/optimization/g13_controlled_demo_execution_audit.py",
+  "execution_mode": "human_attached_frozen_ea",
+  "not_a_live_authorization": true
+}
