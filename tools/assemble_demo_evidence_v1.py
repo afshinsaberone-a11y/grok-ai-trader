@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -53,8 +54,25 @@ def assemble(
     strategy_id: str,
     trade_id: str,
     commit_sha: str,
+    candidate_id: int,
+    config_hash: str,
     ea_source_path: Path,
+    package_preflight: dict[str, Any],
 ) -> dict[str, Any]:
+    if isinstance(candidate_id, bool) or not isinstance(candidate_id, int) or not 1 <= candidate_id <= 48:
+        raise DemoEvidenceAssemblyError("CANDIDATE_ID_INVALID")
+    if not isinstance(config_hash, str) or not re.fullmatch(r"^[0-9a-fA-F]{64}$", config_hash):
+        raise DemoEvidenceAssemblyError("CONFIG_HASH_INVALID")
+    if package_preflight.get("schema_version") != "forexai.g13.controlled_demo_package_preflight.m15.v1":
+        raise DemoEvidenceAssemblyError("PACKAGE_PREFLIGHT_SCHEMA_MISMATCH")
+    if package_preflight.get("status") != "PASS":
+        raise DemoEvidenceAssemblyError("PACKAGE_PREFLIGHT_NOT_PASS")
+    if candidate_id not in [int(x) for x in package_preflight.get("candidate_ids", [])]:
+        raise DemoEvidenceAssemblyError("PACKAGE_PREFLIGHT_CANDIDATE_MISMATCH")
+    expected_config_hash = package_preflight.get("candidate_config_hashes", {}).get(str(candidate_id))
+    if expected_config_hash != config_hash:
+        raise DemoEvidenceAssemblyError("PACKAGE_PREFLIGHT_CONFIG_HASH_MISMATCH")
+
     _require(submission, "schema", "forexai.mt5_demo_execution_submission.v1")
     _require(submission, "status", "PASS")
     _require(submission, "account_mode", "DEMO")
@@ -115,10 +133,15 @@ def assemble(
         raise DemoEvidenceAssemblyError("REPLAY_HAS_UNRESOLVED_RECONCILIATION")
 
     source_sha = hashlib.sha256(ea_source_path.read_bytes()).hexdigest()
+    expected_source_sha = package_preflight.get("candidate_mq5_hashes", {}).get(str(candidate_id))
+    if not isinstance(expected_source_sha, str) or source_sha != expected_source_sha:
+        raise DemoEvidenceAssemblyError("PACKAGE_PREFLIGHT_SOURCE_HASH_MISMATCH")
     payload = {
         "schema": "forexai.demo_execution_evidence.v1",
         "status": "PASS",
         "commit_sha": commit_sha,
+        "candidate_id": candidate_id,
+        "config_hash": config_hash,
         "ea_source_sha256": source_sha,
         "strategy_id": strategy_id,
         "trade_id": trade_id,
@@ -162,6 +185,9 @@ def main() -> int:
     parser.add_argument("--strategy-id", required=True)
     parser.add_argument("--trade-id", required=True)
     parser.add_argument("--commit-sha", required=True)
+    parser.add_argument("--candidate-id", type=int, required=True)
+    parser.add_argument("--config-hash", required=True)
+    parser.add_argument("--package-preflight", type=Path, required=True, help="PASS report from exact G13 Compile/Parity package preflight")
     parser.add_argument("--ea-source", type=Path, required=True, help="Exact frozen G13 MQ5 source used for this Demo execution")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -176,7 +202,10 @@ def main() -> int:
             strategy_id=args.strategy_id,
             trade_id=args.trade_id,
             commit_sha=args.commit_sha,
+            candidate_id=args.candidate_id,
+            config_hash=args.config_hash,
             ea_source_path=args.ea_source,
+            package_preflight=_load(args.package_preflight),
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
