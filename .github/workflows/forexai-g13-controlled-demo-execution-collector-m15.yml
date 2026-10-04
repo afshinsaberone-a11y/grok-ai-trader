@@ -23,6 +23,10 @@ on:
         description: "Must exactly equal DEMO_EXECUTION_CONFIRMED"
         required: true
         type: string
+      trade_id:
+        description: "Unique ForexAI Demo trade ID for this controlled audit"
+        required: true
+        type: string
       timeout_seconds:
         description: "Maximum wait for ORDER_ATTEMPT telemetry"
         required: true
@@ -46,6 +50,7 @@ jobs:
       G13_TERMINAL_PATH: ${{ inputs.terminal_path }}
       G13_AUDIT_CSV: ${{ inputs.audit_csv }}
       G13_CONFIRMATION: ${{ inputs.confirmation }}
+      G13_TRADE_ID: ${{ inputs.trade_id }}
       G13_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
     steps:
       - name: Checkout exact workflow revision
@@ -106,6 +111,32 @@ jobs:
             --handoff 'artifacts/g13/frozen/g13-candidate-handoff-m15.json' `
             --context 'artifacts/g13/demo-execution/context.json' `
             --report 'artifacts/g13/demo-execution/execution-audit-report.json'
+
+      - name: Independently observe broker execution
+        shell: pwsh
+        run: |
+          $row = Import-Csv 'artifacts/g13/demo-execution/g13_demo_execution_audit_new.csv' |
+            Where-Object { $_.event -eq 'ORDER_ATTEMPT' } |
+            Select-Object -First 1
+          if ($null -eq $row) { throw 'G13_DEMO_ORDER_ATTEMPT_NOT_FOUND' }
+          if ([string]::IsNullOrWhiteSpace($row.order)) { throw 'G13_DEMO_ORDER_ID_MISSING' }
+          python tools/mt5_demo_observe_v1.py `
+            --symbol 'EURUSD' `
+            --broker-order-id "$($row.order)" `
+            --side "$($row.side)" `
+            --requested-volume "$($row.requested_volume)" `
+            --trade-id "$env:G13_TRADE_ID" `
+            --terminal-path "$env:G13_TERMINAL_PATH" `
+            --output 'artifacts/g13/demo-execution/observation.json'
+          $obs = Get-Content 'artifacts/g13/demo-execution/observation.json' -Raw | ConvertFrom-Json
+          if ($obs.status -ne 'OBSERVED') { throw 'G13_DEMO_OBSERVATION_STATUS_INVALID' }
+          if ($obs.account_mode -ne 'DEMO') { throw 'G13_DEMO_OBSERVATION_ACCOUNT_NOT_DEMO' }
+          if ($obs.order_submission_performed -ne $false) { throw 'G13_DEMO_OBSERVATION_SUBMISSION_INVARIANT_FAILED' }
+          if ($obs.retry_performed -ne $false) { throw 'G13_DEMO_OBSERVATION_RETRY_INVARIANT_FAILED' }
+          if ($obs.capital_authority_granted -ne $false) { throw 'G13_DEMO_OBSERVATION_CAPITAL_AUTHORITY_INVARIANT_FAILED' }
+          if ($obs.observation.status -ne 'ACCEPTED') { throw "G13_DEMO_OBSERVATION_NOT_ACCEPTED:$($obs.observation.status)" }
+          if ([string]$obs.observation.broker_order_id -ne [string]$row.order) { throw 'G13_DEMO_ORDER_ID_MISMATCH' }
+          if ([string]::IsNullOrWhiteSpace([string]$obs.observation.broker_deal_id)) { throw 'G13_DEMO_DEAL_ID_MISSING' }
 
       - name: Enforce Demo-only invariants
         shell: pwsh
