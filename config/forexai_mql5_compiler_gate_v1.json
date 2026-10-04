@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.mql5_compiler_gate.v1",
+  "purpose": "Real MetaEditor compile gate for the canonical ForexAI MQL5 EA.",
+  "runner": {
+    "labels": ["self-hosted", "windows", "mt5"],
+    "terminal_required": true
+  },
+  "source": "ea/GRK_Hybrid_Regime_EA.mq5",
+  "compiler": {
+    "executable": "metaeditor64.exe",
+    "flags": ["/compile", "/include", "/log"],
+    "isolated_workspace": true
+  },
+  "success": {
+    "process_exit_code": 0,
+    "compilation_log_required": true,
+    "compiled_ex5_required": true,
+    "zero_errors_required": true
+  },
+  "failure_policy": {
+    "compiler_missing": "FAIL_CLOSED",
+    "include_path_missing": "FAIL_CLOSED",
+    "log_missing": "FAIL_CLOSED",
+    "nonzero_exit": "FAIL_CLOSED",
+    "compiler_errors": "FAIL_CLOSED",
+    "unknown_compile_result": "FAIL_CLOSED"
+  },
+  "live_trading": {
+    "enabled_by_gate": false,
+    "account_mode": "DEMO_ONLY"
+  }
+}
