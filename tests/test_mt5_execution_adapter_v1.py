@@ -81,8 +81,8 @@ def _accepted():
         "broker_order_id": "ORDER-1",
         "broker_deal_id": "DEAL-1",
         "broker_retcode": "TRADE_RETCODE_DONE",
-        "filled_volume": 0.0,
-        "remaining_volume": 0.10,
+        "filled_volume": 0.10,
+        "remaining_volume": 0.0,
     }
 
 
@@ -336,3 +336,26 @@ def test_revoked_authority_never_reaches_broker(tmp_path: Path):
 
     assert gateway.calls == 0
     assert ledger.state_of("T1") == "AUTHORIZED"
+
+
+def test_accepted_with_remaining_volume_fails_closed(tmp_path: Path):
+    response = dict(_accepted())
+    response["filled_volume"] = 0.09
+    response["remaining_volume"] = 0.01
+    gateway = Gateway(response=response)
+    ledger, _firewall, authenticated_envelope, request, adapter = _case(tmp_path, gateway)
+
+    with pytest.raises(
+        MT5ExecutionAdapterError,
+        match="ACCEPTED_RESPONSE_NOT_FULLY_FILLED",
+    ):
+        adapter.submit(
+            authenticated_envelope=authenticated_envelope,
+            request=request,
+            now_utc="2026-10-02T18:03:01+00:00",
+            event_id="submit-partial-accepted",
+            idempotency_key="submit-partial-accepted",
+        )
+
+    assert ledger.state_of("T1") == "ORDER_SUBMITTED"
+    assert not [e for e in ledger.events if e.event_type == "ACCEPTED"]
