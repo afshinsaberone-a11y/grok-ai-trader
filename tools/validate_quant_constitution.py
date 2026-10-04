@@ -67,6 +67,7 @@ REQUIRED_INVARIANTS = {
     "broker_submission_requires_authenticated_control_plane == true",
     "control_plane_authentication_cannot_grant_capital_authority == true",
     "broker_outcome_observation_must_use_authoritative_mt5_state == true",
+    "live_trading_activation_in_p0 == false",
 }
 
 
