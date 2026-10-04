@@ -131,6 +131,10 @@ def _validate_trade_id(trade_id: str) -> str:
         raise MT5GatewayError("DEMO_COLLECTOR_TRADE_ID_INVALID")
     if any(ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-" for ch in value):
         raise MT5GatewayError("DEMO_COLLECTOR_TRADE_ID_INVALID")
+    # G13 M15 is frozen to SELL; the runtime authorization contract binds side
+    # through the final trade-id character.
+    if not value.endswith("-S"):
+        raise MT5GatewayError("DEMO_COLLECTOR_TRADE_ID_MUST_END_WITH_-S")
     return value
 
 
