@@ -172,6 +172,12 @@ def test_execution_admission_config_matches_implementation_contract():
         "take_profit",
         "execution_contract_version",
     ]
+    auth = contract["authentication"]
+    assert auth["required"] is True
+    assert auth["schema"] == "forexai.execution_admission_authentication.v1"
+    assert auth["algorithm"] == "HMAC-SHA256"
+    assert auth["verify_at_gateway"] is True
+    assert auth["constant_time_compare"] is True
 
 
 def test_control_plane_authentication_contract_is_pinned():
