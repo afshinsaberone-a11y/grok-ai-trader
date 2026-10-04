@@ -30,6 +30,11 @@ on:
         required: true
         default: "artifacts/demo/demo-execution-evidence.json"
         type: string
+      ea_source_path:
+        description: "Exact frozen G13 MQ5 source used by the executed candidate"
+        required: true
+        default: "artifacts/g13/mql5/ForexAI_G13_Candidate_02.mq5"
+        type: string
 
 permissions:
   contents: read
@@ -55,4 +60,4 @@ jobs:
         if: ${{ inputs.evidence_path != '' }}
         run: |
           test -f "${{ inputs.evidence_path }}"
-          python tools/validate_demo_evidence_v1.py "${{ inputs.evidence_path }}" --ea-source ea/GRK_Hybrid_Regime_EA.mq5
+          python tools/validate_demo_evidence_v1.py "${{ inputs.evidence_path }}" --ea-source "${{ inputs.ea_source_path }}"
