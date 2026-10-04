@@ -2,6 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema_version": "forexai.execution_parity.v1",
   "purpose": "Machine-readable contract linking research execution semantics to the MQL5 runtime adapter.",
+  "control_plane_authentication": {
+    "required": true,
+    "schema": "forexai.runtime_authorization_authentication.v1",
+    "algorithm": "HMAC-SHA256",
+    "secret_source": "external_runtime_secret",
+    "default_key_id": "forexai-control-plane-v1",
+    "verify_before_broker_submission": true,
+    "constant_time_tag_compare": true,
+    "must_recheck_current_capital_firewall": true,
+    "authentication_cannot_grant_capital_authority": true
+  },
   "execution_admission": {
     "schema": "forexai.execution_admission.v1",
     "required": true,
@@ -124,6 +135,7 @@
     "runtime_trace_failure_blocks_new_orders": true,
     "runtime_authorization_required": true,
     "runtime_authorization_fail_closed": true,
-    "runtime_authorization_risk_cap_enforced": true
+    "runtime_authorization_risk_cap_enforced": true,
+    "control_plane_authentication_required": true
   }
 }
