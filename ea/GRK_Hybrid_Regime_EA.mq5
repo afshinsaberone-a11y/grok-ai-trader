@@ -74,11 +74,21 @@ bool EnsureRuntimeTraceReady()
   return true;
 }
 
+string CurrentTimeframeName()
+{
+  string value = EnumToString(_Period);
+  StringReplace(value, "PERIOD_", "");
+  return value;
+}
+
 string AuthorizationFile()
 {
   if(StringLen(AuthorizationFileName) > 0)
     return AuthorizationFileName;
-  return StringFormat("ForexAI_Authorization_%I64d_%s.auth", Magic, _Symbol);
+  return StringFormat(
+      "ForexAI_Authorization_%I64d_%s_%s.auth",
+      Magic, _Symbol, CurrentTimeframeName()
+  );
 }
 
 string Sha256Hex(const string value)
@@ -293,7 +303,10 @@ string TraceFile()
 {
   if(StringLen(TraceFileName) > 0)
     return TraceFileName;
-  return StringFormat("ForexAI_RuntimeTrace_%I64d_%s.jsonl", Magic, _Symbol);
+  return StringFormat(
+      "ForexAI_RuntimeTrace_%I64d_%s_%s.jsonl",
+      Magic, _Symbol, CurrentTimeframeName()
+  );
 }
 
 string TraceIsoUtc(const datetime value)
@@ -396,8 +409,8 @@ string BuildTraceTradeId(const bool is_buy, const datetime signal_bar_time)
 {
   string side = is_buy ? "B" : "S";
   return StringFormat(
-      "T-%I64d-%s-%I64d-%s",
-      Magic, _Symbol, (long)signal_bar_time, side
+      "T-%I64d-%s-%s-%I64d-%s",
+      Magic, _Symbol, CurrentTimeframeName(), (long)signal_bar_time, side
   );
 }
 
