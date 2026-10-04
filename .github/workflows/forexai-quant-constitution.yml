@@ -46,6 +46,8 @@ on:
       - "tests/test_fault_injection_v1.py"
       - "tools/recovery_contract_v1.py"
       - "tests/test_recovery_contract_v1.py"
+      - "tools/mt5_execution_adapter_v1.py"
+      - "tests/test_mt5_execution_adapter_v1.py"
   workflow_dispatch:
 
 permissions:
@@ -69,4 +71,4 @@ jobs:
       - name: Run constitution tests
         run: |
           pip install -r requirements.txt
-          pytest -q tests/test_quant_constitution.py tests/test_canonical_backtest_v1.py tests/test_trade_ledger_v1.py tests/test_capital_firewall_v1.py tests/test_replay_kernel_v1.py tests/test_runtime_trace_bridge_v1.py tests/test_runtime_evidence_gate_v1.py tests/test_fault_injection_v1.py tests/test_recovery_contract_v1.py
+          pytest -q tests/test_quant_constitution.py tests/test_canonical_backtest_v1.py tests/test_trade_ledger_v1.py tests/test_capital_firewall_v1.py tests/test_replay_kernel_v1.py tests/test_runtime_trace_bridge_v1.py tests/test_runtime_evidence_gate_v1.py tests/test_fault_injection_v1.py tests/test_recovery_contract_v1.py tests/test_mt5_execution_adapter_v1.py
