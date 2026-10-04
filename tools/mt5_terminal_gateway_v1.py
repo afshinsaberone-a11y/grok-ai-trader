@@ -91,6 +91,8 @@ class MT5TerminalGateway:
             return dict(result._asdict())
         if isinstance(result, Mapping):
             return dict(result)
+        if hasattr(result, "__dict__"):
+            return dict(vars(result))
         raise MT5GatewayError("MT5_ORDER_SEND_RESULT_INVALID")
 
     def submit_authorized_order(
