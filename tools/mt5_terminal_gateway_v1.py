@@ -197,6 +197,9 @@ class MT5TerminalGateway:
             if retcode == done and deal_id not in (None, 0):
                 return {"status": "ACCEPTED", **common}
 
+            if retcode == done:
+                raise MT5GatewayError("MT5_DONE_WITHOUT_DEAL")
+
             if retcode == partial:
                 return {"status": "PARTIAL", **common}
 
