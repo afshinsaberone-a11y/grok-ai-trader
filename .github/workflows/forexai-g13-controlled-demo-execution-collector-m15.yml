@@ -113,7 +113,7 @@ jobs:
           $j = Get-Content 'artifacts/g13/demo-execution/collector-report.json' -Raw | ConvertFrom-Json
           if ($j.status -ne 'PASS') { throw 'COLLECTOR_STATUS_NOT_PASS' }
           if ($j.account_mode -ne 'DEMO') { throw 'COLLECTOR_ACCOUNT_NOT_DEMO' }
-          if ($j.order_attempt_detected -ne $true) { throw 'COLLECTOR_NO_ORDER_ATTEMPT' }
+          if ($j.broker_full_fill_detected -ne $true) { throw 'COLLECTOR_NO_BROKER_FULL_FILL' }
           Write-Output 'G13_DEMO_EXECUTION_COLLECTOR_PASS=true'
           Write-Output 'LIVE_AUTHORIZATION=false'
 
