@@ -96,6 +96,7 @@ jobs:
             tests/test_mt5_terminal_gateway_v1.py \
             tests/test_mt5_execution_adapter_v1.py \
             tests/test_mt5_control_plane_gateway_integration_v1.py \
+            tests/test_mql5_compiler_gate_v1.py \
             tests/test_runtime_trace_bridge_v1.py \
             tests/test_runtime_evidence_gate_v1.py
 
