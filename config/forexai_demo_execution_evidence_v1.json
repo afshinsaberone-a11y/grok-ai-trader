@@ -3,6 +3,12 @@
   "schema_version": "forexai.demo_execution_evidence.v1",
   "purpose": "Evidence contract for one controlled real-MT5 Demo execution before any promotion review.",
   "not_a_live_authorization": true,
+  "ea_source_verification": {
+    "required_for_artifact_validation": true,
+    "algorithm": "SHA-256",
+    "source_path": "ea/GRK_Hybrid_Regime_EA.mq5",
+    "hash_must_match_checked_out_source": true
+  },
   "required_fields": [
     "schema",
     "status",
@@ -15,6 +21,7 @@
     "terminal_connected",
     "broker_order_id",
     "broker_deal_id",
+    "ea_source_sha256",
     "execution_status",
     "full_fill",
     "reconciliation_status",
@@ -37,7 +44,8 @@
     "live_enabled": false,
     "order_submission_performed": true,
     "broker_order_id_required": true,
-    "broker_deal_id_required": true
+    "broker_deal_id_required": true,
+    "ea_source_hash_must_match_checked_out_source": true
   },
   "forbidden_claims": [
     "live_ready",
