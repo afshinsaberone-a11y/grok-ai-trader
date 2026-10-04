@@ -619,7 +619,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
             double commission=HistoryDealGetDouble(trans.deal,DEAL_COMMISSION);
             TraceLifecycle(
                active_trace_trade_id,"CLOSED",
-               StringFormat("\"deal_ticket\":\"%I64d\",\"position_id\":\"%I64d\",\"exit_price\":%.10f,\"volume\":%.8f,\"profit\":%.8f,\"swap\":%.8f,\"commission\":%.8f",
+               StringFormat("\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"position_id\\\":\\\"%I64d\\\",\\\"exit_price\\\":%.10f,\\\"volume\\\":%.8f,\\\"profit\\\":%.8f,\\\"swap\\\":%.8f,\\\"commission\\\":%.8f",
                             (long)trans.deal,
                             (long)HistoryDealGetInteger(trans.deal,DEAL_POSITION_ID),
                             exit_price,volume,profit,swap,commission)
@@ -757,7 +757,7 @@ void OnTick()
    if(!(bool)MQLInfoInteger(MQL_TESTER))
       TraceLifecycle(
          trace_trade_id,"ORDER_SUBMITTED",
-         StringFormat("\"side\":\"SELL\",\"requested_volume\":%.8f,\"requested_price\":%.10f,\"requested_sl\":%.10f,\"requested_tp\":%.10f,\"order_ticket\":\"0\"",
+         StringFormat("\\\"side\\\":\\\"SELL\\\",\\\"requested_volume\\\":%.8f,\\\"requested_price\\\":%.10f,\\\"requested_sl\\\":%.10f,\\\"requested_tp\\\":%.10f,\\\"order_ticket\\\":\\\"0\\\"",
                       lots,entry,sl,tp)
       );
    double spreadPoints=(ask-bid)/_Point;
@@ -776,7 +776,7 @@ void OnTick()
    {{
       TraceRecord(
          trace_trade_id,"BROKER_OUTCOME_UNKNOWN","ORDER_SUBMITTED",
-         StringFormat("\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",\"requested_volume\":%.8f",
+         StringFormat("\\\"retcode\\\":%u,\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"requested_volume\\\":%.8f",
                       trade.ResultRetcode(),(long)trade.ResultOrder(),(long)trade.ResultDeal(),lots)
       );
       runtime_authorization_healthy=false;
@@ -787,7 +787,7 @@ void OnTick()
    {{
       TraceRecord(
          trace_trade_id,"BROKER_OUTCOME_UNKNOWN","ORDER_SUBMITTED",
-         StringFormat("\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",\"requested_volume\":%.8f",
+         StringFormat("\\\"retcode\\\":%u,\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"requested_volume\\\":%.8f",
                       trade.ResultRetcode(),(long)trade.ResultOrder(),(long)trade.ResultDeal(),lots)
       );
       runtime_authorization_healthy=false;
