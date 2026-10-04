@@ -86,10 +86,10 @@ def recover_from_ledger(path: str | Path) -> RecoveryReport:
         state = ledger.state_of(trade_id)
         reconciliation_block = trade_id in ledger.unresolved_reconciliation
 
-        if reconciliation_block:
+        if reconciliation_block and state == "REJECTED":
+            posture, action = "RUNTIME_ACTIVE", "REQUIRE_BROKER_RECONCILIATION_AFTER_REJECTION_NO_NEW_RISK"
+        elif reconciliation_block:
             posture, action = "BLOCKED", "RESOLVE_RECONCILIATION_BEFORE_NEW_RISK"
-            if state == "REJECTED":
-                action = "REQUIRE_BROKER_RECONCILIATION_AFTER_REJECTION_NO_NEW_RISK"
         elif state in TERMINAL_STATES:
             posture, action = "STABLE", "NO_ACTION"
         elif state in RECOVERABLE_STATES:
