@@ -62,11 +62,17 @@ def resolve_broker_outcome(
     if status not in FINAL_STATUSES | UNRESOLVED_STATUSES:
         raise BrokerOutcomeRecoveryError("BROKER_RECOVERY_STATUS_INVALID")
 
-    for field in ("symbol", "timeframe", "side"):
+    for field in ("symbol", "side"):
         if observed.get(field) != submitted.get(field):
             raise BrokerOutcomeRecoveryError(
                 f"BROKER_RECOVERY_{field.upper()}_MISMATCH"
             )
+
+    # MT5 broker order/deal observations do not carry the originating strategy
+    # timeframe. Preserve the durable submission identity unless an upstream
+    # authoritative observation explicitly supplies a timeframe.
+    if "timeframe" in observed and observed.get("timeframe") != submitted.get("timeframe"):
+        raise BrokerOutcomeRecoveryError("BROKER_RECOVERY_TIMEFRAME_MISMATCH")
 
     requested_volume = _finite(submitted.get("volume"), "requested_volume")
     observed_volume = _finite(observed.get("volume", requested_volume), "observed_volume")
