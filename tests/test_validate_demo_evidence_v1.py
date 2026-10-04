@@ -1,4 +1,5 @@
 """Tests for the Demo execution evidence contract."""
+import hashlib
 import json
 from pathlib import Path
 
@@ -65,6 +66,29 @@ def test_missing_field_fails_closed():
     payload.pop("broker_order_id")
     with pytest.raises(DemoEvidenceError, match="REQUIRED_FIELD_MISSING"):
         validate_demo_evidence(payload)
+
+
+def test_ea_source_hash_matches_actual_file():
+    source = Path("ea/GRK_Hybrid_Regime_EA.mq5")
+    payload = _valid()
+    payload["ea_source_sha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
+    result = validate_demo_evidence(payload, ea_source_path=source)
+    assert result["ea_source_sha256"] == payload["ea_source_sha256"]
+
+
+def test_ea_source_hash_mismatch_fails_closed():
+    source = Path("ea/GRK_Hybrid_Regime_EA.mq5")
+    payload = _valid()
+    payload["ea_source_sha256"] = "c" * 64
+    with pytest.raises(DemoEvidenceError, match="EA_SOURCE_HASH_MISMATCH"):
+        validate_demo_evidence(payload, ea_source_path=source)
+
+
+def test_ea_source_unreadable_fails_closed(tmp_path: Path):
+    payload = _valid()
+    missing = tmp_path / "missing.mq5"
+    with pytest.raises(DemoEvidenceError, match="EA_SOURCE_UNREADABLE"):
+        validate_demo_evidence(payload, ea_source_path=missing)
 
 
 def test_json_cli_shape_round_trips(tmp_path: Path):
