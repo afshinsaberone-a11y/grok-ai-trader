@@ -947,7 +947,7 @@ bool SendSell(double sl, double tp, const string cmt)
           vol, bid, sl, tp, (long)trade.ResultOrder()
       )
   );
-  if(!TradeExecutionAccepted())
+  if(!TradeExecutionAccepted(vol))
   {
     if(trade.ResultRetcode() == TRADE_RETCODE_DONE_PARTIAL && trade.ResultDeal() > 0)
       TracePartialExecution(trace_trade_id, vol);
