@@ -79,8 +79,8 @@ def _accepted():
         "side": "BUY",
         "volume": 0.10,
         "broker_order_id": "ORDER-1",
-        "broker_deal_id": None,
-        "broker_retcode": "TRADE_RETCODE_PLACED",
+        "broker_deal_id": "DEAL-1",
+        "broker_retcode": "TRADE_RETCODE_DONE",
         "filled_volume": 0.0,
         "remaining_volume": 0.10,
     }
@@ -165,6 +165,29 @@ def test_success_durably_advances_order_submitted_to_accepted(tmp_path: Path):
         "ORDER_SUBMITTED",
         "ACCEPTED",
     ]
+
+
+def test_accepted_without_deal_fails_closed(tmp_path: Path):
+    response = dict(_accepted())
+    response["broker_deal_id"] = None
+    gateway = Gateway(response=response)
+    ledger, _firewall, authenticated_envelope, request, adapter = _case(tmp_path, gateway)
+
+    with pytest.raises(
+        MT5ExecutionAdapterError,
+        match="ACCEPTED_RESPONSE_REQUIRES_ORDER_AND_DEAL",
+    ):
+        adapter.submit(
+            authenticated_envelope=authenticated_envelope,
+            request=request,
+            now_utc="2026-10-02T18:03:01+00:00",
+            event_id="submit-no-deal",
+            idempotency_key="submit-no-deal",
+        )
+
+    assert gateway.calls == 1
+    assert ledger.state_of("T1") == "ORDER_SUBMITTED"
+    assert not [e for e in ledger.events if e.event_type == "ACCEPTED"]
 
 
 def test_broker_rejection_becomes_explicit_unresolved_state(tmp_path: Path):
