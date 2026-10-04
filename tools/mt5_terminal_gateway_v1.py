@@ -152,13 +152,11 @@ class MT5TerminalGateway:
         if raw_trade_mode is None:
             raise MT5GatewayError("MT5_ACCOUNT_TRADE_MODE_UNAVAILABLE")
         demo_constant = getattr(self.mt5, "ACCOUNT_TRADE_MODE_DEMO", None)
-        real_constant = getattr(self.mt5, "ACCOUNT_TRADE_MODE_REAL", None)
-        if demo_constant is None or real_constant is None:
+        if demo_constant is None:
             raise MT5GatewayError("MT5_ACCOUNT_TRADE_MODE_CONSTANTS_UNAVAILABLE")
         try:
             trade_mode = int(raw_trade_mode)
             demo_mode = int(demo_constant)
-            real_mode = int(real_constant)
         except (TypeError, ValueError, OverflowError) as exc:
             raise MT5GatewayError("MT5_ACCOUNT_TRADE_MODE_INVALID") from exc
 
@@ -167,24 +165,12 @@ class MT5TerminalGateway:
             if not isinstance(value, bool) or not value:
                 raise MT5GatewayError(f"MT5_ACCOUNT_{field.upper()}_NOT_ALLOWED")
 
-        if self.config.account_mode == "DEMO_ONLY":
-            if trade_mode != demo_mode:
-                raise MT5GatewayError(
-                    "MT5_REAL_ACCOUNT_BLOCKED_BY_DEMO_ONLY_POLICY"
-                )
-            return
+        if self.config.account_mode != "DEMO_ONLY":
+            raise MT5GatewayError("MT5_LIVE_TRADING_BLOCKED_BY_P0_POLICY")
 
-        if self.config.account_mode == "REAL_ALLOWED":
-            import os
-            if os.environ.get(self.config.real_trading_confirmation_env) != "CONFIRMED":
-                raise MT5GatewayError(
-                    "MT5_REAL_ACCOUNT_REQUIRES_EXTERNAL_CONFIRMATION"
-                )
-            if trade_mode not in {demo_mode, real_mode}:
-                raise MT5GatewayError("MT5_ACCOUNT_TRADE_MODE_INVALID")
-            return
-
-        raise MT5GatewayError("MT5_ACCOUNT_MODE_POLICY_INVALID")
+        if trade_mode != demo_mode:
+            raise MT5GatewayError("MT5_REAL_ACCOUNT_BLOCKED_BY_DEMO_ONLY_POLICY")
+        return
 
     def _shutdown(self) -> None:
         if self.config.shutdown_after_request:
