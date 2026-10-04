@@ -79,17 +79,6 @@ jobs:
           Write-Output 'PYTHON_ORDER_SUBMISSION=false'
           Write-Output 'LIVE_AUTHORIZATION=false'
 
-      - name: Collect real Demo execution telemetry
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path artifacts/g13/demo-execution | Out-Null
-          $args = @('--candidate-id', $env:G13_CANDIDATE_ID, '--symbol', 'EURUSD', '--terminal-path', $env:G13_TERMINAL_PATH,
-                   '--context-out', 'artifacts/g13/demo-execution/context.json',
-                   '--report-out', 'artifacts/g13/demo-execution/collector-report.json',
-                   '--evidence-csv-out', 'artifacts/g13/demo-execution/g13_demo_execution_audit_new.csv',
-                   '--confirmation', $env:G13_CONFIRMATION, '--trade-id', $env:G13_TRADE_ID, '--timeout-seconds', $env:G13_TIMEOUT_SECONDS)
-          if ($env:G13_AUDIT_CSV -ne '') { $args += @('--audit-csv', $env:G13_AUDIT_CSV) }
-          python tools/g13_demo_execution_collector_v1.py @args
 
       - name: Verify pre-issued Capital Firewall authorization
         shell: pwsh
@@ -121,6 +110,18 @@ jobs:
           '@
           $pythonCheck | python
 
+
+      - name: Collect real Demo execution telemetry
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/g13/demo-execution | Out-Null
+          $args = @('--candidate-id', $env:G13_CANDIDATE_ID, '--symbol', 'EURUSD', '--terminal-path', $env:G13_TERMINAL_PATH,
+                   '--context-out', 'artifacts/g13/demo-execution/context.json',
+                   '--report-out', 'artifacts/g13/demo-execution/collector-report.json',
+                   '--evidence-csv-out', 'artifacts/g13/demo-execution/g13_demo_execution_audit_new.csv',
+                   '--confirmation', $env:G13_CONFIRMATION, '--trade-id', $env:G13_TRADE_ID, '--timeout-seconds', $env:G13_TIMEOUT_SECONDS)
+          if ($env:G13_AUDIT_CSV -ne '') { $args += @('--audit-csv', $env:G13_AUDIT_CSV) }
+          python tools/g13_demo_execution_collector_v1.py @args
       - name: Bind collector evidence to exact candidate and trade
         shell: pwsh
         run: |
