@@ -6,8 +6,10 @@
   "ea_source_verification": {
     "required_for_artifact_validation": true,
     "algorithm": "SHA-256",
-    "source_path": "ea/GRK_Hybrid_Regime_EA.mq5",
-    "hash_must_match_checked_out_source": true
+    "source_path": "EXACT_FROZEN_G13_MQ5_SOURCE_PATH",
+    "hash_must_match_checked_out_source": true,
+    "source_must_be_explicitly_supplied": true,
+    "source_must_not_default_to_unrelated_ea": true
   },
   "required_fields": [
     "schema",
