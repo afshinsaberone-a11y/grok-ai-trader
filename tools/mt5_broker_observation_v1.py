@@ -100,7 +100,20 @@ def observe_order(
     if deals is None:
         raise MT5BrokerObservationError("MT5_HISTORY_DEALS_GET_FAILED")
     deal_rows = [_row_dict(x) for x in deals]
-    symbol_deals = [x for x in deal_rows if str(x.get("symbol", "")) == symbol]
+    symbol_deals = []
+    for deal in deal_rows:
+        if str(deal.get("order", ticket)) != str(ticket):
+            raise MT5BrokerObservationError("MT5_OBSERVATION_DEAL_ORDER_MISMATCH")
+        if str(deal.get("symbol", "")) != symbol:
+            raise MT5BrokerObservationError("MT5_OBSERVATION_DEAL_SYMBOL_MISMATCH")
+        deal_type = deal.get("type")
+        buy_type = getattr(mt5, "DEAL_TYPE_BUY", None)
+        sell_type = getattr(mt5, "DEAL_TYPE_SELL", None)
+        if side == "BUY" and buy_type is not None and deal_type != buy_type:
+            raise MT5BrokerObservationError("MT5_OBSERVATION_DEAL_SIDE_MISMATCH")
+        if side == "SELL" and sell_type is not None and deal_type != sell_type:
+            raise MT5BrokerObservationError("MT5_OBSERVATION_DEAL_SIDE_MISMATCH")
+        symbol_deals.append(deal)
     filled = sum(_finite(x.get("volume", 0.0), "deal_volume") for x in symbol_deals)
     if filled > requested + 1e-9:
         raise MT5BrokerObservationError("MT5_OBSERVATION_FILLED_VOLUME_EXCEEDS_REQUEST")
