@@ -19,7 +19,10 @@ from typing import Any, Mapping, Protocol
 from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall
 from tools.execution_admission_v1 import check_execution_admission
 from tools.runtime_authorization_auth_v1 import (
+    DEFAULT_KEY_ID,
+    DEFAULT_SECRET_ENV,
     ControlPlaneAuthenticationError,
+    load_control_plane_secret,
     verify_authenticated_envelope_current,
 )
 from tools.trade_ledger_v1 import LedgerError, TradeLedger
@@ -88,6 +91,27 @@ class MT5ExecutionAdapter:
         self.gateway = gateway
         self.control_plane_secret = control_plane_secret
         self.control_plane_key_id = control_plane_key_id
+
+    @classmethod
+    def from_environment(
+        cls,
+        ledger: TradeLedger,
+        firewall: CapitalFirewall,
+        gateway: BrokerGateway,
+        *,
+        secret_env: str = DEFAULT_SECRET_ENV,
+        key_id_env: str = "FOREXAI_CONTROL_PLANE_KEY_ID",
+    ) -> "MT5ExecutionAdapter":
+        import os
+
+        key_id = os.environ.get(key_id_env, DEFAULT_KEY_ID)
+        return cls(
+            ledger,
+            firewall,
+            gateway,
+            control_plane_secret=load_control_plane_secret(secret_env),
+            control_plane_key_id=key_id,
+        )
 
     def submit(
         self,
