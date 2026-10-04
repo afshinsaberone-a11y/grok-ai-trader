@@ -503,3 +503,76 @@ def test_authorization_lifetime_cannot_exceed_terminal_state_persistence_window(
             event_id="auth-long-event",
             idempotency_key="auth-long-key",
         )
+
+
+def test_pre_execution_release_requires_revocation_and_no_order_submission(tmp_path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.reserve(
+        trade_id="T1", authorization_id="AUTH1", amount=0.005,
+        reservation_id="R1", now_utc="2026-10-02T18:02:00+00:00",
+        event_id="reserve-event", idempotency_key="reserve-key",
+    )
+    firewall.revoke_authorization(
+        trade_id="T1", authorization_id="AUTH1", reason="expired before send",
+        now_utc="2026-10-02T18:03:00+00:00",
+        event_id="revoke-event", idempotency_key="revoke-key",
+    )
+    firewall.release_pre_execution(
+        trade_id="T1", authorization_id="AUTH1", reservation_id="R1",
+        reason="authorization expired before broker submission",
+        now_utc="2026-10-02T18:04:00+00:00",
+        event_id="release-event", idempotency_key="release-key",
+    )
+    assert firewall._active_reserved_amount("T1", "AUTH1") == 0.0
+
+
+def test_pre_execution_release_is_idempotent_and_semantic(tmp_path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.reserve(
+        trade_id="T1", authorization_id="AUTH1", amount=0.005,
+        reservation_id="R1", now_utc="2026-10-02T18:02:00+00:00",
+        event_id="reserve-event", idempotency_key="reserve-key",
+    )
+    firewall.revoke_authorization(
+        trade_id="T1", authorization_id="AUTH1", reason="operator cancel",
+        now_utc="2026-10-02T18:03:00+00:00",
+        event_id="revoke-event", idempotency_key="revoke-key",
+    )
+    kwargs = dict(
+        trade_id="T1", authorization_id="AUTH1", reservation_id="R1",
+        reason="operator cancel before send",
+        now_utc="2026-10-02T18:04:00+00:00",
+        event_id="release-event", idempotency_key="release-key",
+    )
+    firewall.release_pre_execution(**kwargs)
+    firewall.release_pre_execution(**kwargs)
+    with pytest.raises(ReservationError, match="IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_SEMANTICS"):
+        firewall.release_pre_execution(
+            **{**kwargs, "reason": "different reason"}
+        )
+
+
+def test_pre_execution_release_forbidden_after_order_submission(tmp_path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.reserve(
+        trade_id="T1", authorization_id="AUTH1", amount=0.005,
+        reservation_id="R1", now_utc="2026-10-02T18:02:00+00:00",
+        event_id="reserve-event", idempotency_key="reserve-key",
+    )
+    firewall.revoke_authorization(
+        trade_id="T1", authorization_id="AUTH1", reason="late cancel",
+        now_utc="2026-10-02T18:03:00+00:00",
+        event_id="revoke-event", idempotency_key="revoke-key",
+    )
+    ledger.append(
+        trade_id="T1", state="ORDER_SUBMITTED", event_type="ORDER_SUBMITTED",
+        payload={"order_ticket": "O1"}, idempotency_key="order-key",
+        event_id="order-event", timestamp_utc="2026-10-02T18:04:00+00:00",
+    )
+    with pytest.raises(ReservationError, match="PRE_EXECUTION_RELEASE_FORBIDDEN_AFTER_ORDER_SUBMISSION"):
+        firewall.release_pre_execution(
+            trade_id="T1", authorization_id="AUTH1", reservation_id="R1",
+            reason="must not release after send",
+            now_utc="2026-10-02T18:05:00+00:00",
+            event_id="release-event", idempotency_key="release-key",
+        )
