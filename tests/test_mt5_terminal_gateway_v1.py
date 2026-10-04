@@ -298,7 +298,7 @@ def test_gateway_rejects_tampered_admission_auth_before_mt5_io():
     request = _admission_request()
     admission = _admission(request)
     admission["risk_fraction"] = 0.005
-    with pytest.raises(MT5GatewayError, match="MT5_GATEWAY"):
+    with pytest.raises(MT5GatewayError, match="EXECUTION_ADMISSION_AUTH_TAG_MISMATCH"):
         gateway.submit_authorized_order(request=request, admission=admission)
     assert not mt5.initialized
     assert mt5.order_send_calls == 0
