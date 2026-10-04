@@ -23,6 +23,7 @@ STATES = (
     "RISK_RESERVED",
     "AUTHORIZED",
     "ORDER_SUBMITTED",
+    "REJECTED",
     "ACCEPTED",
     "FILLED",
     "OPEN",
@@ -36,7 +37,8 @@ ALLOWED_TRANSITIONS = {
     "VALIDATED": {"RISK_RESERVED"},
     "RISK_RESERVED": {"AUTHORIZED"},
     "AUTHORIZED": {"ORDER_SUBMITTED"},
-    "ORDER_SUBMITTED": {"ACCEPTED"},
+    "ORDER_SUBMITTED": {"ACCEPTED", "REJECTED"},
+    "REJECTED": {"RECONCILED"},
     "ACCEPTED": {"FILLED"},
     "FILLED": {"OPEN"},
     "OPEN": {"MANAGED", "CLOSED"},
@@ -229,8 +231,8 @@ class TradeLedger:
         event_id: str,
     ) -> LedgerEvent:
         current = self.state_of(trade_id)
-        if current != "CLOSED":
-            raise TransitionError("RECONCILIATION_REQUIRES_CLOSED_TRADE")
+        if current not in {"CLOSED", "REJECTED"}:
+            raise TransitionError("RECONCILIATION_REQUIRES_CLOSED_OR_REJECTED_TRADE")
         observed_hash = payload_hash(observed_broker_state)
         expected_hash = payload_hash(expected_broker_state)
         if observed_hash != expected_hash:
