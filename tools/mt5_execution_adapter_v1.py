@@ -1,4 +1,4 @@
-"""MT5 execution adapter boundary v1.
+""""MT5 execution adapter boundary v1.
 
 This is the production control-plane boundary between the current-authority
 admission gate and a broker/MT5 transport. It deliberately does not contain a
@@ -354,6 +354,9 @@ class MT5ExecutionAdapter:
 
         if filled_volume > requested_volume:
             raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_FILL_VOLUME_OVERFLOW")
+
+        if not broker_order_id or not broker_deal_id:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_ACCEPTED_RESPONSE_REQUIRES_ORDER_AND_DEAL")
 
         accepted_payload = {
             **submission_payload,
