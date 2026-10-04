@@ -131,6 +131,14 @@ def _admission(request=None):
     )
     return admission
 
+
+def _gateway(mt5, **kwargs):
+    return MT5TerminalGateway(
+        MT5GatewayConfig(control_plane_secret=CONTROL_PLANE_SECRET, **kwargs),
+        mt5_module=mt5,
+    )
+
+
 def _admission_request():
     return {
         "trade_id": "T1",
