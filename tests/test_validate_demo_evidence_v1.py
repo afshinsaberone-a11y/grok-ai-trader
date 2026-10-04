@@ -71,3 +71,21 @@ def test_json_cli_shape_round_trips(tmp_path: Path):
     path.write_text(json.dumps(_valid()), encoding="utf-8")
     loaded = json.loads(path.read_text(encoding="utf-8"))
     assert validate_demo_evidence(loaded)["trade_id"] == "T-DEMO-1"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("commit_sha", "not-a-sha", "COMMIT_SHA_INVALID"),
+        ("broker_order_id", "None", "BROKER_ORDER_ID_MISSING"),
+        ("broker_deal_id", 0, "BROKER_DEAL_ID_MISSING"),
+        ("strategy_id", "", "STRATEGY_ID_MISSING"),
+        ("symbol", "", "SYMBOL_MISSING"),
+        ("timeframe", "", "TIMEFRAME_MISSING"),
+    ],
+)
+def test_identity_and_broker_provenance_fail_closed(field, value, error):
+    payload = _valid()
+    payload[field] = value
+    with pytest.raises(DemoEvidenceError, match=error):
+        validate_demo_evidence(payload)
