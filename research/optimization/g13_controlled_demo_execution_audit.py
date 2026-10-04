@@ -136,7 +136,9 @@ def audit(csv_path: Path, handoff: Path, context: Path) -> dict[str, Any]:
         assert int(row["deal"]) > 0, "ORDER_ATTEMPT broker deal ticket missing"
         assert float(row["requested_volume"]) > 0.0
         assert float(row["executed_volume"]) > 0.0
-        assert abs(float(row["executed_volume"]) - float(row["requested_volume"])) <= 1e-9
+        assert abs(float(row["executed_volume"]) - float(row["requested_volume"])) <= 1e-9, (
+            f"row {idx}: executed_volume does not equal requested_volume"
+        )
 
         matching_transactions = [
             r for r in rows
