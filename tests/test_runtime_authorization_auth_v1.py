@@ -5,6 +5,7 @@ import pytest
 
 from tools.runtime_authorization_auth_v1 import (
     ControlPlaneAuthenticationError,
+    load_control_plane_secret,
     build_authenticated_envelope,
     verify_authenticated_envelope,
     verify_authenticated_envelope_current,
@@ -111,6 +112,23 @@ def test_authenticated_current_verification_still_requires_firewall_authority(tm
             secret=SECRET,
             now_utc="2026-10-02T18:03:31+00:00",
         )
+
+
+def test_external_secret_loader_fails_closed_when_missing(monkeypatch):
+    monkeypatch.delenv("FOREXAI_CONTROL_PLANE_HMAC_SECRET", raising=False)
+    with pytest.raises(
+        ControlPlaneAuthenticationError,
+        match="CONTROL_PLANE_SECRET_NOT_CONFIGURED",
+    ):
+        load_control_plane_secret()
+
+
+def test_external_secret_loader_reads_secret(monkeypatch):
+    monkeypatch.setenv(
+        "FOREXAI_CONTROL_PLANE_HMAC_SECRET",
+        SECRET,
+    )
+    assert load_control_plane_secret() == SECRET
 
 
 def test_short_secret_fails_closed(tmp_path: Path):
