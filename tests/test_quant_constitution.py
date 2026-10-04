@@ -116,3 +116,18 @@ def test_constitution_requires_24_hour_authorization_lifetime_cap():
     value["hard_boundaries"]["capital"]["max_authorization_lifetime_seconds"] = 172800
     with pytest.raises(ConstitutionError, match="CAPITAL_MAX_AUTHORIZATION_LIFETIME_MUST_BE_86400"):
         validate(value)
+
+
+def test_constitution_requires_broker_submission_safety_invariants():
+    value = load(CONSTITUTION)
+    required = {
+        "broker_submit_requires_durable_order_submitted_intent == true",
+        "broker_unknown_outcome_requires_reconciliation == true",
+        "broker_unknown_outcome_must_not_be_retried_automatically == true",
+        "broker_acceptance_must_match_execution_identity == true",
+    }
+    value["invariants"] = [
+        item for item in value["invariants"] if item not in required
+    ]
+    with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
+        validate(value)
