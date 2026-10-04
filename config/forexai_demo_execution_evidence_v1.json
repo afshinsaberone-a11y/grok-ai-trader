@@ -15,6 +15,8 @@
     "schema",
     "status",
     "commit_sha",
+    "candidate_id",
+    "config_hash",
     "strategy_id",
     "trade_id",
     "symbol",
@@ -47,6 +49,9 @@
     "order_submission_performed": true,
     "broker_order_id_required": true,
     "broker_deal_id_required": true,
+    "candidate_id_required": true,
+    "config_hash_required": true,
+    "candidate_identity_must_match_frozen_package": true,
     "ea_source_hash_must_match_checked_out_source": true
   },
   "forbidden_claims": [
