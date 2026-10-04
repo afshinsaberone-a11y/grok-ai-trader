@@ -88,6 +88,8 @@ def recover_from_ledger(path: str | Path) -> RecoveryReport:
 
         if reconciliation_block:
             posture, action = "BLOCKED", "RESOLVE_RECONCILIATION_BEFORE_NEW_RISK"
+            if state == "REJECTED":
+                action = "REQUIRE_BROKER_RECONCILIATION_AFTER_REJECTION_NO_NEW_RISK"
         elif state in TERMINAL_STATES:
             posture, action = "STABLE", "NO_ACTION"
         elif state in RECOVERABLE_STATES:
