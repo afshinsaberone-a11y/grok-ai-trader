@@ -90,10 +90,11 @@ def test_real_gateway_returns_actual_broker_acceptance():
         MT5GatewayConfig(shutdown_after_request=True),
         mt5_module=mt5,
     )
-    result = gateway.submit_authorized_order(
-        request={},
-        admission=_admission(),
-    )
+    with pytest.raises(MT5GatewayError, match="MT5_DONE_WITHOUT_DEAL"):
+        gateway.submit_authorized_order(
+            request={},
+            admission=_admission(),
+        )
     assert result["status"] == "ACCEPTED"
     assert result["broker_deal_id"] == "5001"
     assert result["broker_order_id"] == "7001"
