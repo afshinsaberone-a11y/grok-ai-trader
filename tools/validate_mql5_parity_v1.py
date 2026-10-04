@@ -63,7 +63,7 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["failed_submission_not_counted"] = all((
         re.search(r"bool\s+submitted\s*=\s*trade\.(?:Buy|Sell)\(", source),
         re.search(r"if\(!submitted\)\s*\{[\s\S]*?return\s+false;\s*\}", source),
-        re.search(r"if\(!TradeExecutionAccepted\(\)\)\s*\{[\s\S]*?return\s+false;\s*\}", source),
+        re.search(r"if\(!TradeExecutionAccepted\(vol\)\)\s*\{[\s\S]*?return\s+false;\s*\}", source),
         "trades_today++;" in source,
     ))
     checks["freeze_level_checked"] = "SYMBOL_TRADE_FREEZE_LEVEL" in source and "MathMax(stops, freeze)" in source
