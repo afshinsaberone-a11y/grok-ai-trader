@@ -10,6 +10,9 @@ from tools.runtime_authorization_envelope_v1 import build_runtime_envelope
 from tests.test_capital_firewall_v1 import _authorized_firewall
 
 
+CONTROL_PLANE_SECRET = "execution-admission-control-plane-secret-0123456789-abcdef"
+
+
 def _authorized_case(tmp_path: Path):
     ledger, firewall = _authorized_firewall(tmp_path)
     firewall.reserve(
@@ -50,6 +53,7 @@ def test_execution_admission_passes_current_authority(tmp_path: Path):
         envelope,
         request=request,
         now_utc="2026-10-02T18:03:00+00:00",
+        control_plane_secret=CONTROL_PLANE_SECRET,
     )
     assert result["status"] == "PASS"
     assert result["current_firewall_authority"] == "PASS"
@@ -111,6 +115,7 @@ def test_execution_admission_rejects_revoked_authority(tmp_path: Path):
             envelope,
             request=request,
             now_utc="2026-10-02T18:03:31+00:00",
+            control_plane_secret=CONTROL_PLANE_SECRET,
         )
 
 
@@ -131,6 +136,7 @@ def test_execution_admission_rejects_unresolved_reconciliation(tmp_path: Path):
             envelope,
             request=request,
             now_utc="2026-10-02T18:03:16+00:00",
+            control_plane_secret=CONTROL_PLANE_SECRET,
         )
 
 
@@ -191,6 +197,7 @@ def test_execution_admission_is_observational_and_cannot_grant_authority(tmp_pat
         envelope,
         request=request,
         now_utc="2026-10-02T18:03:00+00:00",
+        control_plane_secret=CONTROL_PLANE_SECRET,
     )
     after = [
         (event.event_type, event.payload)
