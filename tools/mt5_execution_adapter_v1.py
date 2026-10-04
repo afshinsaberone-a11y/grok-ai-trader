@@ -1,0 +1,189 @@
+"""MT5 execution adapter boundary v1.
+
+This is the production control-plane boundary between the current-authority
+admission gate and a broker/MT5 transport. It deliberately does not contain a
+network client or fabricate broker responses.
+
+Safety property:
+- admission must pass immediately before submission;
+- ORDER_SUBMITTED is durably recorded before broker I/O;
+- any broker I/O uncertainty leaves the trade unresolved and blocks blind retry;
+- only an explicit broker response can advance the ledger to ACCEPTED.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Mapping, Protocol
+
+from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall
+from tools.execution_admission_v1 import check_execution_admission
+from tools.trade_ledger_v1 import LedgerError, TradeLedger
+
+
+class MT5ExecutionAdapterError(RuntimeError):
+    """Fail-closed execution adapter error."""
+
+
+class BrokerGateway(Protocol):
+    def submit_authorized_order(
+        self,
+        *,
+        request: Mapping[str, Any],
+        admission: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        """Submit one already-admitted request to the broker transport."""
+
+
+@dataclass(frozen=True)
+class SubmissionResult:
+    status: str
+    trade_id: str
+    authorization_id: str
+    reservation_id: str
+    request_hash: str
+    broker_order_id: str
+    broker_deal_id: str | None
+
+
+_REQUIRED_BROKER_RESPONSE = {
+    "status",
+    "symbol",
+    "timeframe",
+    "side",
+    "volume",
+    "broker_order_id",
+}
+
+
+def _require_nonempty_string(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise MT5ExecutionAdapterError(f"BROKER_RESPONSE_{field.upper()}_INVALID")
+    return value
+
+
+class MT5ExecutionAdapter:
+    def __init__(
+        self,
+        ledger: TradeLedger,
+        firewall: CapitalFirewall,
+        gateway: BrokerGateway,
+    ) -> None:
+        self.ledger = ledger
+        self.firewall = firewall
+        self.gateway = gateway
+
+    def submit(
+        self,
+        *,
+        envelope: Mapping[str, Any],
+        request: Mapping[str, Any],
+        now_utc: str,
+        event_id: str,
+        idempotency_key: str,
+    ) -> SubmissionResult:
+        try:
+            admission = check_execution_admission(
+                self.firewall,
+                envelope,
+                request=request,
+                now_utc=now_utc,
+            )
+        except (AuthorizationError, LedgerError) as exc:
+            raise MT5ExecutionAdapterError(str(exc)) from exc
+
+        trade_id = admission["trade_id"]
+        authorization_id = admission["authorization_id"]
+        reservation_id = admission["reservation_id"]
+        request_hash = admission["request_hash"]
+
+        if self.ledger.state_of(trade_id) != "AUTHORIZED":
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_TRADE_NOT_AUTHORIZED")
+
+        submission_payload = {
+            "authorization_id": authorization_id,
+            "reservation_id": reservation_id,
+            "request_hash": request_hash,
+            "symbol": admission["symbol"],
+            "timeframe": admission["timeframe"],
+            "side": admission["side"],
+            "volume": admission["volume"],
+            "execution_contract_version": admission["execution_contract_version"],
+        }
+
+        self.ledger.assert_no_unresolved_reconciliation()
+        try:
+            self.ledger.append(
+                trade_id=trade_id,
+                state="ORDER_SUBMITTED",
+                event_type="ORDER_SUBMITTED",
+                payload=submission_payload,
+                idempotency_key=idempotency_key,
+                event_id=event_id,
+                timestamp_utc=now_utc,
+            )
+        except Exception as exc:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_ORDER_INTENT_NOT_DURABLE") from exc
+
+        # No retry is attempted here. If broker I/O raises or times out, the
+        # durable ORDER_SUBMITTED state forces broker reconciliation/recovery.
+        try:
+            response = self.gateway.submit_authorized_order(
+                request=request,
+                admission=admission,
+            )
+        except Exception as exc:
+            raise MT5ExecutionAdapterError(
+                "MT5_ADAPTER_BROKER_OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED"
+            ) from exc
+
+        if set(response) != _REQUIRED_BROKER_RESPONSE | {"broker_deal_id"}:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_RESPONSE_FIELDS_MISMATCH")
+
+        if response["status"] != "ACCEPTED":
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_ORDER_NOT_ACCEPTED")
+        for field in ("symbol", "timeframe", "side"):
+            if response[field] != admission[field]:
+                raise MT5ExecutionAdapterError(
+                    f"MT5_ADAPTER_BROKER_{field.upper()}_MISMATCH"
+                )
+        if response["volume"] != admission["volume"]:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_VOLUME_MISMATCH")
+
+        broker_order_id = _require_nonempty_string(
+            response["broker_order_id"], "broker_order_id"
+        )
+        broker_deal_id = response["broker_deal_id"]
+        if broker_deal_id is not None:
+            broker_deal_id = _require_nonempty_string(
+                broker_deal_id, "broker_deal_id"
+            )
+
+        accepted_payload = {
+            **submission_payload,
+            "broker_order_id": broker_order_id,
+            "broker_deal_id": broker_deal_id,
+        }
+        try:
+            self.ledger.append(
+                trade_id=trade_id,
+                state="ACCEPTED",
+                event_type="ACCEPTED",
+                payload=accepted_payload,
+                idempotency_key=idempotency_key + ":accepted",
+                event_id=event_id + ":accepted",
+                timestamp_utc=now_utc,
+            )
+        except Exception as exc:
+            raise MT5ExecutionAdapterError(
+                "MT5_ADAPTER_ACCEPTED_OUTCOME_NOT_DURABLE_RECONCILIATION_REQUIRED"
+            ) from exc
+
+        return SubmissionResult(
+            status="ACCEPTED",
+            trade_id=trade_id,
+            authorization_id=authorization_id,
+            reservation_id=reservation_id,
+            request_hash=request_hash,
+            broker_order_id=broker_order_id,
+            broker_deal_id=broker_deal_id,
+        )
