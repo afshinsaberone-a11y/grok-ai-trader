@@ -56,6 +56,9 @@ REQUIRED_INVARIANTS = {
     "broker_unknown_outcome_requires_reconciliation == true",
     "broker_unknown_outcome_must_not_be_retried_automatically == true",
     "broker_acceptance_must_match_execution_identity == true",
+    "broker_rejection_must_not_be_treated_as_execution_success == true",
+    "partial_broker_execution_requires_reconciliation == true",
+    "broker_rejection_requires_reconciliation_before_reservation_release == true",
 }
 
 
@@ -141,7 +144,11 @@ def validate(value: dict[str, Any]) -> dict[str, Any]:
 
     states = value["required_trade_states"]
     _require(len(states) == len(set(states)), "TRADE_STATES_MUST_BE_UNIQUE")
-    _require({"PROPOSED", "AUTHORIZED", "FILLED", "CLOSED", "RECONCILED"} <= set(states), "TRADE_STATE_CORE_MISSING")
+    _require(
+        {"PROPOSED", "VALIDATED", "RISK_RESERVED", "AUTHORIZED", "ORDER_SUBMITTED",
+         "REJECTED", "FILLED", "CLOSED", "RECONCILED"} <= set(states),
+        "TRADE_STATE_CORE_MISSING",
+    )
 
     invariants = set(map(str, value["invariants"]))
     _require(REQUIRED_INVARIANTS <= invariants, "CONSTITUTION_REQUIRED_INVARIANTS_MISSING")
