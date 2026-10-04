@@ -21,7 +21,7 @@ on:
       - .github/workflows/forexai-g13-execution-safety-audit-m15.yml
 
 concurrency:
-  group: g13-execution-safety-audit-m15
+  group: g13-execution-safety-audit-m15-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
