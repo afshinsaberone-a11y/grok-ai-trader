@@ -4,7 +4,8 @@
   "purpose": "Real broker-backed MetaTrader 5 Python gateway. No synthetic broker responses are permitted.",
   "account_policy": {
     "default_mode": "DEMO_ONLY",
-    "real_account_requires_external_confirmation_env": "FOREXAI_ALLOW_REAL_TRADING"
+    "live_trading_permitted_in_p0": false,
+    "real_account_requires_external_confirmation_env": null
   },
   "platform": {
     "terminal": "MetaTrader 5",
