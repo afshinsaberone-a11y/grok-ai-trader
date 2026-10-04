@@ -105,7 +105,7 @@ def test_render_mql5_trace_literals_and_lifecycle_symbols():
 
     bs = chr(92)
     assert ('"' + bs + '"side' + bs + '":' + bs + '"SELL' + bs + '"') in source
-    assert ('"' + bs + '"retcode' + bs + '":%u') in source
+    assert (bs + '"retcode' + bs + '":%u') in source
     assert ('"' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"') in source
     assert ('StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");') in source
     assert ('StringReplace(value,"' + bs + '"","' + bs + bs + bs + '"");') in source
