@@ -846,7 +846,7 @@ void TracePartialExecution(const string trade_id, const double requested_volume)
       trade_id,
       "BROKER_PARTIAL_EXECUTION_OBSERVED",
       StringFormat(
-          "\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",
+          "\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\","
           "\"requested_volume\":%.8f,\"filled_volume\":%.8f",
           trade.ResultRetcode(),
           (long)trade.ResultOrder(),
@@ -856,6 +856,7 @@ void TracePartialExecution(const string trade_id, const double requested_volume)
       )
   );
 }
+
 
 bool SendBuy(double sl, double tp, const string cmt)
 {
@@ -943,7 +944,7 @@ bool SendSell(double sl, double tp, const string cmt)
     if(trade.ResultRetcode() == TRADE_RETCODE_DONE_PARTIAL && trade.ResultDeal() > 0)
       TracePartialExecution(trace_trade_id, vol);
     else
-      TraceLifecycle(
+      TraceOutcomeObservation(
           trace_trade_id,
           "BROKER_OUTCOME_UNKNOWN",
           StringFormat(
