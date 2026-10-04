@@ -1,0 +1,185 @@
+name: ForexAI G13 Controlled Demo Execution Audit M15
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: "Promoted G13 candidate to audit (one candidate only)"
+        required: true
+        type: choice
+        options: ["2","6","10","12","14","22","26","28","30","32","34","38","42","46","48"]
+      symbol:
+        description: "Demo symbol"
+        required: true
+        default: "EURUSD"
+        type: string
+      terminal_path:
+        description: "MT5 terminal executable"
+        required: false
+        default: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+        type: string
+      audit_wait_minutes:
+        description: "Maximum minutes to wait for fresh EA execution telemetry"
+        required: true
+        default: "20"
+        type: string
+      operator_confirmation:
+        description: "Exact confirmation before the frozen EA is enabled for this Demo audit"
+        required: true
+        default: "I_CONFIRM_G13_DEMO_ONLY"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  controlled-demo-audit:
+    if: ${{ inputs.operator_confirmation == 'I_CONFIRM_G13_DEMO_ONLY' }}
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 35
+    env:
+      PYTHONUNBUFFERED: "1"
+      CANDIDATE_ID: ${{ inputs.candidate_id }}
+      SYMBOL: ${{ inputs.symbol }}
+      TERMINAL_PATH: ${{ inputs.terminal_path }}
+      AUDIT_WAIT_MINUTES: ${{ inputs.audit_wait_minutes }}
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MT5 package
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-mt5.txt
+
+      - name: Verify terminal executable
+        shell: pwsh
+        run: |
+          if (!(Test-Path "$env:TERMINAL_PATH")) { throw "MT5_TERMINAL_PATH_NOT_FOUND" }
+
+      - name: Read-only Demo terminal preflight
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/g13-controlled-demo | Out-Null
+          python tools/mt5_terminal_preflight_v1.py --symbol "$env:SYMBOL" --path "$env:TERMINAL_PATH" |
+            Tee-Object artifacts/g13-controlled-demo/terminal-preflight.json
+          $j = Get-Content artifacts/g13-controlled-demo/terminal-preflight.json -Raw | ConvertFrom-Json
+          if ($j.status -ne "PASS") { throw "MT5_PREFLIGHT_NOT_PASS" }
+          if ($j.account_mode -ne "DEMO") { throw "MT5_PREFLIGHT_ACCOUNT_NOT_DEMO" }
+          if ($j.terminal_connected -ne $true) { throw "MT5_PREFLIGHT_TERMINAL_NOT_CONNECTED" }
+          if ($j.order_submission_performed -ne $false) { throw "MT5_PREFLIGHT_SUBMISSION_INVARIANT_FAILED" }
+
+      - name: Install explicit Demo kill switch
+        shell: pwsh
+        run: |
+          $common = Join-Path $env:APPDATA "MetaQuotes\\Terminal\\Common\\Files"
+          New-Item -ItemType Directory -Force -Path $common | Out-Null
+          Set-Content -Path (Join-Path $common "g13_demo_kill_switch.txt") -Value "ALLOW" -NoNewline -Encoding ascii
+          if ((Get-Content (Join-Path $common "g13_demo_kill_switch.txt") -Raw) -ne "ALLOW") {
+            throw "G13_KILL_SWITCH_NOT_ALLOW"
+          }
+
+      - name: Create audit context and operator handoff
+        shell: pwsh
+        run: |
+          $context = [ordered]@{
+            schema = "forexai.g13.controlled_demo_execution_context.v1"
+            account_mode = "DEMO"
+            explicit_demo_authorization = $true
+            kill_switch = "ALLOW"
+            live_enabled = $false
+            one_position_guard = $true
+            symbol = $env:SYMBOL
+            timeframe = "M15"
+            candidate_id = [int]$env:CANDIDATE_ID
+            execution_mode = "human_attached_frozen_ea"
+            created_by_workflow_sha = $env:GITHUB_SHA
+            run_id = [int]$env:GITHUB_RUN_ID
+            created_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+          }
+          $context | ConvertTo-Json | Set-Content artifacts/g13-controlled-demo/context.json -Encoding utf8
+          @"
+          CONTROLLED DEMO HANDOFF
+          Candidate=$env:CANDIDATE_ID
+          Symbol=$env:SYMBOL
+          Timeframe=M15
+          Account must remain DEMO.
+          Attach the exact frozen G13 candidate EA compiled from the approved package.
+          Set DemoTradingAuthorized=true for this audit only.
+          Keep ParityMode=false.
+          Do not manually create an order.
+          Do not use Python order_send as a bypass.
+          The EA must generate the strategy signal and broker order normally.
+          Kill switch has been set to ALLOW by this workflow.
+          "@ | Set-Content artifacts/g13-controlled-demo/operator-handoff.txt -Encoding utf8
+
+      - name: Wait for fresh MQL5 execution telemetry
+        shell: pwsh
+        run: |
+          $common = Join-Path $env:APPDATA "MetaQuotes\\Terminal\\Common\\Files"
+          $audit = Join-Path $common "g13_demo_execution_audit.csv"
+          $deadline = (Get-Date).AddMinutes([int]$env:AUDIT_WAIT_MINUTES)
+          $found = $false
+          while ((Get-Date) -lt $deadline) {
+            if (Test-Path $audit) {
+              $rows = Import-Csv $audit
+              $target = @($rows | Where-Object {
+                $_.candidate_id -eq $env:CANDIDATE_ID -and
+                $_.event -eq "ORDER_ATTEMPT" -and
+                $_.symbol -eq $env:SYMBOL -and
+                $_.timeframe -eq "M15"
+              })
+              if ($target.Count -gt 0) { $found = $true; break }
+            }
+            Start-Sleep -Seconds 10
+          }
+          if (!$found) { throw "G13_DEMO_EXECUTION_TELEMETRY_TIMEOUT" }
+          Copy-Item $audit artifacts/g13-controlled-demo/g13_demo_execution_audit.csv -Force
+
+      - name: Validate actual broker-backed Demo execution
+        shell: pwsh
+        run: |
+          python -m research.optimization.g13_controlled_demo_execution_audit --execution-csv artifacts/g13-controlled-demo/g13_demo_execution_audit.csv --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json --context artifacts/g13-controlled-demo/context.json --report artifacts/g13-controlled-demo/g13-controlled-demo-execution-audit.json
+          python - <<'PY'
+          import csv, json, os
+          from pathlib import Path
+          candidate = int(os.environ["CANDIDATE_ID"])
+          rows = list(csv.DictReader(Path("artifacts/g13-controlled-demo/g13_demo_execution_audit.csv").open(encoding="utf-8")))
+          attempts = [r for r in rows if r["candidate_id"] == str(candidate) and r["event"] == "ORDER_ATTEMPT"]
+          assert attempts, "NO_TARGET_ORDER_ATTEMPT"
+          accepted = []
+          for r in attempts:
+              if int(r["order"]) > 0 and int(r["deal"]) > 0 and float(r["requested_volume"]) > 0 and abs(float(r["executed_volume"]) - float(r["requested_volume"])) <= 1e-9:
+                  accepted.append(r)
+          assert accepted, "NO_FULL_FILL_BROKER_BACKED_ORDER_FOUND"
+          report = json.loads(Path("artifacts/g13-controlled-demo/g13-controlled-demo-execution-audit.json").read_text(encoding="utf-8"))
+          assert report["status"] == "PASS"
+          assert report["policy"]["demo_only"] is True
+          assert report["policy"]["live_enabled"] is False
+          assert report["policy"]["trading_performed_by_validator"] is False
+          print("G13_CONTROLLED_DEMO_EXECUTION_ACCEPTED")
+          print(json.dumps({"candidate_id":candidate,"broker_order_id":accepted[-1]["order"],"broker_deal_id":accepted[-1]["deal"],"requested_volume":accepted[-1]["requested_volume"],"executed_volume":accepted[-1]["executed_volume"],"retcode":accepted[-1]["retcode"],"timestamp_utc":accepted[-1]["timestamp_utc"]},sort_keys=True))
+          PY
+
+      - name: Shutdown Demo kill switch after audit
+        if: always()
+        shell: pwsh
+        run: |
+          $common = Join-Path $env:APPDATA "MetaQuotes\\Terminal\\Common\\Files"
+          $kill = Join-Path $common "g13_demo_kill_switch.txt"
+          Set-Content -Path $kill -Value "DENY" -NoNewline -Encoding ascii
+          if ((Get-Content $kill -Raw) -ne "DENY") { throw "G13_KILL_SWITCH_SHUTDOWN_FAILED" }
+
+      - name: Upload controlled Demo evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-controlled-demo-execution-m15
+          path: artifacts/g13-controlled-demo
+          if-no-files-found: error
