@@ -18,6 +18,10 @@ from typing import Any, Mapping, Protocol
 
 from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall
 from tools.execution_admission_v1 import check_execution_admission
+from tools.runtime_authorization_auth_v1 import (
+    ControlPlaneAuthenticationError,
+    verify_authenticated_envelope_current,
+)
 from tools.trade_ledger_v1 import LedgerError, TradeLedger
 
 
@@ -75,28 +79,41 @@ class MT5ExecutionAdapter:
         ledger: TradeLedger,
         firewall: CapitalFirewall,
         gateway: BrokerGateway,
+        *,
+        control_plane_secret: str | bytes,
+        control_plane_key_id: str = "forexai-control-plane-v1",
     ) -> None:
         self.ledger = ledger
         self.firewall = firewall
         self.gateway = gateway
+        self.control_plane_secret = control_plane_secret
+        self.control_plane_key_id = control_plane_key_id
 
     def submit(
         self,
         *,
-        envelope: Mapping[str, Any],
+        authenticated_envelope: Mapping[str, Any],
         request: Mapping[str, Any],
         now_utc: str,
         event_id: str,
         idempotency_key: str,
     ) -> SubmissionResult:
         try:
+            authenticated = verify_authenticated_envelope_current(
+                self.firewall,
+                authenticated_envelope,
+                secret=self.control_plane_secret,
+                now_utc=now_utc,
+                expected_key_id=self.control_plane_key_id,
+            )
+            envelope = authenticated_envelope["envelope"]
             admission = check_execution_admission(
                 self.firewall,
                 envelope,
                 request=request,
                 now_utc=now_utc,
             )
-        except (AuthorizationError, LedgerError) as exc:
+        except (AuthorizationError, LedgerError, ControlPlaneAuthenticationError) as exc:
             raise MT5ExecutionAdapterError(str(exc)) from exc
 
         trade_id = admission["trade_id"]
