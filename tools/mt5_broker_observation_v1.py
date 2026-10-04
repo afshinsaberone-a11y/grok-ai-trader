@@ -122,6 +122,7 @@ def observe_order(
     order_state = int(order.get("state", -1))
     rejected_state = int(getattr(mt5, "ORDER_STATE_REJECTED", 0xFFFFFFFF))
     canceled_state = int(getattr(mt5, "ORDER_STATE_CANCELED", 0xFFFFFFFE))
+    expired_state = int(getattr(mt5, "ORDER_STATE_EXPIRED", 0xFFFFFFFD))
 
     common = {
         "broker_order_id": str(ticket),
@@ -141,7 +142,7 @@ def observe_order(
     if filled > 0:
         return {"status": "PARTIAL", **common}
 
-    if order_state in {rejected_state, canceled_state}:
+    if order_state in {rejected_state, canceled_state, expired_state}:
         return {"status": "REJECTED", **common}
 
     active = mt5.orders_get(ticket=ticket)
