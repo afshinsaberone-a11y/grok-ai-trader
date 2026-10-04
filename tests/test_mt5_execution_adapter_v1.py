@@ -122,6 +122,7 @@ def test_broker_rejection_becomes_explicit_unresolved_state(tmp_path: Path):
 
     assert result.status == "REJECTED"
     assert ledger.state_of("T1") == "REJECTED"
+    assert ledger.risk_blocked is True
     assert not [e for e in ledger.events if e.event_type == "ACCEPTED"]
 
 
@@ -156,6 +157,7 @@ def test_partial_execution_is_never_promoted_to_success(tmp_path: Path):
     assert gateway.calls == 1
     assert ledger.state_of("T1") == "ORDER_SUBMITTED"
     assert any(e.event_type == "BROKER_PARTIAL_EXECUTION_OBSERVED" for e in ledger.events)
+    assert ledger.risk_blocked is True
 
 
 def test_broker_timeout_leaves_durable_unresolved_submission(tmp_path: Path):
