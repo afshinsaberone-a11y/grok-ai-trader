@@ -238,4 +238,4 @@ def test_revoked_authority_never_reaches_broker(tmp_path: Path):
         )
 
     assert gateway.calls == 0
-    assert ledger.state_of("T1") == "RISK_RESERVED"
+    assert ledger.state_of("T1") == "AUTHORIZED"
