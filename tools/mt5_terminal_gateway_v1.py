@@ -233,8 +233,17 @@ class MT5TerminalGateway:
                 "remaining_volume": max(0.0, volume - filled_volume),
             }
 
-            if retcode == done and deal_id not in (None, 0):
+            if (
+                retcode == done
+                and order_id not in (None, 0)
+                and deal_id not in (None, 0)
+                and filled_volume > 0
+                and abs(filled_volume - volume) <= 1e-9
+            ):
                 return {"status": "ACCEPTED", **common}
+
+            if retcode == done:
+                raise MT5GatewayError("MT5_DONE_WITHOUT_FULL_FILL")
 
             if retcode == done:
                 raise MT5GatewayError("MT5_DONE_WITHOUT_DEAL")
