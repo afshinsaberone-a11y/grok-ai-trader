@@ -26,6 +26,8 @@ REQUIRED = {
     "schema",
     "status",
     "commit_sha",
+    "candidate_id",
+    "config_hash",
     "ea_source_sha256",
     "strategy_id",
     "trade_id",
@@ -96,6 +98,12 @@ def validate_demo_evidence(payload: dict[str, Any], *, ea_source_path: Path | No
     if not isinstance(payload["commit_sha"], str) or not SHA40.fullmatch(payload["commit_sha"]):
         raise DemoEvidenceError("DEMO_EVIDENCE_COMMIT_SHA_INVALID")
 
+    if isinstance(payload["candidate_id"], bool) or not isinstance(payload["candidate_id"], int) or not 1 <= payload["candidate_id"] <= 48:
+        raise DemoEvidenceError("DEMO_EVIDENCE_CANDIDATE_ID_INVALID")
+
+    if not isinstance(payload["config_hash"], str) or not re.fullmatch(r"^[0-9a-fA-F]{64}$", payload["config_hash"]):
+        raise DemoEvidenceError("DEMO_EVIDENCE_CONFIG_HASH_INVALID")
+
     if not isinstance(payload["ea_source_sha256"], str) or not re.fullmatch(r"^[0-9a-fA-F]{64}$", payload["ea_source_sha256"]):
         raise DemoEvidenceError("DEMO_EVIDENCE_EA_SOURCE_SHA256_INVALID")
     if ea_source_path is not None:
@@ -119,6 +127,8 @@ def validate_demo_evidence(payload: dict[str, Any], *, ea_source_path: Path | No
         "schema": SCHEMA,
         "status": "PASS",
         "account_mode": "DEMO",
+        "candidate_id": int(payload["candidate_id"]),
+        "config_hash": str(payload["config_hash"]),
         "trade_id": str(payload["trade_id"]),
         "symbol": str(payload["symbol"]),
         "timeframe": str(payload["timeframe"]),
