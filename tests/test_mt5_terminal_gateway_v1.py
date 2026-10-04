@@ -3,7 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from tools.execution_admission_v1 import admission_auth_tag
 from tools.mt5_terminal_gateway_v1 import MT5GatewayConfig, MT5GatewayError, MT5TerminalGateway
+
+
+CONTROL_PLANE_SECRET = "gateway-control-plane-secret-0123456789-abcdef"
 
 
 class FakeMT5:
@@ -104,7 +108,21 @@ def _admission(request=None):
         "current_firewall_authority": "PASS",
         "control_plane_authenticated": True,
         "request_hash": request_hash,
+        "admission_auth_schema": "forexai.execution_admission_authentication.v1",
+        "admission_auth_algorithm": "HMAC-SHA256",
     }
+    admission["admission_auth_tag"] = admission_auth_tag(
+        admission,
+        secret=CONTROL_PLANE_SECRET,
+    )
+    return admission
+
+
+def _gateway(mt5, **kwargs):
+    return MT5TerminalGateway(
+        MT5GatewayConfig(control_plane_secret=CONTROL_PLANE_SECRET, **kwargs),
+        mt5_module=mt5,
+    )
 
 
 def _admission_request():
@@ -134,10 +152,7 @@ def _accepted():
 
 def test_real_gateway_returns_actual_broker_acceptance():
     mt5 = FakeMT5(send_result=_accepted())
-    gateway = MT5TerminalGateway(
-        MT5GatewayConfig(shutdown_after_request=True),
-        mt5_module=mt5,
-    )
+    gateway = _gateway(mt5, shutdown_after_request=True)
     result = gateway.submit_authorized_order(
         request=_admission_request(),
         admission=_admission(_admission_request()),
@@ -159,7 +174,7 @@ def test_real_account_is_blocked_by_default():
         server="Real-Server",
         trade_mode=mt5.ACCOUNT_TRADE_MODE_REAL,
     )
-    gateway = MT5TerminalGateway(mt5_module=mt5)
+    gateway = _gateway(mt5)
     with pytest.raises(MT5GatewayError, match="REAL_ACCOUNT_BLOCKED_BY_DEMO_ONLY_POLICY"):
         gateway.submit_authorized_order(
             request=_admission_request(),
