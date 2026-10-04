@@ -103,8 +103,7 @@ def test_audit_rejects_non_accepted_execution(tmp_path, monkeypatch, overrides, 
     _write_csv(csv_path, [_row(**overrides), _transaction()])
     with pytest.raises(AssertionError) as excinfo:
         mod.audit(csv_path, tmp_path / "handoff.json", tmp_path / "context.json")
-    message = str(excinfo.value)
-    assert error in message or (error == "executed_volume" and not message)
+    assert error in str(excinfo.value)
 
 
 def test_audit_rejects_transaction_id_mismatch(tmp_path, monkeypatch):
