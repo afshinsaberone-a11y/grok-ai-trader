@@ -303,13 +303,11 @@ jobs:
               "G13_DEMO_MUST_RUN_FROM_MAIN",
               "G13_PACKAGE_PREFLIGHT_PROVENANCE_MISMATCH",
               "g13-controlled-demo-package-preflight-m15",
-              "G13_COMPILE_PARITY_PROVENANCE_MISMATCH",
-              "g13-mt5-compile-parity-",
-              "G13_COMPILE_PARITY_ARTIFACT_DIGEST_MISMATCH",
-              "g13_demo_kill_switch.txt",
+              "G13_PACKAGE_PREFLIGHT_BOUND=true",
+              "Bind frozen candidate ConfigHash",
               "G13_EXPECTED_CONFIG_HASH",
               "G13_TARGET_CONFIG_HASH_MISMATCH",
-              "G13_EXACT_CANDIDATE_PACKAGE_STAGED=true",
+              "g13_demo_kill_switch.txt",
               "live_enabled = false",
           ]:
               assert token in demo_collector_workflow, f"controlled Demo collector token missing: {token}"
