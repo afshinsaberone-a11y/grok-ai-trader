@@ -88,6 +88,7 @@ def test_valid_bundle_assembles(tmp_path: Path):
     )
     assert payload["status"] == "PASS"
     assert payload["broker_order_id"] == "7001"
+    assert payload["strategy_id"] == "G13-M15"
     assert len(payload["ea_source_sha256"]) == 64
 
 
@@ -95,6 +96,7 @@ def test_valid_bundle_assembles(tmp_path: Path):
     ("component", "field", "value", "error"),
     [
         ("submission", "full_fill", False, "FIELD_MISMATCH:full_fill"),
+        ("submission", "strategy_id", "OTHER", "SUBMISSION_STRATEGY_ID_MISMATCH"),
         ("observation", "capital_authority_granted", True, "FIELD_MISMATCH:capital_authority_granted"),
         ("runtime", "reconciliation_status", "PENDING", "FIELD_MISMATCH:reconciliation_status"),
     ],
