@@ -59,6 +59,7 @@ REQUIRED_INVARIANTS = {
     "broker_rejection_must_not_be_treated_as_execution_success == true",
     "partial_broker_execution_requires_reconciliation == true",
     "broker_rejection_requires_reconciliation_before_reservation_release == true",
+    "broker_pending_outcome_requires_reconciliation == true",
     "unresolved_broker_outcome_blocks_new_risk_globally == true",
     "broker_submission_requires_authenticated_control_plane == true",
     "control_plane_authentication_cannot_grant_capital_authority == true",
