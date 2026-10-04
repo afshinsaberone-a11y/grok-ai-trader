@@ -121,8 +121,16 @@ def observe_order(
     deal_ids = [str(x.get("ticket")) for x in symbol_deals if x.get("ticket") not in (None, 0)]
     order_state = int(order.get("state", -1))
     rejected_state = int(getattr(mt5, "ORDER_STATE_REJECTED", 0xFFFFFFFF))
+    partial_state = int(getattr(mt5, "ORDER_STATE_PARTIAL", 0xFFFFFFFC))
     canceled_state = int(getattr(mt5, "ORDER_STATE_CANCELED", 0xFFFFFFFE))
     expired_state = int(getattr(mt5, "ORDER_STATE_EXPIRED", 0xFFFFFFFD))
+    order_buy = getattr(mt5, "ORDER_TYPE_BUY", None)
+    order_sell = getattr(mt5, "ORDER_TYPE_SELL", None)
+    order_type = order.get("type")
+    if side == "BUY" and order_buy is not None and order_type != order_buy:
+        raise MT5BrokerObservationError("MT5_OBSERVATION_ORDER_SIDE_MISMATCH")
+    if side == "SELL" and order_sell is not None and order_type != order_sell:
+        raise MT5BrokerObservationError("MT5_OBSERVATION_ORDER_SIDE_MISMATCH")
 
     common = {
         "broker_order_id": str(ticket),
@@ -139,7 +147,7 @@ def observe_order(
     if math.isclose(filled, requested, rel_tol=0.0, abs_tol=1e-9) and deal_ids:
         return {"status": "ACCEPTED", **common}
 
-    if filled > 0:
+    if filled > 0 or order_state == partial_state:
         return {"status": "PARTIAL", **common}
 
     if order_state in {rejected_state, canceled_state, expired_state}:
