@@ -29,13 +29,17 @@ class FakeMT5:
 
 def test_accepted_requires_full_fill_and_deal():
     mt5 = FakeMT5(
-        [SimpleNamespace(ticket=123, symbol="EURUSD", type=0, state=0)],
-        [SimpleNamespace(ticket=456, order=123, symbol="EURUSD", type=0, volume=0.10)],
+        [SimpleNamespace(ticket=123, symbol="EURUSD", type=0, state=0, price_open=1.1001, sl=1.1015, tp=1.0980)],
+        [SimpleNamespace(ticket=456, order=123, symbol="EURUSD", type=0, volume=0.10, price=1.1002)],
         [],
     )
     out = observe_order(mt5, broker_order_id="123", symbol="EURUSD", side="BUY", requested_volume=0.10)
     assert out["status"] == "ACCEPTED"
     assert out["broker_deal_id"] == "456"
+    assert out["position_direction"] == "BUY"
+    assert out["entry_price"] == 1.1002
+    assert out["stop_loss"] == 1.1015
+    assert out["take_profit"] == 1.0980
 
 
 def test_partial_never_becomes_success():
