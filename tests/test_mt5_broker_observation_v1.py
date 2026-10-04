@@ -40,7 +40,7 @@ def test_accepted_requires_full_fill_and_deal():
 
 def test_partial_never_becomes_success():
     mt5 = FakeMT5(
-        [SimpleNamespace(ticket=123, symbol="EURUSD", state=0)],
+        [SimpleNamespace(ticket=123, symbol="EURUSD", type=0, state=0)],
         [SimpleNamespace(ticket=456, order=123, symbol="EURUSD", type=0, volume=0.04)],
         [],
     )
@@ -52,7 +52,7 @@ def test_pending_uses_active_order():
     mt5 = FakeMT5(
         [SimpleNamespace(ticket=123, symbol="EURUSD", state=0)],
         [],
-        [SimpleNamespace(ticket=123, symbol="EURUSD")],
+        [SimpleNamespace(ticket=123, symbol="EURUSD", type=0)],
     )
     out = observe_order(mt5, broker_order_id="123", symbol="EURUSD", side="BUY", requested_volume=0.10)
     assert out["status"] == "PENDING"
@@ -60,7 +60,7 @@ def test_pending_uses_active_order():
 
 def test_rejected_order_has_no_deal():
     mt5 = FakeMT5(
-        [SimpleNamespace(ticket=123, symbol="EURUSD", state=8)],
+        [SimpleNamespace(ticket=123, symbol="EURUSD", type=0, state=8)],
         [],
         [],
     )
