@@ -46,6 +46,12 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["consumption_failure_blocks_new_orders"] = (
         "if(!MarkRuntimeAuthorizationConsumed(trace_trade_id))" in source
     )
+    checks["runtime_trace_outcome_observation_contract"] = (
+        "TraceOutcomeObservation" in source
+        and "BROKER_OUTCOME_UNKNOWN" in source
+        and "BROKER_PARTIAL_EXECUTION_OBSERVED" in source
+        and "ORDER_SUBMITTED" in source
+    )
     checks["failed_submission_not_counted"] = all((
         re.search(r"bool\s+submitted\s*=\s*trade\.(?:Buy|Sell)\(", source),
         re.search(r"if\(!submitted\)\s*\{[\s\S]*?return\s+false;\s*\}", source),
