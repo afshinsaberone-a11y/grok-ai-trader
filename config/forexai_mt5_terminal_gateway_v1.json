@@ -24,7 +24,9 @@
     "action": "TRADE_ACTION_DEAL",
     "success_requires": [
       "TRADE_RETCODE_DONE",
-      "nonzero_deal_ticket"
+      "nonzero_order_ticket",
+      "nonzero_deal_ticket",
+      "full_requested_volume"
     ],
     "partial_status": "PARTIAL",
     "placed_without_deal_status": "PENDING",
