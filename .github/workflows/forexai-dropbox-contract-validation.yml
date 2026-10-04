@@ -53,6 +53,11 @@ jobs:
             tools/validate_dropbox_contract.py \
             tools/verify_dropbox_evidence_manifest.py
 
+      - name: Install test dependency
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pytest
+
       - name: Run Dropbox contract tests
         run: |
           set -euo pipefail
