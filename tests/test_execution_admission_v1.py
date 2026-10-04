@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tools.capital_firewall_v1 import AuthorizationError
-from tools.execution_admission_v1 import admission_auth_tag, check_execution_admission
+from tools.execution_admission_v1 import admission_auth_tag, check_execution_admission, verify_admission_auth
 from tools.runtime_authorization_envelope_v1 import build_runtime_envelope
 from tests.test_capital_firewall_v1 import _authorized_firewall
 
@@ -248,9 +248,8 @@ def test_execution_admission_rejects_wrong_execution_identity(
         )
 
 
-def test_execution_admission_hmac_rejects_wrong_secret():
-    from tools.execution_admission_v1 import verify_admission_auth
-    _ledger, firewall, envelope, request = _authorized_case(Path("/tmp"))
+def test_execution_admission_hmac_rejects_wrong_secret(tmp_path: Path):
+    _ledger, firewall, envelope, request = _authorized_case(tmp_path)
     admission = check_execution_admission(
         firewall,
         envelope,
@@ -261,12 +260,11 @@ def test_execution_admission_hmac_rejects_wrong_secret():
     with pytest.raises(AuthorizationError, match="EXECUTION_ADMISSION_AUTH_TAG_MISMATCH"):
         verify_admission_auth(
             admission,
-            secret="wrong-execution-admission-secret-0123456789-abcdef",
+            secret=CONTROL_PLANE_SECRET + "x",
         )
 
 
 def test_execution_admission_hmac_rejects_tampered_capability(tmp_path: Path):
-    from tools.execution_admission_v1 import verify_admission_auth
     _ledger, firewall, envelope, request = _authorized_case(tmp_path)
     admission = check_execution_admission(
         firewall,
