@@ -64,6 +64,7 @@ int parityHandle=INVALID_HANDLE;
 int executionAuditHandle=INVALID_HANDLE;
 string active_trace_trade_id="";
 bool runtime_authorization_healthy=false;
+bool runtime_trace_healthy=true;
 string runtime_authorization_id="";
 string runtime_reservation_id="";
 double runtime_reserved_risk=0.0;
@@ -211,6 +212,17 @@ string TraceFile()
    return StringFormat("ForexAI_RuntimeTrace_%I64d_%s.jsonl",MagicNumber,_Symbol);
 }}
 
+bool EnsureRuntimeTraceReady()
+{{
+   int handle=FileOpen(
+      TraceFile(),
+      FILE_READ|FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE
+   );
+   if(handle==INVALID_HANDLE) return false;
+   FileClose(handle);
+   return true;
+}}
+
 string TraceIsoUtc(const datetime value)
 {{
    MqlDateTime t;
@@ -228,7 +240,7 @@ string TraceBrokerIso(const datetime value)
 string TraceJsonEscape(string value)
 {{
    StringReplace(value,"\\","\\\\");
-   StringReplace(value,""","\\"");
+   StringReplace(value,"""","\\"");
    StringReplace(value,"\r","\\r");
    StringReplace(value,"\n","\\n");
    return value;
@@ -236,23 +248,45 @@ string TraceJsonEscape(string value)
 
 void TraceRecord(const string trade_id,const string event_type,const string state,const string payload_fields)
 {{
-   if(StringLen(trade_id)==0 || StringLen(event_type)==0 || StringLen(state)==0) return;
-   int handle=FileOpen(TraceFile(),FILE_READ|FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(handle==INVALID_HANDLE) return;
+   if(StringLen(trade_id)==0 || StringLen(event_type)==0 || StringLen(state)==0)
+      return;
+
+   int handle=FileOpen(
+      TraceFile(),
+      FILE_READ|FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE
+   );
+   if(handle==INVALID_HANDLE)
+   {{
+      runtime_trace_healthy=false;
+      return;
+   }}
+
    FileSeek(handle,0,SEEK_END);
    long offset=(long)(TimeCurrent()-TimeGMT());
-   string payload=StringFormat(""broker_timestamp":"%s","broker_utc_offset_seconds":%I64d",TraceJsonEscape(TraceBrokerIso(TimeCurrent())),offset);
-   if(StringLen(payload_fields)>0) payload+=","+payload_fields;
+   string payload=StringFormat(
+      """broker_timestamp"":""%s"",""broker_utc_offset_seconds"":%I64d",
+      TraceJsonEscape(TraceBrokerIso(TimeCurrent())),offset
+   );
+   if(StringLen(payload_fields)>0)
+      payload+=","+payload_fields;
+
    string event_id="G13-MQL5-"+trade_id+"-"+event_type;
    string row=StringFormat(
-      "{"schema":"forexai.runtime_trace.v1","source":"MQL5","trade_id":"%s","event_id":"%s","event_type":"%s","idempotency_key":"%s","timestamp_utc":"%s","state":"%s","payload":{%s}}\n",
-      TraceJsonEscape(trade_id),TraceJsonEscape(event_id),TraceJsonEscape(event_type),TraceJsonEscape(event_id),
-      TraceIsoUtc(TimeGMT()),TraceJsonEscape(state),payload
+      "{{""schema"":""forexai.runtime_trace.v1"",""source"":""MQL5"",""trade_id"":""%s"",""event_id"":""%s"",""event_type"":""%s"",""idempotency_key"":""%s"",""timestamp_utc"":""%s"",""state"":""%s"",""payload"":{{%s}}}}\n",
+      TraceJsonEscape(trade_id),
+      TraceJsonEscape(event_id),
+      TraceJsonEscape(event_type),
+      TraceJsonEscape(event_id),
+      TraceIsoUtc(TimeGMT()),
+      TraceJsonEscape(state),
+      payload
    );
+
    uint written=FileWriteString(handle,row);
    FileFlush(handle);
    FileClose(handle);
-   if(written!=(uint)StringLen(row)) return;
+   if(written!=(uint)StringLen(row))
+      runtime_trace_healthy=false;
 }}
 
 void TraceLifecycle(const string trade_id,const string state,const string payload_fields)
@@ -265,7 +299,12 @@ string BuildTraceTradeId(const datetime signal_bar_time)
    return StringFormat("T-%I64d-%s-%I64d-S",MagicNumber,_Symbol,(long)signal_bar_time);
 }}
 
-void TraceSuccessfulEntry(const string trade_id,const double requested_volume)
+void TraceSuccessfulEntry(
+   const string trade_id,
+   const double requested_volume,
+   const double requested_sl,
+   const double requested_tp
+)
 {{
    active_trace_trade_id=trade_id;
    ulong order_ticket=trade.ResultOrder();
@@ -276,21 +315,29 @@ void TraceSuccessfulEntry(const string trade_id,const double requested_volume)
 
    TraceLifecycle(
       trade_id,"ACCEPTED",
-      StringFormat(""side":"SELL","retcode":%u,"order_ticket":"%I64d","deal_ticket":"%I64d","requested_volume":%.8f,"confirmed_volume":%.8f",
-                   trade.ResultRetcode(),(long)order_ticket,(long)deal_ticket,requested_volume,trade.ResultVolume())
+      StringFormat(
+         """side"":""SELL"",""retcode"":%u,""order_ticket"":""%I64d"",""deal_ticket"":""%I64d"",""requested_volume"":%.8f,""confirmed_volume"":%.8f",
+         trade.ResultRetcode(),(long)order_ticket,(long)deal_ticket,
+         requested_volume,trade.ResultVolume()
+      )
    );
+
    TraceLifecycle(
       trade_id,"FILLED",
-      StringFormat(""side":"SELL","order_ticket":"%I64d","deal_ticket":"%I64d","fill_price":%.10f,"requested_volume":%.8f,"requested_sl":%.10f,"requested_tp":%.10f",
-                   (long)order_ticket,(long)deal_ticket,fill_price,requested_volume,
-                   SymbolInfoDouble(_Symbol,SYMBOL_ASK),
-                   SymbolInfoDouble(_Symbol,SYMBOL_BID))
+      StringFormat(
+         """side"":""SELL"",""order_ticket"":""%I64d"",""deal_ticket"":""%I64d"",""fill_price"":%.10f,""requested_volume"":%.8f,""requested_sl"":%.10f,""requested_tp"":%.10f",
+         (long)order_ticket,(long)deal_ticket,fill_price,
+         requested_volume,requested_sl,requested_tp
+      )
    );
+
    if(CountOwnPositions()>0)
       TraceLifecycle(
          trade_id,"OPEN",
-         StringFormat(""side":"SELL","order_ticket":"%I64d","deal_ticket":"%I64d","position_count":%d",
-                      (long)order_ticket,(long)deal_ticket,CountOwnPositions())
+         StringFormat(
+            """side"":""SELL"",""order_ticket"":""%I64d"",""deal_ticket"":""%I64d"",""position_count"":%d",
+            (long)order_ticket,(long)deal_ticket,CountOwnPositions()
+         )
       );
 }}
 
@@ -456,6 +503,7 @@ int OnInit()
 {{
    trade.SetExpertMagicNumber(MagicNumber);
    if(!RequireRuntimeAuthorization) return INIT_FAILED;
+   if(!EnsureRuntimeTraceReady()) return INIT_FAILED;
    if(!trade.SetTypeFillingBySymbol(_Symbol)) return INIT_FAILED;
    return INIT_SUCCEEDED;
 }}
@@ -701,7 +749,7 @@ void OnTick()
       runtime_authorization_healthy=false;
       return;
    }}
-   TraceSuccessfulEntry(trace_trade_id,lots);
+   TraceSuccessfulEntry(trace_trade_id,lots,sl,tp);
    if(!MarkRuntimeAuthorizationConsumed(trace_trade_id)) return;
 }}
 //+------------------------------------------------------------------+
