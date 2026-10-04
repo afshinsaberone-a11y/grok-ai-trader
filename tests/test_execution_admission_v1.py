@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tools.capital_firewall_v1 import AuthorizationError
-from tools.execution_admission_v1 import check_execution_admission
+from tools.execution_admission_v1 import admission_auth_tag, check_execution_admission
 from tools.runtime_authorization_envelope_v1 import build_runtime_envelope
 from tests.test_capital_firewall_v1 import _authorized_firewall
 
@@ -59,6 +59,12 @@ def test_execution_admission_passes_current_authority(tmp_path: Path):
     assert result["current_firewall_authority"] == "PASS"
     assert result["request_hash"]
     assert result["timeframe"] == "M15"
+    assert result["admission_auth_schema"] == "forexai.execution_admission_authentication.v1"
+    assert result["admission_auth_algorithm"] == "HMAC-SHA256"
+    assert result["admission_auth_tag"] == admission_auth_tag(
+        result,
+        secret=CONTROL_PLANE_SECRET,
+    )
 
 
 def test_execution_admission_rejects_risk_over_reservation(tmp_path: Path):
@@ -234,3 +240,35 @@ def test_execution_admission_rejects_wrong_execution_identity(
             now_utc="2026-10-02T18:03:00+00:00",
             control_plane_secret=CONTROL_PLANE_SECRET,
         )
+
+
+def test_execution_admission_hmac_rejects_wrong_secret():
+    from tools.execution_admission_v1 import verify_admission_auth
+    _ledger, firewall, envelope, request = _authorized_case(Path("/tmp"))
+    admission = check_execution_admission(
+        firewall,
+        envelope,
+        request=request,
+        now_utc="2026-10-02T18:03:00+00:00",
+        control_plane_secret=CONTROL_PLANE_SECRET,
+    )
+    with pytest.raises(AuthorizationError, match="EXECUTION_ADMISSION_AUTH_TAG_MISMATCH"):
+        verify_admission_auth(
+            admission,
+            secret="wrong-execution-admission-secret-0123456789-abcdef",
+        )
+
+
+def test_execution_admission_hmac_rejects_tampered_capability(tmp_path: Path):
+    from tools.execution_admission_v1 import verify_admission_auth
+    _ledger, firewall, envelope, request = _authorized_case(tmp_path)
+    admission = check_execution_admission(
+        firewall,
+        envelope,
+        request=request,
+        now_utc="2026-10-02T18:03:00+00:00",
+        control_plane_secret=CONTROL_PLANE_SECRET,
+    )
+    admission["risk_fraction"] = 0.005
+    with pytest.raises(AuthorizationError, match="EXECUTION_ADMISSION_AUTH_TAG_MISMATCH"):
+        verify_admission_auth(admission, secret=CONTROL_PLANE_SECRET)
