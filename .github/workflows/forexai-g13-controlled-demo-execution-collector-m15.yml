@@ -27,6 +27,10 @@ on:
         description: "Unique ForexAI Demo trade ID for this controlled audit"
         required: true
         type: string
+      package_preflight_run_id:
+        description: "Successful G13 Controlled Demo Package Preflight M15 run for exact main SHA"
+        required: true
+        type: string
       timeout_seconds:
         description: "Maximum wait for ORDER_ATTEMPT telemetry"
         required: true
@@ -35,6 +39,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: g13-controlled-demo-execution-collector
@@ -51,6 +56,7 @@ jobs:
       G13_AUDIT_CSV: ${{ inputs.audit_csv }}
       G13_CONFIRMATION: ${{ inputs.confirmation }}
       G13_TRADE_ID: ${{ inputs.trade_id }}
+      G13_PACKAGE_PREFLIGHT_RUN_ID: ${{ inputs.package_preflight_run_id }}
       G13_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
     steps:
       - name: Checkout exact workflow revision
