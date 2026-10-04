@@ -138,9 +138,9 @@ jobs:
           assert len(paths) == 15
           bs = chr(92)
           required = [
-              'StringFormat(' + bs + '"side' + bs + '":' + bs + '"SELL' + bs + '"',
-              'StringFormat(' + bs + '"retcode' + bs + '":%u',
-              'StringFormat(' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"',
+              '"' + bs + '"side' + bs + '":' + bs + '"SELL' + bs + '"',
+              '"' + bs + '"retcode' + bs + '":%u',
+              '"' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"',
               'StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");',
               'StringReplace(value,"' + bs + '"","' + bs + bs + bs + '"");',
           ]
