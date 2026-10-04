@@ -162,7 +162,7 @@ def main() -> int:
     parser.add_argument("--strategy-id", required=True)
     parser.add_argument("--trade-id", required=True)
     parser.add_argument("--commit-sha", required=True)
-    parser.add_argument("--ea-source", type=Path, default=Path("ea/GRK_Hybrid_Regime_EA.mq5"))
+    parser.add_argument("--ea-source", type=Path, required=True, help="Exact frozen G13 MQ5 source used for this Demo execution")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
