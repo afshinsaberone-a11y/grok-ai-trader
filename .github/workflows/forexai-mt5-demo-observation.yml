@@ -1,0 +1,67 @@
+name: ForexAI MT5 Demo Broker Observation
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Broker symbol to observe"
+        required: true
+        default: "EURUSD"
+        type: string
+      broker_order_id:
+        description: "Existing broker order ticket; observation only"
+        required: true
+        type: string
+      side:
+        description: "Expected order side"
+        required: true
+        default: "BUY"
+        type: choice
+        options:
+          - BUY
+          - SELL
+      requested_volume:
+        description: "Original requested volume"
+        required: true
+        type: string
+      trade_id:
+        description: "Existing ForexAI trade id"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 10
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MT5 package
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-mt5.txt
+
+      - name: Read-only broker observation
+        shell: pwsh
+        run: |
+          python -c "import tools.mt5_broker_observation_v1 as m; print('MT5_OBSERVER_IMPORT_OK')"
+
+      - name: Explicit no-submission guard
+        shell: pwsh
+        run: |
+          Write-Output "MODE=READ_ONLY"
+          Write-Output "ORDER_SUBMISSION_ALLOWED=false"
+          Write-Output "RETRY_ALLOWED=false"
+          Write-Output "CAPITAL_AUTHORITY_GRANT_ALLOWED=false"
