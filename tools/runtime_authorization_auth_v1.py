@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 from typing import Any, Mapping
 
 from tools.capital_firewall_v1 import AuthorizationError
@@ -22,6 +23,7 @@ from tools.runtime_authorization_envelope_v1 import (
 AUTH_SCHEMA = "forexai.runtime_authorization_authentication.v1"
 AUTH_ALGORITHM = "HMAC-SHA256"
 DEFAULT_KEY_ID = "forexai-control-plane-v1"
+DEFAULT_SECRET_ENV = "FOREXAI_CONTROL_PLANE_HMAC_SECRET"
 
 
 class ControlPlaneAuthenticationError(AuthorizationError):
@@ -51,6 +53,15 @@ def _secret_bytes(secret: str | bytes) -> bytes:
             "CONTROL_PLANE_SECRET_TOO_SHORT"
         )
     return raw
+
+
+def load_control_plane_secret(
+    env_name: str = DEFAULT_SECRET_ENV,
+) -> str:
+    secret = os.environ.get(env_name)
+    if not secret:
+        raise ControlPlaneAuthenticationError("CONTROL_PLANE_SECRET_NOT_CONFIGURED")
+    return secret
 
 
 def authentication_tag(
