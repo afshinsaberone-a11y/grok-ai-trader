@@ -252,8 +252,8 @@ string TraceBrokerIso(const datetime value)
 
 string TraceJsonEscape(string value)
 {{
-   StringReplace(value,"\\\\","\\\\\\\\");
-   StringReplace(value,"\\\"","\\\\\\\"");
+   StringReplace(value,"\\","\\\\\\");
+   StringReplace(value,"\"","\\\\\"");
    StringReplace(value,"\\r","\\\\r");
    StringReplace(value,"\\n","\\\\n");
    return value;
@@ -278,7 +278,7 @@ void TraceRecord(const string trade_id,const string event_type,const string stat
    FileSeek(handle,0,SEEK_END);
    long offset=(long)(TimeCurrent()-TimeGMT());
    string payload=StringFormat(
-      "\\\"broker_timestamp\\\":\\\"%s\\\",\\\"broker_utc_offset_seconds\\\":%I64d",
+      "\"broker_timestamp\":\"%s\",\"broker_utc_offset_seconds\":%I64d",
       TraceJsonEscape(TraceBrokerIso(TimeCurrent())),offset
    );
    if(StringLen(payload_fields)>0)
@@ -286,7 +286,7 @@ void TraceRecord(const string trade_id,const string event_type,const string stat
 
    string event_id="G13-MQL5-"+trade_id+"-"+event_type;
    string row=StringFormat(
-      "{{\\\"schema\\\":\\\"forexai.runtime_trace.v1\\\",\\\"source\\\":\\\"MQL5\\\",\\\"trade_id\\\":\\\"%s\\\",\\\"event_id\\\":\\\"%s\\\",\\\"event_type\\\":\\\"%s\\\",\\\"idempotency_key\\\":\\\"%s\\\",\\\"timestamp_utc\\\":\\\"%s\\\",\\\"state\\\":\\\"%s\\\",\\\"payload\\\":{{%s}}}}\\n",
+      "{{\"schema\":\"forexai.runtime_trace.v1\",\"source\":\"MQL5\",\"trade_id\":\"%s\",\"event_id\":\"%s\",\"event_type\":\"%s\",\"idempotency_key\":\"%s\",\"timestamp_utc\":\"%s\",\"state\":\"%s\",\"payload\":{{%s}}}}\\n",
       TraceJsonEscape(trade_id),
       TraceJsonEscape(event_id),
       TraceJsonEscape(event_type),
@@ -347,7 +347,7 @@ void TraceSuccessfulEntry(
    TraceLifecycle(
       trade_id,"ACCEPTED",
       StringFormat(
-         "\\\"side\\\":\\\"SELL\\\",\\\"retcode\\\":%u,\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"requested_volume\\\":%.8f,\\\"confirmed_volume\\\":%.8f",
+         "\"side\":\"SELL\",\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",\"requested_volume\":%.8f,\"confirmed_volume\":%.8f",
          trade.ResultRetcode(),(long)order_ticket,(long)deal_ticket,
          requested_volume,trade.ResultVolume()
       )
@@ -356,7 +356,7 @@ void TraceSuccessfulEntry(
    TraceLifecycle(
       trade_id,"FILLED",
       StringFormat(
-         "\\\"side\\\":\\\"SELL\\\",\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"fill_price\\\":%.10f,\\\"requested_volume\\\":%.8f,\\\"requested_sl\\\":%.10f,\\\"requested_tp\\\":%.10f",
+         "\"side\":\"SELL\",\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",\"fill_price\":%.10f,\"requested_volume\":%.8f,\"requested_sl\":%.10f,\"requested_tp\":%.10f",
          (long)order_ticket,(long)deal_ticket,fill_price,
          requested_volume,requested_sl,requested_tp
       )
@@ -366,7 +366,7 @@ void TraceSuccessfulEntry(
       TraceLifecycle(
          trade_id,"OPEN",
          StringFormat(
-            "\\\"side\\\":\\\"SELL\\\",\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"position_count\\\":%d",
+            "\"side\":\"SELL\",\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",\"position_count\":%d",
             (long)order_ticket,(long)deal_ticket,CountOwnPositions()
          )
       );
@@ -619,7 +619,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
             double commission=HistoryDealGetDouble(trans.deal,DEAL_COMMISSION);
             TraceLifecycle(
                active_trace_trade_id,"CLOSED",
-               StringFormat("\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"position_id\\\":\\\"%I64d\\\",\\\"exit_price\\\":%.10f,\\\"volume\\\":%.8f,\\\"profit\\\":%.8f,\\\"swap\\\":%.8f,\\\"commission\\\":%.8f",
+               StringFormat("\"deal_ticket\":\"%I64d\",\"position_id\":\"%I64d\",\"exit_price\":%.10f,\"volume\":%.8f,\"profit\":%.8f,\"swap\":%.8f,\"commission\":%.8f",
                             (long)trans.deal,
                             (long)HistoryDealGetInteger(trans.deal,DEAL_POSITION_ID),
                             exit_price,volume,profit,swap,commission)
@@ -787,7 +787,7 @@ void OnTick()
    {{
       TraceRecord(
          trace_trade_id,"BROKER_OUTCOME_UNKNOWN","ORDER_SUBMITTED",
-         StringFormat("\\\"retcode\\\":%u,\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"requested_volume\\\":%.8f",
+         StringFormat("\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",\"requested_volume\":%.8f",
                       trade.ResultRetcode(),(long)trade.ResultOrder(),(long)trade.ResultDeal(),lots)
       );
       runtime_authorization_healthy=false;
