@@ -169,6 +169,16 @@ def test_frozen_candidate_identity_mismatch_fails_closed(tmp_path: Path, field, 
 def test_frozen_source_hash_mismatch_fails_closed(tmp_path: Path):
     bundle = _bundle()
     inputs = _assembly_inputs(tmp_path)
-    inputs["ea_source_path"].write_text("// tampered source\n", encoding="utf-8")
+    inputs["ea_source_path"].write_text("// tampered source\\n", encoding="utf-8")
     with pytest.raises(DemoEvidenceAssemblyError, match="PACKAGE_PREFLIGHT_SOURCE_HASH_MISMATCH"):
-        _assemble(bundle, tmp_path)
+        assemble(
+            submission=bundle["submission"],
+            preflight=bundle["preflight"],
+            observation=bundle["observation"],
+            runtime=bundle["runtime"],
+            replay=bundle["replay"],
+            strategy_id="G13-M15",
+            trade_id="T-DEMO-1",
+            commit_sha="4ba45299908948b6daf9c3f065cb69e40526d030",
+            **inputs,
+        )
