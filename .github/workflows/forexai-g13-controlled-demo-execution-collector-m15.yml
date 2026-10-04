@@ -87,9 +87,45 @@ jobs:
                    '--context-out', 'artifacts/g13/demo-execution/context.json',
                    '--report-out', 'artifacts/g13/demo-execution/collector-report.json',
                    '--evidence-csv-out', 'artifacts/g13/demo-execution/g13_demo_execution_audit_new.csv',
-                   '--confirmation', $env:G13_CONFIRMATION, '--timeout-seconds', $env:G13_TIMEOUT_SECONDS)
+                   '--confirmation', $env:G13_CONFIRMATION, '--trade-id', $env:G13_TRADE_ID, '--timeout-seconds', $env:G13_TIMEOUT_SECONDS)
           if ($env:G13_AUDIT_CSV -ne '') { $args += @('--audit-csv', $env:G13_AUDIT_CSV) }
           python tools/g13_demo_execution_collector_v1.py @args
+
+      - name: Bind collector evidence to exact candidate and trade
+        shell: pwsh
+        run: |
+          $ctx = Get-Content 'artifacts/g13/demo-execution/context.json' -Raw | ConvertFrom-Json
+          $report = Get-Content 'artifacts/g13/demo-execution/collector-report.json' -Raw | ConvertFrom-Json
+          if ([int]$ctx.candidate_id -ne [int]$env:G13_CANDIDATE_ID) { throw 'G13_COLLECTOR_CANDIDATE_MISMATCH' }
+          if ([string]$ctx.trade_id -ne $env:G13_TRADE_ID) { throw 'G13_COLLECTOR_TRADE_ID_MISMATCH' }
+          if ([string]$report.trade_id -ne $env:G13_TRADE_ID) { throw 'G13_COLLECTOR_REPORT_TRADE_ID_MISMATCH' }
+          $rows = @(Import-Csv 'artifacts/g13/demo-execution/g13_demo_execution_audit_new.csv')
+          $attempts = @($rows | Where-Object { $_.event -eq 'ORDER_ATTEMPT' })
+          if ($attempts.Count -ne 1) { throw "G13_EXPECTED_EXACTLY_ONE_ORDER_ATTEMPT:$($attempts.Count)" }
+          $other = @($rows | Where-Object { $_.event -eq 'ORDER_ATTEMPT' -and $_.candidate_id -ne $env:G13_CANDIDATE_ID })
+          if ($other.Count -ne 0) { throw 'G13_OTHER_CANDIDATE_ORDER_ATTEMPT_DETECTED' }
+          $row = $attempts[0]
+          if ($row.candidate_id -ne $env:G13_CANDIDATE_ID) { throw 'G13_TARGET_CANDIDATE_ORDER_MISMATCH' }
+          if ($row.side -ne 'SELL') { throw 'G13_TARGET_SIDE_MISMATCH' }
+          if ([int]$row.retcode -ne 10009) { throw "G13_TARGET_RETCODE_NOT_DONE:$($row.retcode)" }
+          if ([int64]$row.order -le 0 -or [int64]$row.deal -le 0) { throw 'G13_TARGET_BROKER_ID_MISSING' }
+          if ([math]::Abs([double]$row.executed_volume - [double]$row.requested_volume) -gt 1e-9) { throw 'G13_TARGET_NOT_FULL_FILL' }
+          $selected = [ordered]@{
+            schema = 'forexai.g13.controlled_demo_execution_selection.v1'
+            candidate_id = [int]$row.candidate_id
+            config_hash = [string]$row.config_hash
+            trade_id = $env:G13_TRADE_ID
+            broker_order_id = [string]$row.order
+            broker_deal_id = [string]$row.deal
+            requested_volume = [double]$row.requested_volume
+            executed_volume = [double]$row.executed_volume
+            retcode = [int]$row.retcode
+            timestamp_utc = [string]$row.timestamp_utc
+            account_mode = 'DEMO'
+            live_enabled = $false
+          }
+          $selected | ConvertTo-Json -Depth 4 | Set-Content 'artifacts/g13/demo-execution/selected-execution.json' -Encoding utf8
+          Write-Output 'G13_COLLECTOR_EVIDENCE_BOUND=true'
 
       - name: Copy exact broker execution audit CSV
         shell: pwsh
@@ -137,6 +173,11 @@ jobs:
           if ($obs.observation.status -ne 'ACCEPTED') { throw "G13_DEMO_OBSERVATION_NOT_ACCEPTED:$($obs.observation.status)" }
           if ([string]$obs.observation.broker_order_id -ne [string]$row.order) { throw 'G13_DEMO_ORDER_ID_MISMATCH' }
           if ([string]::IsNullOrWhiteSpace([string]$obs.observation.broker_deal_id)) { throw 'G13_DEMO_DEAL_ID_MISSING' }
+          if ([string]$obs.observation.broker_deal_id -ne [string]$row.deal) { throw 'G13_DEMO_DEAL_ID_MISMATCH' }
+          if ($obs.observation.symbol -ne $row.symbol) { throw 'G13_DEMO_OBSERVATION_SYMBOL_MISMATCH' }
+          if ($obs.observation.side -ne $row.side) { throw 'G13_DEMO_OBSERVATION_SIDE_MISMATCH' }
+          if ([math]::Abs([double]$obs.observation.volume - [double]$row.requested_volume) -gt 1e-9) { throw 'G13_DEMO_OBSERVATION_VOLUME_MISMATCH' }
+          if ([math]::Abs([double]$obs.observation.filled_volume - [double]$row.executed_volume) -gt 1e-9) { throw 'G13_DEMO_OBSERVATION_FILL_MISMATCH' }
 
       - name: Enforce Demo-only invariants
         shell: pwsh
@@ -151,6 +192,6 @@ jobs:
       - name: Upload broker-backed Demo audit
         uses: actions/upload-artifact@v4
         with:
-          name: g13-controlled-demo-execution-m15-candidate-${{ inputs.candidate_id }}}
+          name: g13-controlled-demo-execution-m15-candidate-${{ inputs.candidate_id }}
           path: artifacts/g13/demo-execution
           if-no-files-found: error
