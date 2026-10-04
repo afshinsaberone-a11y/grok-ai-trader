@@ -357,6 +357,8 @@ class MT5ExecutionAdapter:
 
         if not broker_order_id or not broker_deal_id:
             raise MT5ExecutionAdapterError("MT5_ADAPTER_ACCEPTED_RESPONSE_REQUIRES_ORDER_AND_DEAL")
+        if not math.isclose(filled_volume, requested_volume, rel_tol=0.0, abs_tol=1e-9) or remaining_volume != 0.0:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_ACCEPTED_RESPONSE_NOT_FULLY_FILLED")
 
         accepted_payload = {
             **submission_payload,
@@ -365,7 +367,7 @@ class MT5ExecutionAdapter:
             "broker_retcode": broker_retcode,
             "filled_volume": filled_volume,
             "remaining_volume": remaining_volume,
-            "fill_status": "FILLED" if filled_volume == requested_volume else "PENDING",
+            "fill_status": "FILLED",
         }
         try:
             self.ledger.append(
