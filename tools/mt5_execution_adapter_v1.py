@@ -211,7 +211,7 @@ class MT5ExecutionAdapter:
             raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_RESPONSE_FIELDS_UNKNOWN")
 
         status = response["status"]
-        if status not in {"ACCEPTED", "REJECTED", "PARTIAL"}:
+        if status not in {"ACCEPTED", "REJECTED", "PARTIAL", "PENDING"}:
             raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_STATUS_INVALID")
 
         for field in ("symbol", "timeframe", "side"):
@@ -279,6 +279,38 @@ class MT5ExecutionAdapter:
                 ) from exc
             raise MT5ExecutionAdapterError(
                 "MT5_ADAPTER_PARTIAL_EXECUTION_RECONCILIATION_REQUIRED"
+            )
+
+        if status == "PENDING":
+            if not broker_order_id or broker_deal_id is not None or filled_volume != 0:
+                raise MT5ExecutionAdapterError("MT5_ADAPTER_PENDING_RESPONSE_INVALID")
+            pending_payload = {
+                **submission_payload,
+                "broker_order_id": broker_order_id,
+                "broker_deal_id": None,
+                "broker_retcode": broker_retcode,
+                "broker_reason": _require_nonempty_string(
+                    response.get("broker_reason"), "broker_reason"
+                ),
+                "filled_volume": 0.0,
+                "remaining_volume": requested_volume,
+            }
+            try:
+                self.ledger.append(
+                    trade_id=trade_id,
+                    state=None,
+                    event_type="BROKER_ORDER_PENDING",
+                    payload=pending_payload,
+                    idempotency_key=idempotency_key + ":pending",
+                    event_id=event_id + ":pending",
+                    timestamp_utc=now_utc,
+                )
+            except Exception as exc:
+                raise MT5ExecutionAdapterError(
+                    "MT5_ADAPTER_PENDING_OUTCOME_JOURNAL_FAILED"
+                ) from exc
+            raise MT5ExecutionAdapterError(
+                "MT5_ADAPTER_BROKER_ORDER_PENDING_RECONCILIATION_REQUIRED"
             )
 
         if status == "REJECTED":
