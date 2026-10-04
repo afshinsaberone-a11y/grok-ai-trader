@@ -17,6 +17,19 @@ from tools.trade_ledger_v1 import ALLOWED_TRANSITIONS, STATES, LedgerError, Trad
 
 TRACE_SCHEMA = "forexai.runtime_trace.v1"
 OBSERVATIONAL_STATES = {"ORDER_SUBMITTED", "ACCEPTED", "FILLED", "OPEN", "MANAGED", "CLOSED"}
+OUTCOME_OBSERVATION_EVENT_TYPES = {
+    "BROKER_OUTCOME_UNKNOWN",
+    "BROKER_PARTIAL_EXECUTION_OBSERVED",
+}
+OUTCOME_OBSERVATION_REQUIRED_PAYLOAD_FIELDS = {
+    "BROKER_OUTCOME_UNKNOWN": {
+        "retcode", "order_ticket", "deal_ticket", "requested_volume",
+    },
+    "BROKER_PARTIAL_EXECUTION_OBSERVED": {
+        "retcode", "order_ticket", "deal_ticket",
+        "requested_volume", "filled_volume",
+    },
+}
 FORBIDDEN_AUTHORITY_EVENT_TYPES = {
     "CAPITAL_AUTHORIZATION_ISSUED",
     "CAPITAL_AUTHORIZATION_REVOKED",
@@ -36,6 +49,8 @@ STATE_REQUIRED_PAYLOAD_FIELDS = {
 }
 ALLOWED_PAYLOAD_FIELDS = {"broker_timestamp", "broker_utc_offset_seconds"} | {
     field for fields in STATE_REQUIRED_PAYLOAD_FIELDS.values() for field in fields
+} | {
+    field for fields in OUTCOME_OBSERVATION_REQUIRED_PAYLOAD_FIELDS.values() for field in fields
 }
 
 REQUIRED_FIELDS = {
@@ -126,7 +141,11 @@ def normalize_trace(record: Mapping[str, Any]) -> dict[str, Any]:
     event_type = str(record["event_type"]).upper()
     if event_type in FORBIDDEN_AUTHORITY_EVENT_TYPES:
         raise RuntimeTraceError("RUNTIME_TRACE_AUTHORITY_EVENT_FORBIDDEN")
-    if event_type != state:
+    outcome_observation = event_type in OUTCOME_OBSERVATION_EVENT_TYPES
+    if outcome_observation:
+        if state != "ORDER_SUBMITTED":
+            raise RuntimeTraceError("RUNTIME_TRACE_OUTCOME_OBSERVATION_STATE_INVALID")
+    elif event_type != state:
         raise RuntimeTraceError("RUNTIME_TRACE_EVENT_TYPE_STATE_MISMATCH")
     if not isinstance(record["payload"], dict):
         raise RuntimeTraceError("RUNTIME_TRACE_PAYLOAD_MUST_BE_OBJECT")
@@ -136,10 +155,16 @@ def normalize_trace(record: Mapping[str, Any]) -> dict[str, Any]:
     extra_payload = sorted(set(payload) - ALLOWED_PAYLOAD_FIELDS)
     if extra_payload:
         raise RuntimeTraceError(f"RUNTIME_TRACE_PAYLOAD_UNKNOWN_FIELDS:{extra_payload}")
-    missing_payload = sorted(STATE_REQUIRED_PAYLOAD_FIELDS[state] - set(payload))
+    required_payload = (
+        OUTCOME_OBSERVATION_REQUIRED_PAYLOAD_FIELDS[event_type]
+        if outcome_observation
+        else STATE_REQUIRED_PAYLOAD_FIELDS[state]
+    )
+    missing_payload = sorted(required_payload - set(payload))
     if missing_payload:
+        label = event_type if outcome_observation else state
         raise RuntimeTraceError(
-            f"RUNTIME_TRACE_STATE_PAYLOAD_MISSING:{state}:{missing_payload}"
+            f"RUNTIME_TRACE_STATE_PAYLOAD_MISSING:{label}:{missing_payload}"
         )
 
     return {
@@ -152,6 +177,8 @@ def normalize_trace(record: Mapping[str, Any]) -> dict[str, Any]:
         "timestamp_utc": _normalize_timestamp(record["timestamp_utc"], record["payload"]),
         "state": state,
         "payload": dict(record["payload"]),
+        "ledger_state": None if outcome_observation else state,
+        "outcome_observation": outcome_observation,
     }
 
 
@@ -220,19 +247,25 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
             if prior_key != key:
                 raise RuntimeTraceError("RUNTIME_TRACE_EVENT_ID_CONFLICT")
 
-        state = record["state"]
+        state = record["ledger_state"]
         current = simulated_states.get(record["trade_id"])
         if current is None:
             raise RuntimeTraceError(
-                f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{state}"
+                f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{record['state']}"
             )
-        if state not in ALLOWED_TRANSITIONS[current]:
-            raise RuntimeTraceError(
-                f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{state}"
-            )
+        if state is None:
+            if not record["outcome_observation"] or current != "ORDER_SUBMITTED":
+                raise RuntimeTraceError(
+                    f"RUNTIME_TRACE_OUTCOME_OBSERVATION_TRANSITION_INVALID:{current}"
+                )
+        else:
+            if state not in ALLOWED_TRANSITIONS[current]:
+                raise RuntimeTraceError(
+                    f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{state}"
+                )
+            simulated_states[record["trade_id"]] = state
 
-        simulated_states[record["trade_id"]] = state
-        staged = (record["trade_id"], record["state"], record["event_type"], payload)
+        staged = (record["trade_id"], state, record["event_type"], payload)
         staged_by_key[key] = staged
         staged_by_event[event_key] = staged
 
@@ -244,7 +277,7 @@ def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, 
         try:
             event = ledger.append(
                 trade_id=record["trade_id"],
-                state=record["state"],
+                state=record["ledger_state"],
                 event_type=record["event_type"],
                 payload={
                     "runtime_trace_schema": record["schema"],
