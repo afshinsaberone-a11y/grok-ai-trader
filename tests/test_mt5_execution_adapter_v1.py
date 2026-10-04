@@ -68,6 +68,9 @@ def _accepted():
         "volume": 0.10,
         "broker_order_id": "ORDER-1",
         "broker_deal_id": None,
+        "broker_retcode": "TRADE_RETCODE_PLACED",
+        "filled_volume": 0.0,
+        "remaining_volume": 0.10,
     }
 
 
@@ -92,6 +95,69 @@ def test_success_durably_advances_order_submitted_to_accepted(tmp_path: Path):
     ]
 
 
+def test_broker_rejection_becomes_explicit_unresolved_state(tmp_path: Path):
+    response = {
+        "status": "REJECTED",
+        "symbol": "EURUSD",
+        "timeframe": "M15",
+        "side": "BUY",
+        "volume": 0.10,
+        "broker_order_id": None,
+        "broker_deal_id": None,
+        "broker_retcode": "TRADE_RETCODE_INVALID_STOPS",
+        "broker_reason": "invalid stops",
+        "filled_volume": 0.0,
+        "remaining_volume": 0.10,
+    }
+    gateway = Gateway(response=response)
+    ledger, _firewall, envelope, request, adapter = _case(tmp_path, gateway)
+
+    result = adapter.submit(
+        envelope=envelope,
+        request=request,
+        now_utc="2026-10-02T18:03:01+00:00",
+        event_id="submit-event",
+        idempotency_key="submit-key",
+    )
+
+    assert result.status == "REJECTED"
+    assert ledger.state_of("T1") == "REJECTED"
+    assert not [e for e in ledger.events if e.event_type == "ACCEPTED"]
+
+
+def test_partial_execution_is_never_promoted_to_success(tmp_path: Path):
+    response = {
+        "status": "PARTIAL",
+        "symbol": "EURUSD",
+        "timeframe": "M15",
+        "side": "BUY",
+        "volume": 0.10,
+        "broker_order_id": "ORDER-PARTIAL",
+        "broker_deal_id": "DEAL-1",
+        "broker_retcode": "TRADE_RETCODE_DONE_PARTIAL",
+        "filled_volume": 0.04,
+        "remaining_volume": 0.06,
+    }
+    gateway = Gateway(response=response)
+    ledger, _firewall, envelope, request, adapter = _case(tmp_path, gateway)
+
+    with pytest.raises(
+        MT5ExecutionAdapterError,
+        match="PARTIAL_EXECUTION_RECONCILIATION_REQUIRED",
+    ):
+        adapter.submit(
+            envelope=envelope,
+            request=request,
+            now_utc="2026-10-02T18:03:01+00:00",
+            event_id="submit-event",
+            idempotency_key="submit-key",
+        )
+
+    assert gateway.calls == 1
+    assert ledger.state_of("T1") == "ORDER_SUBMITTED"
+    assert any(e.event_type == "BROKER_PARTIAL_EXECUTION_OBSERVED" for e in ledger.events)
+
+
 def test_broker_timeout_leaves_durable_unresolved_submission(tmp_path: Path):
     gateway = Gateway(error=TimeoutError("broker timeout"))
     ledger, _firewall, envelope, request, adapter = _case(tmp_path, gateway)
@@ -110,27 +176,8 @@ def test_broker_timeout_leaves_durable_unresolved_submission(tmp_path: Path):
 
     assert gateway.calls == 1
     assert ledger.state_of("T1") == "ORDER_SUBMITTED"
+    assert any(e.event_type == "BROKER_OUTCOME_UNKNOWN" for e in ledger.events)
     assert not [e for e in ledger.events if e.event_type == "ACCEPTED"]
-
-
-def test_broker_rejection_does_not_create_accepted_state(tmp_path: Path):
-    response = dict(_accepted())
-    response["status"] = "REJECTED"
-    gateway = Gateway(response=response)
-    ledger, _firewall, envelope, request, adapter = _case(tmp_path, gateway)
-
-    with pytest.raises(
-        MT5ExecutionAdapterError, match="BROKER_ORDER_NOT_ACCEPTED"
-    ):
-        adapter.submit(
-            envelope=envelope,
-            request=request,
-            now_utc="2026-10-02T18:03:01+00:00",
-            event_id="submit-event",
-            idempotency_key="submit-key",
-        )
-
-    assert ledger.state_of("T1") == "ORDER_SUBMITTED"
 
 
 def test_broker_identity_mismatch_fails_closed(tmp_path: Path):
