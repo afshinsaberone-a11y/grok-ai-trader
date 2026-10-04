@@ -57,7 +57,9 @@
     "max_positions": 1,
     "execution_success_requires": [
       "trade_result_retcode",
-      "deal_ticket"
+      "order_ticket",
+      "deal_ticket",
+      "full_requested_volume"
     ],
     "filling_mode": "symbol_native",
     "stop_constraints": [
