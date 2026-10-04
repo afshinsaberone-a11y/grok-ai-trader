@@ -37,6 +37,14 @@
   },
   "authority": {
     "capital_authority_source": "CapitalFirewall",
+    "execution_admission_authentication": {
+      "required": true,
+      "schema": "forexai.execution_admission_authentication.v1",
+      "algorithm": "HMAC-SHA256",
+      "secret_source": "external_runtime_secret",
+      "verify_before_mt5_initialize": true,
+      "constant_time_compare": true
+    },
     "control_plane_authentication_required_before_gateway": true,
     "gateway_cannot_grant_authority": true,
     "default_demo_only": true
