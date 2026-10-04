@@ -118,6 +118,29 @@ def test_order_check_rejection_never_calls_order_send():
     assert mt5.shutdowns == 1
 
 
+def test_placed_without_deal_is_returned_as_pending(tmp_path=None):
+    mt5 = FakeMT5(
+        send_result=SimpleNamespace(
+            retcode=10008,
+            deal=0,
+            order=7002,
+            volume=0.0,
+            price=1.1002,
+            comment="placed",
+        )
+    )
+    gateway = MT5TerminalGateway(mt5_module=mt5)
+    result = gateway.submit_authorized_order(
+        request={},
+        admission=_admission(),
+    )
+    assert result["status"] == "PENDING"
+    assert result["broker_order_id"] == "7002"
+    assert result["broker_deal_id"] is None
+    assert result["filled_volume"] == 0.0
+    assert result["remaining_volume"] == 0.10
+
+
 def test_done_without_deal_is_not_claimed_as_success():
     mt5 = FakeMT5(
         send_result=SimpleNamespace(
