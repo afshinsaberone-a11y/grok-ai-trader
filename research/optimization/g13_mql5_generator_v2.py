@@ -347,7 +347,7 @@ void TraceSuccessfulEntry(
    TraceLifecycle(
       trade_id,"ACCEPTED",
       StringFormat(
-         "\\\\\\"side\\\\\\":\\\\\\"SELL\\\\\\",\\\\\\"retcode\\\\\\":%u,\\\\\\"order_ticket\\\\\\":\\\\\\"%I64d\\\\\\",\\\\\\"deal_ticket\\\\\\":\\\\\\"%I64d\\\\\\",\\\\\\"requested_volume\\\\\\":%.8f,\\\\\\"confirmed_volume\\\\\\":%.8f",
+         "\\\"side\\\":\\\"SELL\\\",\\\"retcode\\\":%u,\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"requested_volume\\\":%.8f,\\\"confirmed_volume\\\":%.8f",
          trade.ResultRetcode(),(long)order_ticket,(long)deal_ticket,
          requested_volume,trade.ResultVolume()
       )
@@ -356,7 +356,7 @@ void TraceSuccessfulEntry(
    TraceLifecycle(
       trade_id,"FILLED",
       StringFormat(
-         "\\\\\\"side\\\\\\":\\\\\\"SELL\\\\\\",\\\\\\"order_ticket\\\\\\":\\\\\\"%I64d\\\\\\",\\\\\\"deal_ticket\\\\\\":\\\\\\"%I64d\\\\\\",\\\\\\"fill_price\\\\\\":%.10f,\\\\\\"requested_volume\\\\\\":%.8f,\\\\\\"requested_sl\\\\\\":%.10f,\\\\\\"requested_tp\\\\\\":%.10f",
+         "\\\"side\\\":\\\"SELL\\\",\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"fill_price\\\":%.10f,\\\"requested_volume\\\":%.8f,\\\"requested_sl\\\":%.10f,\\\"requested_tp\\\":%.10f",
          (long)order_ticket,(long)deal_ticket,fill_price,
          requested_volume,requested_sl,requested_tp
       )
@@ -366,7 +366,7 @@ void TraceSuccessfulEntry(
       TraceLifecycle(
          trade_id,"OPEN",
          StringFormat(
-            "\\\\\\"side\\\\\\":\\\\\\"SELL\\\\\\",\\\\\\"order_ticket\\\\\\":\\\\\\"%I64d\\\\\\",\\\\\\"deal_ticket\\\\\\":\\\\\\"%I64d\\\\\\",\\\\\\"position_count\\\\\\":%d",
+            "\\\"side\\\":\\\"SELL\\\",\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"position_count\\\":%d",
             (long)order_ticket,(long)deal_ticket,CountOwnPositions()
          )
       );
@@ -757,7 +757,7 @@ void OnTick()
    if(!(bool)MQLInfoInteger(MQL_TESTER))
       TraceLifecycle(
          trace_trade_id,"ORDER_SUBMITTED",
-         StringFormat("\\\\\\"side\\\\\\":\\\\\\"SELL\\\\\\",\\\\\\"requested_volume\\\\\\":%.8f,\\\\\\"requested_price\\\\\\":%.10f,\\\\\\"requested_sl\\\\\\":%.10f,\\\\\\"requested_tp\\\\\\":%.10f,\\\\\\"order_ticket\\\\\\":\\\\\\"0\\\\\\"",
+         StringFormat("\\\"side\\\":\\\"SELL\\\",\\\"requested_volume\\\":%.8f,\\\"requested_price\\\":%.10f,\\\"requested_sl\\\":%.10f,\\\"requested_tp\\\":%.10f,\\\"order_ticket\\\":\\\"0\\\"",
                       lots,entry,sl,tp)
       );
    double spreadPoints=(ask-bid)/_Point;
