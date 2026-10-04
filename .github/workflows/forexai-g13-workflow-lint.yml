@@ -142,11 +142,20 @@ jobs:
               bs + '"retcode' + bs + '":%u',
               '"' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"',
               'StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");',
-              'StringReplace(value,"' + bs + '"","' + bs + bs + bs + '"");',
           ]
           for path in paths:
               rendered = path.read_text(encoding="utf-8")
-              for fragment in required:
+              trace_escape = rendered.split("string TraceJsonEscape", 1)[1].split("void TraceRecord", 1)[0]
+              assert trace_escape.count("StringReplace(value") == 4, f"{path.name}: TraceJsonEscape must contain four replacements"
+              for fragment in required[:-1]:
+                  assert fragment in rendered, f"{path.name}: missing rendered fragment {fragment!r}"
+          PY
+          ]
+          for path in paths:
+              rendered = path.read_text(encoding="utf-8")
+              trace_escape = rendered.split("string TraceJsonEscape", 1)[1].split("void TraceRecord", 1)[0]
+              assert trace_escape.count("StringReplace(value") == 4, f"{path.name}: TraceJsonEscape must contain four replacements"
+              for fragment in required[:-1]:
                   assert fragment in rendered, f"{path.name}: missing rendered fragment {fragment!r}"
           PY
 
