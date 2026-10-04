@@ -127,9 +127,21 @@ bool BeginRuntimeAuthorizationAttempt(const string trade_id)
 {{
    string key=AuthorizationAttemptKey(trade_id,runtime_authorization_id,runtime_reservation_id);
    if(GlobalVariableCheck(key)) return false;
-   if(GlobalVariableSetOnCondition(key,1.0,0.0)) return true;
-   if(GlobalVariableCheck(key)) return false;
-   return false;
+
+   if(GlobalVariableSetOnCondition(key,1.0,0.0))
+      return true;
+
+   if(GlobalVariableCheck(key))
+      return false;
+
+   if(GlobalVariableSet(key,0.0)==0)
+      return false;
+
+   if(!GlobalVariableSetOnCondition(key,1.0,0.0))
+      return false;
+
+   GlobalVariablesFlush();
+   return true;
 }}
 
 bool VerifyRuntimeAuthorization(const string trade_id,const bool is_buy)
