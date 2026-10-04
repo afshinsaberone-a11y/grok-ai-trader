@@ -14,6 +14,8 @@ import json
 import math
 from typing import Any, Mapping
 
+from tools.execution_admission_v1 import verify_admission_auth
+
 
 class MT5GatewayError(RuntimeError):
     """Fail-closed MT5 terminal gateway error."""
@@ -37,6 +39,8 @@ def _request_hash(request: Mapping[str, Any]) -> str:
 def _validate_admission_for_gateway(
     request: Mapping[str, Any],
     admission: Mapping[str, Any],
+    *,
+    control_plane_secret: str | bytes,
 ) -> None:
     required = {
         "schema",
@@ -68,6 +72,7 @@ def _validate_admission_for_gateway(
         raise MT5GatewayError("MT5_GATEWAY_CONTROL_PLANE_AUTH_REQUIRED")
     if admission["execution_contract_version"] != EXECUTION_CONTRACT_VERSION:
         raise MT5GatewayError("MT5_GATEWAY_EXECUTION_CONTRACT_MISMATCH")
+    verify_admission_auth(admission, secret=control_plane_secret)
     if request.get("trade_id") != admission["trade_id"]:
         raise MT5GatewayError("MT5_GATEWAY_TRADE_ID_MISMATCH")
     if request.get("symbol") != admission["symbol"]:
@@ -99,6 +104,8 @@ class MT5GatewayConfig:
     shutdown_after_request: bool = True
     account_mode: str = "DEMO_ONLY"
     real_trading_confirmation_env: str = "FOREXAI_ALLOW_REAL_TRADING"
+    control_plane_secret_env: str = "FOREXAI_CONTROL_PLANE_HMAC_SECRET"
+    control_plane_secret: str | bytes | None = None
 
 
 class MT5TerminalGateway:
@@ -207,7 +214,22 @@ class MT5TerminalGateway:
         request: Mapping[str, Any],
         admission: Mapping[str, Any],
     ) -> Mapping[str, Any]:
-        _validate_admission_for_gateway(request, admission)
+        secret = self.config.control_plane_secret
+        if secret is None:
+            import os
+            secret = os.environ.get(self.config.control_plane_secret_env)
+        if not secret:
+            raise MT5GatewayError("MT5_GATEWAY_CONTROL_PLANE_SECRET_NOT_CONFIGURED")
+        try:
+            _validate_admission_for_gateway(
+                request,
+                admission,
+                control_plane_secret=secret,
+            )
+        except Exception as exc:
+            if isinstance(exc, MT5GatewayError):
+                raise
+            raise MT5GatewayError(str(exc)) from exc
         mt5 = self.mt5
         self._initialize()
         try:
