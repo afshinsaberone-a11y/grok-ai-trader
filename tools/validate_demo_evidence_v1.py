@@ -25,6 +25,7 @@ REQUIRED = {
     "schema",
     "status",
     "commit_sha",
+    "ea_source_sha256",
     "strategy_id",
     "trade_id",
     "symbol",
@@ -93,6 +94,9 @@ def validate_demo_evidence(payload: dict[str, Any]) -> dict[str, Any]:
 
     if not isinstance(payload["commit_sha"], str) or not SHA40.fullmatch(payload["commit_sha"]):
         raise DemoEvidenceError("DEMO_EVIDENCE_COMMIT_SHA_INVALID")
+
+    if not isinstance(payload["ea_source_sha256"], str) or not re.fullmatch(r"^[0-9a-fA-F]{64}$", payload["ea_source_sha256"]):
+        raise DemoEvidenceError("DEMO_EVIDENCE_EA_SOURCE_SHA256_INVALID")
 
     for field, error in (
         ("strategy_id", "DEMO_EVIDENCE_STRATEGY_ID_MISSING"),
