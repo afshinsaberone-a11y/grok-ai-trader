@@ -16,7 +16,8 @@
     "preflight must be PASS and read-only",
     "runtime evidence must be PASS and RECONCILED",
     "replay must show the trade CLOSED with no unresolved reconciliation",
-    "EA source SHA-256 must be computed from the checked-out EA source"
+    "candidate_id and config_hash must match the frozen G13 package preflight",
+    "EA source SHA-256 must match the frozen G13 MQ5 hash in package preflight"
   ],
   "live_authorization": false
 }
