@@ -54,4 +54,4 @@ def test_compiler_workflow_cannot_enable_real_trading():
     workflow = _workflow()
     assert "FOREXAI_ALLOW_REAL_TRADING" not in workflow
     assert "REAL_ALLOWED" not in workflow
-    assert "DEMO_ONLY" not in workflow or "DEMO_ONLY" in workflow
+    assert "REAL_ALLOWED" not in workflow
