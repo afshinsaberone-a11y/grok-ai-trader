@@ -76,9 +76,13 @@ def observe_order(
                 "broker_deal_id": None,
                 "symbol": symbol,
                 "side": side,
+                "position_direction": side,
                 "volume": requested,
                 "filled_volume": 0.0,
                 "remaining_volume": requested,
+                "entry_price": _finite(active_rows[0].get("price_open", 0.0), "order_price"),
+                "stop_loss": _finite(active_rows[0].get("sl", 0.0), "stop_loss"),
+                "take_profit": _finite(active_rows[0].get("tp", 0.0), "take_profit"),
                 "broker_retcode": "",
                 "broker_reason": "active broker order still present",
             }
@@ -88,9 +92,13 @@ def observe_order(
             "broker_deal_id": None,
             "symbol": symbol,
             "side": side,
+            "position_direction": side,
             "volume": requested,
             "filled_volume": 0.0,
             "remaining_volume": requested,
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "take_profit": 0.0,
             "broker_retcode": "",
             "broker_reason": "order ticket not found in active or history",
         }
@@ -132,14 +140,24 @@ def observe_order(
     if side == "SELL" and order_sell is not None and order_type != order_sell:
         raise MT5BrokerObservationError("MT5_OBSERVATION_ORDER_SIDE_MISMATCH")
 
+    deal_price = 0.0
+    if symbol_deals:
+        deal_price = _finite(symbol_deals[-1].get("price", 0.0), "deal_price")
+    order_price = _finite(order.get("price_open", deal_price), "order_price")
+    entry_price = deal_price if deal_price > 0.0 else order_price
+
     common = {
         "broker_order_id": str(ticket),
         "broker_deal_id": deal_ids[-1] if deal_ids else None,
         "symbol": symbol,
         "side": side,
+        "position_direction": side,
         "volume": requested,
         "filled_volume": filled,
         "remaining_volume": max(0.0, requested - filled),
+        "entry_price": entry_price,
+        "stop_loss": _finite(order.get("sl", 0.0), "stop_loss"),
+        "take_profit": _finite(order.get("tp", 0.0), "take_profit"),
         "broker_retcode": str(order.get("retcode", "")),
         "broker_reason": str(order.get("comment", "")),
     }
