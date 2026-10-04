@@ -24,6 +24,7 @@ on:
       - '.github/workflows/forexai-g13-execution-safety-audit-m15.yml'
       - '.github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml'
       - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
+      - '.github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml'
       - 'research/optimization/g13_demo_package_preflight_m15.py'
       - 'research/optimization/g13_demo_package_manifest_builder_m15.py'
       - 'research/optimization/g13_real_data_provenance.py'
@@ -48,6 +49,7 @@ on:
       - 'research/real_data/histdata_ingest.py'
       - 'research/real_data/dukascopy_ingest.py'
       - '.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml'
+      - '.github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml'
       - 'tests/test_g13_real_data_provenance.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
@@ -97,6 +99,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml
+          ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
 
       - name: Compile all G13 Python gates
@@ -290,6 +293,28 @@ jobs:
               "--compile-parity-artifact-digest",
           ]:
               assert token in package_preflight_workflow, f"package preflight wiring token missing: {token}"
+
+          demo_collector_workflow = Path(".github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml").read_text(encoding="utf-8")
+          for token in [
+              "package_preflight_run_id",
+              "permissions:",
+              "actions: read",
+              "actions/github-script@v7",
+              "G13_DEMO_MUST_RUN_FROM_MAIN",
+              "G13_PACKAGE_PREFLIGHT_PROVENANCE_MISMATCH",
+              "g13-controlled-demo-package-preflight-m15",
+              "G13_COMPILE_PARITY_PROVENANCE_MISMATCH",
+              "g13-mt5-compile-parity-",
+              "G13_COMPILE_PARITY_ARTIFACT_DIGEST_MISMATCH",
+              "g13_demo_kill_switch.txt",
+              "G13_EXPECTED_CONFIG_HASH",
+              "G13_TARGET_CONFIG_HASH_MISMATCH",
+              "G13_EXACT_CANDIDATE_PACKAGE_STAGED=true",
+              "live_enabled = false",
+          ]:
+              assert token in demo_collector_workflow, f"controlled Demo collector token missing: {token}"
+          assert "github.rest.actions.getWorkflowRun" in demo_collector_workflow
+          assert "github.rest.actions.getWorkflowRunForRepo" not in demo_collector_workflow
 
           generator = Path("research/optimization/g13_mql5_generator_v2.py").read_text(encoding="utf-8")
           assert "trans.magic" not in generator, "MQL5 MqlTradeTransaction has no magic field; use history/request resolution"
