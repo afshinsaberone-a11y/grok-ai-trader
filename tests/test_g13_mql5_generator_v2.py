@@ -111,7 +111,7 @@ def test_render_mql5_trace_literals_and_lifecycle_symbols():
     assert r'StringFormat("\\"retcode\\":%u' in source
     assert r'StringFormat("\\"deal_ticket\\":\\"%I64d\\"' in source
     assert r'StringReplace(value,"\\\\","\\\\\\\\");' in source
-    assert r'StringReplace(value,"\\"","\\\\\\"");' in source
+    assert r'StringReplace(value,"\"","\\\"");' in source
 
 
 def test_render_preserves_tester_execution_without_runtime_artifacts():
