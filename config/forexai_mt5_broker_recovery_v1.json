@@ -1,0 +1,31 @@
+{
+  "schema_version": "forexai.mt5_broker_recovery.v1",
+  "purpose": "Authoritative read-only observation for unresolved broker outcomes",
+  "observation_sources": [
+    "history_orders_get(ticket=ORDER_TICKET)",
+    "history_deals_get(ticket=ORDER_TICKET)",
+    "orders_get(ticket=ORDER_TICKET)"
+  ],
+  "allowed_observations": [
+    "ACCEPTED",
+    "PARTIAL",
+    "PENDING",
+    "REJECTED",
+    "UNKNOWN"
+  ],
+  "accepted_requires": [
+    "matching_order_ticket",
+    "matching_symbol",
+    "matching_side",
+    "full_requested_volume",
+    "at_least_one_deal_ticket"
+  ],
+  "partial_requires_reconciliation": true,
+  "pending_requires_reconciliation": true,
+  "unknown_requires_authoritative_recovery": true,
+  "recovery_is_read_only": true,
+  "recovery_never_retries_submission": true,
+  "recovery_cannot_grant_capital_authority": true,
+  "unresolved_outcome_blocks_new_risk": true,
+  "synthetic_broker_observations_for_production": false
+}

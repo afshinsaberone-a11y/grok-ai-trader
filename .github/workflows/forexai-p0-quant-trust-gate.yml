@@ -1,0 +1,109 @@
+name: ForexAI P0 Quant Trust Gate
+
+on:
+  push:
+    branches:
+      - "codex/quant-trust-core-p0-2026-10-02"
+    paths:
+      - "config/forexai_quant_constitution_v1.json"
+      - "config/forexai_execution_parity_v1.json"
+      - "config/forexai_mql5_authorization_record_v1.json"
+      - "config/forexai_runtime_authorization_envelope_v1.json"
+      - "config/forexai_mt5_*.json"
+      - "tools/validate_quant_constitution.py"
+      - "tools/capital_firewall_v1.py"
+      - "tools/trade_ledger_v1.py"
+      - "tools/runtime_authorization_*.py"
+      - "tools/mt5_*.py"
+      - "tools/broker_outcome_recovery_v1.py"
+      - "tools/runtime_trace_bridge_v1.py"
+      - "tools/runtime_evidence_gate_v1.py"
+      - "tools/validate_mql5_parity_v1.py"
+      - "ea/GRK_Hybrid_Regime_EA.mq5"
+      - "config/forexai_mql5_compiler_gate_v1.json"
+      - ".github/workflows/forexai-mql5-compiler.yml"
+      - "tests/test_mql5_compiler_gate_v1.py"
+      - "tests/test_*capital_firewall*.py"
+      - "tests/test_*trade_ledger*.py"
+      - "tests/test_runtime_authorization_*.py"
+      - "tests/test_mt5_*.py"
+      - "tests/test_broker_outcome_recovery_v1.py"
+      - "tests/test_runtime_trace_bridge_v1.py"
+      - "tests/test_runtime_evidence_gate_v1.py"
+      - ".github/workflows/forexai-p0-quant-trust-gate.yml"
+  pull_request:
+    paths:
+      - "config/forexai_quant_constitution_v1.json"
+      - "config/forexai_execution_parity_v1.json"
+      - "config/forexai_mql5_authorization_record_v1.json"
+      - "config/forexai_runtime_authorization_envelope_v1.json"
+      - "config/forexai_mt5_*.json"
+      - "tools/validate_quant_constitution.py"
+      - "tools/capital_firewall_v1.py"
+      - "tools/trade_ledger_v1.py"
+      - "tools/runtime_authorization_*.py"
+      - "tools/mt5_*.py"
+      - "tools/broker_outcome_recovery_v1.py"
+      - "tools/runtime_trace_bridge_v1.py"
+      - "tools/runtime_evidence_gate_v1.py"
+      - "tools/validate_mql5_parity_v1.py"
+      - "tests/test_*capital_firewall*.py"
+      - "tests/test_*trade_ledger*.py"
+      - "tests/test_runtime_authorization_*.py"
+      - "tests/test_mt5_*.py"
+      - "tests/test_broker_outcome_recovery_v1.py"
+      - "tests/test_runtime_trace_bridge_v1.py"
+      - "tests/test_runtime_evidence_gate_v1.py"
+      - ".github/workflows/forexai-p0-quant-trust-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  p0-quant-trust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Validate Quant Constitution
+        run: python tools/validate_quant_constitution.py
+
+      - name: Run P0 security/execution contracts
+        run: |
+          pytest -q \
+            tests/test_capital_firewall_v1.py \
+            tests/test_trade_ledger_v1.py \
+            tests/test_runtime_authorization_auth_v1.py \
+            tests/test_runtime_authorization_envelope_v1.py \
+            tests/test_runtime_authorization_record_v1.py \
+            tests/test_authenticate_runtime_authorization_v1.py \
+            tests/test_broker_outcome_recovery_v1.py \
+            tests/test_mt5_broker_observation_v1.py \
+            tests/test_mt5_broker_recovery_adapter_v1.py \
+            tests/test_mt5_recovery_bridge_v1.py \
+            tests/test_execution_admission_v1.py \
+            tests/test_mt5_terminal_gateway_v1.py \
+            tests/test_mt5_execution_adapter_v1.py \
+            tests/test_mt5_control_plane_gateway_integration_v1.py \
+            tests/test_mql5_compiler_gate_v1.py \
+            tests/test_runtime_trace_bridge_v1.py \
+            tests/test_runtime_evidence_gate_v1.py
+
+      - name: Run MQL5 parity audit
+        run: python tools/validate_mql5_parity_v1.py
+
+      - name: Explicit no-live invariant
+        run: |
+          test "${FOREXAI_ALLOW_REAL_TRADING:-}" != "CONFIRMED"
+          echo "LIVE trading enablement is not permitted in this CI gate."

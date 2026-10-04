@@ -1,0 +1,90 @@
+name: ForexAI MQL5 Compiler Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      metaeditor_path:
+        description: "Full path to MetaEditor64 executable"
+        required: true
+        default: "C:\\Program Files\\MetaTrader 5\\metaeditor64.exe"
+        type: string
+      mql5_include_path:
+        description: "Full path to the MT5 MQL5 directory used for standard includes"
+        required: true
+        default: "C:\\Program Files\\MetaTrader 5\\MQL5"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 15
+    env:
+      METAEDITOR_PATH: ${{ inputs.metaeditor_path }}
+      MQL5_INCLUDE_PATH: ${{ inputs.mql5_include_path }}
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Validate compiler and include paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (!(Test-Path "$env:METAEDITOR_PATH")) {
+            throw "MQL5_COMPILER_METAEDITOR_NOT_FOUND"
+          }
+          if (!(Test-Path "$env:MQL5_INCLUDE_PATH")) {
+            throw "MQL5_COMPILER_INCLUDE_PATH_NOT_FOUND"
+          }
+
+      - name: Copy EA to isolated compile workspace
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $workspace = Join-Path $env:RUNNER_TEMP "ForexAI-MQL5-Compile"
+          if (Test-Path $workspace) {
+            Remove-Item -Recurse -Force $workspace
+          }
+          New-Item -ItemType Directory -Path $workspace | Out-Null
+          Copy-Item "ea\\GRK_Hybrid_Regime_EA.mq5" (Join-Path $workspace "GRK_Hybrid_Regime_EA.mq5")
+          "COMPILE_WORKSPACE=$workspace" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+
+      - name: Compile MQL5 EA with MetaEditor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $source = Join-Path $env:COMPILE_WORKSPACE "GRK_Hybrid_Regime_EA.mq5"
+          $log = Join-Path $env:COMPILE_WORKSPACE "GRK_Hybrid_Regime_EA.log"
+          & "$env:METAEDITOR_PATH" /compile:"$source" /include:"$env:MQL5_INCLUDE_PATH" /log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "MQL5_COMPILER_PROCESS_FAILED:$exitCode"
+          }
+          if (!(Test-Path $log)) {
+            throw "MQL5_COMPILER_LOG_NOT_FOUND"
+          }
+          Get-Content $log
+
+      - name: Fail on compiler errors
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $log = Join-Path $env:COMPILE_WORKSPACE "GRK_Hybrid_Regime_EA.log"
+          $content = Get-Content $log -Raw
+          if ($content -match "(?i)\b\d+ error\(s\)|\berrors?\s*:\s*[1-9]") {
+            throw "MQL5_COMPILER_ERRORS_REPORTED"
+          }
+          if ($content -notmatch "(?i)0 error") {
+            throw "MQL5_COMPILER_SUCCESS_NOT_PROVABLE"
+          }
+
+      - name: Upload compiler evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-mql5-compiler-evidence
+          path: |
+            ${{ env.COMPILE_WORKSPACE }}/GRK_Hybrid_Regime_EA.log
+            ${{ env.COMPILE_WORKSPACE }}/GRK_Hybrid_Regime_EA.ex5
+          if-no-files-found: error

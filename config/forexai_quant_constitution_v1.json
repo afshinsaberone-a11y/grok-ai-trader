@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.quant_constitution.v1",
+  "purpose": "Machine-readable non-bypassable baseline for research, validation, risk, capital and execution boundaries.",
+  "principles": [
+    "AI may propose but may not self-authorize.",
+    "Evidence is scoped, immutable after freeze, and invalidated when dependencies change.",
+    "No authorization means no capital exposure.",
+    "Unknown, stale, invalid or out-of-scope state is not equivalent to PASS.",
+    "Research has no direct production-capital capability.",
+    "Production cannot rewrite historical evidence.",
+    "OOS data is inaccessible to discovery and optimization processes.",
+    "Every executable trade must have a current authorization and a deterministic provenance chain."
+  ],
+  "capabilities": {
+    "research": {
+      "allow": [
+        "create_hypothesis",
+        "create_candidate",
+        "run_research",
+        "analyze_failure"
+      ],
+      "deny": [
+        "read_pristine_oos",
+        "approve_self",
+        "authorize_capital",
+        "send_order",
+        "modify_constitution"
+      ]
+    },
+    "validation": {
+      "allow": [
+        "validate_candidate",
+        "attack_candidate",
+        "produce_evidence",
+        "reproduce_candidate"
+      ],
+      "deny": [
+        "modify_candidate_after_freeze",
+        "read_pristine_oos_before_final_evaluation",
+        "authorize_capital",
+        "send_order",
+        "modify_constitution"
+      ]
+    },
+    "risk": {
+      "allow": [
+        "evaluate_risk",
+        "reserve_capital",
+        "issue_authorization",
+        "revoke_authorization"
+      ],
+      "deny": [
+        "modify_historical_evidence",
+        "modify_research_history",
+        "change_constitution"
+      ]
+    },
+    "execution": {
+      "allow": [
+        "submit_authorized_order",
+        "reconcile_broker_state",
+        "manage_protective_state"
+      ],
+      "deny": [
+        "create_strategy",
+        "approve_strategy",
+        "increase_authorized_risk",
+        "modify_historical_evidence",
+        "change_constitution"
+      ]
+    }
+  },
+  "hard_boundaries": {
+    "oos": {
+      "discovery_read": false,
+      "optimization_read": false,
+      "validation_read": false,
+      "final_evaluation_read": true,
+      "production_write": false
+    },
+    "capital": {
+      "default_authorized_risk": 0,
+      "unauthorized_exposure_must_equal": 0,
+      "risk_must_not_exceed_authorization": true,
+      "expired_authorization_must_not_execute": true,
+      "max_authorized_risk": 0.006,
+      "max_authorization_lifetime_seconds": 86400,
+      "risk_unit": "equity_fraction"
+    },
+    "evidence": {
+      "frozen_history_is_append_only": true,
+      "dependency_change_invalidates_downstream_evidence": true
+    }
+  },
+  "required_trade_proof": [
+    "snapshot_id",
+    "symbol",
+    "timeframe",
+    "decision_id",
+    "strategy_id",
+    "model_id",
+    "policy_version",
+    "risk_authorization_id",
+    "authorization_expiry",
+    "input_hash",
+    "execution_contract_version"
+  ],
+  "required_trade_states": [
+    "PROPOSED",
+    "VALIDATED",
+    "RISK_RESERVED",
+    "AUTHORIZED",
+    "ORDER_SUBMITTED",
+    "REJECTED",
+    "ACCEPTED",
+    "FILLED",
+    "OPEN",
+    "MANAGED",
+    "CLOSED",
+    "RECONCILED"
+  ],
+  "forbidden_direct_transitions": [
+    [
+      "HYPOTHESIS",
+      "AUTHORIZED"
+    ],
+    [
+      "HYPOTHESIS",
+      "FILLED"
+    ],
+    [
+      "MODEL",
+      "RISK_RESERVED"
+    ],
+    [
+      "MODEL",
+      "AUTHORIZED"
+    ],
+    [
+      "DECISION_PROPOSAL",
+      "FILLED"
+    ],
+    [
+      "RISK_REQUEST",
+      "FILLED"
+    ],
+    [
+      "PROPOSED",
+      "FILLED"
+    ],
+    [
+      "CLOSED",
+      "OPEN"
+    ],
+    [
+      "RETIRED",
+      "PRODUCTION"
+    ]
+  ],
+  "invariants": [
+    "unauthorized_exposure == 0",
+    "actual_risk <= authorized_risk",
+    "executed_trade.authorization_exists == true",
+    "executed_trade.authorization_not_expired == true",
+    "invalid_model_output_cannot_be_executable_direction == true",
+    "unresolved_reconciliation_blocks_new_risk == true",
+    "research_process_oos_access == false",
+    "production_cannot_mutate_frozen_evidence == true",
+    "duplicate_request_cannot_create_duplicate_exposure == true",
+    "restart_does_not_clear_safety_state == true",
+    "mql5_execution_semantic_parity_audit == PASS",
+    "deterministic_replay_digest_stable == true",
+    "mql5_runtime_trace_cannot_grant_authority == true",
+    "runtime_evidence_gate_requires_trace_replay_reconciliation_pass == true",
+    "restart_uncertain_state_blocks_new_risk == true",
+    "nonfinite_risk_input_must_be_rejected == true",
+    "aggregate_authorized_risk <= global_cap == true",
+    "mql5_new_order_requires_runtime_authorization_record == true",
+    "runtime_authorization_record_cannot_increase_authorized_risk == true",
+    "pre_execution_reservation_release_requires_revocation_and_no_order_submission == true",
+    "mql5_authorization_record_materialization_must_verify_current_firewall == true",
+    "mql5_authorization_record_must_be_fresh_within_10_seconds == true",
+    "broker_submission_requires_current_execution_admission == true",
+    "execution_admission_rejects_stale_or_revoked_authority == true",
+    "execution_admission_cannot_grant_capital_authority == true",
+    "authorization_identity_must_bind_symbol_and_timeframe == true",
+    "mql5_authorization_must_be_single_attempt_before_submission == true",
+    "authorization_consumption_persistence_failure_blocks_new_risk == true",
+    "mql5_authorization_state_keys_must_fit_terminal_global_variable_limit == true",
+    "authorization_lifetime_must_not_exceed_86400_seconds == true",
+    "broker_submit_requires_durable_order_submitted_intent == true",
+    "broker_unknown_outcome_requires_reconciliation == true",
+    "broker_unknown_outcome_must_not_be_retried_automatically == true",
+    "broker_acceptance_must_match_execution_identity == true",
+    "broker_acceptance_requires_full_fill == true",
+    "broker_rejection_must_not_be_treated_as_execution_success == true",
+    "partial_broker_execution_requires_reconciliation == true",
+    "broker_rejection_requires_reconciliation_before_reservation_release == true",
+    "broker_pending_outcome_requires_reconciliation == true",
+    "broker_unknown_or_pending_outcome_requires_authoritative_recovery == true",
+    "broker_recovery_cannot_grant_capital_authority == true",
+    "unresolved_broker_outcome_blocks_new_risk_globally == true",
+    "broker_submission_requires_authenticated_control_plane == true",
+    "control_plane_authentication_cannot_grant_capital_authority == true",
+    "broker_outcome_observation_must_use_authoritative_mt5_state == true",
+    "live_trading_activation_in_p0 == false"
+  ]
+}

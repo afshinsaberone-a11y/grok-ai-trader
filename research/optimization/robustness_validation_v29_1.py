@@ -18,7 +18,8 @@ import pandas as pd
 
 from agents.candidate_contract import validate_handoff
 from research.real_data.research_pipeline import load_real_dataset
-from research.optimization.execution_contract_v1 import ExecutionConfig, validate_ohlc, apply_entry_cost, apply_exit_cost
+from research.optimization.execution_contract_v1 import ExecutionConfig, validate_ohlc
+from research.optimization.canonical_backtest_v1 import run_canonical_backtest
 from strategies.grok_ai_trader import GrokHybridStrategy
 
 PIP = 0.0001
@@ -81,38 +82,20 @@ def _signals(df: pd.DataFrame) -> pd.DataFrame:
     return GrokHybridStrategy().generate_signals(df.copy())
 
 
-def _execute(df: pd.DataFrame, params: dict[str, float], trade_start: pd.Timestamp | None = None) -> tuple[dict[str, Any], list[float]]:
-    cfg = ExecutionConfig()
-    d = _signals(df)
-    o = d.Open.to_numpy(float); h = d.High.to_numpy(float); l = d.Low.to_numpy(float); sig = d.signal.to_numpy(int)
-    wins = losses = 0; total_r = gp = gl = 0.0
-    equity = 10000.0; peak = equity; max_dd = 0.0; holds: list[int] = []
-    rs: list[float] = []; position = 0; entry_i = -1; entry_px = stop = target = 0.0
-    for i in range(len(d) - 1):
-        if position == 0:
-            if trade_start is not None and d.index[i] < trade_start: continue
-            if not np.isfinite(d.ATR.iloc[i]) or d.ATR.iloc[i] <= 0 or sig[i] == 0: continue
-            position = int(sig[i]); entry_i = i + 1; entry_px = apply_entry_cost(o[entry_i], position, cfg)
-            risk = params["atr_mult"] * float(d.ATR.iloc[i]); stop = entry_px - position * risk; target = entry_px + position * params["rr"] * risk; continue
-        age = i - entry_i + 1
-        hit_sl = (l[i] <= stop) if position == 1 else (h[i] >= stop)
-        hit_tp = (h[i] >= target) if position == 1 else (l[i] <= target)
-        reason = None
-        risk_unit = params["atr_mult"] * float(d.ATR.iloc[entry_i - 1])
-        if not np.isfinite(risk_unit) or risk_unit <= 0: continue
-        if hit_sl and hit_tp: exit_px = apply_exit_cost(stop, position, cfg); reason = "same_bar_sl_first"
-        elif hit_sl: exit_px = stop - position * COST_PIPS_PER_SIDE * PIP; reason = "sl"
-        elif hit_tp: exit_px = apply_exit_cost(target, position, cfg); reason = "tp"
-        elif sig[i] == -position and i + 1 < len(d): exit_px = apply_exit_cost(o[i + 1], position, cfg); reason = "opposite_next_open"
-        elif age >= EXPIRY_BARS: exit_px = apply_exit_cost(o[min(i + 1, len(d) - 1)], position, cfg); reason = "expiry_next_open"
-        if reason is None: continue
-        r = float(position * (exit_px - entry_px) / risk_unit); rs.append(r); total_r += r
-        if r > 0: wins += 1; gp += r
-        else: losses += 1; gl += abs(r)
-        equity *= 1.0 + r * 0.005; peak = max(peak, equity); max_dd = max(max_dd, (peak - equity) / peak); holds.append(age); position = 0
-    n = wins + losses; pf = gp / gl if gl else (3.0 if n else 0.0)
-    return {"trades": n, "win_rate_pct": round(100 * wins / n, 3) if n else 0.0, "expectancy_R": round(total_r / n, 5) if n else 0.0, "total_R": round(total_r, 3), "profit_factor": round(pf, 4), "final_equity": round(equity, 2), "max_dd_pct": round(100 * max_dd, 3), "avg_hold_bars": round(float(np.mean(holds)), 3) if holds else 0.0, "round_trip_cost_pips": ROUND_TRIP_PIPS, "entries_equal_exits": position == 0, "next_bar_open_entry": True, "actual_entry_price_for_stops": True, "adverse_exit_cost_applied": True, "same_bar_sl_first": True, "one_position_at_a_time": True}, rs
-
+def _execute(
+    df: pd.DataFrame,
+    params: dict[str, float],
+    trade_start: pd.Timestamp | None = None,
+) -> tuple[dict[str, Any], list[float]]:
+    return run_canonical_backtest(
+        df,
+        params,
+        lambda value: _signals(value),
+        symbol="EURUSD",
+        risk_fraction=0.005,
+        trade_start=trade_start,
+        config=ExecutionConfig(),
+    )
 
 def _mc(rs: list[float], iterations: int = 1000, seed: int = 2901) -> dict[str, Any]:
     if not rs: return {"iterations": 0, "seed": seed, "max_dd_pct_p50": 0.0, "max_dd_pct_p95": 0.0, "max_dd_pct_p99": 0.0}
@@ -151,9 +134,10 @@ def run(path: str | Path, timeframe: str, output: str | Path, handoff_path: str 
     for p in _neighborhood(center):
         m, _ = _execute(validation_history, p, trade_start=VALIDATION_START); variants.append({"params": p, "config_hash": _hash(p), "metrics": m})
     pfs = [v["metrics"]["profit_factor"] for v in variants]; positive = sum(v["metrics"]["total_R"] > 0 for v in variants)
-    strict_pass = center_val["profit_factor"] >= 1.10 and center_val["expectancy_R"] > 0 and center_val["total_R"] > 0 and center_val["trades"] >= 100 and center_val["max_dd_pct"] <= 35
+    strict_pass = center_val["profit_factor"] >= 1.10 and center_val["expectancy_R"] > 0 and center_val["total_R"] > 0 and center_val["trades"] >= 100 and center_val["max_dd_pct"] <= 35 and center_val["entries_equal_exits"] is True and center_val["open_position_at_end"] is False
     robustness_pass = strict_pass and float(np.median(pfs)) >= 1.0 and positive >= 5 and _mc(center_rs)["max_dd_pct_p95"] <= 40
-    report = {"schema": "forexai.robustness_validation.v29.1", "status": "PASS" if robustness_pass else "HOLD", "real_data_only": True, "timeframe": timeframe, "dataset_rows": len(df), "pre_oos_rows": len(pre), "validation_rows": len(val), "oos_rows_available_but_not_evaluated": oos_rows, "oos_evaluated": False, "optimization_enabled": False, "handoff": {"schema_version": handoff.get("schema_version"), "source_validation_sha256": handoff.get("source_validation_sha256"), "candidate_id": handoff_candidate["candidate_id"], "config_hash": handoff_candidate["config_hash"]}, "frozen_candidate": {"candidate_id": handoff_candidate["candidate_id"], "params": center, "config_hash": handoff_candidate["config_hash"], "source": "canonical_candidate_handoff_v1"}, "execution_model": {"entry": "next_bar_open", "cost_pips_per_side": COST_PIPS_PER_SIDE, "round_trip_cost_pips": ROUND_TRIP_PIPS, "same_bar_resolution": "SL first (conservative)", "expiry_bars": EXPIRY_BARS, "overlap": "one position at a time"}, "validation": {"metrics": center_val, "strict_gate_pass": strict_pass, "yearly": _yearly(yearly_history, center)}, "neighborhood": {"variant_count": len(variants), "median_profit_factor": round(float(np.median(pfs)),4), "positive_total_R_variants": positive, "variants": variants}, "monte_carlo_trade_order": _mc(center_rs), "promotion_gate": {"strict_validation_pass": strict_pass, "robustness_pass": robustness_pass, "ready_for_oos": robustness_pass}, "oos": {"status": "HELD_OUT", "evaluated": False, "optimization_allowed": False}}
+    report = {"schema": "forexai.robustness_validation.v29.1", "status": "PASS" if robustness_pass else "HOLD", "real_data_only": True, "timeframe": timeframe,
+              "execution_kernel": "research.optimization.canonical_backtest_v1.run_canonical_backtest", "dataset_rows": len(df), "pre_oos_rows": len(pre), "validation_rows": len(val), "oos_rows_available_but_not_evaluated": oos_rows, "oos_evaluated": False, "optimization_enabled": False, "handoff": {"schema_version": handoff.get("schema_version"), "source_validation_sha256": handoff.get("source_validation_sha256"), "candidate_id": handoff_candidate["candidate_id"], "config_hash": handoff_candidate["config_hash"]}, "frozen_candidate": {"candidate_id": handoff_candidate["candidate_id"], "params": center, "config_hash": handoff_candidate["config_hash"], "source": "canonical_candidate_handoff_v1"}, "execution_model": {"entry": "next_bar_open", "cost_pips_per_side": COST_PIPS_PER_SIDE, "round_trip_cost_pips": ROUND_TRIP_PIPS, "same_bar_resolution": "SL first (conservative)", "expiry_bars": EXPIRY_BARS, "overlap": "one position at a time"}, "validation": {"metrics": center_val, "strict_gate_pass": strict_pass, "yearly": _yearly(yearly_history, center)}, "neighborhood": {"variant_count": len(variants), "median_profit_factor": round(float(np.median(pfs)),4), "positive_total_R_variants": positive, "variants": variants}, "monte_carlo_trade_order": _mc(center_rs), "promotion_gate": {"strict_validation_pass": strict_pass, "robustness_pass": robustness_pass, "ready_for_oos": robustness_pass}, "oos": {"status": "HELD_OUT", "evaluated": False, "optimization_allowed": False}}
     p=Path(output); p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(report, indent=2, sort_keys=True, default=str), encoding="utf-8"); print(json.dumps(report, indent=2, sort_keys=True, default=str)); return report
 
 

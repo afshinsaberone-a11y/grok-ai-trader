@@ -1,0 +1,58 @@
+name: ForexAI MT5 Terminal Gateway
+
+on:
+  push:
+    paths:
+      - "tools/mt5_terminal_gateway_v1.py"
+      - "tests/test_mt5_terminal_gateway_v1.py"
+      - "tests/test_mt5_control_plane_gateway_integration_v1.py"
+      - "tests/test_mt5_control_plane_gateway_integration_v1.py"
+      - "config/forexai_mt5_terminal_gateway_v1.json"
+  pull_request:
+    paths:
+      - "tools/mt5_terminal_gateway_v1.py"
+      - "tests/test_mt5_terminal_gateway_v1.py"
+      - "config/forexai_mt5_terminal_gateway_v1.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gateway-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Validate gateway contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          c=json.loads(Path("config/forexai_mt5_terminal_gateway_v1.json").read_text(encoding="utf-8"))
+          assert c["account_policy"]["default_mode"] == "DEMO_ONLY"
+          assert c["account_policy"]["live_trading_permitted_in_p0"] is False
+          assert c["account_policy"]["real_account_requires_external_confirmation_env"] is None
+          assert c["schema_version"] == "forexai.mt5_terminal_gateway.v1"
+          assert c["transport"]["automatic_retry"] is False
+          assert c["transport"]["unknown_transport_outcome"] == "RECONCILIATION_REQUIRED"
+          assert c["execution"]["success_requires"] == ["TRADE_RETCODE_DONE", "nonzero_deal_ticket"]
+          assert c["authority"]["capital_authority_source"] == "CapitalFirewall"
+          assert c["authority"]["control_plane_authentication_required_before_gateway"] is True
+          admission_auth = c["authority"]["execution_admission_authentication"]
+          assert admission_auth["required"] is True
+          assert admission_auth["schema"] == "forexai.execution_admission_authentication.v1"
+          assert admission_auth["algorithm"] == "HMAC-SHA256"
+          assert admission_auth["verify_before_mt5_initialize"] is True
+          assert admission_auth["constant_time_compare"] is True
+          print("MT5 gateway contract: PASS")
+          PY
+      - name: Run gateway contract tests
+        run: |
+          pytest -q tests/test_mt5_terminal_gateway_v1.py
+          pytest -q tests/test_mt5_control_plane_gateway_integration_v1.py

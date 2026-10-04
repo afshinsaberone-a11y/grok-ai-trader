@@ -1,0 +1,39 @@
+name: ForexAI Runtime Evidence Gate
+
+on:
+  push:
+    paths:
+      - "tools/runtime_evidence_gate_v1.py"
+      - "tools/runtime_trace_bridge_v1.py"
+      - "tools/broker_reconciliation_v1.py"
+      - "tools/replay_kernel_v1.py"
+      - "tools/trade_ledger_v1.py"
+      - "tests/test_runtime_evidence_gate_v1.py"
+      - "tools/fault_injection_v1.py"
+      - "tests/test_fault_injection_v1.py"
+  pull_request:
+    paths:
+      - "tools/runtime_evidence_gate_v1.py"
+      - "tools/runtime_trace_bridge_v1.py"
+      - "tools/broker_reconciliation_v1.py"
+      - "tools/replay_kernel_v1.py"
+      - "tools/trade_ledger_v1.py"
+      - "tests/test_runtime_evidence_gate_v1.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Runtime evidence gate tests
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          pytest -q tests/test_runtime_evidence_gate_v1.py tests/test_fault_injection_v1.py

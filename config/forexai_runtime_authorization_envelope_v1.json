@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.runtime_authorization_envelope.v1",
+  "purpose": "Narrow authority envelope passed from Capital Firewall to execution adapters.",
+  "required_fields": [
+    "schema",
+    "trade_id",
+    "authorization_id",
+    "reservation_id",
+    "authorized_risk",
+    "reserved_risk",
+    "expires_at_utc",
+    "proof",
+    "envelope_hash"
+  ],
+  "risk": {
+    "unit": "equity_fraction",
+    "global_max_authorized_risk": 0.006,
+    "required_relation": "0 < reserved_risk <= authorized_risk <= 0.006"
+  },
+  "execution_rules": {
+    "expired_envelope_must_not_execute": true,
+    "tampered_envelope_must_not_execute": true,
+    "trade_id_must_match_execution_request": true,
+    "reconciliation_block_must_override_envelope": true
+  },
+  "transport": {
+    "format": "canonical_json",
+    "integrity": "SHA-256",
+    "control_plane_authentication": {
+      "required": true,
+      "schema": "forexai.runtime_authorization_authentication.v1",
+      "algorithm": "HMAC-SHA256",
+      "secret_source": "external_runtime_secret",
+      "default_key_id": "forexai-control-plane-v1",
+      "verify_before_materialization_and_broker_submission": true
+    },
+    "transport_authority": "advisory until authenticated control-plane verification and current Capital Firewall verification"
+  }
+}
