@@ -19,36 +19,10 @@ class FakeMT5:
     DEAL_TYPE_SELL = 1
     ORDER_TYPE_BUY = 0
     ORDER_TYPE_SELL = 1
-    ORDER_STATE_REJECTED = 100
-    ORDER_STATE_PARTIAL = 101
-    ORDER_STATE_CANCELED = 102
-    ORDER_STATE_EXPIRED = 103
 
     def __init__(self):
         self.sent = False
         self.shutdown_called = False
-
-    def history_orders_get(self, *, ticket):
-        return [{
-            "ticket": ticket,
-            "symbol": "EURUSD",
-            "type": self.ORDER_TYPE_BUY,
-            "state": 999,
-            "retcode": 10009,
-            "comment": "filled",
-        }]
-
-    def history_deals_get(self, *, ticket):
-        return [{
-            "ticket": 555,
-            "order": ticket,
-            "symbol": "EURUSD",
-            "type": self.DEAL_TYPE_BUY,
-            "volume": 0.10,
-        }]
-
-    def orders_get(self, *, ticket):
-        return []
 
     def account_info(self):
         return FakeAccount()
@@ -85,25 +59,26 @@ def fake(monkeypatch):
     return fake
 
 
+def _argv(out: Path, volume: str = "0.10") -> list[str]:
+    return [
+        "mt5_demo_observe_v1",
+        "--symbol", "EURUSD",
+        "--broker-order-id", "123",
+        "--side", "BUY",
+        "--requested-volume", volume,
+        "--trade-id", "T-DEMO-001",
+        "--output", str(out),
+    ]
+
+
 def test_cli_is_read_only_and_emits_evidence(tmp_path: Path, fake, monkeypatch):
     out = tmp_path / "observation.json"
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "mt5_demo_observe_v1",
-            "--symbol", "EURUSD",
-            "--broker-order-id", "123",
-            "--side", "BUY",
-            "--requested-volume", "0.10",
-            "--trade-id", "T-DEMO-001",
-            "--output", str(out),
-        ],
-    )
+    monkeypatch.setattr(sys, "argv", _argv(out))
 
     assert cli.main() == 0
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["schema"] == "forexai.mt5_demo_broker_observation.v1"
+    assert payload["status"] == "OBSERVED"
     assert payload["account_mode"] == "DEMO"
     assert payload["order_submission_performed"] is False
     assert payload["retry_performed"] is False
@@ -111,6 +86,34 @@ def test_cli_is_read_only_and_emits_evidence(tmp_path: Path, fake, monkeypatch):
     assert payload["observation"]["status"] == "ACCEPTED"
     assert fake.sent is False
     assert fake.shutdown_called is True
+
+
+@pytest.mark.parametrize("status", ["PARTIAL", "PENDING", "REJECTED", "UNKNOWN"])
+def test_cli_preserves_non_success_observation_status(tmp_path: Path, monkeypatch, status):
+    class Fake(FakeMT5):
+        pass
+
+    fake = Fake()
+    monkeypatch.setitem(sys.modules, "MetaTrader5", fake)
+    monkeypatch.setattr(
+        cli,
+        "observe_order",
+        lambda mt5, **kwargs: {"status": status, "broker_order_id": kwargs["broker_order_id"]},
+    )
+    out = tmp_path / f"{status.lower()}.json"
+    monkeypatch.setattr(sys, "argv", _argv(out))
+
+    assert cli.main() == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "OBSERVED"
+    assert payload["observation"]["status"] == status
+    assert payload["order_submission_performed"] is False
+
+
+def test_cli_rejects_non_positive_volume(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(sys, "argv", _argv(tmp_path / "bad.json", "0"))
+    with pytest.raises(RuntimeError, match="REQUESTED_VOLUME_MUST_BE_POSITIVE"):
+        cli.main()
 
 
 def test_cli_fails_closed_on_real_account(tmp_path: Path, monkeypatch):
@@ -124,19 +127,7 @@ def test_cli_fails_closed_on_real_account(tmp_path: Path, monkeypatch):
             pass
 
     monkeypatch.setitem(sys.modules, "MetaTrader5", RealMT5())
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "mt5_demo_observe_v1",
-            "--symbol", "EURUSD",
-            "--broker-order-id", "123",
-            "--side", "BUY",
-            "--requested-volume", "0.10",
-            "--trade-id", "T-DEMO-002",
-            "--output", str(tmp_path / "observation.json"),
-        ],
-    )
+    monkeypatch.setattr(sys, "argv", _argv(tmp_path / "observation.json"))
 
     with pytest.raises(RuntimeError, match="REAL_ACCOUNT_BLOCKED"):
         cli.main()
