@@ -48,6 +48,12 @@ ALLOWED_TRANSITIONS = {
 }
 
 _HASH_GENESIS = "0" * 64
+UNRESOLVED_BROKER_EVENTS = {
+    "RECONCILIATION_EXCEPTION",
+    "BROKER_OUTCOME_UNKNOWN",
+    "BROKER_PARTIAL_EXECUTION_OBSERVED",
+    "BROKER_ORDER_REJECTED",
+}
 
 
 class LedgerError(RuntimeError):
@@ -215,7 +221,7 @@ class TradeLedger:
         self._append_durable(record)
         self._events.append(record)
         self._by_idempotency[idempotency_key] = record
-        if event_type == "RECONCILIATION_EXCEPTION":
+        if event_type in UNRESOLVED_BROKER_EVENTS or state == "REJECTED":
             self._unresolved_reconciliation.add(trade_id)
         elif state == "RECONCILED":
             self._unresolved_reconciliation.discard(trade_id)
@@ -352,7 +358,7 @@ class TradeLedger:
                     raise LedgerIntegrityError("LEDGER_INVALID_INITIAL_STATE")
                 if current is not None and event.state not in ALLOWED_TRANSITIONS[current]:
                     raise LedgerIntegrityError("LEDGER_INVALID_STATE_TRANSITION")
-            if event.event_type == "RECONCILIATION_EXCEPTION":
+            if event.event_type in UNRESOLVED_BROKER_EVENTS or event.state == "REJECTED":
                 self._unresolved_reconciliation.add(event.trade_id)
             elif event.state == "RECONCILED":
                 self._unresolved_reconciliation.discard(event.trade_id)
