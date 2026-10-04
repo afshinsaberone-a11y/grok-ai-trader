@@ -261,3 +261,42 @@ def test_gateway_rejects_unauthenticated_admission_before_mt5_io():
         gateway.submit_authorized_order(request=request, admission=admission)
     assert not mt5.initialized
     assert mt5.order_send_calls == 0
+
+
+def test_gateway_rejects_tampered_admission_auth_before_mt5_io():
+    mt5 = FakeMT5(send_result=_accepted())
+    gateway = _gateway(mt5)
+    request = _admission_request()
+    admission = _admission(request)
+    admission["risk_fraction"] = 0.005
+    with pytest.raises(MT5GatewayError, match="MT5_GATEWAY"):
+        gateway.submit_authorized_order(request=request, admission=admission)
+    assert not mt5.initialized
+    assert mt5.order_send_calls == 0
+
+
+def test_gateway_requires_control_plane_secret_before_mt5_io():
+    mt5 = FakeMT5(send_result=_accepted())
+    gateway = MT5TerminalGateway(mt5_module=mt5)
+    request = _admission_request()
+    admission = _admission(request)
+    with pytest.raises(MT5GatewayError, match="MT5_GATEWAY_CONTROL_PLANE_SECRET_NOT_CONFIGURED"):
+        gateway.submit_authorized_order(request=request, admission=admission)
+    assert not mt5.initialized
+    assert mt5.order_send_calls == 0
+
+
+def test_gateway_config_contract_contains_admission_authentication():
+    import json
+    from pathlib import Path
+
+    contract = json.loads(
+        (Path(__file__).resolve().parents[1] / "config/forexai_mt5_terminal_gateway_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    auth = contract["authority"]["execution_admission_authentication"]
+    assert auth["required"] is True
+    assert auth["schema"] == "forexai.execution_admission_authentication.v1"
+    assert auth["algorithm"] == "HMAC-SHA256"
+    assert auth["verify_before_mt5_initialize"] is True
