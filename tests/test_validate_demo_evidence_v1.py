@@ -12,6 +12,7 @@ def _valid():
         "schema": "forexai.demo_execution_evidence.v1",
         "status": "PASS",
         "commit_sha": "4ba45299908948b6daf9c3f065cb69e40526d030",
+        "ea_source_sha256": "b" * 64,
         "strategy_id": "demo-candidate-1",
         "trade_id": "T-DEMO-1",
         "symbol": "EURUSD",
@@ -77,6 +78,7 @@ def test_json_cli_shape_round_trips(tmp_path: Path):
     ("field", "value", "error"),
     [
         ("commit_sha", "not-a-sha", "COMMIT_SHA_INVALID"),
+        ("ea_source_sha256", "not-a-sha256", "EA_SOURCE_SHA256_INVALID"),
         ("broker_order_id", "None", "BROKER_ORDER_ID_MISSING"),
         ("broker_deal_id", 0, "BROKER_DEAL_ID_MISSING"),
         ("strategy_id", "", "STRATEGY_ID_MISSING"),
