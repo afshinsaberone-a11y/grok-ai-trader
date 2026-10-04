@@ -56,6 +56,7 @@ REQUIRED_INVARIANTS = {
     "broker_unknown_outcome_requires_reconciliation == true",
     "broker_unknown_outcome_must_not_be_retried_automatically == true",
     "broker_acceptance_must_match_execution_identity == true",
+    "broker_acceptance_requires_full_fill == true",
     "broker_rejection_must_not_be_treated_as_execution_success == true",
     "partial_broker_execution_requires_reconciliation == true",
     "broker_rejection_requires_reconciliation_before_reservation_release == true",
