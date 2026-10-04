@@ -48,8 +48,6 @@ def resolve_broker_outcome(
         raise BrokerOutcomeRecoveryError(
             "BROKER_RECOVERY_REQUIRES_ORDER_SUBMITTED_STATE"
         )
-    ledger.assert_no_unresolved_reconciliation()
-
     submission_events = [
         e for e in ledger.events
         if e.trade_id == trade_id and e.event_type == "ORDER_SUBMITTED"
