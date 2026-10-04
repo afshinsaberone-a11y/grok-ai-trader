@@ -209,10 +209,18 @@ def main() -> int:
     )
     mt5 = gateway.mt5
     gateway._initialize()
+    context_trade_id_path: Path | None = None
     try:
         snapshot = _assert_demo(mt5, args.symbol)
         common_files = _common_files_path(mt5)
         kill_switch = _kill_switch_state(common_files)
+
+        # This file contains only the operator-supplied evidence identity.
+        # It grants no authority and is not an order instruction.
+        context_trade_id_path = common_files / "ForexAI_G13_Demo_TradeId.txt"
+        context_trade_id_path.write_text(trade_id, encoding="ascii")
+        if context_trade_id_path.read_text(encoding="ascii") != trade_id:
+            raise MT5GatewayError("DEMO_COLLECTOR_TRADE_ID_CONTEXT_MISMATCH")
         audit_path = args.audit_csv or (common_files / AUDIT_NAME)
         baseline_rows = len(_read_rows(audit_path)) if audit_path.is_file() else 0
         rows, new_rows = _wait_for_candidate(
@@ -267,6 +275,11 @@ def main() -> int:
         print(json.dumps(report, sort_keys=True))
         return 0
     finally:
+        if context_trade_id_path is not None:
+            try:
+                context_trade_id_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         gateway._shutdown()
 
 
