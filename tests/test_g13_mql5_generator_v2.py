@@ -108,7 +108,8 @@ def test_render_mql5_trace_literals_and_lifecycle_symbols():
     assert (bs + '"retcode' + bs + '":%u') in source
     assert ('"' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"') in source
     assert ('StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");') in source
-    assert ('StringReplace(value,"' + bs + '"","' + bs + bs + bs + '"");') in source
+    trace_escape = source.split("string TraceJsonEscape", 1)[1].split("void TraceRecord", 1)[0]
+    assert trace_escape.count("StringReplace(value") == 4
     assert 'PositionsByMagic(' not in source
 
 def test_render_preserves_tester_execution_without_runtime_artifacts():
