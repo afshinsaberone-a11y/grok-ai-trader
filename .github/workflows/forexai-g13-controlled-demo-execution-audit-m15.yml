@@ -34,7 +34,6 @@ permissions:
 
 jobs:
   controlled-demo-audit:
-    if: ${{ inputs.operator_confirmation == 'I_CONFIRM_G13_DEMO_ONLY' }}
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 35
     env:
@@ -44,6 +43,14 @@ jobs:
       TERMINAL_PATH: ${{ inputs.terminal_path }}
       AUDIT_WAIT_MINUTES: ${{ inputs.audit_wait_minutes }}
     steps:
+      - name: Validate operator confirmation
+        shell: pwsh
+        run: |
+          if ("${{ inputs.operator_confirmation }}" -ne "I_CONFIRM_G13_DEMO_ONLY") {
+            throw "G13_OPERATOR_CONFIRMATION_INVALID"
+          }
+          Write-Output "G13_OPERATOR_CONFIRMATION_ACCEPTED=DEMO_ONLY"
+
       - name: Checkout exact revision
         uses: actions/checkout@v4
 
@@ -146,7 +153,7 @@ jobs:
         shell: pwsh
         run: |
           python -m research.optimization.g13_controlled_demo_execution_audit --execution-csv artifacts/g13-controlled-demo/g13_demo_execution_audit.csv --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json --context artifacts/g13-controlled-demo/context.json --report artifacts/g13-controlled-demo/g13-controlled-demo-execution-audit.json
-          python - <<'PY'
+          @' 
           import csv, json, os
           from pathlib import Path
           candidate = int(os.environ["CANDIDATE_ID"])
@@ -165,7 +172,7 @@ jobs:
           assert report["policy"]["trading_performed_by_validator"] is False
           print("G13_CONTROLLED_DEMO_EXECUTION_ACCEPTED")
           print(json.dumps({"candidate_id":candidate,"broker_order_id":accepted[-1]["order"],"broker_deal_id":accepted[-1]["deal"],"requested_volume":accepted[-1]["requested_volume"],"executed_volume":accepted[-1]["executed_volume"],"retcode":accepted[-1]["retcode"],"timestamp_utc":accepted[-1]["timestamp_utc"]},sort_keys=True))
-          PY
+          '@ | python
 
       - name: Shutdown Demo kill switch after audit
         if: always()
