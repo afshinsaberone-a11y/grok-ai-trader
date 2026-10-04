@@ -238,6 +238,34 @@ def main() -> int:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(new_rows)
+
+        trace_path = common_files / f"ForexAI_RuntimeTrace_{130000 + args.candidate_id}_EURUSD.jsonl"
+        if not trace_path.is_file():
+            raise MT5GatewayError("DEMO_COLLECTOR_RUNTIME_TRACE_MISSING")
+        trace_lines = trace_path.read_text(encoding="utf-8").splitlines()
+        matching_trace = [
+            line for line in trace_lines
+            if f'"trade_id":"{trade_id}"' in line
+        ]
+        if not matching_trace:
+            raise MT5GatewayError("DEMO_COLLECTOR_RUNTIME_TRACE_TRADE_ID_MISMATCH")
+        states = set()
+        for line in matching_trace:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise MT5GatewayError("DEMO_COLLECTOR_RUNTIME_TRACE_JSON_INVALID") from exc
+            states.add(record.get("state"))
+        required_states = {"ORDER_SUBMITTED", "ACCEPTED", "FILLED", "OPEN"}
+        if not required_states.issubset(states):
+            raise MT5GatewayError(
+                "DEMO_COLLECTOR_RUNTIME_TRACE_LIFECYCLE_INCOMPLETE:"
+                + ",".join(sorted(required_states - states))
+            )
+        (args.evidence_csv_out.parent / "runtime-trace.jsonl").write_text(
+            "\n".join(matching_trace) + "\n",
+            encoding="utf-8",
+        )
         context = build_context(
             mt5_snapshot=snapshot,
             candidate_id=args.candidate_id,
@@ -258,7 +286,9 @@ def main() -> int:
             "candidate_id": args.candidate_id,
             "trade_id": trade_id,
             "audit_path": str(audit_path),
+            "runtime_trace_path": str(trace_path),
             "rows_collected": len(new_rows),
+            "runtime_trace_records_collected": len(matching_trace),
             "baseline_rows": baseline_rows,
             "broker_full_fill_detected": True,
             "order_attempt_detected": True,
