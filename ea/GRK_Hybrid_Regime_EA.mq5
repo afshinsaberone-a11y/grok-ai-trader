@@ -321,11 +321,12 @@ string TraceJsonEscape(string value)
   return value;
 }
 
-void TraceLifecycle(const string trade_id,
-                    const string state,
-                    const string payload_fields)
+void TraceRecord(const string trade_id,
+                  const string event_type,
+                  const string state,
+                  const string payload_fields)
 {
-  if(StringLen(trade_id) == 0 || StringLen(state) == 0)
+  if(StringLen(trade_id) == 0 || StringLen(event_type) == 0 || StringLen(state) == 0)
     return;
 
   int handle = FileOpen(
@@ -350,7 +351,7 @@ void TraceLifecycle(const string trade_id,
   if(StringLen(payload_fields) > 0)
     payload += "," + payload_fields;
 
-  string event_id = "MQL5-" + trade_id + "-" + state;
+  string event_id = "MQL5-" + trade_id + "-" + event_type;
   string row = StringFormat(
       "{\"schema\":\"forexai.runtime_trace.v1\","
       "\"source\":\"MQL5\","
@@ -363,7 +364,7 @@ void TraceLifecycle(const string trade_id,
       "\"payload\":{%s}}\n",
       TraceJsonEscape(trade_id),
       TraceJsonEscape(event_id),
-      TraceJsonEscape(state),
+      TraceJsonEscape(event_type),
       TraceJsonEscape(event_id),
       TraceIsoUtc(TimeGMT()),
       TraceJsonEscape(state),
@@ -375,6 +376,20 @@ void TraceLifecycle(const string trade_id,
   if(written != StringLen(row))
     runtime_trace_healthy = false;
   FileClose(handle);
+}
+
+void TraceLifecycle(const string trade_id,
+                    const string state,
+                    const string payload_fields)
+{
+  TraceRecord(trade_id, state, state, payload_fields);
+}
+
+void TraceOutcomeObservation(const string trade_id,
+                             const string outcome_event_type,
+                             const string payload_fields)
+{
+  TraceRecord(trade_id, outcome_event_type, "ORDER_SUBMITTED", payload_fields);
 }
 
 string BuildTraceTradeId(const bool is_buy, const datetime signal_bar_time)
@@ -827,9 +842,9 @@ bool TradeExecutionAccepted()
 
 void TracePartialExecution(const string trade_id, const double requested_volume)
 {
-  TraceLifecycle(
+  TraceOutcomeObservation(
       trade_id,
-      "PARTIAL",
+      "BROKER_PARTIAL_EXECUTION_OBSERVED",
       StringFormat(
           "\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",
           "\"requested_volume\":%.8f,\"filled_volume\":%.8f",
@@ -874,7 +889,7 @@ bool SendBuy(double sl, double tp, const string cmt)
     if(trade.ResultRetcode() == TRADE_RETCODE_DONE_PARTIAL && trade.ResultDeal() > 0)
       TracePartialExecution(trace_trade_id, vol);
     else
-      TraceLifecycle(
+      TraceOutcomeObservation(
           trace_trade_id,
           "BROKER_OUTCOME_UNKNOWN",
           StringFormat(
