@@ -179,6 +179,8 @@ def test_real_account_is_blocked_by_default():
         login=123,
         server="Real-Server",
         trade_mode=mt5.ACCOUNT_TRADE_MODE_REAL,
+        trade_allowed=True,
+        trade_expert=True,
     )
     gateway = _gateway(mt5)
     with pytest.raises(MT5GatewayError, match="REAL_ACCOUNT_BLOCKED_BY_DEMO_ONLY_POLICY"):
@@ -319,3 +321,36 @@ def test_gateway_config_contract_contains_admission_authentication():
     assert auth["schema"] == "forexai.execution_admission_authentication.v1"
     assert auth["algorithm"] == "HMAC-SHA256"
     assert auth["verify_before_mt5_initialize"] is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["trade_mode", "trade_allowed", "trade_expert"],
+)
+def test_gateway_rejects_missing_account_safety_metadata(field):
+    mt5 = FakeMT5(send_result=_accepted())
+    original = mt5.account_info()
+
+    values = vars(original).copy()
+    values.pop(field)
+    mt5.account_info = lambda: SimpleNamespace(**values)
+    gateway = _gateway(mt5)
+
+    with pytest.raises(MT5GatewayError):
+        gateway.submit_authorized_order(
+            request=_admission_request(),
+            admission=_admission(_admission_request()),
+        )
+    assert mt5.order_send_calls == 0
+
+
+def test_gateway_rejects_nonfinite_market_price_before_order_check():
+    mt5 = FakeMT5(send_result=_accepted())
+    mt5.symbol_info_tick = lambda symbol: SimpleNamespace(ask=float("nan"), bid=1.1000)
+    gateway = _gateway(mt5)
+    with pytest.raises(MT5GatewayError, match="MT5_MARKET_PRICE_INVALID"):
+        gateway.submit_authorized_order(
+            request=_admission_request(),
+            admission=_admission(_admission_request()),
+        )
+    assert mt5.order_send_calls == 0
