@@ -160,6 +160,24 @@ def test_execution_admission_config_matches_implementation_contract():
     ]
 
 
+def test_control_plane_authentication_contract_is_pinned():
+    root = Path(__file__).resolve().parents[1]
+    contract = json.loads(
+        (root / "config" / "forexai_execution_parity_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )["control_plane_authentication"]
+    assert contract["required"] is True
+    assert contract["schema"] == "forexai.runtime_authorization_authentication.v1"
+    assert contract["algorithm"] == "HMAC-SHA256"
+    assert contract["secret_source"] == "external_runtime_secret"
+    assert contract["default_key_id"] == "forexai-control-plane-v1"
+    assert contract["verify_before_broker_submission"] is True
+    assert contract["constant_time_tag_compare"] is True
+    assert contract["must_recheck_current_capital_firewall"] is True
+    assert contract["authentication_cannot_grant_capital_authority"] is True
+
+
 def test_execution_admission_is_observational_and_cannot_grant_authority(tmp_path: Path):
     ledger, firewall, envelope, request = _authorized_case(tmp_path)
     before = [
