@@ -30,6 +30,7 @@ class FakeMT5:
         self.shutdowns = 0
         self.sent_request = None
         self.symbol_selected = False
+        self.order_send_calls = 0
 
     def initialize(self, *args, **kwargs):
         self.initialized = True
@@ -63,6 +64,7 @@ class FakeMT5:
         )
 
     def order_send(self, request):
+        self.order_send_calls += 1
         self.sent_request = request
         return self.send_result
 
@@ -95,11 +97,10 @@ def test_real_gateway_returns_actual_broker_acceptance():
         MT5GatewayConfig(shutdown_after_request=True),
         mt5_module=mt5,
     )
-    with pytest.raises(MT5GatewayError, match="MT5_DONE_WITHOUT_DEAL"):
-        gateway.submit_authorized_order(
-            request={},
-            admission=_admission(),
-        )
+    result = gateway.submit_authorized_order(
+        request={},
+        admission=_admission(),
+    )
     assert result["status"] == "ACCEPTED"
     assert result["broker_deal_id"] == "5001"
     assert result["broker_order_id"] == "7001"
@@ -174,7 +175,7 @@ def test_done_without_deal_is_not_claimed_as_success():
         )
     )
     gateway = MT5TerminalGateway(mt5_module=mt5)
-    with pytest.raises(MT5GatewayError, match="ORDER_SEND_RESULT"):
+    with pytest.raises(MT5GatewayError, match="MT5_DONE_WITHOUT_DEAL"):
         # The boundary should not fabricate success when the broker structure
         # itself cannot be trusted.
         gateway.submit_authorized_order(request={}, admission=_admission())
