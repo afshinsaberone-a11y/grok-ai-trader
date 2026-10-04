@@ -822,7 +822,24 @@ bool TradeExecutionAccepted()
 {
   uint rc = trade.ResultRetcode();
   ulong deal = trade.ResultDeal();
-  return (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_DONE_PARTIAL) && deal > 0;
+  return (rc == TRADE_RETCODE_DONE) && deal > 0;
+}
+
+void TracePartialExecution(const string trade_id, const double requested_volume)
+{
+  TraceLifecycle(
+      trade_id,
+      "PARTIAL",
+      StringFormat(
+          ""retcode":%u,"order_ticket":"%I64d","deal_ticket":"%I64d","
+          ""requested_volume":%.8f,"filled_volume":%.8f",
+          trade.ResultRetcode(),
+          (long)trade.ResultOrder(),
+          (long)trade.ResultDeal(),
+          requested_volume,
+          trade.ResultVolume()
+      )
+  );
 }
 
 bool SendBuy(double sl, double tp, const string cmt)
@@ -854,12 +871,27 @@ bool SendBuy(double sl, double tp, const string cmt)
   );
   if(!TradeExecutionAccepted())
   {
+    if(trade.ResultRetcode() == TRADE_RETCODE_DONE_PARTIAL && trade.ResultDeal() > 0)
+      TracePartialExecution(trace_trade_id, vol);
+    else
+      TraceLifecycle(
+          trace_trade_id,
+          "BROKER_OUTCOME_UNKNOWN",
+          StringFormat(
+              ""retcode":%u,"order_ticket":"%I64d","deal_ticket":"%I64d","requested_volume":%.8f",
+              trade.ResultRetcode(),
+              (long)trade.ResultOrder(),
+              (long)trade.ResultDeal(),
+              vol
+          )
+      );
     runtime_authorization_healthy = false;
     PersistSafetyState();
     return false;
   }
   TraceSuccessfulEntry(trace_trade_id, true, sl, tp, vol);
-  MarkRuntimeAuthorizationConsumed(trace_trade_id);
+  if(!MarkRuntimeAuthorizationConsumed(trace_trade_id))
+    return false;
   trades_today++;
   return true;
 }
@@ -893,12 +925,27 @@ bool SendSell(double sl, double tp, const string cmt)
   );
   if(!TradeExecutionAccepted())
   {
+    if(trade.ResultRetcode() == TRADE_RETCODE_DONE_PARTIAL && trade.ResultDeal() > 0)
+      TracePartialExecution(trace_trade_id, vol);
+    else
+      TraceLifecycle(
+          trace_trade_id,
+          "BROKER_OUTCOME_UNKNOWN",
+          StringFormat(
+              ""retcode":%u,"order_ticket":"%I64d","deal_ticket":"%I64d","requested_volume":%.8f",
+              trade.ResultRetcode(),
+              (long)trade.ResultOrder(),
+              (long)trade.ResultDeal(),
+              vol
+          )
+      );
     runtime_authorization_healthy = false;
     PersistSafetyState();
     return false;
   }
   TraceSuccessfulEntry(trace_trade_id, false, sl, tp, vol);
-  MarkRuntimeAuthorizationConsumed(trace_trade_id);
+  if(!MarkRuntimeAuthorizationConsumed(trace_trade_id))
+    return false;
   trades_today++;
   return true;
 }
