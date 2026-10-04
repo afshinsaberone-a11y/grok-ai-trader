@@ -6,6 +6,7 @@ import pytest
 
 from tools.capital_firewall_v1 import AuthorizationError
 from tools.runtime_authorization_envelope_v1 import build_runtime_envelope
+from tools.runtime_authorization_auth_v1 import build_authenticated_envelope
 from tools.runtime_authorization_record_v1 import (
     FIELDS,
     MAX_RECORD_AGE_SECONDS,
@@ -16,6 +17,8 @@ from tools.runtime_authorization_record_v1 import (
     write_mql5_authorization_record,
 )
 from tests.test_capital_firewall_v1 import _authorized_firewall
+
+CONTROL_PLANE_SECRET = "unit-test-control-plane-secret-0123456789-abcdef"
 
 
 def _record(tmp_path: Path):
@@ -37,9 +40,14 @@ def _record(tmp_path: Path):
         required_risk=0.005,
         now_utc="2026-10-02T18:03:00+00:00",
     ).to_dict()
+    authenticated_envelope = build_authenticated_envelope(
+        envelope,
+        secret=CONTROL_PLANE_SECRET,
+    )
     return build_mql5_authorization_record(
         firewall,
-        envelope,
+        authenticated_envelope,
+        control_plane_secret=CONTROL_PLANE_SECRET,
         now_utc="2026-10-02T18:03:00+00:00",
         expected_trade_id="T1",
     )
@@ -105,7 +113,8 @@ def test_expired_envelope_cannot_be_materialized(tmp_path: Path):
     with pytest.raises(AuthorizationError, match="RUNTIME_ENVELOPE_EXPIRED"):
         build_mql5_authorization_record(
             firewall,
-            envelope,
+            build_authenticated_envelope(envelope, secret=CONTROL_PLANE_SECRET),
+            control_plane_secret=CONTROL_PLANE_SECRET,
             now_utc="2026-10-03T00:00:00+00:00",
             expected_trade_id="T1",
         )
@@ -170,8 +179,68 @@ def test_record_materialization_requires_current_firewall_authority(tmp_path: Pa
     with pytest.raises(AuthorizationError, match="AUTHORIZATION_NOT_ACTIVE"):
         build_mql5_authorization_record(
             firewall,
-            envelope,
+            build_authenticated_envelope(envelope, secret=CONTROL_PLANE_SECRET),
+            control_plane_secret=CONTROL_PLANE_SECRET,
             now_utc="2026-10-02T18:03:31+00:00",
+            expected_trade_id="T1",
+        )
+
+
+def test_record_materialization_rejects_unauthenticated_envelope(tmp_path: Path):
+    _ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.reserve(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        amount=0.005,
+        reservation_id="R1",
+        now_utc="2026-10-02T18:02:00+00:00",
+        event_id="reserve-event",
+        idempotency_key="reserve-key",
+    )
+    envelope = build_runtime_envelope(
+        firewall,
+        trade_id="T1",
+        authorization_id="AUTH1",
+        reservation_id="R1",
+        required_risk=0.005,
+        now_utc="2026-10-02T18:03:00+00:00",
+    ).to_dict()
+    with pytest.raises(AuthorizationError, match="CONTROL_PLANE_AUTH_FIELDS_MISMATCH"):
+        build_mql5_authorization_record(
+            firewall,
+            envelope,
+            control_plane_secret=CONTROL_PLANE_SECRET,
+            now_utc="2026-10-02T18:03:00+00:00",
+            expected_trade_id="T1",
+        )
+
+
+def test_record_materialization_rejects_wrong_control_plane_secret(tmp_path: Path):
+    _ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.reserve(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        amount=0.005,
+        reservation_id="R1",
+        now_utc="2026-10-02T18:02:00+00:00",
+        event_id="reserve-event",
+        idempotency_key="reserve-key",
+    )
+    envelope = build_runtime_envelope(
+        firewall,
+        trade_id="T1",
+        authorization_id="AUTH1",
+        reservation_id="R1",
+        required_risk=0.005,
+        now_utc="2026-10-02T18:03:00+00:00",
+    ).to_dict()
+    authenticated = build_authenticated_envelope(envelope, secret=CONTROL_PLANE_SECRET)
+    with pytest.raises(AuthorizationError, match="CONTROL_PLANE_AUTH_TAG_MISMATCH"):
+        build_mql5_authorization_record(
+            firewall,
+            authenticated,
+            control_plane_secret="wrong-control-plane-secret-0123456789-abcdef",
+            now_utc="2026-10-02T18:03:00+00:00",
             expected_trade_id="T1",
         )
 
