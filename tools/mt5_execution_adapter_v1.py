@@ -8,11 +8,12 @@ Safety property:
 - admission must pass immediately before submission;
 - ORDER_SUBMITTED is durably recorded before broker I/O;
 - any broker I/O uncertainty leaves the trade unresolved and blocks blind retry;
-- only an explicit broker response can advance the ledger to ACCEPTED.
+- only an explicit broker response can advance the ledger to ACCEPTED or REJECTED; partial/unknown outcomes stay unresolved.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Mapping, Protocol
 
 from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall
@@ -196,7 +197,19 @@ class MT5ExecutionAdapter:
             )
         except (TypeError, ValueError, OverflowError) as exc:
             raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_FILL_VOLUME_INVALID") from exc
-        if filled_volume < 0 or remaining_volume < 0 or filled_volume > requested_volume:
+        if (
+            not math.isfinite(filled_volume)
+            or not math.isfinite(remaining_volume)
+            or filled_volume < 0
+            or remaining_volume < 0
+            or filled_volume > requested_volume
+            or not math.isclose(
+                filled_volume + remaining_volume,
+                requested_volume,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+        ):
             raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_FILL_VOLUME_INVALID")
 
         if status == "PARTIAL":
