@@ -227,6 +227,7 @@ def main() -> int:
             "audit_path": str(audit_path),
             "rows_collected": len(new_rows),
             "baseline_rows": baseline_rows,
+            "broker_full_fill_detected": True,
             "order_attempt_detected": True,
             "accepted_full_fill": True,
             "collector_policy": context["collector_policy"],
