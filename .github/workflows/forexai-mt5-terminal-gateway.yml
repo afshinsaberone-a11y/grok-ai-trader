@@ -35,6 +35,9 @@ jobs:
           import json
           from pathlib import Path
           c=json.loads(Path("config/forexai_mt5_terminal_gateway_v1.json").read_text(encoding="utf-8"))
+          assert c["account_policy"]["default_mode"] == "DEMO_ONLY"
+          assert c["account_policy"]["live_trading_permitted_in_p0"] is False
+          assert c["account_policy"]["real_account_requires_external_confirmation_env"] is None
           assert c["schema_version"] == "forexai.mt5_terminal_gateway.v1"
           assert c["transport"]["automatic_retry"] is False
           assert c["transport"]["unknown_transport_outcome"] == "RECONCILIATION_REQUIRED"
