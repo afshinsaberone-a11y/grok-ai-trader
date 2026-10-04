@@ -63,6 +63,61 @@ class FakeMT5:
         )
 
 
+def test_control_plane_tamper_stops_gateway_before_terminal_call(tmp_path: Path):
+    ledger, firewall = _authorized_firewall(tmp_path)
+    firewall.reserve(
+        trade_id="T1",
+        authorization_id="AUTH1",
+        amount=0.005,
+        reservation_id="R1",
+        now_utc="2026-10-02T18:02:00+00:00",
+        event_id="reserve-event",
+        idempotency_key="reserve-key",
+    )
+    envelope = build_runtime_envelope(
+        firewall,
+        trade_id="T1",
+        authorization_id="AUTH1",
+        reservation_id="R1",
+        required_risk=0.005,
+        now_utc="2026-10-02T18:03:00+00:00",
+    ).to_dict()
+    authenticated = build_authenticated_envelope(envelope, secret=SECRET)
+    authenticated["envelope"]["reserved_risk"] = 0.006
+
+    mt5 = FakeMT5()
+    adapter = MT5ExecutionAdapter(
+        ledger,
+        firewall,
+        MT5TerminalGateway(mt5_module=mt5),
+        control_plane_secret=SECRET,
+    )
+    request = {
+        "trade_id": "T1",
+        "symbol": "EURUSD",
+        "timeframe": "M15",
+        "side": "BUY",
+        "volume": 0.10,
+        "risk_fraction": 0.004,
+        "stop_loss": 1.1000,
+        "take_profit": 1.1100,
+        "execution_contract_version": "forexai.execution.v1",
+    }
+
+    import pytest
+    with pytest.raises(Exception, match="CONTROL_PLANE_AUTH_TAG_MISMATCH"):
+        adapter.submit(
+            authenticated_envelope=authenticated,
+            request=request,
+            now_utc="2026-10-02T18:03:01+00:00",
+            event_id="submit-tampered",
+            idempotency_key="submit-tampered",
+        )
+
+    assert mt5.order_send_calls == 0
+    assert ledger.state_of("T1") == "AUTHORIZED"
+
+
 def test_authenticated_control_plane_reaches_real_gateway_boundary(tmp_path: Path):
     ledger, firewall = _authorized_firewall(tmp_path)
     firewall.reserve(
