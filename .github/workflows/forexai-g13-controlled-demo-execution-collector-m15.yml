@@ -92,21 +92,15 @@ jobs:
           PACKAGE_PREFLIGHT_RUN_ID: ${{ inputs.package_preflight_run_id }}
         with:
           script: |
-            const fs = require('fs');
-            const crypto = require('crypto');
-            const path = require('path');
-
             if (context.ref !== 'refs/heads/main') {
               core.setFailed('G13_DEMO_MUST_RUN_FROM_MAIN');
               return;
             }
-
             const runId = Number(process.env.PACKAGE_PREFLIGHT_RUN_ID);
             if (!Number.isInteger(runId) || runId <= 0) {
               core.setFailed('G13_PACKAGE_PREFLIGHT_RUN_ID_INVALID');
               return;
             }
-
             const run = await github.rest.actions.getWorkflowRun({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -128,7 +122,6 @@ jobs:
               );
               return;
             }
-
             const artifacts = await github.paginate(
               github.rest.actions.listWorkflowRunArtifacts,
               {
@@ -145,56 +138,41 @@ jobs:
               core.setFailed('G13_PACKAGE_PREFLIGHT_ARTIFACT_COUNT:' + matches.length);
               return;
             }
-
             const artifact = matches[0];
-            if (typeof artifact.digest !== 'string' || !artifact.digest.match(/^sha256:[0-9a-fA-F]{64}$/)) {
+            if (
+              typeof artifact.digest !== 'string' ||
+              !artifact.digest.match(/^sha256:[0-9a-fA-F]{64}$/)
+            ) {
               core.setFailed('G13_PACKAGE_PREFLIGHT_ARTIFACT_DIGEST_INVALID');
               return;
             }
-
-            const download = await github.rest.actions.downloadArtifact({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              artifact_id: artifact.id,
-              archive_format: 'zip',
-            });
-            const bytes = Buffer.from(download.data);
-            const actual = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
-            if (actual.toLowerCase() !== artifact.digest.toLowerCase()) {
-              core.setFailed('G13_PACKAGE_PREFLIGHT_ARTIFACT_DIGEST_MISMATCH actual=' + actual + ' expected=' + artifact.digest);
-              return;
-            }
-
-            fs.mkdirSync(path.join(process.env.GITHUB_WORKSPACE, 'package'), { recursive: true });
-            const zipPath = path.join(process.env.GITHUB_WORKSPACE, 'package', 'preflight.zip');
-            fs.writeFileSync(zipPath, bytes);
             core.exportVariable('G13_PACKAGE_PREFLIGHT_ARTIFACT_ID', String(artifact.id));
             core.exportVariable('G13_PACKAGE_PREFLIGHT_ARTIFACT_DIGEST', artifact.digest);
-            core.exportVariable('G13_PACKAGE_PREFLIGHT_ZIP_SHA256', actual.slice(7));
-            core.exportVariable('G13_PACKAGE_PREFLIGHT_ZIP', zipPath);
+            core.exportVariable('G13_PACKAGE_PREFLIGHT_RUN_ID', String(runId));
             core.exportVariable('G13_PACKAGE_PREFLIGHT_HEAD_SHA', r.head_sha);
-            core.info('G13_PACKAGE_PREFLIGHT_ARTIFACT_BOUND=true');
-            core.info('G13_PACKAGE_PREFLIGHT_RUN_ID=' + runId);
-            core.info('G13_PACKAGE_PREFLIGHT_ARTIFACT_ID=' + artifact.id);
-            core.info('G13_PACKAGE_PREFLIGHT_ARTIFACT_DIGEST=' + artifact.digest);
 
-      - name: Extract and validate exact package preflight
+      - name: Download exact Demo package preflight artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: g13-controlled-demo-package-preflight-m15
+          path: artifacts/g13/package-preflight
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.package_preflight_run_id }}
+
+      - name: Validate exact Demo package preflight
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:G13_PACKAGE_PREFLIGHT_HEAD_SHA -ne $env:GITHUB_SHA) { throw 'G13_PACKAGE_PREFLIGHT_HEAD_SHA_MISMATCH' }
-          $extract = Join-Path $env:GITHUB_WORKSPACE 'package\preflight-extracted'
-          Remove-Item -Recurse -Force $extract -ErrorAction SilentlyContinue
-          Expand-Archive -LiteralPath $env:G13_PACKAGE_PREFLIGHT_ZIP -DestinationPath $extract -Force
-          $reports = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'g13-demo-package-preflight-m15.json')
+          $reports = @(Get-ChildItem -LiteralPath 'artifacts/g13/package-preflight' -Recurse -File -Filter 'g13-demo-package-preflight-m15.json')
           if ($reports.Count -ne 1) { throw "G13_PACKAGE_PREFLIGHT_REPORT_COUNT:$($reports.Count)" }
           $report = Get-Content -LiteralPath $reports[0].FullName -Raw | ConvertFrom-Json
           if ($report.schema_version -ne 'forexai.g13.controlled_demo_package_preflight.m15.v1') { throw 'G13_PACKAGE_PREFLIGHT_SCHEMA_MISMATCH' }
           if ($report.status -ne 'PASS') { throw 'G13_PACKAGE_PREFLIGHT_STATUS_NOT_PASS' }
           if ($report.compile_parity_head_sha -ne $env:GITHUB_SHA) { throw 'G13_COMPILE_PARITY_HEAD_SHA_MISMATCH' }
           if ([int64]$report.compile_parity_run_id -le 0) { throw 'G13_COMPILE_PARITY_RUN_ID_INVALID' }
-          if (-not $report.candidate_ids) { throw 'G13_PACKAGE_PREFLIGHT_CANDIDATE_SET_MISSING' }
-          if ($report.candidate_ids -notcontains [int]$env:G13_CANDIDATE_ID) { throw 'G13_PACKAGE_PREFLIGHT_CANDIDATE_MISMATCH' }
+          if (-not $report.candidate_ids -or $report.candidate_ids -notcontains [int]$env:G13_CANDIDATE_ID) { throw 'G13_PACKAGE_PREFLIGHT_CANDIDATE_MISMATCH' }
           $expectedHash = [string]$report.candidate_config_hashes.($env:G13_CANDIDATE_ID)
           $expectedSource = [string]$report.candidate_mq5_hashes.($env:G13_CANDIDATE_ID)
           $expectedBinary = [string]$report.candidate_ex5_hashes.($env:G13_CANDIDATE_ID)
@@ -637,112 +615,34 @@ jobs:
           path: artifacts/g13/demo-execution
           if-no-files-found: error
 ) { throw 'G13_PACKAGE_BINARY_HASH_INVALID' }
-          "G13_COMPILE_PARITY_RUN_ID=$([int64]$report.compile_parity_run_id)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "G13_EXPECTED_CONFIG_HASH=$expectedHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "G13_EXPECTED_MQ5_SHA256=$expectedSource" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "G13_EXPECTED_EX5_SHA256=$expectedBinary" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "G13_PACKAGE_PREFLIGHT_REPORT=$($reports[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          New-Item -ItemType Directory -Force -Path 'artifacts/g13' | Out-Null
-          Copy-Item -LiteralPath $reports[0].FullName -Destination (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\demo-execution-package-preflight.json') -Force
+          $handoff = Get-Content -LiteralPath 'artifacts/g13/frozen/g13-candidate-handoff-m15.json' -Raw | ConvertFrom-Json
+          $handoffCandidates = @($handoff.candidates | Where-Object { [int]$_.candidate_id -eq [int]$env:G13_CANDIDATE_ID })
+          if ($handoffCandidates.Count -ne 1) { throw 'G13_FROZEN_HANDOFF_CANDIDATE_MISSING' }
+          if ([string]$handoffCandidates[0].config_hash -ne $expectedHash) { throw 'G13_HANDOFF_CONFIG_HASH_MISMATCH' }
+          "G13_COMPILE_PARITY_RUN_ID=$([int64]$report.compile_parity_run_id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "G13_EXPECTED_CONFIG_HASH=$expectedHash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "G13_EXPECTED_MQ5_SHA256=$expectedSource" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "G13_EXPECTED_EX5_SHA256=$expectedBinary" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "G13_PACKAGE_PREFLIGHT_REPORT=$($reports[0].FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          New-Item -ItemType Directory -Force -Path 'artifacts/g13/demo-execution' | Out-Null
+          Copy-Item -LiteralPath $reports[0].FullName -Destination 'artifacts/g13/demo-execution/package-preflight.json' -Force
           Write-Output 'G13_PACKAGE_PREFLIGHT_PASS=true'
 
-      - name: Download and bind exact Compile + Parity package
-        uses: actions/github-script@v7
+      - name: Download exact Compile + Parity package
+        uses: actions/download-artifact@v4
         with:
-          script: |
-            const fs = require('fs');
-            const crypto = require('crypto');
-            const path = require('path');
+          name: g13-mt5-compile-parity-${{ env.G13_COMPILE_PARITY_RUN_ID }}
+          path: artifacts/g13/compile-parity
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.G13_COMPILE_PARITY_RUN_ID }}
 
-            const runId = Number(process.env.COMPILE_PARITY_RUN_ID);
-            if (!Number.isInteger(runId) || runId <= 0) {
-              core.setFailed('G13_COMPILE_PARITY_RUN_ID_INVALID');
-              return;
-            }
-
-            const run = await github.rest.actions.getWorkflowRunForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: runId,
-            });
-            const r = run.data;
-            if (
-              r.name !== 'ForexAI G13 MT5 Compile + Signal Parity' ||
-              r.head_branch !== 'main' ||
-              r.head_sha !== context.sha ||
-              r.conclusion !== 'success'
-            ) {
-              core.setFailed(
-                'G13_COMPILE_PARITY_PROVENANCE_MISMATCH name=' + r.name +
-                ' branch=' + r.head_branch +
-                ' sha=' + r.head_sha +
-                ' conclusion=' + r.conclusion +
-                ' target=' + context.sha
-              );
-              return;
-            }
-
-            const artifacts = await github.paginate(
-              github.rest.actions.listWorkflowRunArtifacts,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: runId,
-                per_page: 100,
-              }
-            );
-            const expectedName = 'g13-mt5-compile-parity-' + runId;
-            const matches = artifacts.filter(a => a.name === expectedName && !a.expired);
-            if (matches.length !== 1) {
-              core.setFailed('G13_COMPILE_PARITY_ARTIFACT_COUNT:' + matches.length);
-              return;
-            }
-
-            const artifact = matches[0];
-            if (typeof artifact.digest !== 'string' || !artifact.digest.match(/^sha256:[0-9a-fA-F]{64}$/)) {
-              core.setFailed('G13_COMPILE_PARITY_ARTIFACT_DIGEST_INVALID');
-              return;
-            }
-
-            const download = await github.rest.actions.downloadArtifact({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              artifact_id: artifact.id,
-              archive_format: 'zip',
-            });
-            const bytes = Buffer.from(download.data);
-            const actual = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
-            if (actual.toLowerCase() !== artifact.digest.toLowerCase()) {
-              core.setFailed('G13_COMPILE_PARITY_ARTIFACT_DIGEST_MISMATCH actual=' + actual + ' expected=' + artifact.digest);
-              return;
-            }
-
-            fs.mkdirSync(path.join(process.env.GITHUB_WORKSPACE, 'package'), { recursive: true });
-            const zipPath = path.join(process.env.GITHUB_WORKSPACE, 'package', 'compile-parity.zip');
-            fs.writeFileSync(zipPath, bytes);
-            core.exportVariable('G13_COMPILE_PARITY_ARTIFACT_ID', String(artifact.id));
-            core.exportVariable('G13_COMPILE_PARITY_ARTIFACT_DIGEST', artifact.digest);
-            core.exportVariable('G13_COMPILE_PARITY_ZIP_SHA256', actual.slice(7));
-            core.exportVariable('G13_COMPILE_PARITY_ZIP', zipPath);
-            core.info('G13_COMPILE_PARITY_ARTIFACT_BOUND=true');
-            core.info('G13_COMPILE_PARITY_ARTIFACT_ID=' + artifact.id);
-            core.info('G13_COMPILE_PARITY_ARTIFACT_DIGEST=' + artifact.digest);
-
-      - name: Re-run exact package preflight and stage candidate package
+      - name: Verify exact selected candidate package
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $extract = Join-Path $env:GITHUB_WORKSPACE 'package\compile-parity-extracted'
-          Remove-Item -Recurse -Force $extract -ErrorAction SilentlyContinue
-          Expand-Archive -LiteralPath $env:G13_COMPILE_PARITY_ZIP -DestinationPath $extract -Force
-          $manifest = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'g13-demo-package-manifest-m15.json')
-          $parity = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'g13-mql5-signal-parity.json')
-          $data = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'g13_real_eurusd_m15.manifest.json')
-          if ($manifest.Count -ne 1 -or $parity.Count -ne 1 -or $data.Count -ne 1) { throw 'G13_COMPILE_PACKAGE_REQUIRED_EVIDENCE_MISSING' }
-          python -m py_compile research/optimization/g13_demo_package_preflight_m15.py
-          python -m research.optimization.g13_demo_package_preflight_m15 --manifest $manifest[0].FullName --package-root $extract --compile-parity-run-id ([int64]$env:G13_COMPILE_PARITY_RUN_ID) --compile-parity-head-sha $env:GITHUB_SHA --compile-parity-artifact-id ([int64]$env:G13_COMPILE_PARITY_ARTIFACT_ID) --compile-parity-artifact-digest $env:G13_COMPILE_PARITY_ARTIFACT_DIGEST --downloaded-zip-sha256 $env:G13_COMPILE_PARITY_ZIP_SHA256 --parity-evidence $parity[0].FullName --data-manifest $data[0].FullName --report artifacts/g13/demo-execution-package-preflight-rerun.json
-          $candidates = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter ("ForexAI_G13_Candidate_{0}.mq5" -f $env:G13_CANDIDATE_ID))
-          $binaries = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter ("ForexAI_G13_Candidate_{0}.ex5" -f $env:G13_CANDIDATE_ID))
+          $candidates = @(Get-ChildItem -LiteralPath 'artifacts/g13/compile-parity' -Recurse -File -Filter ("ForexAI_G13_Candidate_{0}.mq5" -f $env:G13_CANDIDATE_ID))
+          $binaries = @(Get-ChildItem -LiteralPath 'artifacts/g13/compile-parity' -Recurse -File -Filter ("ForexAI_G13_Candidate_{0}.ex5" -f $env:G13_CANDIDATE_ID))
           if ($candidates.Count -ne 1 -or $binaries.Count -ne 1) { throw 'G13_SELECTED_CANDIDATE_PACKAGE_NOT_UNIQUE' }
           $sourceSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidates[0].FullName).Hash.ToLowerInvariant()
           $binarySha = (Get-FileHash -Algorithm SHA256 -LiteralPath $binaries[0].FullName).Hash.ToLowerInvariant()
@@ -752,8 +652,21 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item -LiteralPath $candidates[0].FullName -Destination $stage -Force
           Copy-Item -LiteralPath $binaries[0].FullName -Destination $stage -Force
-          Copy-Item -LiteralPath 'artifacts/g13/demo-execution-package-preflight-rerun.json' -Destination $stage -Force
+          $binding = [ordered]@{
+            schema = 'forexai.g13.controlled_demo_package_binding.v1'
+            main_sha = $env:GITHUB_SHA
+            package_preflight_run_id = [int64]$env:G13_PACKAGE_PREFLIGHT_RUN_ID
+            package_preflight_artifact_id = [int64]$env:G13_PACKAGE_PREFLIGHT_ARTIFACT_ID
+            package_preflight_artifact_digest = $env:G13_PACKAGE_PREFLIGHT_ARTIFACT_DIGEST
+            compile_parity_run_id = [int64]$env:G13_COMPILE_PARITY_RUN_ID
+            candidate_id = [int]$env:G13_CANDIDATE_ID
+            config_hash = $env:G13_EXPECTED_CONFIG_HASH
+            mq5_sha256 = $sourceSha
+            ex5_sha256 = $binarySha
+          }
+          $binding | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stage 'package-binding.json') -Encoding utf8
           Write-Output 'G13_EXACT_CANDIDATE_PACKAGE_STAGED=true'
+          Write-Output 'G13_PACKAGE_BINDING_MANIFEST_WRITTEN=true'
 
       - name: Verify pre-issued Capital Firewall authorization
         shell: pwsh
