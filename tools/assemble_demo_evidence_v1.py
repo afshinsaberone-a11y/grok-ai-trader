@@ -61,6 +61,11 @@ def assemble(
     _require(submission, "terminal_connected", True)
     _require(submission, "order_submission_performed", True)
     _require(submission, "execution_status", "ACCEPTED")
+    _require(submission, "live_enabled", False)
+    if _required_text(submission, "strategy_id") != strategy_id:
+        raise DemoEvidenceAssemblyError("SUBMISSION_STRATEGY_ID_MISMATCH")
+    if _required_text(submission, "trade_id") != trade_id:
+        raise DemoEvidenceAssemblyError("SUBMISSION_TRADE_ID_MISMATCH")
     _require(submission, "full_fill", True)
 
     _require(preflight, "schema", "forexai.mt5_terminal_preflight.v1")
@@ -82,6 +87,8 @@ def assemble(
         raise DemoEvidenceAssemblyError("OBSERVATION_PAYLOAD_MISSING")
     _require(observed, "status", "ACCEPTED")
     _require(observed, "symbol", _required_text(observed, "symbol"))
+    if _required_text(submission, "symbol") != _required_text(observed, "symbol"):
+        raise DemoEvidenceAssemblyError("SUBMISSION_OBSERVATION_SYMBOL_MISMATCH")
     broker_order_id = _required_text(observed, "broker_order_id")
     broker_deal_id = _required_text(observed, "broker_deal_id")
     if _required_text(submission, "broker_order_id") != broker_order_id:
