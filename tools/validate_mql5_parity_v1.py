@@ -41,7 +41,12 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["order_ticket_verified"] = "trade.ResultOrder()" in source
     checks["partial_fill_not_accepted_as_success"] = (
         "TRADE_RETCODE_DONE_PARTIAL" in source
-        and "return (rc == TRADE_RETCODE_DONE) && deal > 0;" in source
+        and "if(rc != TRADE_RETCODE_DONE) return false;" in source
+    )
+    checks["full_fill_volume_verified"] = (
+        "TradeExecutionAccepted(const double requested_volume)" in source
+        and "trade.ResultVolume()" in source
+        and "MathAbs(confirmed_volume - requested_volume) > 1e-9" in source
     )
     checks["consumption_failure_blocks_new_orders"] = (
         "if(!MarkRuntimeAuthorizationConsumed(trace_trade_id))" in source
