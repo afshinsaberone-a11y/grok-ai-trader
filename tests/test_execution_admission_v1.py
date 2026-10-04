@@ -70,6 +70,7 @@ def test_execution_admission_rejects_risk_over_reservation(tmp_path: Path):
             envelope,
             request=request,
             now_utc="2026-10-02T18:03:00+00:00",
+            control_plane_secret=CONTROL_PLANE_SECRET,
         )
 
 
@@ -96,6 +97,7 @@ def test_execution_admission_rejects_malformed_request(
             envelope,
             request=request,
             now_utc="2026-10-02T18:03:00+00:00",
+            control_plane_secret=CONTROL_PLANE_SECRET,
         )
 
 
@@ -230,4 +232,5 @@ def test_execution_admission_rejects_wrong_execution_identity(
             envelope,
             request=request,
             now_utc="2026-10-02T18:03:00+00:00",
+            control_plane_secret=CONTROL_PLANE_SECRET,
         )
