@@ -473,8 +473,10 @@ void TraceSuccessfulEntry(const string trade_id,
 
   string accepted_fields = StringFormat(
       "\"side\":\"%s\",\"retcode\":%u,\"order_ticket\":\"%I64d\","
-      "\"deal_ticket\":\"%I64d\",\"authorization_id\":\"%s\",\"reservation_id\":\"%s\"",
-      side, retcode, (long)order_ticket, (long)deal_ticket,
+      "\"deal_ticket\":\"%I64d\",\"requested_volume\":%.8f,\"confirmed_volume\":%.8f,"
+      "\"retcode_description\":\"%s\",\"authorization_id\":\"%s\",\"reservation_id\":\"%s\"",
+      side, retcode, (long)order_ticket, (long)deal_ticket, requested_volume,
+      trade.ResultVolume(), TraceJsonEscape(trade.ResultRetcodeDescription()),
       TraceJsonEscape(runtime_authorization_id), TraceJsonEscape(runtime_reservation_id)
   );
   TraceLifecycle(trade_id, "ACCEPTED", accepted_fields);
@@ -833,11 +835,17 @@ bool StopsValid(double sl, double tp, bool is_buy)
   return true;
 }
 
-bool TradeExecutionAccepted()
+bool TradeExecutionAccepted(const double requested_volume)
 {
   uint rc = trade.ResultRetcode();
+  ulong order = trade.ResultOrder();
   ulong deal = trade.ResultDeal();
-  return (rc == TRADE_RETCODE_DONE) && deal > 0;
+  double confirmed_volume = trade.ResultVolume();
+  if(rc != TRADE_RETCODE_DONE) return false;
+  if(order == 0 || deal == 0) return false;
+  if(!MathIsValidNumber(confirmed_volume) || confirmed_volume <= 0) return false;
+  if(MathAbs(confirmed_volume - requested_volume) > 1e-9) return false;
+  return true;
 }
 
 void TracePartialExecution(const string trade_id, const double requested_volume)
@@ -885,7 +893,7 @@ bool SendBuy(double sl, double tp, const string cmt)
           vol, ask, sl, tp, (long)trade.ResultOrder()
       )
   );
-  if(!TradeExecutionAccepted())
+  if(!TradeExecutionAccepted(vol))
   {
     if(trade.ResultRetcode() == TRADE_RETCODE_DONE_PARTIAL && trade.ResultDeal() > 0)
       TracePartialExecution(trace_trade_id, vol);
@@ -1148,7 +1156,7 @@ void OnTick()
 }
 // FOREXAI-EXECUTION-CONTRACT-V1
 // Signal uses closed bar data; EA enters on the next bar's live market price.
-// MaxHoldBars=30; actual execution is accepted only after ResultRetcode+ResultDeal verification.
+// MaxHoldBars=30; actual execution is accepted only after retcode + order/deal tickets + full broker-confirmed volume verification.
 // Filling mode is selected from the symbol; stop validation includes stops+freeze constraints.
 // Trading permissions require SYMBOL_TRADE_MODE and MARKET+SL+TP order flags.
 // Protective closes are counted only after broker ResultRetcode confirmation.
