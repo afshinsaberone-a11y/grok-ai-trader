@@ -193,7 +193,7 @@ def test_partial_execution_is_never_promoted_to_success(tmp_path: Path):
         match="PARTIAL_EXECUTION_RECONCILIATION_REQUIRED",
     ):
         adapter.submit(
-        authenticated_envelope=authenticated_envelope,
+            authenticated_envelope=authenticated_envelope,
             request=request,
             now_utc="2026-10-02T18:03:01+00:00",
             event_id="submit-event",
@@ -215,7 +215,7 @@ def test_broker_timeout_leaves_durable_unresolved_submission(tmp_path: Path):
         match="BROKER_OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED",
     ):
         adapter.submit(
-        authenticated_envelope=authenticated_envelope,
+            authenticated_envelope=authenticated_envelope,
             request=request,
             now_utc="2026-10-02T18:03:01+00:00",
             event_id="submit-event",
@@ -238,7 +238,7 @@ def test_broker_identity_mismatch_fails_closed(tmp_path: Path):
         MT5ExecutionAdapterError, match="BROKER_SYMBOL_MISMATCH"
     ):
         adapter.submit(
-        authenticated_envelope=authenticated_envelope,
+            authenticated_envelope=authenticated_envelope,
             request=request,
             now_utc="2026-10-02T18:03:01+00:00",
             event_id="submit-event",
@@ -254,7 +254,7 @@ def test_adapter_never_retries_unknown_broker_outcome(tmp_path: Path):
 
     with pytest.raises(MT5ExecutionAdapterError):
         adapter.submit(
-        authenticated_envelope=authenticated_envelope,
+            authenticated_envelope=authenticated_envelope,
             request=request,
             now_utc="2026-10-02T18:03:01+00:00",
             event_id="submit-event",
@@ -278,7 +278,7 @@ def test_revoked_authority_never_reaches_broker(tmp_path: Path):
 
     with pytest.raises(MT5ExecutionAdapterError, match="AUTHORIZATION_NOT_ACTIVE"):
         adapter.submit(
-        authenticated_envelope=authenticated_envelope,
+            authenticated_envelope=authenticated_envelope,
             request=request,
             now_utc="2026-10-02T18:03:31+00:00",
             event_id="submit-event",
