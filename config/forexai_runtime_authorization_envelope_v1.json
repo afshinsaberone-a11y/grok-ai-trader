@@ -27,6 +27,14 @@
   "transport": {
     "format": "canonical_json",
     "integrity": "SHA-256",
-    "transport_authority": "advisory until broker adapter verifies envelope and local policy"
+    "control_plane_authentication": {
+      "required": true,
+      "schema": "forexai.runtime_authorization_authentication.v1",
+      "algorithm": "HMAC-SHA256",
+      "secret_source": "external_runtime_secret",
+      "default_key_id": "forexai-control-plane-v1",
+      "verify_before_materialization_and_broker_submission": true
+    },
+    "transport_authority": "advisory until authenticated control-plane verification and current Capital Firewall verification"
   }
 }
