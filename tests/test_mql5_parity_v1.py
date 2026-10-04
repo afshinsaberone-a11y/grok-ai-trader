@@ -16,6 +16,36 @@ def test_current_mql5_adapter_passes_static_parity_contract():
     assert result["market_price_identity"] == "not_required"
 
 
+def test_parity_rejects_partial_fill_as_success():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace(
+        "return (rc == TRADE_RETCODE_DONE) && deal > 0;",
+        "return (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_DONE_PARTIAL) && deal > 0;",
+    )
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "partial_fill_not_accepted_as_success" in str(exc)
+    else:
+        raise AssertionError("partial broker execution must never be promoted to full success")
+
+
+def test_parity_requires_consumption_persistence_result_check():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    broken = source.replace(
+        "if(!MarkRuntimeAuthorizationConsumed(trace_trade_id))",
+        "MarkRuntimeAuthorizationConsumed(trace_trade_id)",
+    )
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "consumption_failure_blocks_new_orders" in str(exc)
+    else:
+        raise AssertionError("authorization consumption persistence failure must block new orders")
+
+
 def test_parity_rejects_hardcoded_noncanonical_expiry():
     source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
     contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
