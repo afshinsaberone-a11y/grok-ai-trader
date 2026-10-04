@@ -69,14 +69,55 @@ class FakeMT5:
         return self.send_result
 
 
-def _admission():
+def _admission(request=None):
+    if request is None:
+        request = {
+            "trade_id": "T1",
+            "symbol": "EURUSD",
+            "timeframe": "M15",
+            "side": "BUY",
+            "volume": 0.10,
+            "risk_fraction": 0.004,
+            "stop_loss": 1.0900,
+            "take_profit": 1.1100,
+            "execution_contract_version": "forexai.execution.v1",
+        }
+    import hashlib
+    import json
+    request_hash = hashlib.sha256(
+        json.dumps(dict(request), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     return {
+        "schema": "forexai.execution_admission.v1",
+        "status": "PASS",
+        "trade_id": request["trade_id"],
+        "authorization_id": "AUTH1",
+        "reservation_id": "R1",
+        "symbol": request["symbol"],
+        "timeframe": request["timeframe"],
+        "side": request["side"],
+        "volume": request["volume"],
+        "risk_fraction": request["risk_fraction"],
+        "stop_loss": request["stop_loss"],
+        "take_profit": request["take_profit"],
+        "execution_contract_version": request["execution_contract_version"],
+        "current_firewall_authority": "PASS",
+        "control_plane_authenticated": True,
+        "request_hash": request_hash,
+    }
+
+
+def _admission_request():
+    return {
+        "trade_id": "T1",
         "symbol": "EURUSD",
         "timeframe": "M15",
         "side": "BUY",
         "volume": 0.10,
+        "risk_fraction": 0.004,
         "stop_loss": 1.0900,
         "take_profit": 1.1100,
+        "execution_contract_version": "forexai.execution.v1",
     }
 
 
@@ -98,8 +139,8 @@ def test_real_gateway_returns_actual_broker_acceptance():
         mt5_module=mt5,
     )
     result = gateway.submit_authorized_order(
-        request={},
-        admission=_admission(),
+        request=_admission_request(),
+        admission=_admission(_admission_request()),
     )
     assert result["status"] == "ACCEPTED"
     assert result["broker_deal_id"] == "5001"
@@ -179,3 +220,39 @@ def test_done_without_deal_is_not_claimed_as_success():
         # The boundary should not fabricate success when the broker structure
         # itself cannot be trusted.
         gateway.submit_authorized_order(request={}, admission=_admission())
+
+
+def test_gateway_rejects_missing_control_plane_admission_before_mt5_io():
+    mt5 = FakeMT5(send_result=_accepted())
+    gateway = MT5TerminalGateway(mt5_module=mt5)
+    with pytest.raises(MT5GatewayError, match="MT5_GATEWAY_ADMISSION_FIELDS_MISMATCH"):
+        gateway.submit_authorized_order(
+            request=_admission_request(),
+            admission={"symbol": "EURUSD"},
+        )
+    assert not mt5.initialized
+    assert mt5.order_send_calls == 0
+
+
+def test_gateway_rejects_request_hash_mismatch_before_mt5_io():
+    mt5 = FakeMT5(send_result=_accepted())
+    gateway = MT5TerminalGateway(mt5_module=mt5)
+    request = _admission_request()
+    admission = _admission(request)
+    request["volume"] = 0.11
+    with pytest.raises(MT5GatewayError, match="MT5_GATEWAY_REQUEST_HASH_MISMATCH"):
+        gateway.submit_authorized_order(request=request, admission=admission)
+    assert not mt5.initialized
+    assert mt5.order_send_calls == 0
+
+
+def test_gateway_rejects_unauthenticated_admission_before_mt5_io():
+    mt5 = FakeMT5(send_result=_accepted())
+    gateway = MT5TerminalGateway(mt5_module=mt5)
+    request = _admission_request()
+    admission = _admission(request)
+    admission["control_plane_authenticated"] = False
+    with pytest.raises(MT5GatewayError, match="MT5_GATEWAY_CONTROL_PLANE_AUTH_REQUIRED"):
+        gateway.submit_authorized_order(request=request, admission=admission)
+    assert not mt5.initialized
+    assert mt5.order_send_calls == 0
