@@ -85,8 +85,8 @@ def test_wait_accepts_new_done_full_fill(tmp_path):
     from tools.g13_demo_execution_collector_v1 import _wait_for_candidate
     path = tmp_path / "audit.csv"
     path.write_text(
-        "candidate_id,event,order,deal,retcode,requested_volume,executed_volume,side\\n"
-        "2,ORDER_ATTEMPT,7001,8001,10009,0.10,0.10,SELL\\n",
+        "candidate_id,event,order,deal,retcode,requested_volume,executed_volume,side\n"
+        "2,ORDER_ATTEMPT,7001,8001,10009,0.10,0.10,SELL\n",
         encoding="utf-8",
     )
     rows, new_rows = _wait_for_candidate(
@@ -105,10 +105,10 @@ def test_wait_rejects_partial_fill(tmp_path):
     path = tmp_path / "audit.csv"
     path.write_text(
         "candidate_id,event,order,deal,retcode,requested_volume,executed_volume,side\\n"
-        "2,ORDER_ATTEMPT,7001,8001,10010,0.10,0.05,SELL\\n",
+        "2,ORDER_ATTEMPT,7001,8001,10010,0.10,0.05,SELL\n",
         encoding="utf-8",
     )
-    with pytest.raises(Exception, match="BROKER_NOT_DONE:10010"):
+    with pytest.raises(Exception, match="NO_ACCEPTED_FULL_FILL"):
         _wait_for_candidate(
             path,
             candidate_id=2,
