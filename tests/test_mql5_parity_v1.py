@@ -285,3 +285,15 @@ def test_parity_requires_bounded_authorization_state_keys():
         assert "runtime_authorization_state_key_bounded" in str(exc)
     else:
         raise AssertionError("authorization state keys must remain within MQL5 limits")
+
+
+def test_parity_requires_timeframe_bound_runtime_identity():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config/forexai_execution_parity_v1.json")
+    broken = source.replace("CurrentTimeframeName()", "CurrentTimeframeRemoved()")
+    try:
+        audit_source(broken, contract)
+    except Exception as exc:
+        assert "runtime_identity_timeframe_bound" in str(exc)
+    else:
+        raise AssertionError("runtime identity must include timeframe")
