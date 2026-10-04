@@ -117,10 +117,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf /tmp/g13_mql5_smoke
-          python -m research.optimization.g13_mql5_generator_v2 \
-            --manifest artifacts/g13/g13-promotion-manifest-m15.json \
-            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
-            --output-dir /tmp/g13_mql5_smoke
+          python -m research.optimization.g13_mql5_generator_v2             --manifest artifacts/g13/g13-promotion-manifest-m15.json             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json             --output-dir /tmp/g13_mql5_smoke
           test "$(find /tmp/g13_mql5_smoke -maxdepth 1 -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
           ! grep -R -nE 'MqlTick tick=\{\};|trans\.magic|trans\.comment' /tmp/g13_mql5_smoke
           ! grep -R -nF 'StringFormat(""' /tmp/g13_mql5_smoke
@@ -136,27 +133,20 @@ jobs:
 
           paths = sorted(Path("/tmp/g13_mql5_smoke").glob("ForexAI_G13_Candidate_*.mq5"))
           assert len(paths) == 15
-          bs = chr(92)
           required = [
-              '"' + bs + '"side' + bs + '":' + bs + '"SELL' + bs + '"',
-              bs + '"retcode' + bs + '":%u',
-              '"' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"',
-              'StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");',
+              'StringFormat(" + chr(34) + chr(92) + '"deal_ticket',
+              'double lots=0.0;',
+              'LotSize(risk,entry);',
           ]
           for path in paths:
               rendered = path.read_text(encoding="utf-8")
+              assert "StringFormat(\"\\"side" not in rendered
+              assert "StringFormat(\"\"side" not in rendered
+              assert "StringReplace(value,\"\"\"" not in rendered
+              for fragment in required:
+                  assert fragment in rendered, f"{path.name}: missing rendered fragment {fragment!r}"
               trace_escape = rendered.split("string TraceJsonEscape", 1)[1].split("void TraceRecord", 1)[0]
               assert trace_escape.count("StringReplace(value") == 4, f"{path.name}: TraceJsonEscape must contain four replacements"
-              for fragment in required[:-1]:
-                  assert fragment in rendered, f"{path.name}: missing rendered fragment {fragment!r}"
-          PY
-          ]
-          for path in paths:
-              rendered = path.read_text(encoding="utf-8")
-              trace_escape = rendered.split("string TraceJsonEscape", 1)[1].split("void TraceRecord", 1)[0]
-              assert trace_escape.count("StringReplace(value") == 4, f"{path.name}: TraceJsonEscape must contain four replacements"
-              for fragment in required[:-1]:
-                  assert fragment in rendered, f"{path.name}: missing rendered fragment {fragment!r}"
           PY
 
       - name: Compile controlled Demo evidence validator
