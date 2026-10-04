@@ -1,6 +1,8 @@
 """Tests for the fail-closed MT5 execution adapter boundary."""
 from pathlib import Path
 
+import os
+
 import pytest
 
 from tools.mt5_execution_adapter_v1 import (
@@ -82,6 +84,30 @@ def _accepted():
         "filled_volume": 0.0,
         "remaining_volume": 0.10,
     }
+
+
+def test_environment_constructor_loads_control_plane_secret_without_exposing_it(tmp_path: Path, monkeypatch):
+    gateway = Gateway(response=_accepted())
+    ledger, firewall, authenticated_envelope, request, _adapter = _case(tmp_path, gateway)
+    monkeypatch.setenv(
+        "FOREXAI_CONTROL_PLANE_HMAC_SECRET",
+        CONTROL_PLANE_SECRET,
+    )
+    monkeypatch.setenv(
+        "FOREXAI_CONTROL_PLANE_KEY_ID",
+        "forexai-control-plane-v1",
+    )
+    adapter = MT5ExecutionAdapter.from_environment(ledger, firewall, gateway)
+    result = adapter.submit(
+        authenticated_envelope=authenticated_envelope,
+        request=request,
+        now_utc="2026-10-02T18:03:01+00:00",
+        event_id="submit-env",
+        idempotency_key="submit-env",
+    )
+    assert result.status == "ACCEPTED"
+    assert gateway.calls == 1
+    assert os.environ["FOREXAI_CONTROL_PLANE_HMAC_SECRET"] == CONTROL_PLANE_SECRET
 
 
 def test_missing_control_plane_auth_never_reaches_broker(tmp_path: Path):
