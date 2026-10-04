@@ -50,7 +50,7 @@ def test_partial_never_becomes_success():
 
 def test_pending_uses_active_order():
     mt5 = FakeMT5(
-        [SimpleNamespace(ticket=123, symbol="EURUSD", state=0)],
+        [SimpleNamespace(ticket=123, symbol="EURUSD", type=0, state=0)],
         [],
         [SimpleNamespace(ticket=123, symbol="EURUSD", type=0)],
     )
