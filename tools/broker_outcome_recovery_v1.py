@@ -50,7 +50,7 @@ def resolve_broker_outcome(
         )
     submission_events = [
         e for e in ledger.events
-        if e.trade_id == trade_id and e.event_type == "ORDER_SUBMITTED"
+        if e.trade_id == trade_id and e.state == "ORDER_SUBMITTED"
     ]
     if len(submission_events) != 1:
         raise BrokerOutcomeRecoveryError(
