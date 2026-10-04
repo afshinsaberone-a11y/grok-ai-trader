@@ -33,7 +33,7 @@ All must be true before any Demo execution attempt:
 8. MT5 account mode is DEMO.
 9. live_enabled remains false.
 10. No unresolved broker outcome exists.
-11. The exact EA source is ea/GRK_Hybrid_Regime_EA.mq5 from the tested commit.
+11. The exact frozen G13 candidate source/binary must come from the same verified Compile + Signal Parity package used for this candidate. Do not substitute ea/GRK_Hybrid_Regime_EA.mq5; that file is a different Hybrid-Regime EA and is not the frozen G13 RSI-Divergence candidate.
 
 ## MT5 operator setup
 
@@ -105,7 +105,7 @@ Deterministic replay must end with the target trade in CLOSED with no unresolved
 
 Build the final package only with tools/assemble_demo_evidence_v1.py.
 
-The assembler must receive independent receipts from:
+The final G13 evidence assembly must bind the exact generated candidate source/binary (not the root Hybrid-Regime EA) and receive independent receipts from:
 - Demo submission;
 - terminal preflight;
 - read-only broker observation;
@@ -136,3 +136,14 @@ No retry is permitted for an unknown broker outcome. Recovery must use authorita
 A Demo execution proves operational execution evidence only. It does not prove profitability, production readiness, statistical validity, or Live authorization.
 
 Live remains locked until a separate Promotion Review explicitly passes every required gate.
+
+
+## G13 identity rule
+
+For this audit, candidate identity is defined by the frozen handoff tuple:
+
+`candidate_id + config_hash + exact compiled MQ5/EX5 package`.
+
+Trade identity is separately defined by the operator-supplied `trade_id`. The Collector records that `trade_id` in its context and report, then binds it to exactly one new `ORDER_ATTEMPT` and the independently observed broker order/deal IDs.
+
+The Demo Collector is not a substitute for the Runtime Evidence Gate. A complete post-trade package still requires the same `trade_id` to be represented through the authoritative TradeLedger lifecycle and the independent broker reconciliation/replay chain before Demo Evidence Assembly can PASS.
