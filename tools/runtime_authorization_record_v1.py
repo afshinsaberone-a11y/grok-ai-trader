@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from tools.capital_firewall_v1 import AuthorizationError
+from tools.runtime_authorization_auth_v1 import verify_authenticated_envelope_current
 from tools.runtime_authorization_envelope_v1 import (
     ENVELOPE_SCHEMA,
     REQUIRED_PROOF_FIELDS,
-    verify_runtime_envelope_current,
 )
 
 RECORD_PREFIX = "FOREXAI-AUTH-V1"
@@ -91,16 +91,31 @@ MAX_RECORD_AGE_SECONDS = 10
 
 def build_mql5_authorization_record(
     firewall: Any,
-    envelope: Mapping[str, Any],
+    authenticated_envelope: Mapping[str, Any],
     *,
+    control_plane_secret: str | bytes,
     now_utc: str,
     expected_trade_id: str | None = None,
+    expected_key_id: str = "forexai-control-plane-v1",
 ) -> dict[str, str]:
-    verify_runtime_envelope_current(
-        firewall,
-        envelope,
-        now_utc=now_utc,
-    )
+    try:
+        verify_authenticated_envelope_current(
+            firewall,
+            authenticated_envelope,
+            secret=control_plane_secret,
+            now_utc=now_utc,
+            expected_trade_id=expected_trade_id,
+            expected_key_id=expected_key_id,
+        )
+    except AuthorizationError:
+        raise
+    except Exception as exc:
+        raise AuthorizationError(
+            f"MQL5_AUTH_RECORD_CONTROL_PLANE_VERIFICATION_FAILED:{type(exc).__name__}"
+        ) from exc
+    envelope = authenticated_envelope.get("envelope")
+    if not isinstance(envelope, Mapping):
+        raise AuthorizationError("MQL5_AUTH_RECORD_ENVELOPE_INVALID")
     if expected_trade_id is not None and envelope.get("trade_id") != expected_trade_id:
         raise AuthorizationError("MQL5_AUTH_RECORD_TRADE_ID_MISMATCH")
 
