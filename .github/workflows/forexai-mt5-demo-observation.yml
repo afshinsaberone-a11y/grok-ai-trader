@@ -17,9 +17,7 @@ on:
         required: true
         default: "BUY"
         type: choice
-        options:
-          - BUY
-          - SELL
+        options: [BUY, SELL]
       requested_volume:
         description: "Original requested volume"
         required: true
@@ -41,27 +39,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install MT5 package
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-mt5.txt
-
-      - name: Read-only broker observation
+      - name: Execute read-only broker observation
         shell: pwsh
         run: |
-          python -c "import tools.mt5_broker_observation_v1 as m; print('MT5_OBSERVER_IMPORT_OK')"
-
-      - name: Explicit no-submission guard
+          New-Item -ItemType Directory -Force -Path artifacts/mt5-demo-observation | Out-Null
+          python tools/mt5_demo_observe_v1.py --symbol "${{ inputs.symbol }}" --broker-order-id "${{ inputs.broker_order_id }}" --side "${{ inputs.side }}" --requested-volume "${{ inputs.requested_volume }}" --trade-id "${{ inputs.trade_id }}" --output "artifacts/mt5-demo-observation/${{ inputs.trade_id }}.json"
+      - name: Enforce no-submission invariant
         shell: pwsh
         run: |
+          $p = "artifacts/mt5-demo-observation/${{ inputs.trade_id }}.json"
+          $j = Get-Content $p -Raw | ConvertFrom-Json
+          if ($j.account_mode -ne "DEMO") { throw "ACCOUNT_MODE_NOT_DEMO" }
+          if ($j.order_submission_performed -ne $false) { throw "ORDER_SUBMISSION_INVARIANT_FAILED" }
+          if ($j.retry_performed -ne $false) { throw "RETRY_INVARIANT_FAILED" }
+          if ($j.capital_authority_granted -ne $false) { throw "CAPITAL_AUTHORITY_INVARIANT_FAILED" }
           Write-Output "MODE=READ_ONLY"
           Write-Output "ORDER_SUBMISSION_ALLOWED=false"
           Write-Output "RETRY_ALLOWED=false"
           Write-Output "CAPITAL_AUTHORITY_GRANT_ALLOWED=false"
+      - name: Upload observation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-mt5-demo-observation-${{ inputs.trade_id }}
+          path: artifacts/mt5-demo-observation/${{ inputs.trade_id }}.json
+          if-no-files-found: error
