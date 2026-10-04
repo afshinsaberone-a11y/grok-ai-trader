@@ -492,10 +492,10 @@ class CapitalFirewall:
         auth = self._authorization(trade_id, authorization_id)
         if auth.status != "REVOKED":
             raise ReservationError("PRE_EXECUTION_RELEASE_REQUIRES_REVOKED_AUTHORIZATION")
-        if self.ledger.state_of(trade_id) != "AUTHORIZED":
-            raise ReservationError("PRE_EXECUTION_RELEASE_REQUIRES_AUTHORIZED_STATE")
         if self._events(trade_id, "ORDER_SUBMITTED"):
             raise ReservationError("PRE_EXECUTION_RELEASE_FORBIDDEN_AFTER_ORDER_SUBMISSION")
+        if self.ledger.state_of(trade_id) != "AUTHORIZED":
+            raise ReservationError("PRE_EXECUTION_RELEASE_REQUIRES_AUTHORIZED_STATE")
         reservations = [
             event for event in self._events(trade_id, "CAPITAL_RESERVATION_CREATED")
             if event.payload.get("reservation_id") == reservation_id
