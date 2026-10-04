@@ -1,0 +1,51 @@
+name: ForexAI MT5 Terminal Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Broker symbol to inspect"
+        required: true
+        default: "EURUSD"
+        type: string
+      mt5_root:
+        description: "Optional MT5 terminal executable path"
+        required: false
+        default: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 10
+    env:
+      MT5_ROOT: ${{ inputs.mt5_root }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MT5 package
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-mt5.txt
+
+      - name: Verify terminal executable
+        shell: pwsh
+        run: |
+          if (!(Test-Path "$env:MT5_ROOT")) {
+            Write-Error "MT5_PREFLIGHT_TERMINAL_PATH_NOT_FOUND"
+          }
+
+      - name: Run read-only terminal preflight
+        shell: pwsh
+        run: |
+          python tools/mt5_terminal_preflight_v1.py --symbol "${{ inputs.symbol }}" --path "$env:MT5_ROOT"
