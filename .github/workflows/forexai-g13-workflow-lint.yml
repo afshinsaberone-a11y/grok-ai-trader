@@ -139,7 +139,7 @@ jobs:
           bs = chr(92)
           required = [
               '"' + bs + '"side' + bs + '":' + bs + '"SELL' + bs + '"',
-              '"' + bs + '"retcode' + bs + '":%u',
+              bs + '"retcode' + bs + '":%u',
               '"' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"',
               'StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");',
               'StringReplace(value,"' + bs + '"","' + bs + bs + bs + '"");',
