@@ -81,19 +81,42 @@ def _wait_for_candidate(
     path: Path,
     *,
     candidate_id: int,
+    baseline_rows: int,
     timeout_seconds: int,
     poll_seconds: float,
-) -> list[dict[str, str]]:
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() <= deadline:
         if path.is_file():
             rows = _read_rows(path)
-            matches = [r for r in rows if r.get("candidate_id") == str(candidate_id)]
-            if any(r.get("event") == "ORDER_ATTEMPT" for r in matches):
-                return rows
+            if len(rows) > baseline_rows:
+                new_rows = rows[baseline_rows:]
+                matches = [r for r in new_rows if r.get("candidate_id") == str(candidate_id)]
+                attempts = [r for r in matches if r.get("event") == "ORDER_ATTEMPT"]
+                if len(attempts) > 1:
+                    raise MT5GatewayError("DEMO_COLLECTOR_MULTIPLE_ORDER_ATTEMPTS")
+                if attempts:
+                    row = attempts[0]
+                    try:
+                        retcode = int(row["retcode"])
+                        order_id = int(row["order"])
+                        deal_id = int(row["deal"])
+                        requested = float(row["requested_volume"])
+                        executed = float(row["executed_volume"])
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise MT5GatewayError("DEMO_COLLECTOR_ORDER_ATTEMPT_MALFORMED") from exc
+                    if row.get("side") != "SELL":
+                        raise MT5GatewayError("DEMO_COLLECTOR_ORDER_SIDE_NOT_SELL")
+                    if retcode != 10009:
+                        raise MT5GatewayError(f"DEMO_COLLECTOR_BROKER_NOT_DONE:{retcode}")
+                    if order_id <= 0 or deal_id <= 0:
+                        raise MT5GatewayError("DEMO_COLLECTOR_MISSING_ORDER_OR_DEAL")
+                    if requested <= 0.0 or executed <= 0.0 or abs(executed - requested) > 1e-9:
+                        raise MT5GatewayError("DEMO_COLLECTOR_NOT_FULL_FILL")
+                    return rows, new_rows
         time.sleep(max(0.2, poll_seconds))
     raise MT5GatewayError(
-        f"DEMO_COLLECTOR_NO_ORDER_ATTEMPT:{candidate_id}:timeout={timeout_seconds}s"
+        f"DEMO_COLLECTOR_NO_ACCEPTED_FULL_FILL:{candidate_id}:timeout={timeout_seconds}s"
     )
 
 
@@ -151,6 +174,7 @@ def main() -> int:
     ap.add_argument("--confirmation", required=True)
     ap.add_argument("--timeout-seconds", type=int, default=900)
     ap.add_argument("--poll-seconds", type=float, default=2.0)
+    ap.add_argument("--evidence-csv-out", type=Path, required=True)
     args = ap.parse_args()
 
     if args.confirmation != CONFIRMATION:
@@ -167,12 +191,22 @@ def main() -> int:
         common_files = _common_files_path(mt5)
         kill_switch = _kill_switch_state(common_files)
         audit_path = args.audit_csv or (common_files / AUDIT_NAME)
-        rows = _wait_for_candidate(
+        baseline_rows = len(_read_rows(audit_path)) if audit_path.is_file() else 0
+        rows, new_rows = _wait_for_candidate(
             audit_path,
             candidate_id=args.candidate_id,
+            baseline_rows=baseline_rows,
             timeout_seconds=args.timeout_seconds,
             poll_seconds=args.poll_seconds,
         )
+        args.evidence_csv_out.parent.mkdir(parents=True, exist_ok=True)
+        if not new_rows:
+            raise MT5GatewayError("DEMO_COLLECTOR_NO_NEW_EVIDENCE_ROWS")
+        fieldnames = list(new_rows[0].keys())
+        with args.evidence_csv_out.open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(new_rows)
         context = build_context(
             mt5_snapshot=snapshot,
             candidate_id=args.candidate_id,
@@ -191,8 +225,10 @@ def main() -> int:
             "timeframe": "M15",
             "candidate_id": args.candidate_id,
             "audit_path": str(audit_path),
-            "rows_collected": len(rows),
+            "rows_collected": len(new_rows),
+            "baseline_rows": baseline_rows,
             "order_attempt_detected": True,
+            "accepted_full_fill": True,
             "collector_policy": context["collector_policy"],
             "notes": [
                 "Collector is read-only with respect to trade execution.",
