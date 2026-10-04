@@ -17,6 +17,7 @@ def _bundle():
             "order_submission_performed": True,
             "execution_status": "ACCEPTED",
             "full_fill": True,
+            "live_enabled": False,
             "broker_order_id": "7001",
             "broker_deal_id": "5001",
             "timeframe": "M15",
