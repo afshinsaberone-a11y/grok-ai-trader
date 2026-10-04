@@ -39,6 +39,13 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["retcode_verified"] = "trade.ResultRetcode()" in source and "TRADE_RETCODE_DONE" in source
     checks["deal_ticket_verified"] = "trade.ResultDeal()" in source
     checks["order_ticket_verified"] = "trade.ResultOrder()" in source
+    checks["partial_fill_not_accepted_as_success"] = (
+        "TRADE_RETCODE_DONE_PARTIAL" in source
+        and "return (rc == TRADE_RETCODE_DONE) && deal > 0;" in source
+    )
+    checks["consumption_failure_blocks_new_orders"] = (
+        "if(!MarkRuntimeAuthorizationConsumed(trace_trade_id))" in source
+    )
     checks["failed_submission_not_counted"] = all((
         re.search(r"bool\s+submitted\s*=\s*trade\.(?:Buy|Sell)\(", source),
         re.search(r"if\(!submitted\)\s*\{[\s\S]*?return\s+false;\s*\}", source),
