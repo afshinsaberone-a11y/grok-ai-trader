@@ -91,6 +91,36 @@ jobs:
           if ($env:G13_AUDIT_CSV -ne '') { $args += @('--audit-csv', $env:G13_AUDIT_CSV) }
           python tools/g13_demo_execution_collector_v1.py @args
 
+      - name: Verify pre-issued Capital Firewall authorization
+        shell: pwsh
+        run: |
+          $common = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
+          $auth = Join-Path $common ("ForexAI_Authorization_{0}_EURUSD.auth" -f (130000 + [int]$env:G13_CANDIDATE_ID))
+          if (!(Test-Path $auth)) { throw 'G13_DEMO_AUTHORIZATION_RECORD_MISSING' }
+          $pythonCheck = @'
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from tools.runtime_authorization_record_v1 import parse_mql5_authorization_record
+          candidate = int(os.environ["G13_CANDIDATE_ID"])
+          trade_id = os.environ["G13_TRADE_ID"]
+          common = Path(os.environ["APPDATA"]) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+          path = common / f"ForexAI_Authorization_{130000 + candidate}_EURUSD.auth"
+          record = parse_mql5_authorization_record(
+              path.read_text(encoding="utf-8"),
+              now_utc=datetime.now(timezone.utc).isoformat(),
+              expected_trade_id=trade_id,
+          )
+          print("G13_AUTHORIZATION_RECORD_VALID")
+          print({
+              "trade_id": record["trade_id"],
+              "authorization_id": record["authorization_id"],
+              "reservation_id": record["reservation_id"],
+              "expires_at_utc": record["expires_at_utc"],
+          })
+          '@
+          $pythonCheck | python
+
       - name: Bind collector evidence to exact candidate and trade
         shell: pwsh
         run: |
