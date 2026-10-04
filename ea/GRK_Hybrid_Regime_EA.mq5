@@ -831,8 +831,8 @@ void TracePartialExecution(const string trade_id, const double requested_volume)
       trade_id,
       "PARTIAL",
       StringFormat(
-          ""retcode":%u,"order_ticket":"%I64d","deal_ticket":"%I64d","
-          ""requested_volume":%.8f,"filled_volume":%.8f",
+          "\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",
+          "\"requested_volume\":%.8f,\"filled_volume\":%.8f",
           trade.ResultRetcode(),
           (long)trade.ResultOrder(),
           (long)trade.ResultDeal(),
@@ -878,7 +878,7 @@ bool SendBuy(double sl, double tp, const string cmt)
           trace_trade_id,
           "BROKER_OUTCOME_UNKNOWN",
           StringFormat(
-              ""retcode":%u,"order_ticket":"%I64d","deal_ticket":"%I64d","requested_volume":%.8f",
+              "\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",\"requested_volume\":%.8f",
               trade.ResultRetcode(),
               (long)trade.ResultOrder(),
               (long)trade.ResultDeal(),
@@ -932,7 +932,7 @@ bool SendSell(double sl, double tp, const string cmt)
           trace_trade_id,
           "BROKER_OUTCOME_UNKNOWN",
           StringFormat(
-              ""retcode":%u,"order_ticket":"%I64d","deal_ticket":"%I64d","requested_volume":%.8f",
+              "\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",\"requested_volume\":%.8f",
               trade.ResultRetcode(),
               (long)trade.ResultOrder(),
               (long)trade.ResultDeal(),
