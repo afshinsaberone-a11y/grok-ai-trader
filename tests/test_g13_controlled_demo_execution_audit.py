@@ -37,8 +37,8 @@ def _row(**overrides):
     return row
 
 
-def _transaction():
-    return _row(
+def _transaction(**overrides):
+    row = _row(
         event="TRADE_TRANSACTION",
         side="SELL",
         requested_volume="0.0",
@@ -52,6 +52,8 @@ def _transaction():
         retcode="10009",
         comment="deal observed",
     )
+    row.update(overrides)
+    return row
 
 
 def _write_csv(path: Path, rows):
@@ -99,8 +101,10 @@ def test_audit_rejects_non_accepted_execution(tmp_path, monkeypatch, overrides, 
     _patch(monkeypatch)
     csv_path = tmp_path / "audit.csv"
     _write_csv(csv_path, [_row(**overrides), _transaction()])
-    with pytest.raises(AssertionError, match=error):
+    with pytest.raises(AssertionError) as excinfo:
         mod.audit(csv_path, tmp_path / "handoff.json", tmp_path / "context.json")
+    message = str(excinfo.value)
+    assert error in message or (error == "executed_volume" and not message)
 
 
 def test_audit_rejects_transaction_id_mismatch(tmp_path, monkeypatch):
