@@ -10,7 +10,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from tools.dropbox_oauth import get_access_token
+try:
+    from .dropbox_oauth import get_access_token
+except ImportError:  # direct script execution from tools/
+    from dropbox_oauth import get_access_token
 
 API_URL = "https://api.dropboxapi.com/2"
 ROOT = "/ForexAI"
