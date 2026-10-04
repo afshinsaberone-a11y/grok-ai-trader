@@ -362,3 +362,35 @@ def test_gateway_rejects_nonfinite_market_price_before_order_check():
             admission=_admission(_admission_request()),
         )
     assert mt5.order_send_calls == 0
+
+
+def test_real_allowed_policy_is_removed_from_p0_gateway():
+    mt5 = FakeMT5(send_result=_accepted())
+    gateway = MT5TerminalGateway(
+        MT5GatewayConfig(
+            account_mode="REAL_ALLOWED",
+            control_plane_secret=CONTROL_PLANE_SECRET,
+        ),
+        mt5_module=mt5,
+    )
+    with pytest.raises(MT5GatewayError, match="MT5_LIVE_TRADING_BLOCKED_BY_P0_POLICY"):
+        gateway.submit_authorized_order(
+            request=_admission_request(),
+            admission=_admission(_admission_request()),
+        )
+    assert mt5.order_send_calls == 0
+
+
+def test_gateway_contract_prohibits_p0_live_trading():
+    import json
+    from pathlib import Path
+
+    contract = json.loads(
+        (Path(__file__).resolve().parents[1] / "config/forexai_mt5_terminal_gateway_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    policy = contract["account_policy"]
+    assert policy["default_mode"] == "DEMO_ONLY"
+    assert policy["live_trading_permitted_in_p0"] is False
+    assert policy["real_account_requires_external_confirmation_env"] is None
