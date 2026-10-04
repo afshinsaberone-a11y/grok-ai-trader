@@ -693,8 +693,11 @@ void OnTick()
    if(risk < (double)stopsLevel*_Point) return;
    if(RR<=0.0) return;
    string trace_trade_id=BuildTraceTradeId(iTime(_Symbol,PERIOD_M15,1));
-   if(!VerifyRuntimeAuthorization(trace_trade_id,false)) return;
-   if(!BeginRuntimeAuthorizationAttempt(trace_trade_id)) return;
+   if(!(bool)MQLInfoInteger(MQL_TESTER))
+   {{
+      if(!VerifyRuntimeAuthorization(trace_trade_id,false)) return;
+      if(!BeginRuntimeAuthorizationAttempt(trace_trade_id)) return;
+   }}
    // Runtime authorization caps risk independently from the EA input.
    if(runtime_reserved_risk<=0.0) return;
    double authorized_risk_percent=MathMin(RiskPercent/100.0,runtime_reserved_risk);
@@ -711,11 +714,12 @@ void OnTick()
    if(broker_lots<minLot) return;
    lots=MathMin(lots,broker_lots);
    if(lots<=0.0) return;
-   TraceLifecycle(
-      trace_trade_id,"ORDER_SUBMITTED",
-      StringFormat(""side":"SELL","requested_volume":%.8f,"requested_price":%.10f,"requested_sl":%.10f,"requested_tp":%.10f,"order_ticket":"0"",
-                   lots,entry,sl,tp)
-   );
+   if(!(bool)MQLInfoInteger(MQL_TESTER))
+      TraceLifecycle(
+         trace_trade_id,"ORDER_SUBMITTED",
+         StringFormat("\"side\":\"SELL\",\"requested_volume\":%.8f,\"requested_price\":%.10f,\"requested_sl\":%.10f,\"requested_tp\":%.10f,\"order_ticket\":\"0\"",
+                      lots,entry,sl,tp)
+      );
    double spreadPoints=(ask-bid)/_Point;
    ulong started=GetTickCount64();
    bool accepted=trade.Sell(lots,_Symbol,entry,sl,tp,"ForexAI-G13-{cid:02d}");
@@ -732,7 +736,7 @@ void OnTick()
    {{
       TraceRecord(
          trace_trade_id,"BROKER_OUTCOME_UNKNOWN","ORDER_SUBMITTED",
-         StringFormat(""retcode":%u,"order_ticket":"%I64d","deal_ticket":"%I64d","requested_volume":%.8f",
+         StringFormat("\"retcode\":%u,\"order_ticket\":\"%I64d\",\"deal_ticket\":\"%I64d\",\"requested_volume\":%.8f",
                       trade.ResultRetcode(),(long)trade.ResultOrder(),(long)trade.ResultDeal(),lots)
       );
       runtime_authorization_healthy=false;
@@ -749,8 +753,11 @@ void OnTick()
       runtime_authorization_healthy=false;
       return;
    }}
-   TraceSuccessfulEntry(trace_trade_id,lots,sl,tp);
-   if(!MarkRuntimeAuthorizationConsumed(trace_trade_id)) return;
+   if(!(bool)MQLInfoInteger(MQL_TESTER))
+   {{
+      TraceSuccessfulEntry(trace_trade_id,lots,sl,tp);
+      if(!MarkRuntimeAuthorizationConsumed(trace_trade_id)) return;
+   }}
 }}
 //+------------------------------------------------------------------+
 '''
