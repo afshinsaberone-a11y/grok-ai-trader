@@ -28,12 +28,14 @@ def test_context_is_demo_only():
     payload = build_context(
         mt5_snapshot=_snap(),
         candidate_id=2,
+        trade_id="G13-M15-DEMO-001",
         confirmation=CONFIRMATION,
         kill_switch="ALLOW",
         terminal_path="C:/MT5/terminal64.exe",
         audit_path=Path("g13_demo_execution_audit.csv"),
     )
     assert payload["schema"] == CONTEXT_SCHEMA
+    assert payload["trade_id"] == "G13-M15-DEMO-001"
     assert payload["account_mode"] == "DEMO"
     assert payload["live_enabled"] is False
     assert payload["explicit_demo_authorization"] is True
@@ -48,6 +50,7 @@ def test_wrong_confirmation_rejected():
         build_context(
             mt5_snapshot=_snap(),
             candidate_id=2,
+            trade_id="G13-M15-DEMO-001",
             confirmation="NOPE",
             kill_switch="ALLOW",
             terminal_path=None,
@@ -60,6 +63,7 @@ def test_non_allow_kill_switch_rejected():
         build_context(
             mt5_snapshot=_snap(),
             candidate_id=2,
+            trade_id="G13-M15-DEMO-001",
             confirmation=CONFIRMATION,
             kill_switch="BLOCK",
             terminal_path=None,
@@ -74,6 +78,7 @@ def test_non_demo_context_rejected():
         build_context(
             mt5_snapshot=snap,
             candidate_id=2,
+            trade_id="G13-M15-DEMO-001",
             confirmation=CONFIRMATION,
             kill_switch="ALLOW",
             terminal_path=None,
@@ -115,4 +120,16 @@ def test_wait_rejects_partial_fill(tmp_path):
             baseline_rows=0,
             timeout_seconds=1,
             poll_seconds=0.01,
+        )
+
+def test_invalid_trade_id_rejected():
+    with pytest.raises(Exception, match="TRADE_ID_INVALID"):
+        build_context(
+            mt5_snapshot=_snap(),
+            candidate_id=2,
+            trade_id="G13/DEMO/001",
+            confirmation=CONFIRMATION,
+            kill_switch="ALLOW",
+            terminal_path=None,
+            audit_path=Path("audit.csv"),
         )
