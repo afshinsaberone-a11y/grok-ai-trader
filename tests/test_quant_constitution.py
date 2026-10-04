@@ -139,3 +139,13 @@ def test_constitution_requires_safe_pre_execution_reservation_release_boundary()
     value["invariants"] = [item for item in value["invariants"] if item != invariant]
     with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
         validate(value)
+
+
+def test_constitution_requires_p0_live_trading_disabled():
+    value = load(CONSTITUTION)
+    value["invariants"] = [
+        item for item in value["invariants"]
+        if item != "live_trading_activation_in_p0 == false"
+    ]
+    with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
+        validate(value)
