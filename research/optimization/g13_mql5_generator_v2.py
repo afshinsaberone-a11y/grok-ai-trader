@@ -248,6 +248,7 @@ string TraceJsonEscape(string value)
 
 void TraceRecord(const string trade_id,const string event_type,const string state,const string payload_fields)
 {{
+   if((bool)MQLInfoInteger(MQL_TESTER)) return;
    if(StringLen(trade_id)==0 || StringLen(event_type)==0 || StringLen(state)==0)
       return;
 
