@@ -7,6 +7,7 @@ are already independently PASS and whose broker lifecycle is reconciled.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -45,7 +46,7 @@ REQUIRED = {
 }
 
 
-def validate_demo_evidence(payload: dict[str, Any]) -> dict[str, Any]:
+def validate_demo_evidence(payload: dict[str, Any], *, ea_source_path: Path | None = None) -> dict[str, Any]:
     missing = sorted(REQUIRED - set(payload))
     if missing:
         raise DemoEvidenceError("DEMO_EVIDENCE_REQUIRED_FIELD_MISSING:" + ",".join(missing))
@@ -97,6 +98,13 @@ def validate_demo_evidence(payload: dict[str, Any]) -> dict[str, Any]:
 
     if not isinstance(payload["ea_source_sha256"], str) or not re.fullmatch(r"^[0-9a-fA-F]{64}$", payload["ea_source_sha256"]):
         raise DemoEvidenceError("DEMO_EVIDENCE_EA_SOURCE_SHA256_INVALID")
+    if ea_source_path is not None:
+        try:
+            actual_sha256 = hashlib.sha256(ea_source_path.read_bytes()).hexdigest()
+        except (OSError, ValueError) as exc:
+            raise DemoEvidenceError("DEMO_EVIDENCE_EA_SOURCE_UNREADABLE") from exc
+        if actual_sha256.lower() != payload["ea_source_sha256"].lower():
+            raise DemoEvidenceError("DEMO_EVIDENCE_EA_SOURCE_HASH_MISMATCH")
 
     for field, error in (
         ("strategy_id", "DEMO_EVIDENCE_STRATEGY_ID_MISSING"),
@@ -125,13 +133,14 @@ def validate_demo_evidence(payload: dict[str, Any]) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("path", type=Path)
+    parser.add_argument("--ea-source", type=Path, default=None)
     args = parser.parse_args()
 
     try:
         payload = json.loads(args.path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise DemoEvidenceError("DEMO_EVIDENCE_ROOT_MUST_BE_OBJECT")
-        result = validate_demo_evidence(payload)
+        result = validate_demo_evidence(payload, ea_source_path=args.ea_source)
     except (OSError, json.JSONDecodeError, DemoEvidenceError) as exc:
         print(f"DEMO_EVIDENCE_FAIL_CLOSED:{exc}")
         return 2
