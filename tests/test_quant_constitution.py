@@ -131,3 +131,11 @@ def test_constitution_requires_broker_submission_safety_invariants():
     ]
     with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
         validate(value)
+
+
+def test_constitution_requires_safe_pre_execution_reservation_release_boundary():
+    value = load(CONSTITUTION)
+    invariant = "pre_execution_reservation_release_requires_revocation_and_no_order_submission == true"
+    value["invariants"] = [item for item in value["invariants"] if item != invariant]
+    with pytest.raises(ConstitutionError, match="CONSTITUTION_REQUIRED_INVARIANTS_MISSING"):
+        validate(value)
