@@ -1,0 +1,29 @@
+name: ForexAI MT5 Broker Observation Contract
+
+on:
+  pull_request:
+    paths:
+      - "tools/mt5_broker_observation_v1.py"
+      - "tests/test_mt5_broker_observation_v1.py"
+      - ".github/workflows/forexai-mt5-broker-observation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run broker observation contract
+        run: |
+          python -m pytest -q tests/test_mt5_broker_observation_v1.py
