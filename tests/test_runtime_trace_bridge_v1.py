@@ -110,6 +110,46 @@ def test_mql5_trace_is_ingested_but_has_no_authority(tmp_path: Path):
     assert ledger.state_of("T1") == "CLOSED"
 
 
+def _outcome_record(event_type: str, index: int):
+    row = _record("ORDER_SUBMITTED", index)
+    row["event_id"] = f"OUTCOME-{index}"
+    row["event_type"] = event_type
+    row["idempotency_key"] = f"OUTCOME-K{index}"
+    row["payload"].update({
+        "retcode": 10010,
+        "order_ticket": "O1",
+        "deal_ticket": "D1",
+        "requested_volume": 1,
+    })
+    if event_type == "BROKER_PARTIAL_EXECUTION_OBSERVED":
+        row["payload"]["filled_volume"] = 0.4
+    return row
+
+
+def test_broker_outcome_observation_is_ingested_without_advancing_trade_state(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(
+        json.dumps(_record("ORDER_SUBMITTED", 1)) + "\n" +
+        json.dumps(_outcome_record("BROKER_OUTCOME_UNKNOWN", 2)) + "\n",
+        encoding="utf-8",
+    )
+    ledger = _authorized_ledger(tmp_path / "ledger.jsonl")
+    result = ingest_trace_file(trace, ledger)
+    assert result["status"] == "PASS"
+    assert ledger.state_of("T1") == "ORDER_SUBMITTED"
+    assert ledger.risk_blocked is True
+    assert any(e.event_type == "BROKER_OUTCOME_UNKNOWN" and e.state is None for e in ledger.events)
+
+
+def test_partial_observation_requires_order_submitted_context(tmp_path: Path):
+    trace = tmp_path / "trace.jsonl"
+    row = _outcome_record("BROKER_PARTIAL_EXECUTION_OBSERVED", 2)
+    trace.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    ledger = _authorized_ledger(tmp_path / "ledger.jsonl")
+    with pytest.raises(RuntimeTraceError, match="OUTCOME_OBSERVATION_TRANSITION_INVALID"):
+        ingest_trace_file(trace, ledger)
+
+
 def test_invalid_source_fails_closed(tmp_path: Path):
     trace = tmp_path / "trace.jsonl"
     row = _record("PROPOSED", 1)
