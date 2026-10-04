@@ -41,7 +41,7 @@ class SubmissionResult:
     authorization_id: str
     reservation_id: str
     request_hash: str
-    broker_order_id: str
+    broker_order_id: str | None
     broker_deal_id: str | None
 
 
@@ -52,6 +52,13 @@ _REQUIRED_BROKER_RESPONSE = {
     "side",
     "volume",
     "broker_order_id",
+    "broker_deal_id",
+    "broker_retcode",
+}
+_ALLOWED_BROKER_RESPONSE_FIELDS = _REQUIRED_BROKER_RESPONSE | {
+    "broker_reason",
+    "filled_volume",
+    "remaining_volume",
 }
 
 
@@ -132,15 +139,39 @@ class MT5ExecutionAdapter:
                 admission=admission,
             )
         except Exception as exc:
+            try:
+                self.ledger.append(
+                    trade_id=trade_id,
+                    state=None,
+                    event_type="BROKER_OUTCOME_UNKNOWN",
+                    payload={
+                        **submission_payload,
+                        "error_type": type(exc).__name__,
+                    },
+                    idempotency_key=idempotency_key + ":unknown",
+                    event_id=event_id + ":unknown",
+                    timestamp_utc=now_utc,
+                )
+            except Exception as journal_exc:
+                raise MT5ExecutionAdapterError(
+                    "MT5_ADAPTER_BROKER_OUTCOME_UNKNOWN_AND_JOURNAL_FAILED"
+                ) from journal_exc
             raise MT5ExecutionAdapterError(
                 "MT5_ADAPTER_BROKER_OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED"
             ) from exc
 
-        if set(response) != _REQUIRED_BROKER_RESPONSE | {"broker_deal_id"}:
-            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_RESPONSE_FIELDS_MISMATCH")
+        if not isinstance(response, Mapping):
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_RESPONSE_NOT_MAPPING")
+        response_fields = set(response)
+        if not _REQUIRED_BROKER_RESPONSE <= response_fields:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_RESPONSE_FIELDS_MISSING")
+        if not response_fields <= _ALLOWED_BROKER_RESPONSE_FIELDS:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_RESPONSE_FIELDS_UNKNOWN")
 
-        if response["status"] != "ACCEPTED":
-            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_ORDER_NOT_ACCEPTED")
+        status = response["status"]
+        if status not in {"ACCEPTED", "REJECTED", "PARTIAL"}:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_STATUS_INVALID")
+
         for field in ("symbol", "timeframe", "side"):
             if response[field] != admission[field]:
                 raise MT5ExecutionAdapterError(
@@ -149,19 +180,103 @@ class MT5ExecutionAdapter:
         if response["volume"] != admission["volume"]:
             raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_VOLUME_MISMATCH")
 
-        broker_order_id = _require_nonempty_string(
-            response["broker_order_id"], "broker_order_id"
-        )
+        broker_order_id = response["broker_order_id"]
+        if broker_order_id is not None:
+            broker_order_id = _require_nonempty_string(broker_order_id, "broker_order_id")
         broker_deal_id = response["broker_deal_id"]
         if broker_deal_id is not None:
-            broker_deal_id = _require_nonempty_string(
-                broker_deal_id, "broker_deal_id"
+            broker_deal_id = _require_nonempty_string(broker_deal_id, "broker_deal_id")
+        broker_retcode = _require_nonempty_string(response["broker_retcode"], "broker_retcode")
+
+        requested_volume = float(admission["volume"])
+        try:
+            filled_volume = float(response.get("filled_volume", 0.0))
+            remaining_volume = float(
+                response.get("remaining_volume", max(0.0, requested_volume - filled_volume))
             )
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_FILL_VOLUME_INVALID") from exc
+        if filled_volume < 0 or remaining_volume < 0 or filled_volume > requested_volume:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_FILL_VOLUME_INVALID")
+
+        if status == "PARTIAL":
+            if not broker_order_id or filled_volume <= 0 or filled_volume >= requested_volume or remaining_volume <= 0:
+                raise MT5ExecutionAdapterError("MT5_ADAPTER_PARTIAL_RESPONSE_INVALID")
+            try:
+                self.ledger.append(
+                    trade_id=trade_id,
+                    state=None,
+                    event_type="BROKER_PARTIAL_EXECUTION_OBSERVED",
+                    payload={
+                        **submission_payload,
+                        "broker_order_id": broker_order_id,
+                        "broker_deal_id": broker_deal_id,
+                        "broker_retcode": broker_retcode,
+                        "filled_volume": filled_volume,
+                        "remaining_volume": remaining_volume,
+                    },
+                    idempotency_key=idempotency_key + ":partial",
+                    event_id=event_id + ":partial",
+                    timestamp_utc=now_utc,
+                )
+            except Exception as exc:
+                raise MT5ExecutionAdapterError(
+                    "MT5_ADAPTER_PARTIAL_OUTCOME_JOURNAL_FAILED_RECONCILIATION_REQUIRED"
+                ) from exc
+            raise MT5ExecutionAdapterError(
+                "MT5_ADAPTER_PARTIAL_EXECUTION_RECONCILIATION_REQUIRED"
+            )
+
+        if status == "REJECTED":
+            if filled_volume != 0 or broker_deal_id is not None:
+                raise MT5ExecutionAdapterError("MT5_ADAPTER_REJECTED_RESPONSE_SHOWS_EXECUTION")
+            broker_reason = _require_nonempty_string(
+                response.get("broker_reason"), "broker_reason"
+            )
+            rejected_payload = {
+                **submission_payload,
+                "broker_order_id": broker_order_id,
+                "broker_deal_id": None,
+                "broker_retcode": broker_retcode,
+                "broker_reason": broker_reason,
+                "filled_volume": 0.0,
+                "remaining_volume": requested_volume,
+            }
+            try:
+                self.ledger.append(
+                    trade_id=trade_id,
+                    state="REJECTED",
+                    event_type="BROKER_ORDER_REJECTED",
+                    payload=rejected_payload,
+                    idempotency_key=idempotency_key + ":rejected",
+                    event_id=event_id + ":rejected",
+                    timestamp_utc=now_utc,
+                )
+            except Exception as exc:
+                raise MT5ExecutionAdapterError(
+                    "MT5_ADAPTER_REJECTION_OUTCOME_NOT_DURABLE"
+                ) from exc
+            return SubmissionResult(
+                status="REJECTED",
+                trade_id=trade_id,
+                authorization_id=authorization_id,
+                reservation_id=reservation_id,
+                request_hash=request_hash,
+                broker_order_id=broker_order_id,
+                broker_deal_id=None,
+            )
+
+        if filled_volume > requested_volume:
+            raise MT5ExecutionAdapterError("MT5_ADAPTER_BROKER_FILL_VOLUME_OVERFLOW")
 
         accepted_payload = {
             **submission_payload,
-            "broker_order_id": broker_order_id,
+            "broker_order_id": _require_nonempty_string(broker_order_id, "broker_order_id"),
             "broker_deal_id": broker_deal_id,
+            "broker_retcode": broker_retcode,
+            "filled_volume": filled_volume,
+            "remaining_volume": remaining_volume,
+            "fill_status": "FILLED" if filled_volume == requested_volume else "PENDING",
         }
         try:
             self.ledger.append(
