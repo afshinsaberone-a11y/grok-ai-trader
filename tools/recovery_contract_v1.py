@@ -18,6 +18,7 @@ RECOVERY_SCHEMA = "forexai.recovery_contract.v1"
 RECOVERABLE_STATES = {"PROPOSED", "VALIDATED", "RISK_RESERVED", "AUTHORIZED"}
 ACTIVE_RUNTIME_STATES = {
     "ORDER_SUBMITTED",
+    "REJECTED",
     "ACCEPTED",
     "FILLED",
     "OPEN",
@@ -94,6 +95,8 @@ def recover_from_ledger(path: str | Path) -> RecoveryReport:
             unresolved.add(trade_id)
         elif state in ACTIVE_RUNTIME_STATES:
             posture, action = "RUNTIME_ACTIVE", "REQUIRE_BROKER_RECONCILIATION_AND_RUNTIME_REPLAY_NO_NEW_RISK"
+            if state == "REJECTED":
+                action = "REQUIRE_BROKER_RECONCILIATION_AFTER_REJECTION_NO_NEW_RISK"
             if state != "RECONCILED":
                 unresolved.add(trade_id)
         else:
