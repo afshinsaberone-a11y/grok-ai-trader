@@ -79,3 +79,41 @@ def test_non_demo_context_rejected():
             terminal_path=None,
             audit_path=Path("audit.csv"),
         )
+
+
+def test_wait_requires_done_order_deal_and_full_fill(tmp_path):
+    from tools.g13_demo_execution_collector_v1 import _wait_for_candidate
+    path = tmp_path / "audit.csv"
+    header = "candidate_id,event,order,deal,retcode,requested_volume,executed_volume\n"
+    path.write_text(
+        header
+        + "2,ORDER_ATTEMPT,0,0,10030,0.10,0.10\n"
+        + "2,ORDER_ATTEMPT,7001,8001,10009,0.10,0.10\n",
+        encoding="utf-8",
+    )
+    rows = _wait_for_candidate(
+        path,
+        candidate_id=2,
+        timeout_seconds=1,
+        poll_seconds=0.01,
+        done_retcode=10009,
+    )
+    assert len(rows) == 2
+
+
+def test_wait_rejects_partial_fill(tmp_path):
+    from tools.g13_demo_execution_collector_v1 import _wait_for_candidate
+    path = tmp_path / "audit.csv"
+    path.write_text(
+        "candidate_id,event,order,deal,retcode,requested_volume,executed_volume\n"
+        "2,ORDER_ATTEMPT,7001,8001,10010,0.10,0.05\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(Exception, match="NO_ORDER_ATTEMPT"):
+        _wait_for_candidate(
+            path,
+            candidate_id=2,
+            timeout_seconds=1,
+            poll_seconds=0.01,
+            done_retcode=10009,
+        )
