@@ -163,7 +163,7 @@ def test_real_account_is_blocked_by_default():
     with pytest.raises(MT5GatewayError, match="REAL_ACCOUNT_BLOCKED_BY_DEMO_ONLY_POLICY"):
         gateway.submit_authorized_order(
             request=_admission_request(),
-        admission=_admission(_admission_request()),
+            admission=_admission(_admission_request()),
         )
     assert mt5.order_send_calls == 0
 
@@ -219,7 +219,10 @@ def test_done_without_deal_is_not_claimed_as_success():
     with pytest.raises(MT5GatewayError, match="MT5_DONE_WITHOUT_DEAL"):
         # The boundary should not fabricate success when the broker structure
         # itself cannot be trusted.
-        gateway.submit_authorized_order(request={}, admission=_admission())
+        gateway.submit_authorized_order(
+            request=_admission_request(),
+            admission=_admission(_admission_request()),
+        )
 
 
 def test_gateway_rejects_missing_control_plane_admission_before_mt5_io():
