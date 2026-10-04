@@ -20,6 +20,8 @@ class FakeMT5:
     TRADE_RETCODE_DONE = 10009
     TRADE_RETCODE_DONE_PARTIAL = 10010
     TRADE_RETCODE_PLACED = 10008
+    ACCOUNT_TRADE_MODE_DEMO = 0
+    ACCOUNT_TRADE_MODE_REAL = 2
 
     def __init__(self, check_retcode=0, send_result=None):
         self.check_retcode = check_retcode
@@ -36,6 +38,9 @@ class FakeMT5:
     def shutdown(self):
         self.shutdowns += 1
         self.initialized = False
+
+    def account_info(self):
+        return SimpleNamespace(login=123, server="Demo-Server", trade_mode=self.ACCOUNT_TRADE_MODE_DEMO)
 
     def symbol_info(self, symbol):
         return SimpleNamespace(
@@ -103,6 +108,22 @@ def test_real_gateway_returns_actual_broker_acceptance():
     assert mt5.sent_request["symbol"] == "EURUSD"
     assert mt5.sent_request["type"] == mt5.ORDER_TYPE_BUY
     assert mt5.shutdowns == 1
+
+
+def test_real_account_is_blocked_by_default():
+    mt5 = FakeMT5(send_result=_accepted())
+    mt5.account_info = lambda: SimpleNamespace(
+        login=123,
+        server="Real-Server",
+        trade_mode=mt5.ACCOUNT_TRADE_MODE_REAL,
+    )
+    gateway = MT5TerminalGateway(mt5_module=mt5)
+    with pytest.raises(MT5GatewayError, match="REAL_ACCOUNT_BLOCKED_BY_DEMO_ONLY_POLICY"):
+        gateway.submit_authorized_order(
+            request={},
+            admission=_admission(),
+        )
+    assert mt5.order_send_calls == 0
 
 
 def test_order_check_rejection_never_calls_order_send():
