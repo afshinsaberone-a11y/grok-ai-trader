@@ -135,6 +135,42 @@ def test_tampering_is_fail_closed(tmp_path: Path):
         TradeLedger(path)
 
 
+def test_unresolved_broker_outcome_blocks_new_risk_and_survives_reload(tmp_path: Path):
+    path = tmp_path / "ledger.jsonl"
+    ledger = TradeLedger(path)
+    for state, event_type in (
+        ("PROPOSED", "proposal"),
+        ("VALIDATED", "validation"),
+        ("RISK_RESERVED", "risk_reservation"),
+        ("AUTHORIZED", "authorization"),
+        ("ORDER_SUBMITTED", "order_submission"),
+    ):
+        ledger.append(
+            trade_id="T1",
+            state=state,
+            event_type=event_type,
+            payload={},
+            idempotency_key=f"{event_type}-key",
+            event_id=f"{event_type}-event",
+            timestamp_utc="2026-10-02T21:00:00+00:00",
+        )
+    ledger.append(
+        trade_id="T1",
+        state=None,
+        event_type="BROKER_OUTCOME_UNKNOWN",
+        payload={"error_type": "TimeoutError"},
+        idempotency_key="unknown-key",
+        event_id="unknown-event",
+        timestamp_utc="2026-10-02T21:05:00+00:00",
+    )
+
+    assert ledger.risk_blocked is True
+    reloaded = TradeLedger(path)
+    assert reloaded.risk_blocked is True
+    with pytest.raises(LedgerError, match="UNRESOLVED_RECONCILIATION_BLOCKS_NEW_RISK"):
+        reloaded.assert_no_unresolved_reconciliation()
+
+
 def test_reconciliation_mismatch_blocks_new_risk(tmp_path: Path):
     ledger = TradeLedger(tmp_path / "ledger.jsonl")
     _advance(ledger)
