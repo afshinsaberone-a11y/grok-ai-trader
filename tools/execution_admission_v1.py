@@ -99,6 +99,7 @@ def check_execution_admission(
         "take_profit": take_profit,
         "execution_contract_version": request["execution_contract_version"],
         "current_firewall_authority": current["current_firewall_authority"],
+        "control_plane_authenticated": True,
         "request_hash": _request_hash(request),
     }
     return result
