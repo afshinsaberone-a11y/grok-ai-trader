@@ -128,6 +128,24 @@ def audit(csv_path: Path, handoff: Path, context: Path) -> dict[str, Any]:
             assert int(row["order"]) >= 0
             assert int(row["deal"]) >= 0
 
+    order_attempts = [r for r in rows if r["event"] == "ORDER_ATTEMPT"]
+    assert order_attempts, "no ORDER_ATTEMPT evidence"
+    for row in order_attempts:
+        assert int(row["retcode"]) == 10009, "ORDER_ATTEMPT retcode must be TRADE_RETCODE_DONE"
+        assert int(row["order"]) > 0, "ORDER_ATTEMPT broker order ticket missing"
+        assert int(row["deal"]) > 0, "ORDER_ATTEMPT broker deal ticket missing"
+        assert float(row["requested_volume"]) > 0.0
+        assert float(row["executed_volume"]) > 0.0
+        assert abs(float(row["executed_volume"]) - float(row["requested_volume"])) <= 1e-9
+
+        matching_transactions = [
+            r for r in rows
+            if r["event"] == "TRADE_TRANSACTION"
+            and str(r["order"]) == str(row["order"])
+            and str(r["deal"]) == str(row["deal"])
+        ]
+        assert matching_transactions, "ORDER_ATTEMPT has no matching TRADE_TRANSACTION"
+
     return {
         "schema": SCHEMA,
         "status": "PASS",
