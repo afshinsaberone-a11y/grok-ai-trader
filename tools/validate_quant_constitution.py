@@ -147,7 +147,7 @@ def validate(value: dict[str, Any]) -> dict[str, Any]:
     _require(len(states) == len(set(states)), "TRADE_STATES_MUST_BE_UNIQUE")
     _require(
         {"PROPOSED", "VALIDATED", "RISK_RESERVED", "AUTHORIZED", "ORDER_SUBMITTED",
-         "REJECTED", "FILLED", "CLOSED", "RECONCILED"} <= set(states),
+         "REJECTED", "ACCEPTED", "FILLED", "CLOSED", "RECONCILED"} <= set(states),
         "TRADE_STATE_CORE_MISSING",
     )
 
