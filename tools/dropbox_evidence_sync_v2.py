@@ -13,9 +13,12 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from tools.dropbox_oauth import get_access_token
-
-from tools.dropbox_free_tier_policy_v2 import load_policy, select_files, workflow_key
+try:
+    from .dropbox_oauth import get_access_token
+    from .dropbox_free_tier_policy_v2 import load_policy, select_files, workflow_key
+except ImportError:  # direct script execution from tools/
+    from dropbox_oauth import get_access_token
+    from dropbox_free_tier_policy_v2 import load_policy, select_files, workflow_key
 
 API_URL = "https://api.dropboxapi.com/2"
 CONTENT_URL = "https://content.dropboxapi.com/2"
