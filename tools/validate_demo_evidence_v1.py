@@ -116,6 +116,7 @@ def validate_demo_evidence(payload: dict[str, Any]) -> dict[str, Any]:
         "timeframe": str(payload["timeframe"]),
         "broker_order_id": str(payload["broker_order_id"]),
         "broker_deal_id": str(payload["broker_deal_id"]),
+        "ea_source_sha256": str(payload["ea_source_sha256"]),
         "reconciliation_status": "RECONCILED",
         "live_enabled": False,
     }
