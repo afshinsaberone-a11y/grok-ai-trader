@@ -342,6 +342,13 @@ jobs:
               "spread_points",
               "slippage_points",
               "SymbolInfoTick(",
+              "RequireRuntimeAuthorization = true",
+              "AuthorizationFileName",
+              "TraceFileName",
+              "forexai.runtime_trace.v1",
+              "VerifyRuntimeAuthorization(",
+              "MarkRuntimeAuthorizationConsumed(",
+              "TraceSuccessfulEntry(",
           ]:
               assert token in generator, f"missing G13 Demo safety token: {token}"
 
