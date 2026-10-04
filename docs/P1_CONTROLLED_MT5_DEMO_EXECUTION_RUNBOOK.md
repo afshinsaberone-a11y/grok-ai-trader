@@ -103,7 +103,7 @@ Deterministic replay must end with the target trade in CLOSED with no unresolved
 
 ## Final Demo Evidence
 
-Build the final package only with tools/assemble_demo_evidence_v1.py.
+Build the final package only with tools/assemble_demo_evidence_v1.py, passing the exact frozen G13 MQ5 source through --ea-source.
 
 The final G13 evidence assembly must bind the exact generated candidate source/binary (not the root Hybrid-Regime EA) and receive independent receipts from:
 - Demo submission;
@@ -112,7 +112,7 @@ The final G13 evidence assembly must bind the exact generated candidate source/b
 - runtime evidence;
 - deterministic replay.
 
-The final validator must also verify the SHA-256 of ea/GRK_Hybrid_Regime_EA.mq5 against ea_source_sha256.
+The final validator must verify the SHA-256 of the exact frozen G13 MQ5 source supplied for the executed candidate against ea_source_sha256. Never substitute ea/GRK_Hybrid_Regime_EA.mq5; it is a different Hybrid-Regime EA.
 
 ## Stop conditions
 
