@@ -175,7 +175,39 @@ def test_done_without_deal_is_not_claimed_as_success():
         )
     )
     gateway = MT5TerminalGateway(mt5_module=mt5)
-    with pytest.raises(MT5GatewayError, match="MT5_DONE_WITHOUT_DEAL"):
+    with pytest.raises(MT5GatewayError, match="MT5_DONE_WITHOUT_FULL_FILL"):
         # The boundary should not fabricate success when the broker structure
         # itself cannot be trusted.
+        gateway.submit_authorized_order(request={}, admission=_admission())
+
+def test_done_partial_is_never_accepted():
+    mt5 = FakeMT5(
+        send_result=SimpleNamespace(
+            retcode=10010,
+            deal=5002,
+            order=7002,
+            volume=0.05,
+            price=1.1002,
+            comment="partial",
+        )
+    )
+    gateway = MT5TerminalGateway(mt5_module=mt5)
+    result = gateway.submit_authorized_order(request={}, admission=_admission())
+    assert result["status"] == "PARTIAL"
+    assert result["filled_volume"] == 0.05
+
+
+def test_done_full_fill_requires_order_deal_and_volume():
+    mt5 = FakeMT5(
+        send_result=SimpleNamespace(
+            retcode=10009,
+            deal=5003,
+            order=0,
+            volume=0.10,
+            price=1.1002,
+            comment="missing order",
+        )
+    )
+    gateway = MT5TerminalGateway(mt5_module=mt5)
+    with pytest.raises(MT5GatewayError, match="MT5_DONE_WITHOUT_FULL_FILL"):
         gateway.submit_authorized_order(request={}, admission=_admission())
