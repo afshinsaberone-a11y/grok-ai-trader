@@ -102,15 +102,14 @@ def test_render_mql5_trace_literals_and_lifecycle_symbols():
     params = _params(2)
     source = render({"candidate_id": 2, "config_hash": canonical_hash(params), "params": params})
 
-    assert 'StringFormat(""side' not in source
-    assert 'StringFormat(""retcode' not in source
-    assert 'StringFormat(""deal_ticket' not in source
-    assert 'StringReplace(value,"""' not in source
-    assert "PositionsByMagic(" not in source
-    assert r'StringFormat("\\"side\\":\\"SELL\\"' in source
-    assert r'StringFormat("\\"retcode\\":%u' in source
-    assert r'StringFormat("\\"deal_ticket\\":\\"%I64d\\"' in source
-    assert r'StringReplace(value,"\\\\","\\\\\\\\");' in source
+    bs = chr(92)
+    assert 'StringFormat("' + bs + '"side' + bs + '":"' + bs + '"SELL' + bs + '"' in source
+    assert 'StringFormat("' + bs + '"retcode' + bs + '":%u' in source
+    assert 'StringFormat("' + bs + '"deal_ticket' + bs + '":"' + bs + '"%I64d' + bs + '"' in source
+    assert 'StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");' in source
+    assert 'StringReplace(value,"' + bs + '"","' + bs + bs + bs + '"");' in source
+    assert 'PositionsByMagic(' not in source
+
     assert r'StringReplace(value,"\"","\\\"");' in source
 
 
