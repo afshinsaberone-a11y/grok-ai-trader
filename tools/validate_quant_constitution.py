@@ -65,6 +65,7 @@ REQUIRED_INVARIANTS = {
     "unresolved_broker_outcome_blocks_new_risk_globally == true",
     "broker_submission_requires_authenticated_control_plane == true",
     "control_plane_authentication_cannot_grant_capital_authority == true",
+    "broker_outcome_observation_must_use_authoritative_mt5_state == true",
 }
 
 
