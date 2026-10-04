@@ -158,11 +158,11 @@ def test_parity_requires_fail_closed_runtime_trace():
 def test_runtime_trace_submission_is_recorded_before_result_verification():
     source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
     submit = source.index('"ORDER_SUBMITTED"', source.index('bool SendBuy'))
-    result_check = source.index('if(!TradeExecutionAccepted())', submit)
+    result_check = source.index('if(!TradeExecutionAccepted(vol))', submit)
     assert submit < result_check
 
     submit_sell = source.index('"ORDER_SUBMITTED"', source.index('bool SendSell'))
-    result_check_sell = source.index('if(!TradeExecutionAccepted())', submit_sell)
+    result_check_sell = source.index('if(!TradeExecutionAccepted(vol))', submit_sell)
     assert submit_sell < result_check_sell
 
 
