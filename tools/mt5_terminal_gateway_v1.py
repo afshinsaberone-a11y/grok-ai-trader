@@ -59,6 +59,9 @@ def _validate_admission_for_gateway(
         "current_firewall_authority",
         "control_plane_authenticated",
         "request_hash",
+        "admission_auth_schema",
+        "admission_auth_algorithm",
+        "admission_auth_tag",
     }
     if set(admission) != required:
         raise MT5GatewayError("MT5_GATEWAY_ADMISSION_FIELDS_MISMATCH")
