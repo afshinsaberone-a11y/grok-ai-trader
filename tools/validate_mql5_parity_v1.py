@@ -38,7 +38,10 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
     checks["native_symbol_filling"] = "trade.SetTypeFillingBySymbol(_Symbol);" in source
     checks["retcode_verified"] = "trade.ResultRetcode()" in source and "TRADE_RETCODE_DONE" in source
     checks["deal_ticket_verified"] = "trade.ResultDeal()" in source
-    checks["order_ticket_verified"] = "trade.ResultOrder()" in source
+    checks["order_ticket_verified"] = (
+        "trade.ResultOrder()" in source
+        and "if(order == 0 || deal == 0) return false;" in source
+    )
     checks["partial_fill_not_accepted_as_success"] = (
         "TRADE_RETCODE_DONE_PARTIAL" in source
         and "if(rc != TRADE_RETCODE_DONE) return false;" in source
