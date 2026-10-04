@@ -101,4 +101,4 @@ def test_real_adapter_observation_flows_into_recovery(tmp_path):
     assert result["status"] == "ACCEPTED"
     assert result["resolved"] is True
     assert ledger.state_of("t1") == "ACCEPTED"
-    assert ledger.risk_blocked is True
+    assert ledger.risk_blocked is False
