@@ -23,23 +23,29 @@ G13 M15 frozen EA
 
 All must be true before any Demo execution attempt:
 
-1. PR #56 HEAD is the exact revision under test.
+1. PR #56 has been integrated into `main`; the controlled Demo workflow is intentionally fail-closed for non-`main` refs.
 2. Quant Constitution = PASS.
 3. MQL5 Execution Parity = PASS.
 4. Execution Admission = PASS.
 5. Runtime Evidence Gate = PASS.
 6. Deterministic Replay contract = PASS.
 7. MT5 Terminal Preflight = PASS on the actual self-hosted Windows runner.
-8. MT5 account mode is DEMO.
-9. live_enabled remains false.
-10. No unresolved broker outcome exists.
-11. The exact frozen G13 candidate source/binary must come from the same verified Compile + Signal Parity package used for this candidate. Do not substitute ea/GRK_Hybrid_Regime_EA.mq5; that file is a different Hybrid-Regime EA and is not the frozen G13 RSI-Divergence candidate.
+8. A successful `ForexAI G13 Controlled Demo Package Preflight M15` run exists for the exact current `main` SHA.
+9. A successful `ForexAI G13 MT5 Compile + Signal Parity` run exists for that same `main` SHA, and its artifact digest is re-verified by the controlled Demo workflow.
+10. MT5 account mode is DEMO.
+11. `live_enabled` remains false.
+12. No unresolved broker outcome exists.
+13. The exact frozen G13 candidate source/binary must come from the digest-verified package bound to this same `main` SHA. Do not substitute `ea/GRK_Hybrid_Regime_EA.mq5`; that file is a different Hybrid-Regime EA and is not the frozen G13 RSI-Divergence candidate.
 
 ## MT5 operator setup
 
 Use the self-hosted runner labeled:
 
 self-hosted, windows, mt5
+
+Dispatch `ForexAI G13 Controlled Demo Execution Collector M15` from `main` and provide the successful Package Preflight run ID for the exact current `main` SHA.
+
+The workflow itself downloads and digest-verifies the corresponding Package Preflight and Compile + Parity artifacts, re-runs the offline package gate, checks the selected candidate's MQ5/EX5 hashes, and stages the exact frozen package under the run artifact before collecting any execution telemetry.
 
 Open the configured MetaTrader 5 terminal and log into the intended Demo account.
 
@@ -48,9 +54,10 @@ Verify:
 - account is Demo, not Real;
 - EURUSD is visible and tradable;
 - chart timeframe is M15;
-- exact frozen EA revision is installed;
+- the exact candidate MQ5/EX5 files staged by the workflow are the ones installed/attached;
 - Algo/Expert trading is enabled only for the Demo terminal;
-- no unrelated EA is attached to the target chart/account.
+- no unrelated EA is attached to the target chart/account;
+- the selected `ORDER_ATTEMPT.config_hash` must match the workflow's digest-verified expected ConfigHash.
 
 Run the workflow named ForexAI MT5 Terminal Preflight.
 
