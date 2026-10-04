@@ -41,6 +41,12 @@ jobs:
           assert c["execution"]["success_requires"] == ["TRADE_RETCODE_DONE", "nonzero_deal_ticket"]
           assert c["authority"]["capital_authority_source"] == "CapitalFirewall"
           assert c["authority"]["control_plane_authentication_required_before_gateway"] is True
+          admission_auth = c["authority"]["execution_admission_authentication"]
+          assert admission_auth["required"] is True
+          assert admission_auth["schema"] == "forexai.execution_admission_authentication.v1"
+          assert admission_auth["algorithm"] == "HMAC-SHA256"
+          assert admission_auth["verify_before_mt5_initialize"] is True
+          assert admission_auth["constant_time_compare"] is True
           print("MT5 gateway contract: PASS")
           PY
       - name: Run gateway contract tests
