@@ -6,7 +6,6 @@ on:
       - "tools/mt5_terminal_gateway_v1.py"
       - "tests/test_mt5_terminal_gateway_v1.py"
       - "tests/test_mt5_control_plane_gateway_integration_v1.py"
-      - "tests/test_mt5_control_plane_gateway_integration_v1.py"
       - "config/forexai_mt5_terminal_gateway_v1.json"
   pull_request:
     paths:
@@ -38,7 +37,8 @@ jobs:
           assert c["schema_version"] == "forexai.mt5_terminal_gateway.v1"
           assert c["transport"]["automatic_retry"] is False
           assert c["transport"]["unknown_transport_outcome"] == "RECONCILIATION_REQUIRED"
-          assert c["execution"]["success_requires"] == ["TRADE_RETCODE_DONE", "nonzero_order_ticket", "nonzero_deal_ticket", "full_requested_volume"]
+          expected = ["TRADE_RETCODE_DONE", "nonzero_order_ticket", "nonzero_deal_ticket", "full_requested_volume"]
+          assert c["execution"]["success_requires"] == expected
           assert c["authority"]["capital_authority_source"] == "CapitalFirewall"
           assert c["authority"]["control_plane_authentication_required_before_gateway"] is True
           print("MT5 gateway contract: PASS")
