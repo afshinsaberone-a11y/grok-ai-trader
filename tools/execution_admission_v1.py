@@ -7,6 +7,7 @@ firewall state still matches the intended execution request.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
 from typing import Any, Mapping
@@ -15,6 +16,58 @@ from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall, Ledge
 from tools.runtime_authorization_envelope_v1 import verify_runtime_envelope_current
 
 SCHEMA = "forexai.execution_admission.v1"
+AUTH_SCHEMA = "forexai.execution_admission_authentication.v1"
+AUTH_ALGORITHM = "HMAC-SHA256"
+_MIN_SECRET_BYTES = 32
+
+
+def _secret_bytes(secret: str | bytes) -> bytes:
+    if isinstance(secret, bytes):
+        raw = secret
+    elif isinstance(secret, str):
+        raw = secret.encode("utf-8")
+    else:
+        raise AuthorizationError("EXECUTION_ADMISSION_SECRET_TYPE_INVALID")
+    if len(raw) < _MIN_SECRET_BYTES:
+        raise AuthorizationError("EXECUTION_ADMISSION_SECRET_TOO_SHORT")
+    return raw
+
+
+def admission_auth_tag(admission: Mapping[str, Any], *, secret: str | bytes) -> str:
+    body = {
+        "auth_schema": AUTH_SCHEMA,
+        "algorithm": AUTH_ALGORITHM,
+        "admission": {
+            key: value
+            for key, value in dict(admission).items()
+            if key not in {"admission_auth_schema", "admission_auth_algorithm", "admission_auth_tag"}
+        },
+    }
+    payload = json.dumps(
+        body,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hmac.new(_secret_bytes(secret), payload, hashlib.sha256).hexdigest()
+
+
+def verify_admission_auth(
+    admission: Mapping[str, Any],
+    *,
+    secret: str | bytes,
+) -> None:
+    if admission.get("admission_auth_schema") != AUTH_SCHEMA:
+        raise AuthorizationError("EXECUTION_ADMISSION_AUTH_SCHEMA_MISMATCH")
+    if admission.get("admission_auth_algorithm") != AUTH_ALGORITHM:
+        raise AuthorizationError("EXECUTION_ADMISSION_AUTH_ALGORITHM_MISMATCH")
+    supplied = admission.get("admission_auth_tag")
+    if not isinstance(supplied, str):
+        raise AuthorizationError("EXECUTION_ADMISSION_AUTH_TAG_INVALID")
+    expected = admission_auth_tag(admission, secret=secret)
+    if not hmac.compare_digest(supplied.lower(), expected.lower()):
+        raise AuthorizationError("EXECUTION_ADMISSION_AUTH_TAG_MISMATCH")
+
 
 
 def _finite_positive(value: Any, field: str) -> float:
@@ -39,6 +92,7 @@ def check_execution_admission(
     *,
     request: Mapping[str, Any],
     now_utc: str,
+    control_plane_secret: str | bytes,
 ) -> dict[str, Any]:
     try:
         current = verify_runtime_envelope_current(
@@ -101,5 +155,11 @@ def check_execution_admission(
         "current_firewall_authority": current["current_firewall_authority"],
         "control_plane_authenticated": True,
         "request_hash": _request_hash(request),
+        "admission_auth_schema": AUTH_SCHEMA,
+        "admission_auth_algorithm": AUTH_ALGORITHM,
     }
+    result["admission_auth_tag"] = admission_auth_tag(
+        result,
+        secret=control_plane_secret,
+    )
     return result
