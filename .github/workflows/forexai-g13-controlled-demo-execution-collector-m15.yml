@@ -1,0 +1,120 @@
+name: ForexAI G13 Controlled Demo Execution Collector M15
+
+# Read-only collector. The frozen G13 EA is the only component allowed to place
+# a Demo trade. This workflow never calls order_check or order_send.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: "Promoted G13 candidate ID"
+        required: true
+        type: choice
+        options: ["2","6","10","12","14","22","26","28","30","32","34","38","42","46","48"]
+      terminal_path:
+        description: "Optional MT5 terminal executable path"
+        required: false
+        default: 'C:\\Program Files\\MetaTrader 5\\terminal64.exe'
+        type: string
+      audit_csv:
+        description: "Optional absolute path to g13_demo_execution_audit.csv"
+        required: false
+        type: string
+      confirmation:
+        description: "Must exactly equal DEMO_EXECUTION_CONFIRMED"
+        required: true
+        type: string
+      timeout_seconds:
+        description: "Maximum wait for ORDER_ATTEMPT telemetry"
+        required: true
+        default: "900"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g13-controlled-demo-execution-collector
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 20
+    env:
+      PYTHONUNBUFFERED: "1"
+      G13_CANDIDATE_ID: ${{ inputs.candidate_id }}
+      G13_TERMINAL_PATH: ${{ inputs.terminal_path }}
+      G13_AUDIT_CSV: ${{ inputs.audit_csv }}
+      G13_CONFIRMATION: ${{ inputs.confirmation }}
+      G13_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
+    steps:
+      - name: Checkout exact workflow revision
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MT5 package
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-mt5.txt
+
+      - name: Verify collector guard tests
+        shell: pwsh
+        run: |
+          python -m pytest -q tests/test_g13_demo_execution_collector_v1.py
+
+      - name: Fail closed on confirmation
+        shell: pwsh
+        run: |
+          if ($env:G13_CONFIRMATION -ne 'DEMO_EXECUTION_CONFIRMED') { throw 'DEMO_EXECUTION_CONFIRMATION_INVALID' }
+          Write-Output 'PYTHON_ORDER_SUBMISSION=false'
+          Write-Output 'LIVE_AUTHORIZATION=false'
+
+      - name: Collect real Demo execution telemetry
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/g13/demo-execution | Out-Null
+          $args = @('--candidate-id', $env:G13_CANDIDATE_ID, '--symbol', 'EURUSD', '--terminal-path', $env:G13_TERMINAL_PATH,
+                   '--context-out', 'artifacts/g13/demo-execution/context.json',
+                   '--report-out', 'artifacts/g13/demo-execution/collector-report.json',
+                   '--confirmation', $env:G13_CONFIRMATION, '--timeout-seconds', $env:G13_TIMEOUT_SECONDS)
+          if ($env:G13_AUDIT_CSV -ne '') { $args += @('--audit-csv', $env:G13_AUDIT_CSV) }
+          python tools/g13_demo_execution_collector_v1.py @args
+
+      - name: Copy exact broker execution audit CSV
+        shell: pwsh
+        run: |
+          $audit = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files\g13_demo_execution_audit.csv'
+          if ($env:G13_AUDIT_CSV -ne '') { $audit = $env:G13_AUDIT_CSV }
+          if (!(Test-Path $audit)) { throw 'G13_DEMO_AUDIT_CSV_NOT_FOUND' }
+          Copy-Item -Force $audit 'artifacts/g13/demo-execution/g13_demo_execution_audit.csv'
+
+      - name: Validate recorded execution evidence
+        shell: pwsh
+        run: |
+          python -m research.optimization.g13_controlled_demo_execution_audit `
+            --execution-csv 'artifacts/g13/demo-execution/g13_demo_execution_audit.csv' `
+            --handoff 'artifacts/g13/frozen/g13-candidate-handoff-m15.json' `
+            --context 'artifacts/g13/demo-execution/context.json' `
+            --report 'artifacts/g13/demo-execution/execution-audit-report.json'
+
+      - name: Enforce Demo-only invariants
+        shell: pwsh
+        run: |
+          $j = Get-Content 'artifacts/g13/demo-execution/collector-report.json' -Raw | ConvertFrom-Json
+          if ($j.status -ne 'PASS') { throw 'COLLECTOR_STATUS_NOT_PASS' }
+          if ($j.account_mode -ne 'DEMO') { throw 'COLLECTOR_ACCOUNT_NOT_DEMO' }
+          if ($j.order_attempt_detected -ne $true) { throw 'COLLECTOR_NO_ORDER_ATTEMPT' }
+          Write-Output 'G13_DEMO_EXECUTION_COLLECTOR_PASS=true'
+          Write-Output 'LIVE_AUTHORIZATION=false'
+
+      - name: Upload broker-backed Demo audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-controlled-demo-execution-m15-candidate-${{ inputs.candidate_id }}}
+          path: artifacts/g13/demo-execution
+          if-no-files-found: error
