@@ -103,9 +103,9 @@ Deterministic replay must end with the target trade in CLOSED with no unresolved
 
 ## Final Demo Evidence
 
-Build the final package only with tools/assemble_demo_evidence_v1.py, passing the exact frozen G13 MQ5 source through --ea-source.
+Build the final package only with tools/assemble_demo_evidence_v1.py and pass --candidate-id, --config-hash, --package-preflight, and --ea-source for the same frozen candidate package.
 
-The final G13 evidence assembly must bind the exact generated candidate source/binary (not the root Hybrid-Regime EA) and receive independent receipts from:
+The final G13 evidence assembly must receive the exact candidate_id and config_hash from the controlled execution record, bind them to the PASS G13 package preflight, verify the exact generated candidate MQ5 source hash from that preflight, and receive independent receipts from:
 - Demo submission;
 - terminal preflight;
 - read-only broker observation;
