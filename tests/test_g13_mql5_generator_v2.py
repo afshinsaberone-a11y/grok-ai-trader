@@ -99,6 +99,7 @@ def test_generator_rejects_tampered_manifest_candidate_hash(tmp_path):
 
 
 def test_render_mql5_trace_literals_and_lifecycle_symbols():
+
     params = _params(2)
     source = render({"candidate_id": 2, "config_hash": canonical_hash(params), "params": params})
 
@@ -109,9 +110,6 @@ def test_render_mql5_trace_literals_and_lifecycle_symbols():
     assert 'StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");' in source
     assert 'StringReplace(value,"' + bs + '"","' + bs + bs + bs + '"");' in source
     assert 'PositionsByMagic(' not in source
-
-    assert r'StringReplace(value,"\"","\\\"");' in source
-
 
 def test_render_preserves_tester_execution_without_runtime_artifacts():
     params = _params(2)
