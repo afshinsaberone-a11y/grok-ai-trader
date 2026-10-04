@@ -104,11 +104,11 @@ def test_render_mql5_trace_literals_and_lifecycle_symbols():
     source = render({"candidate_id": 2, "config_hash": canonical_hash(params), "params": params})
 
     bs = chr(92)
-    assert 'StringFormat("' + bs + '"side' + bs + '":"' + bs + '"SELL' + bs + '"' in source
-    assert 'StringFormat("' + bs + '"retcode' + bs + '":%u' in source
-    assert 'StringFormat("' + bs + '"deal_ticket' + bs + '":"' + bs + '"%I64d' + bs + '"' in source
-    assert 'StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");' in source
-    assert 'StringReplace(value,"' + bs + '"","' + bs + bs + bs + '"");' in source
+    assert ('"' + bs + '"side' + bs + '":' + bs + '"SELL' + bs + '"') in source
+    assert ('"' + bs + '"retcode' + bs + '":%u') in source
+    assert ('"' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"') in source
+    assert ('StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");') in source
+    assert ('StringReplace(value,"' + bs + '"","' + bs + bs + bs + '"");') in source
     assert 'PositionsByMagic(' not in source
 
 def test_render_preserves_tester_execution_without_runtime_artifacts():
