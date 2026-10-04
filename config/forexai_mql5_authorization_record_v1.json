@@ -1,13 +1,20 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema_version": "forexai.mql5_authorization_record.v1",
-  "purpose": "Deterministic local transport record consumed by the MQL5 EA before an order request.",
+  "purpose": "Deterministic local transport record consumed by the MQL5 EA before an order request. Materialization requires successful external control-plane authentication and current Capital Firewall verification.",
   "format": {
     "encoding": "UTF-8",
     "delimiter": "|",
     "record_prefix": "FOREXAI-AUTH-V1",
     "hash": "SHA-256",
     "hash_scope": "all_fields_before_final_hash_field_joined_by_delimiter"
+  },
+  "control_plane_authentication": {
+    "required_before_materialization": true,
+    "schema": "forexai.runtime_authorization_authentication.v1",
+    "algorithm": "HMAC-SHA256",
+    "secret_source": "external_runtime_secret",
+    "default_key_id": "forexai-control-plane-v1"
   },
   "required_execution_contract_version": "forexai.execution.v1",
   "freshness": {
