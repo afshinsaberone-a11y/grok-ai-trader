@@ -44,8 +44,8 @@ def test_parity_rejects_partial_fill_as_success():
     source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
     contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
     broken = source.replace(
-        "return (rc == TRADE_RETCODE_DONE) && deal > 0;",
-        "return (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_DONE_PARTIAL) && deal > 0;",
+        "if(rc != TRADE_RETCODE_DONE) return false;",
+        "if(rc != TRADE_RETCODE_DONE && rc != TRADE_RETCODE_DONE_PARTIAL) return false;",
     )
     try:
         audit_source(broken, contract)
