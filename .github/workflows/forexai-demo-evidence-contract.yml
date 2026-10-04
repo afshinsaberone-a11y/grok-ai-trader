@@ -1,6 +1,14 @@
 name: ForexAI Demo Evidence Contract
 
 on:
+  push:
+    branches:
+      - "codex/demo-evidence-gate-v1-2026-10-04"
+    paths:
+      - "tools/validate_demo_evidence_v1.py"
+      - "tests/test_validate_demo_evidence_v1.py"
+      - "config/forexai_demo_execution_evidence_v1.json"
+      - ".github/workflows/forexai-demo-evidence-contract.yml"
   pull_request:
     paths:
       - "tools/validate_demo_evidence_v1.py"
