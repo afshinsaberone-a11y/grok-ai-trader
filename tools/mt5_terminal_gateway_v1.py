@@ -27,6 +27,8 @@ class MT5GatewayConfig:
     magic: int = 2026051
     comment: str = "ForexAI-Authorized"
     shutdown_after_request: bool = True
+    account_mode: str = "DEMO_ONLY"
+    real_trading_confirmation_env: str = "FOREXAI_ALLOW_REAL_TRADING"
 
 
 class MT5TerminalGateway:
@@ -60,6 +62,40 @@ class MT5TerminalGateway:
         if not ok:
             last_error = getattr(mt5, "last_error", lambda: None)()
             raise MT5GatewayError(f"MT5_INITIALIZE_FAILED:{last_error}")
+
+    def _assert_account_mode(self) -> None:
+        info = self.mt5.account_info()
+        if info is None:
+            raise MT5GatewayError("MT5_ACCOUNT_INFO_UNAVAILABLE")
+
+        trade_mode = int(
+            getattr(
+                info,
+                "trade_mode",
+                getattr(self.mt5, "ACCOUNT_TRADE_MODE_DEMO", 0),
+            )
+        )
+        demo_mode = int(getattr(self.mt5, "ACCOUNT_TRADE_MODE_DEMO", 0))
+        real_mode = int(getattr(self.mt5, "ACCOUNT_TRADE_MODE_REAL", 2))
+
+        if self.config.account_mode == "DEMO_ONLY":
+            if trade_mode != demo_mode:
+                raise MT5GatewayError(
+                    "MT5_REAL_ACCOUNT_BLOCKED_BY_DEMO_ONLY_POLICY"
+                )
+            return
+
+        if self.config.account_mode == "REAL_ALLOWED":
+            import os
+            if os.environ.get(self.config.real_trading_confirmation_env) != "CONFIRMED":
+                raise MT5GatewayError(
+                    "MT5_REAL_ACCOUNT_REQUIRES_EXTERNAL_CONFIRMATION"
+                )
+            if trade_mode not in {demo_mode, real_mode}:
+                raise MT5GatewayError("MT5_ACCOUNT_TRADE_MODE_INVALID")
+            return
+
+        raise MT5GatewayError("MT5_ACCOUNT_MODE_POLICY_INVALID")
 
     def _shutdown(self) -> None:
         if self.config.shutdown_after_request:
@@ -104,6 +140,7 @@ class MT5TerminalGateway:
         mt5 = self.mt5
         self._initialize()
         try:
+            self._assert_account_mode()
             symbol = str(admission["symbol"])
             side = str(admission["side"])
             volume = float(admission["volume"])
