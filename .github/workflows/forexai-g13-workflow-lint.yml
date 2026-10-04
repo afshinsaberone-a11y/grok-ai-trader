@@ -125,6 +125,7 @@ jobs:
           ! grep -R -nE 'MqlTick tick=\{\};|trans\.magic|trans\.comment' /tmp/g13_mql5_smoke
           ! grep -R -nF 'StringFormat(""' /tmp/g13_mql5_smoke
           ! grep -R -nF 'StringReplace(value,"""' /tmp/g13_mql5_smoke
+          ! grep -R -nF 'PositionsByMagic(' /tmp/g13_mql5_smoke
           ! grep -R -nF 'lots=MathMin(lots,broker_lots)' /tmp/g13_mql5_smoke
           test "$(grep -R -lF 'StringFormat("\\\"deal_ticket' /tmp/g13_mql5_smoke | wc -l)" -eq 15
           test "$(grep -R -lF 'double lots=0.0;' /tmp/g13_mql5_smoke | wc -l)" -eq 15
