@@ -13,6 +13,9 @@ on:
       - "config/forexai_mql5_authorization_record_v1.json"
       - "tools/runtime_authorization_record_v1.py"
       - "tests/test_runtime_authorization_record_v1.py"
+      - "tools/runtime_authorization_auth_v1.py"
+      - "tests/test_runtime_authorization_auth_v1.py"
+      - "tools/materialize_mql5_authorization_v1.py"
   pull_request:
     paths:
       - "ea/GRK_Hybrid_Regime_EA.mq5"
@@ -22,6 +25,11 @@ on:
       - "config/forexai_runtime_authorization_envelope_v1.json"
       - "tools/runtime_authorization_envelope_v1.py"
       - "tests/test_runtime_authorization_envelope_v1.py"
+      - "tools/runtime_authorization_auth_v1.py"
+      - "tests/test_runtime_authorization_auth_v1.py"
+      - "tools/runtime_authorization_record_v1.py"
+      - "tests/test_runtime_authorization_record_v1.py"
+      - "tools/materialize_mql5_authorization_v1.py"
   workflow_dispatch:
 
 permissions:
@@ -44,4 +52,4 @@ jobs:
       - name: Parity regression tests
         run: |
           pip install pytest
-          pytest -q tests/test_mql5_parity_v1.py tests/test_runtime_authorization_envelope_v1.py
+          pytest -q tests/test_mql5_parity_v1.py tests/test_runtime_authorization_envelope_v1.py tests/test_runtime_authorization_auth_v1.py tests/test_runtime_authorization_record_v1.py
