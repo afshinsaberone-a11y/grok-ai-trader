@@ -33,7 +33,6 @@ on:
       ea_source_path:
         description: "Exact frozen G13 MQ5 source used by the executed candidate"
         required: true
-        default: "artifacts/g13/mql5/ForexAI_G13_Candidate_02.mq5"
         type: string
 
 permissions:
