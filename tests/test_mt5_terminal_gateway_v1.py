@@ -26,6 +26,13 @@ class FakeMT5:
     TRADE_RETCODE_PLACED = 10008
     ACCOUNT_TRADE_MODE_DEMO = 0
     ACCOUNT_TRADE_MODE_REAL = 2
+    SYMBOL_TRADE_MODE_DISABLED = 0
+    SYMBOL_TRADE_MODE_LONGONLY = 1
+    SYMBOL_TRADE_MODE_SHORTONLY = 2
+    SYMBOL_TRADE_MODE_CLOSEONLY = 3
+    SYMBOL_ORDER_MARKET = 1
+    SYMBOL_ORDER_SL = 16
+    SYMBOL_ORDER_TP = 32
 
     def __init__(self, check_retcode=0, send_result=None):
         self.check_retcode = check_retcode
@@ -45,11 +52,23 @@ class FakeMT5:
         self.initialized = False
 
     def account_info(self):
-        return SimpleNamespace(login=123, server="Demo-Server", trade_mode=self.ACCOUNT_TRADE_MODE_DEMO)
+        return SimpleNamespace(
+            login=123,
+            server="Demo-Server",
+            trade_mode=self.ACCOUNT_TRADE_MODE_DEMO,
+            trade_allowed=True,
+            trade_expert=True,
+        )
 
     def symbol_info(self, symbol):
         return SimpleNamespace(
             visible=True,
+            trade_mode=self.SYMBOL_TRADE_MODE_LONGONLY,
+            order_mode=(
+                self.SYMBOL_ORDER_MARKET
+                | self.SYMBOL_ORDER_SL
+                | self.SYMBOL_ORDER_TP
+            ),
             trade_exemode=0,
             filling_mode=self.SYMBOL_FILLING_FOK | self.SYMBOL_FILLING_IOC,
         )
