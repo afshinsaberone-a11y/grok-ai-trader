@@ -148,15 +148,24 @@ class MT5TerminalGateway:
         if info is None:
             raise MT5GatewayError("MT5_ACCOUNT_INFO_UNAVAILABLE")
 
-        trade_mode = int(
-            getattr(
-                info,
-                "trade_mode",
-                getattr(self.mt5, "ACCOUNT_TRADE_MODE_DEMO", 0),
-            )
-        )
-        demo_mode = int(getattr(self.mt5, "ACCOUNT_TRADE_MODE_DEMO", 0))
-        real_mode = int(getattr(self.mt5, "ACCOUNT_TRADE_MODE_REAL", 2))
+        raw_trade_mode = getattr(info, "trade_mode", None)
+        if raw_trade_mode is None:
+            raise MT5GatewayError("MT5_ACCOUNT_TRADE_MODE_UNAVAILABLE")
+        demo_constant = getattr(self.mt5, "ACCOUNT_TRADE_MODE_DEMO", None)
+        real_constant = getattr(self.mt5, "ACCOUNT_TRADE_MODE_REAL", None)
+        if demo_constant is None or real_constant is None:
+            raise MT5GatewayError("MT5_ACCOUNT_TRADE_MODE_CONSTANTS_UNAVAILABLE")
+        try:
+            trade_mode = int(raw_trade_mode)
+            demo_mode = int(demo_constant)
+            real_mode = int(real_constant)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise MT5GatewayError("MT5_ACCOUNT_TRADE_MODE_INVALID") from exc
+
+        for field in ("trade_allowed", "trade_expert"):
+            value = getattr(info, field, None)
+            if not isinstance(value, bool) or not value:
+                raise MT5GatewayError(f"MT5_ACCOUNT_{field.upper()}_NOT_ALLOWED")
 
         if self.config.account_mode == "DEMO_ONLY":
             if trade_mode != demo_mode:
@@ -246,15 +255,47 @@ class MT5TerminalGateway:
             info = mt5.symbol_info(symbol)
             if info is None:
                 raise MT5GatewayError("MT5_SYMBOL_NOT_FOUND")
-            if not bool(getattr(info, "visible", True)):
+            visible = getattr(info, "visible", None)
+            if not isinstance(visible, bool):
+                raise MT5GatewayError("MT5_SYMBOL_VISIBILITY_UNAVAILABLE")
+            if not visible:
                 if not mt5.symbol_select(symbol, True):
                     raise MT5GatewayError("MT5_SYMBOL_SELECT_FAILED")
+
+            raw_symbol_trade_mode = getattr(info, "trade_mode", None)
+            raw_order_mode = getattr(info, "order_mode", None)
+            if raw_symbol_trade_mode is None or raw_order_mode is None:
+                raise MT5GatewayError("MT5_SYMBOL_PERMISSION_METADATA_UNAVAILABLE")
+            try:
+                symbol_trade_mode = int(raw_symbol_trade_mode)
+                order_mode = int(raw_order_mode)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise MT5GatewayError("MT5_SYMBOL_PERMISSION_METADATA_INVALID") from exc
+
+            disabled = int(getattr(mt5, "SYMBOL_TRADE_MODE_DISABLED", 0))
+            close_only = int(getattr(mt5, "SYMBOL_TRADE_MODE_CLOSEONLY", 3))
+            long_only = int(getattr(mt5, "SYMBOL_TRADE_MODE_LONGONLY", 1))
+            short_only = int(getattr(mt5, "SYMBOL_TRADE_MODE_SHORTONLY", 2))
+            if symbol_trade_mode in {disabled, close_only}:
+                raise MT5GatewayError("MT5_SYMBOL_NOT_OPEN_FOR_ENTRY")
+            if side == "BUY" and symbol_trade_mode == short_only:
+                raise MT5GatewayError("MT5_SYMBOL_BUY_NOT_ALLOWED")
+            if side == "SELL" and symbol_trade_mode == long_only:
+                raise MT5GatewayError("MT5_SYMBOL_SELL_NOT_ALLOWED")
+
+            required_order_flags = (
+                int(getattr(mt5, "SYMBOL_ORDER_MARKET", 0))
+                | int(getattr(mt5, "SYMBOL_ORDER_SL", 0))
+                | int(getattr(mt5, "SYMBOL_ORDER_TP", 0))
+            )
+            if required_order_flags == 0 or (order_mode & required_order_flags) != required_order_flags:
+                raise MT5GatewayError("MT5_SYMBOL_REQUIRED_ORDER_FLAGS_NOT_ALLOWED")
 
             tick = mt5.symbol_info_tick(symbol)
             if tick is None:
                 raise MT5GatewayError("MT5_TICK_UNAVAILABLE")
             price = float(tick.ask if side == "BUY" else tick.bid)
-            if price <= 0:
+            if not math.isfinite(price) or price <= 0:
                 raise MT5GatewayError("MT5_MARKET_PRICE_INVALID")
 
             order_type = (
