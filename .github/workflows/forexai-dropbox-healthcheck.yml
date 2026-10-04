@@ -14,9 +14,9 @@ jobs:
     timeout-minutes: 10
     env:
       DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
-      DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
       DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
       DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+      DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,11 +27,10 @@ jobs:
           if [ -n "${DROPBOX_REFRESH_TOKEN:-}" ]; then
             test -n "${DROPBOX_APP_KEY:-}" || { echo "DROPBOX_HEALTHCHECK_NOT_CONFIGURED: DROPBOX_APP_KEY missing for refresh-token mode"; exit 78; }
             test -n "${DROPBOX_APP_SECRET:-}" || { echo "DROPBOX_HEALTHCHECK_NOT_CONFIGURED: DROPBOX_APP_SECRET missing for refresh-token mode"; exit 78; }
-            echo "credential_mode=refresh_token"
           elif [ -n "${DROPBOX_ACCESS_TOKEN:-}" ]; then
-            echo "credential_mode=access_token"
+            :
           else
-            echo "DROPBOX_HEALTHCHECK_NOT_CONFIGURED: configure either DROPBOX_ACCESS_TOKEN or DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET"
+            echo "DROPBOX_HEALTHCHECK_NOT_CONFIGURED: configure DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET or DROPBOX_ACCESS_TOKEN"
             exit 78
           fi
 
@@ -45,6 +44,11 @@ jobs:
           else
             echo "auth_mode=missing"
           fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Validate local Dropbox repository contract
         run: |
