@@ -13,6 +13,7 @@ from tools.mt5_terminal_gateway_v1 import MT5GatewayConfig, MT5GatewayError, MT5
 CONFIRMATION = "DEMO_EXECUTION_CONFIRMED"
 AUDIT_NAME = "g13_demo_execution_audit.csv"
 CONTEXT_SCHEMA = "forexai.g13.controlled_demo_execution_context.v1"
+TRADE_ID_MAX_LENGTH = 128
 
 
 def _common_files_path(mt5: Any) -> Path:
@@ -47,6 +48,10 @@ def _assert_demo(mt5: Any, symbol: str) -> dict[str, Any]:
         raise MT5GatewayError("DEMO_COLLECTOR_INVALID_TICK")
     if not bool(getattr(terminal, "connected", True)):
         raise MT5GatewayError("DEMO_COLLECTOR_TERMINAL_NOT_CONNECTED")
+    if not bool(getattr(account, "trade_allowed", False)):
+        raise MT5GatewayError("DEMO_COLLECTOR_ACCOUNT_TRADING_DISABLED")
+    if not bool(getattr(account, "trade_expert", False)):
+        raise MT5GatewayError("DEMO_COLLECTOR_EXPERT_TRADING_DISABLED")
     return {
         "account_login": int(getattr(account, "login", 0)),
         "account_server": str(getattr(account, "server", "")),
@@ -120,15 +125,26 @@ def _wait_for_candidate(
     )
 
 
+def _validate_trade_id(trade_id: str) -> str:
+    value = trade_id.strip()
+    if not value or len(value) > TRADE_ID_MAX_LENGTH:
+        raise MT5GatewayError("DEMO_COLLECTOR_TRADE_ID_INVALID")
+    if any(ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-" for ch in value):
+        raise MT5GatewayError("DEMO_COLLECTOR_TRADE_ID_INVALID")
+    return value
+
+
 def build_context(
     *,
     mt5_snapshot: dict[str, Any],
     candidate_id: int,
+    trade_id: str,
     confirmation: str,
     kill_switch: str,
     terminal_path: str | None,
     audit_path: Path,
 ) -> dict[str, Any]:
+    trade_id = _validate_trade_id(trade_id)
     if confirmation != CONFIRMATION:
         raise MT5GatewayError("DEMO_COLLECTOR_EXPLICIT_CONFIRMATION_REQUIRED")
     if kill_switch != "ALLOW":
@@ -143,6 +159,7 @@ def build_context(
         "explicit_demo_authorization": True,
         "kill_switch": "ALLOW",
         "candidate_id": candidate_id,
+        "trade_id": trade_id,
         "symbol": "EURUSD",
         "timeframe": "M15",
         "terminal_path": terminal_path or "",
@@ -172,6 +189,7 @@ def main() -> int:
     ap.add_argument("--context-out", type=Path, required=True)
     ap.add_argument("--report-out", type=Path, required=True)
     ap.add_argument("--confirmation", required=True)
+    ap.add_argument("--trade-id", required=True)
     ap.add_argument("--timeout-seconds", type=int, default=900)
     ap.add_argument("--poll-seconds", type=float, default=2.0)
     ap.add_argument("--evidence-csv-out", type=Path, required=True)
@@ -179,6 +197,11 @@ def main() -> int:
 
     if args.confirmation != CONFIRMATION:
         print("DEMO_COLLECTOR_FAIL_CLOSED:EXPLICIT_CONFIRMATION_REQUIRED")
+        return 2
+    try:
+        trade_id = _validate_trade_id(args.trade_id)
+    except MT5GatewayError:
+        print("DEMO_COLLECTOR_FAIL_CLOSED:TRADE_ID_INVALID")
         return 2
 
     gateway = MT5TerminalGateway(
@@ -210,6 +233,7 @@ def main() -> int:
         context = build_context(
             mt5_snapshot=snapshot,
             candidate_id=args.candidate_id,
+            trade_id=trade_id,
             confirmation=args.confirmation,
             kill_switch=kill_switch,
             terminal_path=args.terminal_path,
@@ -224,6 +248,7 @@ def main() -> int:
             "symbol": args.symbol,
             "timeframe": "M15",
             "candidate_id": args.candidate_id,
+            "trade_id": trade_id,
             "audit_path": str(audit_path),
             "rows_collected": len(new_rows),
             "baseline_rows": baseline_rows,
