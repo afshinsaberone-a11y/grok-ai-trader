@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 
 SCHEMA = "forexai.demo_execution_evidence.v1"
+SHA40 = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
 class DemoEvidenceError(RuntimeError):
@@ -71,10 +73,10 @@ def validate_demo_evidence(payload: dict[str, Any]) -> dict[str, Any]:
     if payload["full_fill"] is not True:
         raise DemoEvidenceError("DEMO_EVIDENCE_FILL_NOT_COMPLETE")
 
-    if not str(payload["broker_order_id"]).strip():
+    if not isinstance(payload["broker_order_id"], (str, int)) or not str(payload["broker_order_id"]).strip() or str(payload["broker_order_id"]).lower() in {"none", "null", "0"}:
         raise DemoEvidenceError("DEMO_EVIDENCE_BROKER_ORDER_ID_MISSING")
 
-    if not str(payload["broker_deal_id"]).strip():
+    if not isinstance(payload["broker_deal_id"], (str, int)) or not str(payload["broker_deal_id"]).strip() or str(payload["broker_deal_id"]).lower() in {"none", "null", "0"}:
         raise DemoEvidenceError("DEMO_EVIDENCE_BROKER_DEAL_ID_MISSING")
 
     if payload["reconciliation_status"] != "RECONCILED":
@@ -89,11 +91,17 @@ def validate_demo_evidence(payload: dict[str, Any]) -> dict[str, Any]:
     if payload["deterministic_replay_status"] != "PASS":
         raise DemoEvidenceError("DEMO_EVIDENCE_REPLAY_NOT_PASS")
 
-    if not str(payload["commit_sha"]).strip():
-        raise DemoEvidenceError("DEMO_EVIDENCE_COMMIT_SHA_MISSING")
+    if not isinstance(payload["commit_sha"], str) or not SHA40.fullmatch(payload["commit_sha"]):
+        raise DemoEvidenceError("DEMO_EVIDENCE_COMMIT_SHA_INVALID")
 
-    if not str(payload["trade_id"]).strip():
-        raise DemoEvidenceError("DEMO_EVIDENCE_TRADE_ID_MISSING")
+    for field, error in (
+        ("strategy_id", "DEMO_EVIDENCE_STRATEGY_ID_MISSING"),
+        ("trade_id", "DEMO_EVIDENCE_TRADE_ID_MISSING"),
+        ("symbol", "DEMO_EVIDENCE_SYMBOL_MISSING"),
+        ("timeframe", "DEMO_EVIDENCE_TIMEFRAME_MISSING"),
+    ):
+        if not isinstance(payload[field], str) or not payload[field].strip():
+            raise DemoEvidenceError(error)
 
     return {
         "schema": SCHEMA,
