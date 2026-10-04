@@ -245,9 +245,6 @@ class MT5TerminalGateway:
             if retcode == done:
                 raise MT5GatewayError("MT5_DONE_WITHOUT_FULL_FILL")
 
-            if retcode == done:
-                raise MT5GatewayError("MT5_DONE_WITHOUT_DEAL")
-
             if retcode == partial:
                 return {"status": "PARTIAL", **common}
 
