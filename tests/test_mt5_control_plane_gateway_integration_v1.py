@@ -25,6 +25,8 @@ class FakeMT5:
     TRADE_RETCODE_DONE = 10009
     TRADE_RETCODE_DONE_PARTIAL = 10010
     TRADE_RETCODE_PLACED = 10008
+    ACCOUNT_TRADE_MODE_DEMO = 0
+    ACCOUNT_TRADE_MODE_REAL = 2
 
     def __init__(self):
         self.order_send_calls = 0
@@ -34,6 +36,13 @@ class FakeMT5:
 
     def shutdown(self):
         return None
+
+    def account_info(self):
+        return SimpleNamespace(
+            login=123,
+            server="Demo-Server",
+            trade_mode=self.ACCOUNT_TRADE_MODE_DEMO,
+        )
 
     def symbol_info(self, symbol):
         return SimpleNamespace(
