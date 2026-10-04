@@ -136,6 +136,7 @@ class MT5ExecutionAdapter:
                 envelope,
                 request=request,
                 now_utc=now_utc,
+                control_plane_secret=self.control_plane_secret,
             )
         except (AuthorizationError, LedgerError, ControlPlaneAuthenticationError) as exc:
             raise MT5ExecutionAdapterError(str(exc)) from exc
