@@ -9,11 +9,81 @@ with a fake module without installing or connecting to MT5.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
+import math
 from typing import Any, Mapping
 
 
 class MT5GatewayError(RuntimeError):
     """Fail-closed MT5 terminal gateway error."""
+
+
+EXECUTION_ADMISSION_SCHEMA = "forexai.execution_admission.v1"
+EXECUTION_CONTRACT_VERSION = "forexai.execution.v1"
+
+
+def _request_hash(request: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            dict(request),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _validate_admission_for_gateway(
+    request: Mapping[str, Any],
+    admission: Mapping[str, Any],
+) -> None:
+    required = {
+        "schema",
+        "status",
+        "trade_id",
+        "authorization_id",
+        "reservation_id",
+        "symbol",
+        "timeframe",
+        "side",
+        "volume",
+        "risk_fraction",
+        "stop_loss",
+        "take_profit",
+        "execution_contract_version",
+        "current_firewall_authority",
+        "control_plane_authenticated",
+        "request_hash",
+    }
+    if set(admission) != required:
+        raise MT5GatewayError("MT5_GATEWAY_ADMISSION_FIELDS_MISMATCH")
+    if admission["schema"] != EXECUTION_ADMISSION_SCHEMA:
+        raise MT5GatewayError("MT5_GATEWAY_ADMISSION_SCHEMA_MISMATCH")
+    if admission["status"] != "PASS":
+        raise MT5GatewayError("MT5_GATEWAY_ADMISSION_NOT_PASSED")
+    if admission["current_firewall_authority"] != "PASS":
+        raise MT5GatewayError("MT5_GATEWAY_AUTHORITY_NOT_CURRENT")
+    if admission["control_plane_authenticated"] is not True:
+        raise MT5GatewayError("MT5_GATEWAY_CONTROL_PLANE_AUTH_REQUIRED")
+    if admission["execution_contract_version"] != EXECUTION_CONTRACT_VERSION:
+        raise MT5GatewayError("MT5_GATEWAY_EXECUTION_CONTRACT_MISMATCH")
+    if request.get("trade_id") != admission["trade_id"]:
+        raise MT5GatewayError("MT5_GATEWAY_TRADE_ID_MISMATCH")
+    if request.get("symbol") != admission["symbol"]:
+        raise MT5GatewayError("MT5_GATEWAY_SYMBOL_MISMATCH")
+    if request.get("timeframe") != admission["timeframe"]:
+        raise MT5GatewayError("MT5_GATEWAY_TIMEFRAME_MISMATCH")
+    if request.get("side") != admission["side"]:
+        raise MT5GatewayError("MT5_GATEWAY_SIDE_MISMATCH")
+    if _request_hash(request) != admission["request_hash"]:
+        raise MT5GatewayError("MT5_GATEWAY_REQUEST_HASH_MISMATCH")
+    try:
+        risk = float(admission["risk_fraction"])
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MT5GatewayError("MT5_GATEWAY_RISK_INVALID") from exc
+    if not math.isfinite(risk) or risk <= 0 or risk > 0.006:
+        raise MT5GatewayError("MT5_GATEWAY_RISK_INVALID")
 
 
 @dataclass(frozen=True)
@@ -137,6 +207,7 @@ class MT5TerminalGateway:
         request: Mapping[str, Any],
         admission: Mapping[str, Any],
     ) -> Mapping[str, Any]:
+        _validate_admission_for_gateway(request, admission)
         mt5 = self.mt5
         self._initialize()
         try:
