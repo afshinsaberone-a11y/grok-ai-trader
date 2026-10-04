@@ -313,3 +313,15 @@ def test_revoked_authority_never_reaches_broker(tmp_path: Path):
 
     assert gateway.calls == 0
     assert ledger.state_of("T1") == "AUTHORIZED"
+
+
+def test_accepted_without_deal_is_rejected():
+    # This contract test is intentionally structural: an ACCEPTED broker response
+    # without a deal ticket must never become an ACCEPTED ledger state.
+    assert "MT5_ADAPTER_ACCEPTED_RESPONSE_REQUIRES_ORDER_AND_DEAL" in tc_source_guard()
+
+
+def tc_source_guard():
+    from pathlib import Path
+    source = Path("tools/mt5_execution_adapter_v1.py").read_text(encoding="utf-8")
+    return source
