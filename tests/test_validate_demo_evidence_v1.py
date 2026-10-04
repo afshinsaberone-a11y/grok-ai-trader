@@ -13,8 +13,10 @@ def _valid():
         "schema": "forexai.demo_execution_evidence.v1",
         "status": "PASS",
         "commit_sha": "4ba45299908948b6daf9c3f065cb69e40526d030",
+        "candidate_id": 2,
+        "config_hash": "a" * 64,
         "ea_source_sha256": "b" * 64,
-        "strategy_id": "demo-candidate-1",
+        "strategy_id": "G13-M15",
         "trade_id": "T-DEMO-1",
         "symbol": "EURUSD",
         "timeframe": "M15",
@@ -36,6 +38,8 @@ def _valid():
 def test_valid_demo_evidence_passes():
     result = validate_demo_evidence(_valid())
     assert result["status"] == "PASS"
+    assert result["candidate_id"] == 2
+    assert result["config_hash"] == "a" * 64
     assert result["account_mode"] == "DEMO"
     assert result["reconciliation_status"] == "RECONCILED"
 
@@ -63,21 +67,34 @@ def test_unsafe_demo_evidence_fails_closed(field, value, error):
 
 def test_missing_field_fails_closed():
     payload = _valid()
-    payload.pop("broker_order_id")
+    payload.pop("candidate_id")
     with pytest.raises(DemoEvidenceError, match="REQUIRED_FIELD_MISSING"):
         validate_demo_evidence(payload)
 
 
-def test_ea_source_hash_matches_actual_file():
-    source = Path("ea/GRK_Hybrid_Regime_EA.mq5")
+def test_candidate_identity_validation():
+    payload = _valid()
+    payload["candidate_id"] = 0
+    with pytest.raises(DemoEvidenceError, match="CANDIDATE_ID_INVALID"):
+        validate_demo_evidence(payload)
+    payload = _valid()
+    payload["config_hash"] = "not-a-hash"
+    with pytest.raises(DemoEvidenceError, match="CONFIG_HASH_INVALID"):
+        validate_demo_evidence(payload)
+
+
+def test_ea_source_hash_matches_actual_file(tmp_path: Path):
+    source = tmp_path / "ForexAI_G13_Candidate_02.mq5"
+    source.write_text("// frozen G13 candidate 02\n", encoding="utf-8")
     payload = _valid()
     payload["ea_source_sha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
     result = validate_demo_evidence(payload, ea_source_path=source)
     assert result["ea_source_sha256"] == payload["ea_source_sha256"]
 
 
-def test_ea_source_hash_mismatch_fails_closed():
-    source = Path("ea/GRK_Hybrid_Regime_EA.mq5")
+def test_ea_source_hash_mismatch_fails_closed(tmp_path: Path):
+    source = tmp_path / "ForexAI_G13_Candidate_02.mq5"
+    source.write_text("// frozen G13 candidate 02\n", encoding="utf-8")
     payload = _valid()
     payload["ea_source_sha256"] = "c" * 64
     with pytest.raises(DemoEvidenceError, match="EA_SOURCE_HASH_MISMATCH"):
