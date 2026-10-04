@@ -115,6 +115,14 @@ def audit_source(source: str, contract: dict[str, Any]) -> dict[str, Any]:
         and '"ForexAI.v1.a.t."' in source
     )
 
+    checks["runtime_identity_timeframe_bound"] = (
+        "CurrentTimeframeName()" in source
+        and '"ForexAI_RuntimeTrace_%I64d_%s_%s.jsonl"' in source
+        and '"T-%I64d-%s-%s-%I64d-%s"' in source
+        and '"ForexAI_Authorization_%I64d_%s_%s.auth"' in source
+    )
+
+
     expected = {
         "max_positions_one": contract["live_mql5"]["max_positions"] == 1,
         "max_hold_bars_30": contract["live_mql5"]["max_hold_bars"] == 30,
