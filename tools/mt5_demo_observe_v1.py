@@ -1,17 +1,16 @@
-"""Read-only MetaTrader 5 Demo broker observation CLI v1.
-
-Connects to an existing MT5 terminal, observes one existing broker order,
-and writes a JSON observation artifact. It never calls order_send/order_check
-and never retries or grants capital authority.
-"""
+"""Read-only MetaTrader 5 Demo broker observation CLI v1."""
 from __future__ import annotations
 
 import argparse
 import json
-import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from tools.mt5_broker_observation_v1 import observe_order
 
@@ -33,7 +32,6 @@ def _connect(terminal_path: str | None) -> Any:
         import MetaTrader5 as mt5
     except ImportError as exc:
         raise RuntimeError("MT5_PYTHON_PACKAGE_NOT_INSTALLED") from exc
-
     ok = mt5.initialize(terminal_path) if terminal_path else mt5.initialize()
     if not ok:
         raise RuntimeError(f"MT5_INITIALIZE_FAILED:{mt5.last_error()}")
@@ -42,14 +40,16 @@ def _connect(terminal_path: str | None) -> Any:
 
 def main() -> int:
     args = _parse_args()
+    if args.requested_volume <= 0:
+        raise RuntimeError("REQUESTED_VOLUME_MUST_BE_POSITIVE")
+
     mt5 = _connect(args.terminal_path)
     try:
         account = mt5.account_info()
         if account is None:
             raise RuntimeError("MT5_ACCOUNT_INFO_UNAVAILABLE")
         demo_mode = int(getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", 0))
-        trade_mode = int(getattr(account, "trade_mode", -1))
-        if trade_mode != demo_mode:
+        if int(getattr(account, "trade_mode", -1)) != demo_mode:
             raise RuntimeError("MT5_REAL_ACCOUNT_BLOCKED_BY_READ_ONLY_DEMO_OBSERVER")
 
         observation = observe_order(
@@ -59,10 +59,16 @@ def main() -> int:
             side=args.side,
             requested_volume=args.requested_volume,
         )
+        observation_status = str(observation.get("status", "UNKNOWN"))
+        terminal_evidence_status = (
+            "OBSERVED"
+            if observation_status in {"ACCEPTED", "PARTIAL", "PENDING", "REJECTED", "UNKNOWN"}
+            else "INVALID_OBSERVATION"
+        )
         payload = {
             "schema": "forexai.mt5_demo_broker_observation.v1",
             "observed_at_utc": datetime.now(timezone.utc).isoformat(),
-            "status": "PASS",
+            "status": terminal_evidence_status,
             "trade_id": args.trade_id,
             "account_mode": "DEMO",
             "terminal_connected": True,
@@ -77,10 +83,9 @@ def main() -> int:
         except Exception:
             pass
 
-    Path(args.output).write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(payload, sort_keys=True))
     return 0
 
