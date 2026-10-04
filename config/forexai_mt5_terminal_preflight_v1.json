@@ -1,16 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema_version": "forexai.mt5_terminal_preflight.v1",
-  "purpose": "Read-only proof of a real MetaTrader 5 terminal connection before any controlled Demo execution.",
+  "purpose": "Read-only proof of a real MetaTrader 5 Demo terminal/account connection before any controlled Demo execution.",
   "order_submission_performed": false,
-  "required_checks": [
-    "terminal_info",
-    "account_info",
-    "symbol_info",
-    "symbol_info_tick"
-  ],
-  "runner": {
-    "labels": ["self-hosted", "windows", "mt5"],
-    "package": "requirements-mt5.txt"
-  }
+  "account_mode_required": "DEMO",
+  "required_checks": ["terminal_info","account_info","account_trade_mode_demo","symbol_info","symbol_info_tick","positive_bid_ask"],
+  "runner": {"labels": ["self-hosted","windows","mt5"], "package": "requirements-mt5.txt"}
 }
