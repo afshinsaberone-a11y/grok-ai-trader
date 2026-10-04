@@ -162,8 +162,8 @@ def test_real_account_is_blocked_by_default():
     gateway = MT5TerminalGateway(mt5_module=mt5)
     with pytest.raises(MT5GatewayError, match="REAL_ACCOUNT_BLOCKED_BY_DEMO_ONLY_POLICY"):
         gateway.submit_authorized_order(
-            request={},
-            admission=_admission(),
+            request=_admission_request(),
+        admission=_admission(_admission_request()),
         )
     assert mt5.order_send_calls == 0
 
@@ -172,8 +172,8 @@ def test_order_check_rejection_never_calls_order_send():
     mt5 = FakeMT5(check_retcode=10016, send_result=_accepted())
     gateway = MT5TerminalGateway(mt5_module=mt5)
     result = gateway.submit_authorized_order(
-        request={},
-        admission=_admission(),
+        request=_admission_request(),
+        admission=_admission(_admission_request()),
     )
     assert result["status"] == "REJECTED"
     assert result["broker_order_id"] is None
@@ -194,8 +194,8 @@ def test_placed_without_deal_is_returned_as_pending(tmp_path=None):
     )
     gateway = MT5TerminalGateway(mt5_module=mt5)
     result = gateway.submit_authorized_order(
-        request={},
-        admission=_admission(),
+        request=_admission_request(),
+        admission=_admission(_admission_request()),
     )
     assert result["status"] == "PENDING"
     assert result["broker_order_id"] == "7002"
