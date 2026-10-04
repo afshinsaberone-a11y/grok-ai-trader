@@ -7,6 +7,16 @@ from tools.validate_mql5_parity_v1 import audit_source, load_contract
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_execution_success_contract_requires_full_broker_fill():
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+    assert contract["live_mql5"]["execution_success_requires"] == [
+        "trade_result_retcode",
+        "order_ticket",
+        "deal_ticket",
+        "full_requested_volume",
+    ]
+
+
 def test_current_mql5_adapter_passes_static_parity_contract():
     source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
     contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
