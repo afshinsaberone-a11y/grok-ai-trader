@@ -15,6 +15,14 @@
   },
   "execution_admission": {
     "schema": "forexai.execution_admission.v1",
+    "authentication": {
+      "required": true,
+      "schema": "forexai.execution_admission_authentication.v1",
+      "algorithm": "HMAC-SHA256",
+      "secret_source": "external_runtime_secret",
+      "verify_at_gateway": true,
+      "constant_time_compare": true
+    },
     "required": true,
     "authority": "CapitalFirewall",
     "verify_current_state_immediately_before_submit": true,
