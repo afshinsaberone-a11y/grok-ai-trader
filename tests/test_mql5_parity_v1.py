@@ -16,6 +16,30 @@ def test_current_mql5_adapter_passes_static_parity_contract():
     assert result["market_price_identity"] == "not_required"
 
 
+def test_parity_requires_full_fill_and_order_ticket_for_success():
+    source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
+    contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
+
+    broken_order = source.replace("if(order == 0 || deal == 0) return false;", "if(deal == 0) return false;")
+    try:
+        audit_source(broken_order, contract)
+    except Exception as exc:
+        assert "order_ticket_verified" in str(exc)
+    else:
+        raise AssertionError("accepted execution must require a broker order ticket")
+
+    broken_fill = source.replace(
+        "if(MathAbs(confirmed_volume - requested_volume) > 1e-9) return false;",
+        "if(false) return false;",
+    )
+    try:
+        audit_source(broken_fill, contract)
+    except Exception as exc:
+        assert "full_fill_volume_verified" in str(exc)
+    else:
+        raise AssertionError("accepted execution must require full broker-confirmed volume")
+
+
 def test_parity_rejects_partial_fill_as_success():
     source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
     contract = load_contract(ROOT / "config" / "forexai_execution_parity_v1.json")
