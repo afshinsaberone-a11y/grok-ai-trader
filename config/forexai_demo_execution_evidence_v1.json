@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.demo_execution_evidence.v1",
+  "purpose": "Evidence contract for one controlled real-MT5 Demo execution before any promotion review.",
+  "not_a_live_authorization": true,
+  "required_fields": [
+    "schema",
+    "status",
+    "commit_sha",
+    "strategy_id",
+    "trade_id",
+    "symbol",
+    "timeframe",
+    "account_mode",
+    "terminal_connected",
+    "broker_order_id",
+    "broker_deal_id",
+    "execution_status",
+    "full_fill",
+    "reconciliation_status",
+    "unresolved_broker_outcomes",
+    "runtime_evidence_gate_status",
+    "deterministic_replay_status",
+    "live_enabled",
+    "order_submission_performed"
+  ],
+  "acceptance_rules": {
+    "status": "PASS",
+    "account_mode": "DEMO",
+    "terminal_connected": true,
+    "execution_status": "ACCEPTED",
+    "full_fill": true,
+    "reconciliation_status": "RECONCILED",
+    "unresolved_broker_outcomes": false,
+    "runtime_evidence_gate_status": "PASS",
+    "deterministic_replay_status": "PASS",
+    "live_enabled": false,
+    "order_submission_performed": true,
+    "broker_order_id_required": true,
+    "broker_deal_id_required": true
+  },
+  "forbidden_claims": [
+    "live_ready",
+    "production_ready",
+    "guaranteed_profit",
+    "statistically_validated_by_demo"
+  ]
+}
