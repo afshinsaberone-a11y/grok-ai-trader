@@ -56,6 +56,7 @@ input string ExecutionAuditFile = "g13_demo_execution_audit.csv";
 input bool   RequireRuntimeAuthorization = true;
 input string AuthorizationFileName = "";
 input string TraceFileName = "";
+input string DemoTradeContextFileName = "ForexAI_G13_Demo_TradeId.txt";
 
 const long RuntimeAuthorizationMaxAgeSeconds = 10;
 
@@ -295,8 +296,25 @@ void TraceLifecycle(const string trade_id,const string state,const string payloa
    TraceRecord(trade_id,state,state,payload_fields);
 }}
 
+string LoadDemoTradeId()
+{{
+   if((bool)MQLInfoInteger(MQL_TESTER)) return "";
+   int handle=FileOpen(
+      DemoTradeContextFileName,
+      FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ
+   );
+   if(handle==INVALID_HANDLE) return "";
+   string value=FileReadString(handle);
+   FileClose(handle);
+   if(StringLen(value)<=0 || StringFind(value,"|")>=0 || StringFind(value,"\\n")>=0 || StringFind(value,"\\r")>=0)
+      return "";
+   return value;
+}}
+
 string BuildTraceTradeId(const datetime signal_bar_time)
 {{
+   string demo_trade_id=LoadDemoTradeId();
+   if(StringLen(demo_trade_id)>0) return demo_trade_id;
    return StringFormat("T-%I64d-%s-%I64d-S",MagicNumber,_Symbol,(long)signal_bar_time);
 }}
 
