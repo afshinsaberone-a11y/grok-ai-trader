@@ -290,7 +290,13 @@ def test_parity_requires_bounded_authorization_state_keys():
 def test_parity_requires_timeframe_bound_runtime_identity():
     source = (ROOT / "ea" / "GRK_Hybrid_Regime_EA.mq5").read_text(encoding="utf-8")
     contract = load_contract(ROOT / "config/forexai_execution_parity_v1.json")
-    broken = source.replace("CurrentTimeframeName()", "CurrentTimeframeRemoved()")
+    broken = source.replace(
+        'return StringFormat("ForexAI_RuntimeTrace_%I64d_%s_%s.jsonl",',
+        'return StringFormat("ForexAI_RuntimeTrace_%I64d_%s.jsonl",'
+    ).replace(
+        '"T-%I64d-%s-%s-%I64d-%s"',
+        '"T-%I64d-%s-%I64d-%s"'
+    )
     try:
         audit_source(broken, contract)
     except Exception as exc:
