@@ -51,6 +51,10 @@ REQUIRED_INVARIANTS = {
     "authorization_consumption_persistence_failure_blocks_new_risk == true",
     "mql5_authorization_state_keys_must_fit_terminal_global_variable_limit == true",
     "authorization_lifetime_must_not_exceed_86400_seconds == true",
+    "broker_submit_requires_durable_order_submitted_intent == true",
+    "broker_unknown_outcome_requires_reconciliation == true",
+    "broker_unknown_outcome_must_not_be_retried_automatically == true",
+    "broker_acceptance_must_match_execution_identity == true",
 }
 
 
