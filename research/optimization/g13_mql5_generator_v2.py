@@ -610,7 +610,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
       long entry=HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
       if(entry==DEAL_ENTRY_OUT || entry==DEAL_ENTRY_INOUT)
       {{
-         if(PositionsByMagic()==0 && StringLen(active_trace_trade_id)>0)
+         if(CountOwnPositions()==0 && StringLen(active_trace_trade_id)>0)
          {{
             double exit_price=HistoryDealGetDouble(trans.deal,DEAL_PRICE);
             double volume=HistoryDealGetDouble(trans.deal,DEAL_VOLUME);
@@ -787,7 +787,7 @@ void OnTick()
    {{
       TraceRecord(
          trace_trade_id,"BROKER_OUTCOME_UNKNOWN","ORDER_SUBMITTED",
-         StringFormat(""retcode":%u,"order_ticket":"%I64d","deal_ticket":"%I64d","requested_volume":%.8f",
+         StringFormat("\\\"retcode\\\":%u,\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"requested_volume\\\":%.8f",
                       trade.ResultRetcode(),(long)trade.ResultOrder(),(long)trade.ResultDeal(),lots)
       );
       runtime_authorization_healthy=false;
