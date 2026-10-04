@@ -34,6 +34,20 @@ def test_terminal_trade_recovers_stable(tmp_path: Path):
     assert report.items[0].posture == "STABLE"
 
 
+def test_rejected_trade_requires_broker_reconciliation(tmp_path: Path):
+    report = recover_from_ledger(
+        _ledger(
+            tmp_path / "ledger.jsonl",
+            ["PROPOSED", "VALIDATED", "RISK_RESERVED", "AUTHORIZED",
+             "ORDER_SUBMITTED", "REJECTED"],
+        ).path
+    )
+    assert report.status == "BLOCKED"
+    assert report.items[0].posture == "RUNTIME_ACTIVE"
+    assert report.risk_blocked is True
+    assert "BROKER_RECONCILIATION_AFTER_REJECTION" in report.items[0].action
+
+
 def test_authorized_trade_requires_explicit_resume(tmp_path: Path):
     report = recover_from_ledger(
         _ledger(tmp_path / "ledger.jsonl",
