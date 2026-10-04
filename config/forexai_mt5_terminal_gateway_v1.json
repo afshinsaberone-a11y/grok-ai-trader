@@ -2,6 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema_version": "forexai.mt5_terminal_gateway.v1",
   "purpose": "Real broker-backed MetaTrader 5 Python gateway. No synthetic broker responses are permitted.",
+  "account_policy": {
+    "default_mode": "DEMO_ONLY",
+    "real_account_requires_external_confirmation_env": "FOREXAI_ALLOW_REAL_TRADING"
+  },
   "platform": {
     "terminal": "MetaTrader 5",
     "python_package": "MetaTrader5",
@@ -34,6 +38,7 @@
   "authority": {
     "capital_authority_source": "CapitalFirewall",
     "control_plane_authentication_required_before_gateway": true,
-    "gateway_cannot_grant_authority": true
+    "gateway_cannot_grant_authority": true,
+    "default_demo_only": true
   }
 }
