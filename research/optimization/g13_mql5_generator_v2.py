@@ -534,7 +534,7 @@ int OnInit()
 {{
    trade.SetExpertMagicNumber(MagicNumber);
    if(!RequireRuntimeAuthorization) return INIT_FAILED;
-   if(!EnsureRuntimeTraceReady()) return INIT_FAILED;
+   if(!(bool)MQLInfoInteger(MQL_TESTER) && !EnsureRuntimeTraceReady()) return INIT_FAILED;
    if(!trade.SetTypeFillingBySymbol(_Symbol)) return INIT_FAILED;
    return INIT_SUCCEEDED;
 }}
@@ -619,7 +619,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
             double commission=HistoryDealGetDouble(trans.deal,DEAL_COMMISSION);
             TraceLifecycle(
                active_trace_trade_id,"CLOSED",
-               StringFormat(""deal_ticket":"%I64d","position_id":"%I64d","exit_price":%.10f,"volume":%.8f,"profit":%.8f,"swap":%.8f,"commission":%.8f",
+               StringFormat("\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"position_id\\\":\\\"%I64d\\\",\\\"exit_price\\\":%.10f,\\\"volume\\\":%.8f,\\\"profit\\\":%.8f,\\\"swap\\\":%.8f,\\\"commission\\\":%.8f",
                             (long)trans.deal,
                             (long)HistoryDealGetInteger(trans.deal,DEAL_POSITION_ID),
                             exit_price,volume,profit,swap,commission)
@@ -729,21 +729,30 @@ void OnTick()
       if(!VerifyRuntimeAuthorization(trace_trade_id,false)) return;
       if(!BeginRuntimeAuthorizationAttempt(trace_trade_id)) return;
    }}
-   // Runtime authorization caps risk independently from the EA input.
-   if(runtime_reserved_risk<=0.0) return;
-   double authorized_risk_percent=MathMin(RiskPercent/100.0,runtime_reserved_risk);
-   double riskMoney=AccountInfoDouble(ACCOUNT_BALANCE)*authorized_risk_percent;
-   double oneLotLoss=0.0;
-   if(!OrderCalcProfit(ORDER_TYPE_SELL,_Symbol,1.0,entry,entry+risk,oneLotLoss)) return;
-   oneLotLoss=MathAbs(oneLotLoss);
-   if(oneLotLoss<=0.0) return;
-   double broker_lots=NormalizeDouble(riskMoney/oneLotLoss,8);
-   double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
-   double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
-   if(step<=0.0 || minLot<=0.0 || broker_lots<minLot) return;
-   broker_lots=MathFloor(broker_lots/step)*step;
-   if(broker_lots<minLot) return;
-   lots=MathMin(lots,broker_lots);
+   double lots=0.0;
+   if((bool)MQLInfoInteger(MQL_TESTER))
+   {{
+      // Tester path: preserve deterministic research/backtest sizing without
+      // requiring runtime authorization artifacts.
+      lots=LotSize(risk,entry);
+   }}
+   else
+   {{
+      // Demo path: runtime authorization independently caps risk before submit.
+      if(runtime_reserved_risk<=0.0) return;
+      double authorized_risk_percent=MathMin(RiskPercent/100.0,runtime_reserved_risk);
+      double riskMoney=AccountInfoDouble(ACCOUNT_BALANCE)*authorized_risk_percent;
+      double oneLotLoss=0.0;
+      if(!OrderCalcProfit(ORDER_TYPE_SELL,_Symbol,1.0,entry,entry+risk,oneLotLoss)) return;
+      oneLotLoss=MathAbs(oneLotLoss);
+      if(oneLotLoss<=0.0) return;
+      lots=NormalizeDouble(riskMoney/oneLotLoss,8);
+      double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+      double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+      if(step<=0.0 || minLot<=0.0 || lots<minLot) return;
+      lots=MathFloor(lots/step)*step;
+      if(lots<minLot) return;
+   }}
    if(lots<=0.0) return;
    if(!(bool)MQLInfoInteger(MQL_TESTER))
       TraceLifecycle(
