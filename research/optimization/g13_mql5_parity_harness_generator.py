@@ -21,9 +21,10 @@ TEMPLATE = r'''//+--------------------------------------------------------------
 #property version "1.20"
 #property description "ForexAI G13 research-only real-data signal parity script"
 
-input string InputFile = "g13_real_eurusd_m15.csv";
-input string OutputFile = "g13_mql5_parity.csv";
-input string DoneFile = "g13_mql5_parity.done.txt";
+input string InputFile = "__INPUT_FILE__";
+input string OutputFile = "__OUTPUT_FILE__";
+input string DoneFile = "__DONE_FILE__";
+input string StartedFile = "__STARTED_FILE__";
 
 struct Bar
 {
@@ -335,7 +336,7 @@ void OnStart()
       FileWrite(localStarted,"program_type","SCRIPT");
       FileClose(localStarted);
    }
-   int started=FileOpen("g13_mql5_parity.started.txt",FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
+   int started=FileOpen(StartedFile,FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE,',');
    if(started!=INVALID_HANDLE)
    {
       FileWrite(started,"status","STARTED");
@@ -354,6 +355,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--handoff", required=True, type=Path)
     ap.add_argument("--output", required=True, type=Path)
+    ap.add_argument("--input-file", default="g13_real_eurusd_m15.csv")
+    ap.add_argument("--output-file", default="g13_mql5_parity.csv")
+    ap.add_argument("--done-file", default="g13_mql5_parity.done.txt")
+    ap.add_argument("--started-file", default="g13_mql5_parity.started.txt")
     args = ap.parse_args()
 
     handoff = json.loads(args.handoff.read_text(encoding="utf-8"))
@@ -377,6 +382,10 @@ def main() -> int:
         .replace("__ATR_MULTS__", nums("atr_mult", "{:.3f}"))
         .replace("__RRS__", nums("rr", "{:.3f}"))
         .replace("__RSI_HIGHS__", nums("rsi_high", "{:.1f}"))
+        .replace("__INPUT_FILE__", args.input_file)
+        .replace("__OUTPUT_FILE__", args.output_file)
+        .replace("__DONE_FILE__", args.done_file)
+        .replace("__STARTED_FILE__", args.started_file)
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
