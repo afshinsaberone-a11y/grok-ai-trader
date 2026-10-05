@@ -147,6 +147,10 @@ jobs:
       TARGET_SHA: ${{ needs.resolve-promotion.outputs.target_sha }}
       PROMOTION_ARTIFACT_ID: ${{ needs.resolve-promotion.outputs.promotion_artifact_id }}
       PROMOTION_ARTIFACT_DIGEST: ${{ needs.resolve-promotion.outputs.promotion_artifact_digest }}
+      PARITY_INPUT_FILE: g13_real_eurusd_m15_${{ github.run_id }}.csv
+      PARITY_OUTPUT_FILE: g13_mql5_parity_${{ github.run_id }}.csv
+      PARITY_DONE_FILE: g13_mql5_parity.done_${{ github.run_id }}.txt
+      PARITY_STARTED_FILE: g13_mql5_parity.started_${{ github.run_id }}.txt
       MT5_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
       MT5_DATA_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_data_root || 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075' }}
       DATA_CSV_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.data_csv || 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv' }}
@@ -340,7 +344,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m research.optimization.g13_mql5_parity_harness_generator `
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
-            --output artifacts/g13/mql5/ForexAI_G13_Parity_Harness.mq5
+            --output artifacts/g13/mql5/ForexAI_G13_Parity_Harness.mq5 `
+            --input-file "$env:PARITY_INPUT_FILE" `
+            --output-file "$env:PARITY_OUTPUT_FILE" `
+            --done-file "$env:PARITY_DONE_FILE" `
+            --started-file "$env:PARITY_STARTED_FILE"
 
       - name: Compile all 15 EAs with MetaEditor
         run: |
@@ -568,10 +576,11 @@ jobs:
           }
           $serviceCommon = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
           New-Item -ItemType Directory -Path $serviceCommon -Force | Out-Null
-          $inputTarget = Join-Path $serviceCommon 'g13_real_eurusd_m15.csv'
-          $parityTarget = Join-Path $serviceCommon 'g13_mql5_parity.csv'
-          $doneTarget = Join-Path $serviceCommon 'g13_mql5_parity.done.txt'
-          Remove-Item $parityTarget,$doneTarget -Force -ErrorAction SilentlyContinue
+          $inputTarget = Join-Path $serviceCommon $env:PARITY_INPUT_FILE
+          $parityTarget = Join-Path $serviceCommon $env:PARITY_OUTPUT_FILE
+          $doneTarget = Join-Path $serviceCommon $env:PARITY_DONE_FILE
+          $startedTarget = Join-Path $serviceCommon $env:PARITY_STARTED_FILE
+          Remove-Item $parityTarget,$doneTarget,$startedTarget -Force -ErrorAction SilentlyContinue
           Copy-Item $env:DATA_CSV_RESOLVED $inputTarget -Force
           if (!(Test-Path -LiteralPath $inputTarget -PathType Leaf)) {
             throw "Failed to stage REAL M15 CSV for MQL5 parity harness: $inputTarget"
@@ -596,9 +605,9 @@ jobs:
           "@ | Set-Content -LiteralPath $config -Encoding ascii
 
           $serviceCommon = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
-          $parity = Join-Path $serviceCommon 'g13_mql5_parity.csv'
-          $done = Join-Path $serviceCommon 'g13_mql5_parity.done.txt'
-          $started = Join-Path $serviceCommon 'g13_mql5_parity.started.txt'
+          $parity = Join-Path $serviceCommon $env:PARITY_OUTPUT_FILE
+          $done = Join-Path $serviceCommon $env:PARITY_DONE_FILE
+          $started = Join-Path $serviceCommon $env:PARITY_STARTED_FILE
           Remove-Item $parity,$done,$started -Force -ErrorAction SilentlyContinue
 
           Write-Host "Launching MT5 parity script via startup config"
@@ -736,7 +745,7 @@ jobs:
 
           if (Test-Path $commonFiles) {
             Get-ChildItem $commonFiles -File |
-              Where-Object { $_.Name -like 'g13_mql5_parity*' -or $_.Name -eq 'g13_real_eurusd_m15.csv' } |
+              Where-Object { $_.Name -like 'g13_mql5_parity*' -or $_.Name -like 'g13_real_eurusd_m15*.csv' } |
               Select-Object Name,Length,LastWriteTime |
               Format-Table -AutoSize |
               Out-File (Join-Path $diag 'common_files_inventory.txt') -Encoding utf8
