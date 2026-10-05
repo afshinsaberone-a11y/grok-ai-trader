@@ -1,9 +1,10 @@
 name: ForexAI G13 MT5 Compile + Signal Parity
-# CI refresh marker: no execution logic change; intentionally triggers the exact-main evidence chain.
+# CI refresh marker: re-run exact-main evidence chain after the Windows npm-resolution fix.
+# No trading or execution logic change; this marker intentionally refreshes G13 evidence.
 
 on:
   workflow_dispatch:
-    inputs:
+    inputs:    inputs:
       promotion_run_id:
         description: 'Successful G13 Final Promotion M15 run for this exact commit'
         required: true
