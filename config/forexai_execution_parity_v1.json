@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.execution_parity.v1",
+  "purpose": "Machine-readable contract linking research execution semantics to the MQL5 runtime adapter.",
+  "control_plane_authentication": {
+    "required": true,
+    "schema": "forexai.runtime_authorization_authentication.v1",
+    "algorithm": "HMAC-SHA256",
+    "secret_source": "external_runtime_secret",
+    "default_key_id": "forexai-control-plane-v1",
+    "verify_before_broker_submission": true,
+    "constant_time_tag_compare": true,
+    "must_recheck_current_capital_firewall": true,
+    "authentication_cannot_grant_capital_authority": true
+  },
+  "execution_admission": {
+    "schema": "forexai.execution_admission.v1",
+    "required": true,
+    "authority": "CapitalFirewall",
+    "verify_current_state_immediately_before_submit": true,
+    "reconciliation_must_be_clear": true,
+    "execution_contract_version": "forexai.execution.v1",
+    "risk_cap": 0.006,
+    "request_fields": [
+      "trade_id",
+      "symbol",
+      "timeframe",
+      "side",
+      "volume",
+      "risk_fraction",
+      "stop_loss",
+      "take_profit",
+      "execution_contract_version"
+    ]
+  },
+  "research": {
+    "signal_bar": "fully_closed",
+    "entry": "next_bar_open",
+    "entry_cost_model": {
+      "spread_pips": 0.5,
+      "slippage_pips": 0.2,
+      "adverse_pips_per_side": 0.7
+    },
+    "exit_cost_model": {
+      "adverse_pips_per_side": 0.7
+    },
+    "same_bar_resolution": "SL first (conservative)",
+    "expiry_bars": 30,
+    "max_positions": 1
+  },
+  "live_mql5": {
+    "signal_bar": "fully_closed",
+    "entry": "first_market_price_after_new_bar",
+    "entry_price_equality_with_research_open": false,
+    "broker_costs_are_observed": true,
+    "max_hold_bars": 30,
+    "max_positions": 1,
+    "execution_success_requires": [
+      "trade_result_retcode",
+      "order_ticket",
+      "deal_ticket",
+      "full_requested_volume"
+    ],
+    "filling_mode": "symbol_native",
+    "stop_constraints": [
+      "trade_stops_level",
+      "trade_freeze_level"
+    ],
+    "runtime_clock": "broker_server_time",
+    "ledger_normalization_required": true,
+    "restart_safety_state_persistence": true,
+    "trade_permission_checks": [
+      "SYMBOL_TRADE_MODE",
+      "SYMBOL_ORDER_MODE"
+    ],
+    "protective_close_success_requires": [
+      "trade_result_retcode"
+    ],
+    "runtime_authorization": {
+      "enabled": true,
+      "record_schema": "forexai.mql5_authorization_record.v1",
+      "record_prefix": "FOREXAI-AUTH-V1",
+      "execution_identity_fields": [
+        "symbol",
+        "timeframe"
+      ],
+      "record_scope": "FILE_COMMON",
+      "hash": "SHA-256",
+      "missing_record_policy": "BLOCK_NEW_ORDERS",
+      "expired_record_policy": "BLOCK_NEW_ORDERS",
+      "trade_id_mismatch_policy": "BLOCK_NEW_ORDERS",
+      "risk_cap": 0.006,
+      "required_execution_contract_version": "forexai.execution.v1",
+      "max_record_age_seconds": 10,
+      "single_attempt_lock_before_submission": true,
+      "single_attempt_lock_uses_atomic_terminal_global_variable": true,
+      "consumption_persistence_is_fail_closed": true,
+      "terminal_global_variable_name_max_length": 63,
+      "state_key_digest_algorithm": "SHA-256",
+      "state_key_digest_characters": 32,
+      "max_authorization_lifetime_seconds": 86400
+    },
+    "runtime_trace": {
+      "enabled": true,
+      "schema": "forexai.runtime_trace.v1",
+      "file_scope": "FILE_COMMON",
+      "authority": "advisory_only",
+      "lifecycle_states": [
+        "ORDER_SUBMITTED",
+        "ACCEPTED",
+        "FILLED",
+        "OPEN",
+        "MANAGED",
+        "CLOSED"
+      ],
+      "capital_authority_events_forbidden": true,
+      "utc_timestamp_source": "TimeGMT cross-checked against TimeCurrent and broker_utc_offset_seconds",
+      "broker_timestamp_source": "TimeCurrent",
+      "ledger_canonicalization": "broker_timestamp minus broker_utc_offset_seconds",
+      "failure_policy": "BLOCK_NEW_ORDERS",
+      "existing_position_management": "CONTINUE_PROTECTIVE_CLOSES"
+    }
+  },
+  "risk": {
+    "max_authorized_risk_fraction": 0.006,
+    "default_ea_risk_percent": 0.5
+  },
+  "parity_policy": {
+    "market_price_identity_not_required": true,
+    "semantic_execution_identity_required": true,
+    "research_and_live_must_share_expiry": true,
+    "research_and_live_must_share_position_limit": true,
+    "failed_trade_submission_must_not_count_as_trade": true,
+    "restart_safety_state_required": true,
+    "runtime_trace_emission_required": true,
+    "runtime_trace_cannot_grant_authority": true,
+    "runtime_trace_failure_blocks_new_orders": true,
+    "runtime_authorization_required": true,
+    "runtime_authorization_fail_closed": true,
+    "runtime_authorization_risk_cap_enforced": true,
+    "control_plane_authentication_required": true
+  }
+}

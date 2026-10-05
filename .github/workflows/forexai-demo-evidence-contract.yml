@@ -1,0 +1,62 @@
+name: ForexAI Demo Evidence Contract
+
+on:
+  push:
+    branches:
+      - "codex/demo-evidence-gate-v1-2026-10-04"
+    paths:
+      - "tools/validate_demo_evidence_v1.py"
+      - "tests/test_validate_demo_evidence_v1.py"
+      - "tools/mt5_demo_observe_v1.py"
+      - "tests/test_mt5_demo_observe_v1.py"
+      - "tools/g13_demo_execution_collector_v1.py"
+      - "tests/test_g13_demo_execution_collector_v1.py"
+      - "research/optimization/g13_controlled_demo_execution_audit.py"
+      - "tests/test_g13_controlled_demo_execution_audit.py"
+      - "config/forexai_demo_execution_evidence_v1.json"
+      - ".github/workflows/forexai-demo-evidence-contract.yml"
+  pull_request:
+    paths:
+      - "tools/validate_demo_evidence_v1.py"
+      - "tests/test_validate_demo_evidence_v1.py"
+      - "tools/mt5_demo_observe_v1.py"
+      - "tests/test_mt5_demo_observe_v1.py"
+      - "config/forexai_demo_execution_evidence_v1.json"
+      - ".github/workflows/forexai-demo-evidence-contract.yml"
+  workflow_dispatch:
+    inputs:
+      evidence_path:
+        description: "Path to a completed real-Demo evidence JSON artifact"
+        required: true
+        default: "artifacts/demo/demo-execution-evidence.json"
+        type: string
+      ea_source_path:
+        description: "Exact frozen G13 MQ5 source used by the executed candidate"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependency
+        run: |
+          python -m pip install --upgrade pytest
+      - name: Run Demo evidence, observer, and G13 controlled-execution contracts
+        run: |
+          python -m pytest -q             tests/test_validate_demo_evidence_v1.py             tests/test_mt5_demo_observe_v1.py             tests/test_g13_demo_execution_collector_v1.py             tests/test_g13_controlled_demo_execution_audit.py
+      - name: Validate supplied evidence artifact
+        if: ${{ inputs.evidence_path != '' }}
+        run: |
+          test -f "${{ inputs.evidence_path }}"
+          python tools/validate_demo_evidence_v1.py "${{ inputs.evidence_path }}" --ea-source "${{ inputs.ea_source_path }}"

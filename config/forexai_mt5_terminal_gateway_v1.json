@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.mt5_terminal_gateway.v1",
+  "purpose": "Real broker-backed MetaTrader 5 Python gateway. No synthetic broker responses are permitted.",
+  "account_policy": {
+    "default_mode": "DEMO_ONLY",
+    "real_account_requires_external_confirmation_env": "FOREXAI_ALLOW_REAL_TRADING"
+  },
+  "platform": {
+    "terminal": "MetaTrader 5",
+    "python_package": "MetaTrader5",
+    "supported_runner": "Windows self-hosted with MT5 terminal"
+  },
+  "transport": {
+    "initialize_required": true,
+    "symbol_info_required": true,
+    "symbol_tick_required": true,
+    "order_check_required": true,
+    "order_send_required": true,
+    "automatic_retry": false,
+    "unknown_transport_outcome": "RECONCILIATION_REQUIRED"
+  },
+  "execution": {
+    "action": "TRADE_ACTION_DEAL",
+    "success_requires": [
+      "TRADE_RETCODE_DONE",
+      "nonzero_order_ticket",
+      "nonzero_deal_ticket",
+      "full_requested_volume"
+    ],
+    "partial_status": "PARTIAL",
+    "placed_without_deal_status": "PENDING",
+    "malformed_done_without_deal": "FAIL_CLOSED"
+  },
+  "filling": {
+    "selection": "symbol_execution_mode_aware",
+    "market_execution": "choose_supported_FOK_or_IOC",
+    "non_market_execution": "ORDER_FILLING_RETURN"
+  },
+  "authority": {
+    "capital_authority_source": "CapitalFirewall",
+    "control_plane_authentication_required_before_gateway": true,
+    "gateway_cannot_grant_authority": true,
+    "default_demo_only": true
+  }
+}

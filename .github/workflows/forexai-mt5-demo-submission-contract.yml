@@ -1,0 +1,45 @@
+name: ForexAI MT5 Demo Submission Receipt Contract
+
+on:
+  push:
+    paths:
+      - "tools/validate_demo_submission_v1.py"
+      - "tests/test_validate_demo_submission_v1.py"
+      - "config/forexai_mt5_demo_execution_submission_v1.json"
+  pull_request:
+    paths:
+      - "tools/validate_demo_submission_v1.py"
+      - "tests/test_validate_demo_submission_v1.py"
+      - "config/forexai_mt5_demo_execution_submission_v1.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  submission-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run Demo submission receipt tests
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          pytest -q tests/test_validate_demo_submission_v1.py
+      - name: Validate schema contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          c=json.loads(Path("config/forexai_mt5_demo_execution_submission_v1.json").read_text(encoding="utf-8"))
+          assert c["schema_version"] == "forexai.mt5_demo_execution_submission.v1"
+          assert c["not_a_live_authorization"] is True
+          assert c["acceptance"]["account_mode"] == "DEMO"
+          assert c["acceptance"]["execution_status"] == "ACCEPTED"
+          assert c["acceptance"]["full_fill"] is True
+          assert c["acceptance"]["live_enabled"] is False
+          print("Demo submission receipt contract: PASS")
+          PY

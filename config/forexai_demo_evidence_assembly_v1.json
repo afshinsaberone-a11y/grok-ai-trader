@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.demo_evidence_assembly.v1",
+  "purpose": "Assemble one real MT5 Demo evidence package from independent fail-closed receipts.",
+  "synthetic_market_data_allowed": false,
+  "required_components": {
+    "submission": "forexai.mt5_demo_execution_submission.v1",
+    "preflight": "forexai.mt5_terminal_preflight.v1",
+    "observation": "forexai.mt5_demo_broker_observation.v1",
+    "runtime": "forexai.runtime_evidence_gate.v1",
+    "replay": "forexai.deterministic_replay.v1"
+  },
+  "required_invariants": [
+    "submission must be DEMO and ACCEPTED with full fill",
+    "observation must independently report ACCEPTED with matching order/deal IDs",
+    "preflight must be PASS and read-only",
+    "runtime evidence must be PASS and RECONCILED",
+    "replay must show the trade CLOSED with no unresolved reconciliation",
+    "candidate_id and config_hash must match the frozen G13 package preflight",
+    "EA source SHA-256 must match the frozen G13 MQ5 hash in package preflight"
+  ],
+  "live_authorization": false
+}

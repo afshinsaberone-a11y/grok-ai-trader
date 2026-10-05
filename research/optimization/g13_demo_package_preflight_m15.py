@@ -33,6 +33,13 @@ REQUIRED_SOURCE_TOKENS = (
     "SYMBOL_TRADE_STOPS_LEVEL",
     "OnTradeTransaction(",
     "ExecutionAuditLog(",
+    "RequireRuntimeAuthorization = true",
+    "AuthorizationFileName =",
+    "TraceFileName =",
+    "forexai.runtime_trace.v1",
+    "BuildTraceTradeId(",
+    "VerifyRuntimeAuthorization(",
+    "MarkRuntimeAuthorizationConsumed(",
 )
 
 FORBIDDEN_SOURCE_TOKENS = (

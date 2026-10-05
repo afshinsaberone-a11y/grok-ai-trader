@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.demo_execution_evidence.v1",
+  "purpose": "Evidence contract for one controlled real-MT5 Demo execution before any promotion review.",
+  "not_a_live_authorization": true,
+  "ea_source_verification": {
+    "required_for_artifact_validation": true,
+    "algorithm": "SHA-256",
+    "source_path": "EXACT_FROZEN_G13_MQ5_SOURCE_PATH",
+    "hash_must_match_checked_out_source": true,
+    "source_must_be_explicitly_supplied": true,
+    "source_must_not_default_to_unrelated_ea": true
+  },
+  "required_fields": [
+    "schema",
+    "status",
+    "commit_sha",
+    "candidate_id",
+    "config_hash",
+    "strategy_id",
+    "trade_id",
+    "symbol",
+    "timeframe",
+    "account_mode",
+    "terminal_connected",
+    "broker_order_id",
+    "broker_deal_id",
+    "ea_source_sha256",
+    "execution_status",
+    "full_fill",
+    "reconciliation_status",
+    "unresolved_broker_outcomes",
+    "runtime_evidence_gate_status",
+    "deterministic_replay_status",
+    "live_enabled",
+    "order_submission_performed"
+  ],
+  "acceptance_rules": {
+    "status": "PASS",
+    "account_mode": "DEMO",
+    "terminal_connected": true,
+    "execution_status": "ACCEPTED",
+    "full_fill": true,
+    "reconciliation_status": "RECONCILED",
+    "unresolved_broker_outcomes": false,
+    "runtime_evidence_gate_status": "PASS",
+    "deterministic_replay_status": "PASS",
+    "live_enabled": false,
+    "order_submission_performed": true,
+    "broker_order_id_required": true,
+    "broker_deal_id_required": true,
+    "candidate_id_required": true,
+    "config_hash_required": true,
+    "candidate_identity_must_match_frozen_package": true,
+    "ea_source_hash_must_match_checked_out_source": true
+  },
+  "forbidden_claims": [
+    "live_ready",
+    "production_ready",
+    "guaranteed_profit",
+    "statistically_validated_by_demo"
+  ]
+}

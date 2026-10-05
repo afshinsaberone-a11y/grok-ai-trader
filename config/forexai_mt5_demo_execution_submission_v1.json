@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "forexai.mt5_demo_execution_submission.v1",
+  "purpose": "Receipt contract for one real broker-backed MT5 Demo submission.",
+  "not_a_live_authorization": true,
+  "acceptance": {
+    "status": "PASS",
+    "account_mode": "DEMO",
+    "terminal_connected": true,
+    "order_submission_performed": true,
+    "execution_status": "ACCEPTED",
+    "full_fill": true,
+    "live_enabled": false
+  },
+  "required_fields": [
+    "schema",
+    "status",
+    "account_mode",
+    "terminal_connected",
+    "order_submission_performed",
+    "execution_status",
+    "full_fill",
+    "trade_id",
+    "strategy_id",
+    "symbol",
+    "timeframe",
+    "side",
+    "volume",
+    "filled_volume",
+    "remaining_volume",
+    "broker_order_id",
+    "broker_deal_id",
+    "broker_retcode",
+    "live_enabled"
+  ]
+}

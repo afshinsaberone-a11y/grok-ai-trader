@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from research.optimization.g13_mql5_generator_v2 import canonical_hash, generate
+from research.optimization.g13_mql5_generator_v2 import canonical_hash, generate, render
 
 PROMOTED = [2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48]
 
@@ -96,3 +96,27 @@ def test_generator_rejects_tampered_manifest_candidate_hash(tmp_path):
 
     with pytest.raises(AssertionError):
         generate(manifest_path, handoff_path, out_dir)
+
+
+def test_render_mql5_trace_literals_and_lifecycle_symbols():
+
+    params = _params(2)
+    source = render({"candidate_id": 2, "config_hash": canonical_hash(params), "params": params})
+
+    bs = chr(92)
+    assert ('"' + bs + '"side' + bs + '":' + bs + '"SELL' + bs + '"') in source
+    assert (bs + '"retcode' + bs + '":%u') in source
+    assert ('"' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"') in source
+    assert ('StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");') in source
+    trace_escape = source.split("string TraceJsonEscape", 1)[1].split("void TraceRecord", 1)[0]
+    assert trace_escape.count("StringReplace(value") == 4
+    assert 'PositionsByMagic(' not in source
+
+def test_render_preserves_tester_execution_without_runtime_artifacts():
+    params = _params(2)
+    source = render({"candidate_id": 2, "config_hash": canonical_hash(params), "params": params})
+
+    assert "double lots=0.0;" in source
+    assert "lots=LotSize(risk,entry);" in source
+    assert "if(!(bool)MQLInfoInteger(MQL_TESTER) && !EnsureRuntimeTraceReady()) return INIT_FAILED;" in source
+    assert "input bool   DemoTradingAuthorized = false;" in source

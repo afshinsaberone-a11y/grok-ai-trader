@@ -2,6 +2,7 @@ name: ForexAI G13 Execution Safety Audit M15
 
 # Static/source-level safety gate for the promoted M15 candidates.
 # This workflow never connects to a broker and never enables Demo/Live trading.
+# CI recovery marker: a source-only change keeps the safety gate fail-closed while refreshing stale Actions concurrency.
 on:
   workflow_dispatch:
   push:
@@ -20,7 +21,7 @@ on:
       - .github/workflows/forexai-g13-execution-safety-audit-m15.yml
 
 concurrency:
-  group: g13-execution-safety-audit-m15
+  group: g13-execution-safety-audit-m15-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:

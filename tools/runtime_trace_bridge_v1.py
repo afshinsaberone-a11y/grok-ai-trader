@@ -1,0 +1,306 @@
+"""Runtime trace ingest bridge v1.
+
+MQL5 runtime traces are observations, not authority. This bridge validates and
+normalizes trace records, then appends them to the authoritative TradeLedger.
+It cannot issue capital authorization, create reservations, or bypass broker
+reconciliation.
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Mapping
+
+from tools.trade_ledger_v1 import ALLOWED_TRANSITIONS, STATES, LedgerError, TradeLedger
+
+
+TRACE_SCHEMA = "forexai.runtime_trace.v1"
+OBSERVATIONAL_STATES = {"ORDER_SUBMITTED", "ACCEPTED", "FILLED", "OPEN", "MANAGED", "CLOSED"}
+OUTCOME_OBSERVATION_EVENT_TYPES = {
+    "BROKER_OUTCOME_UNKNOWN",
+    "BROKER_PARTIAL_EXECUTION_OBSERVED",
+}
+OUTCOME_OBSERVATION_REQUIRED_PAYLOAD_FIELDS = {
+    "BROKER_OUTCOME_UNKNOWN": {
+        "retcode", "order_ticket", "deal_ticket", "requested_volume",
+    },
+    "BROKER_PARTIAL_EXECUTION_OBSERVED": {
+        "retcode", "order_ticket", "deal_ticket",
+        "requested_volume", "filled_volume",
+    },
+}
+FORBIDDEN_AUTHORITY_EVENT_TYPES = {
+    "CAPITAL_AUTHORIZATION_ISSUED",
+    "CAPITAL_AUTHORIZATION_REVOKED",
+    "CAPITAL_RESERVATION_CREATED",
+    "CAPITAL_RESERVATION_RELEASED",
+    "TRADE_AUTHORIZED",
+    "RECONCILED",
+    "RECONCILIATION_EXCEPTION",
+}
+STATE_REQUIRED_PAYLOAD_FIELDS = {
+    "ORDER_SUBMITTED": {"side", "requested_volume", "requested_price", "requested_sl", "requested_tp", "order_ticket"},
+    "ACCEPTED": {"side", "retcode", "order_ticket", "deal_ticket"},
+    "FILLED": {"side", "order_ticket", "deal_ticket", "fill_price", "requested_volume", "requested_sl", "requested_tp"},
+    "OPEN": {"side", "order_ticket", "deal_ticket", "position_count"},
+    "MANAGED": {"reason", "position_ticket", "position_id"},
+    "CLOSED": {"deal_ticket", "position_id", "exit_price", "volume", "profit", "swap", "commission"},
+}
+ALLOWED_PAYLOAD_FIELDS = {"broker_timestamp", "broker_utc_offset_seconds"} | {
+    field for fields in STATE_REQUIRED_PAYLOAD_FIELDS.values() for field in fields
+} | {
+    field for fields in OUTCOME_OBSERVATION_REQUIRED_PAYLOAD_FIELDS.values() for field in fields
+}
+
+REQUIRED_FIELDS = {
+    "schema",
+    "source",
+    "trade_id",
+    "event_id",
+    "event_type",
+    "idempotency_key",
+    "timestamp_utc",
+    "state",
+    "payload",
+}
+
+
+class RuntimeTraceError(RuntimeError):
+    """Runtime trace cannot be trusted for ingestion."""
+
+
+def _assert_finite_payload(value: Any) -> None:
+    if isinstance(value, float):
+        if not (value == value and abs(value) != float("inf")):
+            raise RuntimeTraceError("RUNTIME_TRACE_PAYLOAD_NONFINITE")
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            _assert_finite_payload(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _assert_finite_payload(item)
+
+
+def _parse_timestamp(value: Any) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RuntimeTraceError("RUNTIME_TRACE_TIMESTAMP_INVALID") from exc
+    if parsed.tzinfo is None:
+        raise RuntimeTraceError("RUNTIME_TRACE_TIMESTAMP_MUST_BE_TIMEZONE_AWARE")
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_timestamp(value: Any, payload: Mapping[str, Any]) -> str:
+    parsed_utc = _parse_timestamp(value)
+    if "broker_timestamp" not in payload:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_TIMESTAMP_MISSING")
+    if "broker_utc_offset_seconds" not in payload:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_OFFSET_MISSING")
+
+    try:
+        broker = datetime.fromisoformat(str(payload["broker_timestamp"]))
+    except ValueError as exc:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_TIMESTAMP_INVALID") from exc
+    if broker.tzinfo is not None:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_TIMESTAMP_MUST_BE_NAIVE")
+
+    offset = payload["broker_utc_offset_seconds"]
+    if isinstance(offset, bool) or not isinstance(offset, int):
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_OFFSET_INVALID")
+    if abs(offset) > 24 * 60 * 60:
+        raise RuntimeTraceError("RUNTIME_TRACE_BROKER_OFFSET_OUT_OF_RANGE")
+
+    canonical_utc = (broker - timedelta(seconds=offset)).replace(tzinfo=timezone.utc)
+    if canonical_utc != parsed_utc:
+        raise RuntimeTraceError("RUNTIME_TRACE_UTC_BROKER_TIME_MISMATCH")
+    return canonical_utc.isoformat()
+
+
+def normalize_trace(record: Mapping[str, Any]) -> dict[str, Any]:
+    missing = sorted(REQUIRED_FIELDS - set(record))
+    extra = sorted(set(record) - REQUIRED_FIELDS)
+    if missing:
+        raise RuntimeTraceError(f"RUNTIME_TRACE_MISSING_FIELDS:{missing}")
+    if extra:
+        raise RuntimeTraceError(f"RUNTIME_TRACE_UNKNOWN_FIELDS:{extra}")
+    if record["schema"] != TRACE_SCHEMA:
+        raise RuntimeTraceError("RUNTIME_TRACE_SCHEMA_MISMATCH")
+    if str(record["source"]).upper() != "MQL5":
+        raise RuntimeTraceError("RUNTIME_TRACE_SOURCE_NOT_MQL5")
+    state = record["state"]
+    if state is None:
+        raise RuntimeTraceError("RUNTIME_TRACE_STATE_MISSING")
+    if state not in STATES:
+        raise RuntimeTraceError("RUNTIME_TRACE_UNKNOWN_STATE")
+    if state not in OBSERVATIONAL_STATES:
+        raise RuntimeTraceError("RUNTIME_TRACE_CANNOT_GRANT_AUTHORITY")
+    event_type = str(record["event_type"]).upper()
+    if event_type in FORBIDDEN_AUTHORITY_EVENT_TYPES:
+        raise RuntimeTraceError("RUNTIME_TRACE_AUTHORITY_EVENT_FORBIDDEN")
+    outcome_observation = event_type in OUTCOME_OBSERVATION_EVENT_TYPES
+    if outcome_observation:
+        if state != "ORDER_SUBMITTED":
+            raise RuntimeTraceError("RUNTIME_TRACE_OUTCOME_OBSERVATION_STATE_INVALID")
+    elif event_type != state:
+        raise RuntimeTraceError("RUNTIME_TRACE_EVENT_TYPE_STATE_MISMATCH")
+    if not isinstance(record["payload"], dict):
+        raise RuntimeTraceError("RUNTIME_TRACE_PAYLOAD_MUST_BE_OBJECT")
+
+    payload = record["payload"]
+    _assert_finite_payload(payload)
+    extra_payload = sorted(set(payload) - ALLOWED_PAYLOAD_FIELDS)
+    if extra_payload:
+        raise RuntimeTraceError(f"RUNTIME_TRACE_PAYLOAD_UNKNOWN_FIELDS:{extra_payload}")
+    required_payload = (
+        OUTCOME_OBSERVATION_REQUIRED_PAYLOAD_FIELDS[event_type]
+        if outcome_observation
+        else STATE_REQUIRED_PAYLOAD_FIELDS[state]
+    )
+    missing_payload = sorted(required_payload - set(payload))
+    if missing_payload:
+        label = event_type if outcome_observation else state
+        raise RuntimeTraceError(
+            f"RUNTIME_TRACE_STATE_PAYLOAD_MISSING:{label}:{missing_payload}"
+        )
+
+    return {
+        "schema": TRACE_SCHEMA,
+        "source": "MQL5",
+        "trade_id": str(record["trade_id"]),
+        "event_id": str(record["event_id"]),
+        "event_type": str(record["event_type"]),
+        "idempotency_key": str(record["idempotency_key"]),
+        "timestamp_utc": _normalize_timestamp(record["timestamp_utc"], record["payload"]),
+        "state": state,
+        "payload": dict(record["payload"]),
+        "ledger_state": None if outcome_observation else state,
+        "outcome_observation": outcome_observation,
+    }
+
+
+def ingest_trace_file(trace_path: str | Path, ledger: TradeLedger) -> dict[str, Any]:
+    path = Path(trace_path)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeTraceError(f"RUNTIME_TRACE_READ_FAIL:{exc}") from exc
+
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            raise RuntimeTraceError(f"RUNTIME_TRACE_BLANK_LINE:{line_number}")
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeTraceError(f"RUNTIME_TRACE_JSON_INVALID:{line_number}") from exc
+        try:
+            records.append(normalize_trace(raw))
+        except RuntimeTraceError as exc:
+            raise RuntimeTraceError(f"RUNTIME_TRACE_INVALID_RECORD:{line_number}:{exc}") from exc
+
+    # Preflight the entire batch against durable state before mutating the ledger.
+    # This prevents malformed/reordered later records from partially committing
+    # earlier observations into the authoritative ledger.
+    simulated_states = {
+        trade_id: ledger.state_of(trade_id)
+        for trade_id in {record["trade_id"] for record in records}
+    }
+    existing_by_key = {event.idempotency_key: event for event in ledger.events}
+    existing_by_event = {event.event_id: event for event in ledger.events}
+    staged_by_key: dict[str, tuple[str, str | None, str, dict[str, Any]]] = {}
+    staged_by_event: dict[str, tuple[str, str | None, str, dict[str, Any]]] = {}
+    for record in records:
+        payload = {
+            "runtime_trace_schema": record["schema"],
+            "runtime_source": record["source"],
+            **record["payload"],
+        }
+        key = record["idempotency_key"]
+        event_key = record["event_id"]
+        existing = existing_by_key.get(key)
+        staged = staged_by_key.get(key)
+        existing_event = existing_by_event.get(event_key)
+        staged_event = staged_by_event.get(event_key)
+        if existing is not None or staged is not None:
+            prior = existing if existing is not None else staged
+            prior_trade = prior.trade_id if existing is not None else prior[0]
+            prior_state = prior.state if existing is not None else prior[1]
+            prior_type = prior.event_type if existing is not None else prior[2]
+            prior_payload = prior.payload if existing is not None else prior[3]
+            semantics_match = (
+                prior_trade == record["trade_id"]
+                and prior_state == record["state"]
+                and prior_type == record["event_type"]
+                and prior_payload == payload
+            )
+            if not semantics_match:
+                raise RuntimeTraceError("RUNTIME_TRACE_IDEMPOTENCY_SEMANTICS_CONFLICT")
+            continue
+
+        if existing_event is not None or staged_event is not None:
+            prior = existing_event if existing_event is not None else staged_event
+            prior_key = prior.idempotency_key if existing_event is not None else None
+            if prior_key != key:
+                raise RuntimeTraceError("RUNTIME_TRACE_EVENT_ID_CONFLICT")
+
+        state = record["ledger_state"]
+        current = simulated_states.get(record["trade_id"])
+        if current is None:
+            raise RuntimeTraceError(
+                f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{record['state']}"
+            )
+        if state is None:
+            if not record["outcome_observation"] or current != "ORDER_SUBMITTED":
+                raise RuntimeTraceError(
+                    f"RUNTIME_TRACE_OUTCOME_OBSERVATION_TRANSITION_INVALID:{current}"
+                )
+        else:
+            if state not in ALLOWED_TRANSITIONS[current]:
+                raise RuntimeTraceError(
+                    f"RUNTIME_TRACE_LEDGER_TRANSITION_PRECHECK_FAILED:{current}->{state}"
+                )
+            simulated_states[record["trade_id"]] = state
+
+        staged = (record["trade_id"], state, record["event_type"], payload)
+        staged_by_key[key] = staged
+        staged_by_event[event_key] = staged
+
+    if not records:
+        raise RuntimeTraceError("RUNTIME_TRACE_EMPTY")
+    
+    ingested = []
+    for record in records:
+        try:
+            event = ledger.append(
+                trade_id=record["trade_id"],
+                state=record["ledger_state"],
+                event_type=record["event_type"],
+                payload={
+                    "runtime_trace_schema": record["schema"],
+                    "runtime_source": record["source"],
+                    **record["payload"],
+                },
+                idempotency_key=record["idempotency_key"],
+                event_id=record["event_id"],
+                timestamp_utc=record["timestamp_utc"],
+            )
+        except LedgerError as exc:
+            raise RuntimeTraceError(
+                f"RUNTIME_TRACE_LEDGER_REJECTED:{exc}"
+            ) from exc
+        ingested.append(event.event_id)
+
+    return {
+        "schema": "forexai.runtime_trace_ingest.v1",
+        "status": "PASS",
+        "trace_path": str(path),
+        "records": len(lines),
+        "ingested_events": ingested,
+        "authority": "ledger_only",
+        "mql5_trace_is_advisory": True,
+        "capital_authorization_via_trace": False,
+    }

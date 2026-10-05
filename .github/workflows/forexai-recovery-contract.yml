@@ -1,0 +1,33 @@
+name: ForexAI Recovery Contract
+
+on:
+  push:
+    paths:
+      - "tools/recovery_contract_v1.py"
+      - "tools/trade_ledger_v1.py"
+      - "tools/replay_kernel_v1.py"
+      - "tests/test_recovery_contract_v1.py"
+  pull_request:
+    paths:
+      - "tools/recovery_contract_v1.py"
+      - "tools/trade_ledger_v1.py"
+      - "tools/replay_kernel_v1.py"
+      - "tests/test_recovery_contract_v1.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Recovery contract tests
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          pytest -q tests/test_recovery_contract_v1.py
