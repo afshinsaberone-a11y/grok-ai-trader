@@ -884,33 +884,3 @@ jobs:
             artifacts/g13-mql5-signal-parity.json
             artifacts/g13/ci_inputs/*
           if-no-files-found: warn
-  
-  trigger-demo-package-preflight:
-    needs: compile-and-parity
-    if: needs.compile-and-parity.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Dispatch exact Compile/Parity run to Controlled Demo Package Preflight
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"compile_parity_run_id":sys.argv[1]}}))' "$GITHUB_RUN_ID")"
-          status="$(curl -sS -o /dev/null -w '%{http_code}' \
-            -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches" \
-            --data "$payload")"
-          test "$status" = "204" || {
-            echo "G13_PREFLIGHT_DISPATCH_FAILED_HTTP=$status"
-            exit 1
-          }
-          echo "G13_PREFLIGHT_DISPATCHED=true COMPILE_PARITY_RUN_ID=$GITHUB_RUN_ID"
-
