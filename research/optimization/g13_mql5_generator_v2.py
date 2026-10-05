@@ -252,7 +252,7 @@ string TraceBrokerIso(const datetime value)
 
 string TraceJsonEscape(string value)
 {{
-   StringReplace(value,"\\\\","\\\\\\\\");
+   StringReplace(value,"\\\"","\\\\\\\"");
    StringReplace(value,"\\"","\\\\"");
    StringReplace(value,"\\r","\\\\r");
    StringReplace(value,"\\n","\\\\n");
