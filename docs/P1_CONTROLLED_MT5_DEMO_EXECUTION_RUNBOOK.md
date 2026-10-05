@@ -23,7 +23,7 @@ G13 M15 frozen EA
 
 All must be true before any Demo execution attempt:
 
-1. PR #56 has been integrated into `main`; the controlled Demo workflow is intentionally fail-closed for non-`main` refs.
+1. PR #56 must be integrated into `main` before the actual controlled Demo execution; the execution workflow must be dispatched from `main` and must remain fail-closed for non-`main` refs.
 2. Quant Constitution = PASS.
 3. MQL5 Execution Parity = PASS.
 4. Execution Admission = PASS.
@@ -45,7 +45,7 @@ self-hosted, windows, mt5
 
 Dispatch `ForexAI G13 Controlled Demo Execution Collector M15` from `main` and provide the successful Package Preflight run ID for the exact current `main` SHA.
 
-The workflow itself downloads and digest-verifies the corresponding Package Preflight and Compile + Parity artifacts, re-runs the offline package gate, checks the selected candidate's MQ5/EX5 hashes, and stages the exact frozen package under the run artifact before collecting any execution telemetry.
+Before execution, use the successful Package Preflight run as the authoritative package-integrity evidence. The current Collector is read-only and independently verifies the pre-issued authorization, Demo state, candidate/trade identity, full broker fill, runtime trace, and broker observation; final Evidence Assembly additionally binds the executed source to the PASS package-preflight hashes. Do not treat the Collector itself as a substitute for Package Preflight.
 
 Open the configured MetaTrader 5 terminal and log into the intended Demo account.
 
