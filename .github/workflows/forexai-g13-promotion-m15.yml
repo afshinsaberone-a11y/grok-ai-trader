@@ -12,6 +12,7 @@ on:
       - 'artifacts/g13/frozen/g13-candidate-handoff-m15.json'
       - 'artifacts/g13/g13-promotion-manifest-m15.json'
       - '.github/workflows/forexai-g13-*.yml'
+      - '.github/actions/g13-artifact-upload/**'
 
 permissions:
   contents: read
