@@ -102,7 +102,7 @@ string Sha256Hex(const string value)
 bool AuthorizationFieldSafe(const string value)
 {{
    if(StringLen(value)<=0) return false;
-   return StringFind(value,"|")<0 && StringFind(value,"\n")<0 && StringFind(value,"\r")<0;
+   return StringFind(value,"|")<0 && StringFind(value,"\\n")<0 && StringFind(value,"\\r")<0;
 }}
 
 string AuthorizationIdentityDigest(const string trade_id,const string authorization_id,const string reservation_id)
