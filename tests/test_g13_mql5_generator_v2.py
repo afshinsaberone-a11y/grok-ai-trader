@@ -116,6 +116,8 @@ def test_render_mql5_trace_literals_and_lifecycle_symbols():
     assert expected_carriage_escape in source
     assert "IntegerToString(MagicNumber)" in source
     assert "LongToString(" not in source
+    assert ('StringFormat("' + bs + '"retcode' + bs + '":%u') in source
+    assert ('{' + bs + '"schema' + bs + '":' + bs + '"forexai.runtime_trace.v1') in source
     trace_escape = source.split("string TraceJsonEscape", 1)[1].split("void TraceRecord", 1)[0]
     assert trace_escape.count("StringReplace(value") == 4
     assert 'PositionsByMagic(' not in source

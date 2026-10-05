@@ -286,7 +286,7 @@ void TraceRecord(const string trade_id,const string event_type,const string stat
 
    string event_id="G13-MQL5-"+trade_id+"-"+event_type;
    string row=StringFormat(
-      "{{\"schema\":\"forexai.runtime_trace.v1\",\"source\":\"MQL5\",\"trade_id\":\"%s\",\"event_id\":\"%s\",\"event_type\":\"%s\",\"idempotency_key\":\"%s\",\"timestamp_utc\":\"%s\",\"state\":\"%s\",\"payload\":{{%s}}}}\\n",
+      "{{\\\"schema\\\":\\\"forexai.runtime_trace.v1\\\",\\\"source\\\":\\\"MQL5\\\",\\\"trade_id\\\":\\\"%s\\\",\\\"event_id\\\":\\\"%s\\\",\\\"event_type\\\":\\\"%s\\\",\\\"idempotency_key\\\":\\\"%s\\\",\\\"timestamp_utc\\\":\\\"%s\\\",\\\"state\\\":\\\"%s\\\",\\\"payload\\\":{{%s}}}}\\n",
       TraceJsonEscape(trade_id),
       TraceJsonEscape(event_id),
       TraceJsonEscape(event_type),
@@ -776,7 +776,7 @@ void OnTick()
    {{
       TraceRecord(
          trace_trade_id,"BROKER_OUTCOME_UNKNOWN","ORDER_SUBMITTED",
-         StringFormat("\\\\\"retcode\\\\\":%u,\\\\\"order_ticket\\\\\":\\\\\"%I64d\\\\\",\\\\\"deal_ticket\\\\\":\\\\\"%I64d\\\\\",\\\\\"requested_volume\\\\\":%.8f",
+         StringFormat("\\\"retcode\\\":%u,\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"requested_volume\\\":%.8f",
                       trade.ResultRetcode(),(long)trade.ResultOrder(),(long)trade.ResultDeal(),lots)
       );
       runtime_authorization_healthy=false;
@@ -787,7 +787,7 @@ void OnTick()
    {{
       TraceRecord(
          trace_trade_id,"BROKER_OUTCOME_UNKNOWN","ORDER_SUBMITTED",
-         StringFormat("\\\\\"retcode\\\\\":%u,\\\\\"order_ticket\\\\\":\\\\\"%I64d\\\\\",\\\\\"deal_ticket\\\\\":\\\\\"%I64d\\\\\",\\\\\"requested_volume\\\\\":%.8f",
+         StringFormat("\\\"retcode\\\":%u,\\\"order_ticket\\\":\\\"%I64d\\\",\\\"deal_ticket\\\":\\\"%I64d\\\",\\\"requested_volume\\\":%.8f",
                       trade.ResultRetcode(),(long)trade.ResultOrder(),(long)trade.ResultDeal(),lots)
       );
       runtime_authorization_healthy=false;
