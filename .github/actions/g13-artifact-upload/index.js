@@ -14,15 +14,15 @@ function bootstrapPortableNode() {
   const version = "24.18.0";
   const expectedSha256 = "0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821";
   const baseDir = process.env.RUNNER_TEMP || process.env.TEMP || process.cwd();
-  const installRoot = path.join(baseDir, \`g13-node-v\${version}-win-x64\`);
-  const nodeRoot = path.join(installRoot, \`node-v\${version}-win-x64\`);
+  const installRoot = path.join(baseDir, `g13-node-v${version}-win-x64`);
+  const nodeRoot = path.join(installRoot, `node-v${version}-win-x64`);
   const npmPath = path.join(nodeRoot, "npm.cmd");
   const nodeExe = path.join(nodeRoot, "node.exe");
   if (existsSync(npmPath) && existsSync(nodeExe)) return npmPath;
 
-  const zipPath = path.join(baseDir, \`g13-node-v\${version}-win-x64.zip\`);
-  const url = \`https://nodejs.org/dist/v\${version}/node-v\${version}-win-x64.zip\`;
-  const ps = \`$ErrorActionPreference='Stop'; $url='\${url.replace(/'/g, "''")}'; $zip='\${zipPath.replace(/'/g, "''")}'; $root='\${installRoot.replace(/'/g, "''")}'; Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zip; if ((Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant() -ne '\${expectedSha256}') { throw 'Portable Node.js SHA-256 verification failed.' }; if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }; New-Item -ItemType Directory -Force -Path $root | Out-Null; Expand-Archive -LiteralPath $zip -DestinationPath $root -Force\`;
+  const zipPath = path.join(baseDir, `g13-node-v${version}-win-x64.zip`);
+  const url = `https://nodejs.org/dist/v${version}/node-v${version}-win-x64.zip`;
+  const ps = `$ErrorActionPreference='Stop'; $url='${url.replace(/'/g, "''")}'; $zip='${zipPath.replace(/'/g, "''")}'; $root='${installRoot.replace(/'/g, "''")}'; Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zip; if ((Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant() -ne '${expectedSha256}') { throw 'Portable Node.js SHA-256 verification failed.' }; if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }; New-Item -ItemType Directory -Force -Path $root | Out-Null; Expand-Archive -LiteralPath $zip -DestinationPath $root -Force`;
 
   try {
     const powershell = process.env.SystemRoot
@@ -35,12 +35,12 @@ function bootstrapPortableNode() {
     );
   } catch (error) {
     throw new Error(
-      \`Unable to bootstrap portable Node.js/npm for G13 artifact upload: \${error?.message || error}\`
+      `Unable to bootstrap portable Node.js/npm for G13 artifact upload: ${error?.message || error}`
     );
   }
 
   if (!existsSync(npmPath) || !existsSync(nodeExe)) {
-    throw new Error(\`Portable Node.js bootstrap completed but npm.cmd/node.exe were not found under \${nodeRoot}\`);
+    throw new Error(`Portable Node.js bootstrap completed but npm.cmd/node.exe were not found under ${nodeRoot}`);
   }
   return npmPath;
 }
@@ -108,7 +108,7 @@ function findWindowsNpm() {
 
   if (process.arch !== "x64") {
     throw new Error(
-      \`G13_LOCAL_ARTIFACT_UPLOAD could not find npm.cmd and automatic bootstrap currently supports only Windows x64 (process.arch=\${process.arch}). Install Node.js with npm for the self-hosted runner service account or expose npm.cmd in PATH.\`
+      `G13_LOCAL_ARTIFACT_UPLOAD could not find npm.cmd and automatic bootstrap currently supports only Windows x64 (process.arch=${process.arch}). Install Node.js with npm for the self-hosted runner service account or expose npm.cmd in PATH.`
     );
   }
 
