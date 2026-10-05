@@ -286,7 +286,7 @@ void TraceRecord(const string trade_id,const string event_type,const string stat
 
    string event_id="G13-MQL5-"+trade_id+"-"+event_type;
    string row=StringFormat(
-      "{{\\\"schema\\\":\\\"forexai.runtime_trace.v1\\\",\\\"source\\\":\\\"MQL5\\\",\\\"trade_id\\\":\\\"%s\\\",\\\"event_id\\\":\\\"%s\\\",\\\"event_type\\\":\\\"%s\\\",\\\"idempotency_key\\\":\\\"%s\\\",\\\"timestamp_utc\\\":\\\"%s\\\",\\\"state\\\":\\\"%s\\\",\\\"payload\\\":{{%s}}}}\\\\\\n",
+      "{{\\\"schema\\\":\\\"forexai.runtime_trace.v1\\\",\\\"source\\\":\\\"MQL5\\\",\\\"trade_id\\\":\\\"%s\\\",\\\"event_id\\\":\\\"%s\\\",\\\"event_type\\\":\\\"%s\\\",\\\"idempotency_key\\\":\\\"%s\\\",\\\"timestamp_utc\\\":\\\"%s\\\",\\\"state\\\":\\\"%s\\\",\\\"payload\\\":{{%s}}}}\\n",
       TraceJsonEscape(trade_id),
       TraceJsonEscape(event_id),
       TraceJsonEscape(event_type),
