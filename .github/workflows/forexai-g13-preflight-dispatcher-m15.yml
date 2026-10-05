@@ -1,16 +1,16 @@
 name: ForexAI G13 Preflight Dispatcher M15
 
-# Separate orchestration workflow.
-# Waits for the COMPLETE Compile + Signal Parity workflow to succeed, then
-# dispatches the existing read-only Controlled Demo Package Preflight with
-# the exact successful Compile/Parity run ID.
+# Explicit orchestration workflow. The Compile/Parity workflow dispatches this
+# after its compile-and-parity job succeeds. This workflow waits until the
+# COMPLETE source workflow reaches success, then dispatches the read-only
+# Controlled Demo Package Preflight.
 on:
-  workflow_run:
-    workflows:
-      - "ForexAI G13 MT5 Compile + Signal Parity"
-    types: [completed]
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      compile_parity_run_id:
+        description: "Compile + Signal Parity workflow run ID"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -22,27 +22,43 @@ concurrency:
 
 jobs:
   dispatch-preflight:
-    if: >-
-      ${{ github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.name == 'ForexAI G13 MT5 Compile + Signal Parity' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Verify exact successful Compile/Parity run
+      - name: Wait for exact Compile/Parity workflow to finish successfully
         env:
           GH_TOKEN: ${{ github.token }}
-          COMPILE_PARITY_RUN_ID: ${{ github.event.workflow_run.id }}
-          COMPILE_PARITY_SHA: ${{ github.event.workflow_run.head_sha }}
+          COMPILE_PARITY_RUN_ID: ${{ inputs.compile_parity_run_id }}
         shell: bash
         run: |
           set -euo pipefail
-          json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$COMPILE_PARITY_RUN_ID")"
-          python -c 'import json,sys; p=json.load(sys.stdin); assert p["name"]=="ForexAI G13 MT5 Compile + Signal Parity", p["name"]; assert p["head_branch"]=="main", p["head_branch"]; assert p["conclusion"]=="success", (p["id"],p["conclusion"]); assert p["head_sha"]==sys.argv[1], (p["id"],p["head_sha"],sys.argv[1]); print("COMPILE_PARITY_RUN_VERIFIED",p["id"],p["head_sha"])' "$COMPILE_PARITY_SHA" <<< "$json"
+          source_json=""
+          for attempt in $(seq 1 60); do
+            source_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$COMPILE_PARITY_RUN_ID")"
+            state="$(printf '%s' "$source_json" | python -c 'import json,sys; x=json.load(sys.stdin); print(f"{x[\"status\"]}|{x.get(\"conclusion\") or \"\"}|{x[\"name\"]}|{x[\"head_branch\"]}|{x[\"head_sha\"]}")')"
+            IFS='|' read -r status conclusion name branch sha <<< "$state"
+            echo "PREFLIGHT_SOURCE_POLL attempt=$attempt status=$status conclusion=$conclusion sha=$sha"
+            test "$name" = "ForexAI G13 MT5 Compile + Signal Parity"
+            test "$branch" = "main"
+            if [[ "$status" == "completed" ]]; then
+              test "$conclusion" = "success" || {
+                echo "G13_COMPILE_PARITY_SOURCE_NOT_SUCCESS=$conclusion"
+                exit 1
+              }
+              echo "G13_COMPILE_PARITY_SOURCE_SUCCESS=true RUN=$COMPILE_PARITY_RUN_ID SHA=$sha"
+              break
+            fi
+            sleep 5
+          done
+
+          final_state="$(printf '%s' "$source_json" | python -c 'import json,sys; x=json.load(sys.stdin); print(x["status"],x.get("conclusion"))')"
+          echo "G13_COMPILE_PARITY_FINAL_STATE=$final_state"
+          test "$final_state" = "completed success"
 
       - name: Dispatch exact Controlled Demo Package Preflight
         env:
           GH_TOKEN: ${{ github.token }}
-          COMPILE_PARITY_RUN_ID: ${{ github.event.workflow_run.id }}
+          COMPILE_PARITY_RUN_ID: ${{ inputs.compile_parity_run_id }}
         shell: bash
         run: |
           set -euo pipefail
