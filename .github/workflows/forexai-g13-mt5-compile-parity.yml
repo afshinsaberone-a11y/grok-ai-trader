@@ -4,7 +4,7 @@ name: ForexAI G13 MT5 Compile + Signal Parity
 
 on:
   workflow_dispatch:
-    inputs:    inputs:
+    inputs:
       promotion_run_id:
         description: 'Successful G13 Final Promotion M15 run for this exact commit'
         required: true
