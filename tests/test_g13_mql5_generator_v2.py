@@ -108,6 +108,8 @@ def test_render_mql5_trace_literals_and_lifecycle_symbols():
     assert (bs + '"retcode' + bs + '":%u') in source
     assert ('"' + bs + '"deal_ticket' + bs + '":' + bs + '"%I64d' + bs + '"') in source
     assert ('StringReplace(value,"' + bs + bs + '","' + bs + bs + bs + bs + '");') in source
+    expected_quote_escape = 'StringReplace(value,"' + bs + '"' + '","' + bs + bs + bs + '"' + '");'
+    assert expected_quote_escape in source
     trace_escape = source.split("string TraceJsonEscape", 1)[1].split("void TraceRecord", 1)[0]
     assert trace_escape.count("StringReplace(value") == 4
     assert 'PositionsByMagic(' not in source
