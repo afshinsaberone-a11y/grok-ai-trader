@@ -895,6 +895,7 @@ jobs:
       contents: read
     steps:
       - name: Dispatch exact Compile/Parity run to Controlled Demo Package Preflight
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
