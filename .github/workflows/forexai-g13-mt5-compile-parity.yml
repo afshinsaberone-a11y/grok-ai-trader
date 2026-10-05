@@ -1,6 +1,7 @@
 name: ForexAI G13 MT5 Compile + Signal Parity
 # CI refresh marker: re-run exact-main evidence chain after the Windows npm-resolution fix.
 # No trading or execution logic change; this marker intentionally refreshes G13 evidence.
+# CI refresh marker: validate self-bootstrap of npm on the Windows service runner after PR #72.
 
 on:
   workflow_dispatch:
