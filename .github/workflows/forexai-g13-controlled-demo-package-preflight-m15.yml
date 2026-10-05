@@ -1,6 +1,6 @@
 name: ForexAI G13 Controlled Demo Package Preflight M15
 
-# Offline/read-only package integrity gate. The dedicated dispatcher launches it only after the COMPLETE exact-main Compile/Parity run succeeds.
+# Offline/read-only package integrity gate. It runs manually or automatically after the COMPLETE exact-main Compile/Parity run succeeds.
 # This workflow never connects to MT5 and never submits orders.
 on:
   workflow_dispatch:
@@ -9,6 +9,12 @@ on:
         description: "Successful ForexAI G13 MT5 Compile + Signal Parity run containing the frozen EX5 package"
         required: true
         type: string
+  workflow_run:
+    workflows:
+      - "ForexAI G13 MT5 Compile + Signal Parity"
+    types: [completed]
+    branches:
+      - main
 
 permissions:
   contents: read
