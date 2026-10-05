@@ -107,7 +107,7 @@ bool AuthorizationFieldSafe(const string value)
 
 string AuthorizationIdentityDigest(const string trade_id,const string authorization_id,const string reservation_id)
 {{
-   string material=LongToString(MagicNumber)+"|"+_Symbol+"|"+trade_id+"|"+authorization_id+"|"+reservation_id;
+   string material=IntegerToString(MagicNumber)+"|"+_Symbol+"|"+trade_id+"|"+authorization_id+"|"+reservation_id;
    string digest=Sha256Hex(material);
    if(StringLen(digest)<32) return "";
    return StringSubstr(digest,0,32);
