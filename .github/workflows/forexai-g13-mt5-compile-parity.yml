@@ -1460,7 +1460,7 @@ jobs:
 
       - name: Upload MT5 parity diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/g13-artifact-upload
         with:
           name: g13-mt5-parity-diagnostics-${{ github.run_id }}
           path: artifacts/g13/diagnostics/**
@@ -1468,7 +1468,7 @@ jobs:
 
       - name: Upload compile + parity evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/g13-artifact-upload
         with:
           name: g13-mt5-compile-parity-${{ github.run_id }}
           path: |
