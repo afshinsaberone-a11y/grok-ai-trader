@@ -10,6 +10,41 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function bootstrapPortableNode() {
+  const version = "24.18.0";
+  const expectedSha256 = "0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821";
+  const baseDir = process.env.RUNNER_TEMP || process.env.TEMP || process.cwd();
+  const installRoot = path.join(baseDir, \`g13-node-v\${version}-win-x64\`);
+  const nodeRoot = path.join(installRoot, \`node-v\${version}-win-x64\`);
+  const npmPath = path.join(nodeRoot, "npm.cmd");
+  const nodeExe = path.join(nodeRoot, "node.exe");
+  if (existsSync(npmPath) && existsSync(nodeExe)) return npmPath;
+
+  const zipPath = path.join(baseDir, \`g13-node-v\${version}-win-x64.zip\`);
+  const url = \`https://nodejs.org/dist/v\${version}/node-v\${version}-win-x64.zip\`;
+  const ps = \`$ErrorActionPreference='Stop'; $url='\${url.replace(/'/g, "''")}'; $zip='\${zipPath.replace(/'/g, "''")}'; $root='\${installRoot.replace(/'/g, "''")}'; Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zip; if ((Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant() -ne '\${expectedSha256}') { throw 'Portable Node.js SHA-256 verification failed.' }; if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }; New-Item -ItemType Directory -Force -Path $root | Out-Null; Expand-Archive -LiteralPath $zip -DestinationPath $root -Force\`;
+
+  try {
+    const powershell = process.env.SystemRoot
+      ? path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+      : "powershell.exe";
+    execFileSync(
+      powershell,
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+      { cwd: actionRoot, stdio: "inherit", windowsHide: true }
+    );
+  } catch (error) {
+    throw new Error(
+      \`Unable to bootstrap portable Node.js/npm for G13 artifact upload: \${error?.message || error}\`
+    );
+  }
+
+  if (!existsSync(npmPath) || !existsSync(nodeExe)) {
+    throw new Error(\`Portable Node.js bootstrap completed but npm.cmd/node.exe were not found under \${nodeRoot}\`);
+  }
+  return npmPath;
+}
+
 function findWindowsNpm() {
   const candidates = [];
 
@@ -20,9 +55,21 @@ function findWindowsNpm() {
   for (const root of unique([
     process.env.ProgramW6432,
     process.env.ProgramFiles,
-    process.env["ProgramFiles(x86)"]
+    process.env["ProgramFiles(x86)"],
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA
   ])) {
     candidates.push(path.join(root, "nodejs", "npm.cmd"));
+    candidates.push(path.join(root, "Programs", "nodejs", "npm.cmd"));
+  }
+
+  for (const userRoot of unique([
+    process.env.USERPROFILE,
+    "C:\\Users\\Star"
+  ])) {
+    candidates.push(path.join(userRoot, "AppData", "Local", "Programs", "nodejs", "npm.cmd"));
+    candidates.push(path.join(userRoot, "AppData", "Local", "nodejs", "npm.cmd"));
+    candidates.push(path.join(userRoot, "AppData", "Roaming", "npm", "npm.cmd"));
   }
 
   if (process.env.NVM_HOME) {
@@ -36,7 +83,7 @@ function findWindowsNpm() {
     try {
       for (const version of readdirSync(nodeRoot)) {
         const versionRoot = path.join(nodeRoot, version);
-        for (const arch of ["x64", "x86"]) {
+        for (const arch of ["x64", "x86", "arm64"]) {
           candidates.push(path.join(versionRoot, arch, "bin", "npm.cmd"));
           candidates.push(path.join(versionRoot, arch, "npm.cmd"));
         }
@@ -46,19 +93,26 @@ function findWindowsNpm() {
     }
   }
 
+  candidates.push(path.join(
+    process.env.RUNNER_TEMP || process.env.TEMP || process.cwd(),
+    "g13-node-v24.18.0-win-x64",
+    "node-v24.18.0-win-x64",
+    "npm.cmd"
+  ));
+
   const resolved = unique(candidates).find((candidate) => {
     try { return statSync(candidate).isFile(); } catch { return false; }
   });
 
-  if (!resolved) {
+  if (resolved) return resolved;
+
+  if (process.arch !== "x64") {
     throw new Error(
-      "G13_LOCAL_ARTIFACT_UPLOAD requires npm to install its runtime dependencies, " +
-      "but npm.cmd was not found in PATH or known Windows Node.js locations. " +
-      "Install Node.js with npm for the self-hosted runner service account, or expose npm.cmd in that account's PATH."
+      \`G13_LOCAL_ARTIFACT_UPLOAD could not find npm.cmd and automatic bootstrap currently supports only Windows x64 (process.arch=\${process.arch}). Install Node.js with npm for the self-hosted runner service account or expose npm.cmd in PATH.\`
     );
   }
 
-  return resolved;
+  return bootstrapPortableNode();
 }
 
 function windowsCommandLine(npmPath, command) {
