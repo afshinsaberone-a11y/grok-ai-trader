@@ -141,11 +141,10 @@ async function loadDependencies() {
 
     if (process.platform === "win32") {
       const npmPath = findWindowsNpm();
-      const execTarget = process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe";
       execFileSync(
-        execTarget,
-        ["/d", "/s", "/c", windowsCommandLine(npmPath, command)],
-        { cwd: actionRoot, stdio: "inherit", windowsHide: true }
+        npmPath,
+        command,
+        { cwd: actionRoot, stdio: "inherit", windowsHide: true, shell: true }
       );
     } else {
       execFileSync(
