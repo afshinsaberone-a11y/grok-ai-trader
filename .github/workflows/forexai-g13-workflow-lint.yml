@@ -307,6 +307,10 @@ jobs:
           assert "void OnStart()" in harness, "parity harness must be a Script with OnStart()"
           assert "bool RunHarness()" in harness, "parity harness RunHarness() missing"
           assert "FILE_COMMON" in harness, "parity harness must use FILE_COMMON"
+          for token in ["__INPUT_FILE__", "__OUTPUT_FILE__", "__DONE_FILE__", "__STARTED_FILE__", "--input-file", "--output-file", "--done-file", "--started-file"]:
+              assert token in harness, f"run-unique parity IPC token missing: {token}"
+          for token in ["PARITY_INPUT_FILE", "PARITY_OUTPUT_FILE", "PARITY_DONE_FILE", "PARITY_STARTED_FILE"]:
+              assert token in workflow, f"run-unique parity workflow token missing: {token}"
           assert "synthetic_data" in harness and 'false' in harness, "synthetic-data contract missing"
 
           readiness = Path("research/optimization/g13_demo_readiness_gate_m15.py").read_text(encoding="utf-8")
