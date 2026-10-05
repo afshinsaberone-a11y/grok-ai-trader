@@ -233,17 +233,41 @@ jobs:
           & curl.exe -sS -D $headers -o NUL -H "Authorization: Bearer $env:GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" $apiUrl
           if ($LASTEXITCODE -ne 0) {
             $headerText = if (Test-Path -LiteralPath $headers) { Get-Content -LiteralPath $headers -Raw } else { '<no response headers>' }
+            Remove-Item -Force -ErrorAction SilentlyContinue $headers
             throw "Promotion artifact redirect request failed. Headers: $headerText"
           }
 
-          $statusLine = Get-Content -LiteralPath $headers | Where-Object { $_ -match '^HTTP/.*\\s302\\s' } | Select-Object -Last 1
+          $statusLine = Get-Content -LiteralPath $headers | Where-Object { $_ -match '^HTTP/.*\s302\s' } | Select-Object -Last 1
           if (-not $statusLine) {
             $headerText = Get-Content -LiteralPath $headers -Raw
             Remove-Item -Force -ErrorAction SilentlyContinue $headers
             throw "Expected Promotion artifact HTTP 302, got: $headerText"
           }
 
-          $locationLine = Get-Content -LiteralPath $headers | Where-Object { $_ -match '^Location:\\s*(.+)      - name: Download and bind exact Promotion artifact
+          $locationLine = Get-Content -LiteralPath $headers | Where-Object { $_ -match '^Location:\s*(.+)$' } | Select-Object -First 1
+          if (-not $locationLine) {
+            $headerText = Get-Content -LiteralPath $headers -Raw
+            Remove-Item -Force -ErrorAction SilentlyContinue $headers
+            throw "Promotion artifact redirect Location header missing. Headers: $headerText"
+          }
+
+          $downloadUrl = ($locationLine -replace '^Location:\s*', '').Trim()
+          if ([string]::IsNullOrWhiteSpace($downloadUrl)) {
+            Remove-Item -Force -ErrorAction SilentlyContinue $headers
+            throw "Promotion artifact redirect URL is empty."
+          }
+          Remove-Item -Force -ErrorAction SilentlyContinue $headers
+
+          & curl.exe -fSL $downloadUrl -o $zip
+          if ($LASTEXITCODE -ne 0) { throw "Promotion artifact signed URL download failed." }
+
+          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          if ($actualDigest -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) {
+            throw "Promotion handoff digest mismatch: $actualDigest != $env:PROMOTION_ARTIFACT_DIGEST"
+          }
+          Write-Host "PROMOTION_HANDOFF_ARTIFACT_DOWNLOADED_AND_VERIFIED=true ID=$env:PROMOTION_ARTIFACT_ID DIGEST=$actualDigest"
+
+      - name: Download and bind exact Promotion artifact
         run: |
           $ErrorActionPreference = 'Stop'
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\promotion-source'
