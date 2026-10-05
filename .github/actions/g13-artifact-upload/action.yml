@@ -1,0 +1,23 @@
+name: "G13 Local Artifact Upload"
+description: "Upload workflow artifacts without downloading a remote JavaScript action on the self-hosted MT5 runner."
+inputs:
+  name:
+    description: "Artifact name"
+    required: true
+  path:
+    description: "Newline-separated file or glob patterns"
+    required: true
+  if-no-files-found:
+    description: "Behavior when no files match: error, warn, or ignore"
+    required: false
+    default: "warn"
+outputs:
+  artifact-id:
+    description: "Uploaded artifact ID"
+  artifact-url:
+    description: "Artifact UI URL"
+  artifact-digest:
+    description: "Uploaded artifact SHA-256 digest"
+runs:
+  using: "node24"
+  main: "index.js"

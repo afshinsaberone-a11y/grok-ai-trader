@@ -220,10 +220,52 @@ jobs:
           & $env:PYTHON_EXE -m pip install -r requirements.txt
 
       - name: Download exact Promotion artifact handoff
-        uses: actions/download-artifact@v4
-        with:
-          name: g13-promotion-source-handoff
-          path: artifacts/g13/promotion-source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\promotion-source'
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $zip = Join-Path $artifactDir 'promotion.zip'
+          $headers = Join-Path $env:RUNNER_TEMP "g13-promotion-artifact-$env:GITHUB_RUN_ID.headers"
+          $apiUrl = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:PROMOTION_ARTIFACT_ID/zip"
+
+          & curl.exe -sS -D $headers -o NUL -H "Authorization: Bearer $env:GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" $apiUrl
+          if ($LASTEXITCODE -ne 0) {
+            $headerText = if (Test-Path -LiteralPath $headers) { Get-Content -LiteralPath $headers -Raw } else { '<no response headers>' }
+            Remove-Item -Force -ErrorAction SilentlyContinue $headers
+            throw "Promotion artifact redirect request failed. Headers: $headerText"
+          }
+
+          $statusLine = Get-Content -LiteralPath $headers | Where-Object { $_.StartsWith('HTTP/', [System.StringComparison]::OrdinalIgnoreCase) -and $_.Contains(' 302 ') } | Select-Object -Last 1
+          if (-not $statusLine) {
+            $headerText = Get-Content -LiteralPath $headers -Raw
+            Remove-Item -Force -ErrorAction SilentlyContinue $headers
+            throw "Expected Promotion artifact HTTP 302, got: $headerText"
+          }
+
+          $locationLine = Get-Content -LiteralPath $headers | Where-Object { $_.StartsWith('Location:', [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+          if (-not $locationLine) {
+            $headerText = Get-Content -LiteralPath $headers -Raw
+            Remove-Item -Force -ErrorAction SilentlyContinue $headers
+            throw "Promotion artifact redirect Location header missing. Headers: $headerText"
+          }
+
+          $downloadUrl = $locationLine.Substring($locationLine.IndexOf(':') + 1).Trim()
+          if ([string]::IsNullOrWhiteSpace($downloadUrl)) {
+            Remove-Item -Force -ErrorAction SilentlyContinue $headers
+            throw "Promotion artifact redirect URL is empty."
+          }
+          Remove-Item -Force -ErrorAction SilentlyContinue $headers
+
+          & curl.exe -fSL $downloadUrl -o $zip
+          if ($LASTEXITCODE -ne 0) { throw "Promotion artifact signed URL download failed." }
+
+          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          if ($actualDigest -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) {
+            throw "Promotion handoff digest mismatch: $actualDigest != $env:PROMOTION_ARTIFACT_DIGEST"
+          }
+          Write-Host "PROMOTION_HANDOFF_ARTIFACT_DOWNLOADED_AND_VERIFIED=true ID=$env:PROMOTION_ARTIFACT_ID DIGEST=$actualDigest"
 
       - name: Download and bind exact Promotion artifact
         run: |
@@ -813,7 +855,7 @@ jobs:
 
       - name: Upload MT5 parity diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/g13-artifact-upload
         with:
           name: g13-mt5-parity-diagnostics-${{ github.run_id }}
           path: artifacts/g13/diagnostics/**
@@ -821,7 +863,7 @@ jobs:
 
       - name: Upload compile + parity evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/g13-artifact-upload
         with:
           name: g13-mt5-compile-parity-${{ github.run_id }}
           path: |
