@@ -21,7 +21,7 @@ PROMOTED = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 MANIFEST_SCHEMA = "forexai.g13.demo_package_manifest.m15.v2"
 
 REQUIRED_SOURCE_TOKENS = (
-    "input bool DemoTradingAuthorized = false;",
+    "input bool   DemoTradingAuthorized = false;",
     "bool DemoTradingExecutionAllowed()",
     "ACCOUNT_TRADE_MODE_DEMO",
     "MQLInfoInteger(MQL_TESTER)",
