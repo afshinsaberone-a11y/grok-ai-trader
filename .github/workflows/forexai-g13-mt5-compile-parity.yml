@@ -265,6 +265,13 @@ jobs:
           if ($actualDigest -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) {
             throw "Promotion handoff digest mismatch: $actualDigest != $env:PROMOTION_ARTIFACT_DIGEST"
           }
+          @"
+PROMOTION_RUN_ID=$env:PROMOTION_RUN_ID
+TARGET_SHA=$env:TARGET_SHA
+PROMOTION_ARTIFACT_ID=$env:PROMOTION_ARTIFACT_ID
+PROMOTION_ARTIFACT_DIGEST=$env:PROMOTION_ARTIFACT_DIGEST
+"@ | Set-Content -LiteralPath (Join-Path $artifactDir 'source-artifact.env') -Encoding ascii
+          Write-Host "PROMOTION_HANDOFF_METADATA_REBUILT=true"
           Write-Host "PROMOTION_HANDOFF_ARTIFACT_DOWNLOADED_AND_VERIFIED=true ID=$env:PROMOTION_ARTIFACT_ID DIGEST=$actualDigest"
 
       - name: Download and bind exact Promotion artifact
