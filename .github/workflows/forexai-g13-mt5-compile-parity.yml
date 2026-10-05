@@ -1,4 +1,5 @@
 name: ForexAI G13 MT5 Compile + Signal Parity
+# CI refresh marker: no execution logic change; intentionally triggers the exact-main evidence chain.
 
 on:
   workflow_dispatch:
