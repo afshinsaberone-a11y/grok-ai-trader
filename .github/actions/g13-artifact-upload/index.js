@@ -15,19 +15,26 @@ async function loadDependencies() {
   const ready = requiredFiles.every((relative) => existsSync(path.join(nodeModules, relative)));
   if (!ready) {
     const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    const command = [
+      "install",
+      "--no-audit",
+      "--no-fund",
+      "--no-package-lock",
+      "--no-save",
+      "@actions/artifact@6.2.1",
+      "@actions/glob@0.7.0",
+      "@actions/core@3.0.1"
+    ];
+    const execTarget = process.platform === "win32"
+      ? (process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe")
+      : npm;
+    const execArgs = process.platform === "win32"
+      ? ["/d", "/s", "/c", npm, ...command]
+      : command;
     execFileSync(
-      npm,
-      [
-        "install",
-        "--no-audit",
-        "--no-fund",
-        "--no-package-lock",
-        "--no-save",
-        "@actions/artifact@6.2.1",
-        "@actions/glob@0.7.0",
-        "@actions/core@3.0.1"
-      ],
-      { cwd: actionRoot, stdio: "inherit" }
+      execTarget,
+      execArgs,
+      { cwd: actionRoot, stdio: "inherit", windowsHide: true }
     );
   }
   return {
