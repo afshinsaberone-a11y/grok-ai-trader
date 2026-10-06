@@ -845,7 +845,7 @@ jobs:
             --data "$env:DATA_CSV_RESOLVED" `
             --data-manifest "$env:DATA_MANIFEST_RESOLVED" `
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
-            --manifest artifacts/g13/g13-promotion-manifest-m15.json `
+            --manifest "$env:PROMOTION_MANIFEST" `
             --mt5 "$env:PARITY_CSV_RESOLVED" `
             --output artifacts/g13-mql5-signal-parity.json
 
@@ -853,7 +853,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m research.optimization.g13_demo_package_manifest_builder_m15 `
-            --promotion artifacts/g13/g13-promotion-manifest-m15.json `
+            --promotion "$env:PROMOTION_MANIFEST" `
             --parity artifacts/g13-mql5-signal-parity.json `
             --package-root artifacts/g13/mql5 `
             --output artifacts/g13/g13-demo-package-manifest-m15.json `
