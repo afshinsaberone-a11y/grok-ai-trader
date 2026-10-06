@@ -411,10 +411,10 @@ jobs:
           New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
           Remove-Item -Path (Join-Path $buildDir '*') -Recurse -Force -ErrorAction SilentlyContinue
           $files = @(Get-ChildItem 'artifacts/g13/mql5/ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
-           $promotion = Get-Content -LiteralPath $env:PROMOTION_MANIFEST -Raw | ConvertFrom-Json
-           $expectedCandidateCount = @($promotion.promoted_candidate_ids).Count
-           if ($expectedCandidateCount -lt 1) { throw "Promotion manifest contains no promoted candidates" }
-           if ($files.Count -ne $expectedCandidateCount) { throw "Expected $expectedCandidateCount mq5 files, found $($files.Count)" }
+          $promotion = Get-Content -LiteralPath $env:PROMOTION_MANIFEST -Raw | ConvertFrom-Json
+          $expectedCandidateCount = @($promotion.promoted_candidate_ids).Count
+          if ($expectedCandidateCount -lt 1) { throw "Promotion manifest contains no promoted candidates" }
+          if ($files.Count -ne $expectedCandidateCount) { throw "Expected $expectedCandidateCount mq5 files, found $($files.Count)" }
           foreach ($f in $files) {
             $src = Join-Path $buildDir $f.Name
             $ex5 = [System.IO.Path]::ChangeExtension($src, '.ex5')
@@ -427,7 +427,7 @@ jobs:
             if (Test-Path -LiteralPath $log -PathType Leaf) {
               $logText = Get-Content -LiteralPath $log -Raw -ErrorAction Stop
               $logText -split "`r?`n" | ForEach-Object { if ($_.Trim()) { Write-Host "METAEDITOR_LOG=$($_)" } }
-              $resultMatch = [regex]::Match($logText, 'Result:\s*(\d+) errors,\s*(\d+) warnings')
+              $resultMatch = [regex]::Match($logText, 'Result:s*(d+) errors,s*(d+) warnings')
               if (!$resultMatch.Success) { throw "Unable to parse MetaEditor compile result for $($f.Name)" }
               $errors = [int]$resultMatch.Groups[1].Value
               $warnings = [int]$resultMatch.Groups[2].Value
@@ -442,7 +442,7 @@ jobs:
             }
             Copy-Item $ex5 (Join-Path 'artifacts/g13/mql5' ([System.IO.Path]::GetFileName($ex5))) -Force
           }
-          Write-Host "MT5_COMPILE_OK=15"
+          Write-Host "MT5_COMPILE_OK=$expectedCandidateCount"
 
       - name: Compile and deploy MQL5 real-data parity script
         run: |
