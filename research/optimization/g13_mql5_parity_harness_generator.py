@@ -354,6 +354,7 @@ void OnStart()
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--handoff", required=True, type=Path)
+    ap.add_argument("--manifest", required=True, type=Path)
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--input-file", default="g13_real_eurusd_m15.csv")
     ap.add_argument("--output-file", default="g13_mql5_parity.csv")
@@ -362,20 +363,30 @@ def main() -> int:
     args = ap.parse_args()
 
     handoff = json.loads(args.handoff.read_text(encoding="utf-8"))
+    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     assert handoff["schema_version"] == SCHEMA
+    assert manifest["schema_version"] == "forexai.g13.promotion_manifest.m15.v1"
+    assert manifest["status"] == "PROMOTION_READY"
     policy = handoff["handoff_policy"]
     assert policy["parameters_are_frozen"] is True
     assert policy["oos_optimization_disabled"] is True
 
-    ids = [2,6,10,12,14,22,26,28,30,32,34,38,42,46,48]
+    ids = sorted(int(x) for x in manifest["promoted_candidate_ids"])
+    assert ids and len(ids) == len(set(ids))
     cands = {int(c["candidate_id"]): c for c in handoff["candidates"]}
+    manifest_cands = {int(c["candidate_id"]): c for c in manifest["candidates"]}
+    assert set(manifest_cands) == set(ids)
     assert all(cid in cands for cid in ids)
+    for cid in ids:
+        assert manifest_cands[cid]["config_hash"] == cands[cid]["config_hash"]
+        assert manifest_cands[cid]["params"] == cands[cid]["params"]
 
     def nums(key: str, fmt: str) -> str:
         return ",".join(fmt.format(cands[cid]["params"][key]) for cid in ids)
 
     src = (
         TEMPLATE
+        .replace("#define CANDIDATE_COUNT 15", f"#define CANDIDATE_COUNT {len(ids)}")
         .replace("__CIDS__", ",".join(str(x) for x in ids))
         .replace("__PIVOTS__", ",".join(str(cands[x]["params"]["pivot"]) for x in ids))
         .replace("__DELTAS__", nums("min_delta", "{:.10f}"))
@@ -393,6 +404,7 @@ def main() -> int:
     print(json.dumps({
         "generated": args.output.name,
         "candidate_count": len(ids),
+        "promotion_manifest_candidate_count": len(manifest_cands),
         "real_data_only": True,
         "synthetic_data": False
     }, sort_keys=True))
