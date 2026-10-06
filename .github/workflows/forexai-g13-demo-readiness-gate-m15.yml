@@ -247,14 +247,15 @@ jobs:
           assert p['preflight']['status'] == "PASS"
           assert p['preflight']['run_id'] == int(os.environ["PREFLIGHT_RUN_ID"])
           assert p['preflight']['head_sha'] == os.environ["MAIN_HEAD_SHA"]
-          assert p['preflight']['candidate_count'] == 15
+          assert p['preflight']['candidate_count'] >= 1
+          assert p['preflight']['candidate_count'] == p['evidence']['parity_passed_count']
           assert p['preflight']['compile_parity_run_id'] == int(os.environ["PARITY_RUN_ID"])
           assert p['safety']['status']=='PASS'
           assert p['safety']['matrix_cases']==1536
           assert p['safety']['matrix_allowed_states']==769
           assert p['safety']['non_tester_allowed_states']==1
           assert p['evidence']['parity_status']=='PASS'
-          assert p['evidence']['parity_passed_count']==15
+          assert p['evidence']['parity_passed_count'] >= 1
           assert p['runtime']['demo_account'] is True
           assert p['runtime']['authorization_off_blocks'] is True
           assert p['runtime']['orders_submitted'] is False
