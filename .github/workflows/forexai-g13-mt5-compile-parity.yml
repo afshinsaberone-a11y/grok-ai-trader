@@ -226,7 +226,9 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\promotion-source'
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $zip = Join-Path $artifactDir 'promotion.zip'
+          Remove-Item -Recurse -Force (Join-Path $artifactDir 'artifact-outer') -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path (Join-Path $artifactDir 'artifact-outer') | Out-Null
+          $outerZip = Join-Path $artifactDir 'artifact-outer.zip'
           $headers = Join-Path $env:RUNNER_TEMP "g13-promotion-artifact-$env:GITHUB_RUN_ID.headers"
           $apiUrl = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:PROMOTION_ARTIFACT_ID/zip"
 
@@ -258,13 +260,24 @@ jobs:
           }
           Remove-Item -Force -ErrorAction SilentlyContinue $headers
 
-          & curl.exe -fSL $downloadUrl -o $zip
+          & curl.exe -fSL $downloadUrl -o $outerZip
           if ($LASTEXITCODE -ne 0) { throw "Promotion artifact signed URL download failed." }
 
-          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $outerZip).Hash.ToLowerInvariant()
           if ($actualDigest -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) {
             throw "Promotion handoff digest mismatch: $actualDigest != $env:PROMOTION_ARTIFACT_DIGEST"
           }
+
+          $outerDir = Join-Path $artifactDir 'artifact-outer'
+          Expand-Archive -LiteralPath $outerZip -DestinationPath $outerDir -Force
+          $innerZip = Get-ChildItem -LiteralPath $outerDir -Recurse -File -Filter 'promotion.zip' | Select-Object -First 1
+          $metaFile = Get-ChildItem -LiteralPath $outerDir -Recurse -File -Filter 'source-artifact.env' | Select-Object -First 1
+          if (-not $innerZip) { throw 'Promotion artifact outer ZIP does not contain promotion.zip' }
+          if (-not $metaFile) { throw 'Promotion artifact outer ZIP does not contain source-artifact.env' }
+          Copy-Item -LiteralPath $innerZip.FullName -Destination (Join-Path $artifactDir 'promotion.zip') -Force
+          Copy-Item -LiteralPath $metaFile.FullName -Destination (Join-Path $artifactDir 'source-artifact.env') -Force
+          Remove-Item -Force -ErrorAction SilentlyContinue $outerZip
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $outerDir
           Write-Host "PROMOTION_HANDOFF_ARTIFACT_DOWNLOADED_AND_VERIFIED=true ID=$env:PROMOTION_ARTIFACT_ID DIGEST=$actualDigest"
 
       - name: Download and bind exact Promotion artifact
