@@ -753,13 +753,26 @@ jobs:
            if (!(Select-String -LiteralPath $done -Pattern '^synthetic_data,false$' -Quiet)) {
              throw "MQL5 parity harness did not confirm synthetic_data=false"
            }
-           $doneText = Get-Content -LiteralPath $done -Raw
-           $doneRow = [regex]::Match($doneText,'(?m)^candidate_count,(\d+)$')
-           if (!$doneRow.Success) { throw "MQL5 parity completion marker candidate_count missing" }
+           $doneRows = @{}
+           Get-Content -LiteralPath $done -ErrorAction Stop | ForEach-Object {
+             $line = $_.Trim()
+             if (-not $line) { return }
+             $parts = $line -split ',', 2
+             if ($parts.Count -eq 2) {
+               $key = $parts[0].Trim().Trim('"')
+               $value = $parts[1].Trim().Trim('"')
+               $doneRows[$key] = $value
+             }
+           }
+           if (-not $doneRows.ContainsKey('candidate_count')) { throw "MQL5 parity completion marker candidate_count missing" }
            $promotion = Get-Content -LiteralPath $env:PROMOTION_MANIFEST -Raw | ConvertFrom-Json
            $expectedCandidateCount = @($promotion.promoted_candidate_ids).Count
-           if ([int]$doneRow.Groups[1].Value -ne $expectedCandidateCount) {
-             throw "MQL5 parity harness candidate_count $($doneRow.Groups[1].Value) does not match Promotion candidate count $expectedCandidateCount"
+           $reportedCandidateCount = 0
+           if (-not [int]::TryParse([string]$doneRows['candidate_count'], [ref]$reportedCandidateCount)) {
+             throw "MQL5 parity completion marker candidate_count is not an integer: $($doneRows['candidate_count'])"
+           }
+           if ($reportedCandidateCount -ne $expectedCandidateCount) {
+             throw "MQL5 parity harness candidate_count $reportedCandidateCount does not match Promotion candidate count $expectedCandidateCount"
            }
 
            $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'

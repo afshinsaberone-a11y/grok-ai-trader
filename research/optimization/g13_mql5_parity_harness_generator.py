@@ -35,7 +35,7 @@ struct Bar
    double close;
 };
 
-#define CANDIDATE_COUNT 15
+#define CANDIDATE_COUNT __CANDIDATE_COUNT__
 int CIDS[CANDIDATE_COUNT]={__CIDS__};
 int PIVOTS[CANDIDATE_COUNT]={__PIVOTS__};
 double MIN_DELTAS[CANDIDATE_COUNT]={__DELTAS__};
@@ -386,7 +386,7 @@ def main() -> int:
 
     src = (
         TEMPLATE
-        .replace("#define CANDIDATE_COUNT 15", f"#define CANDIDATE_COUNT {len(ids)}")
+        .replace("__CANDIDATE_COUNT__", str(len(ids)))
         .replace("__CIDS__", ",".join(str(x) for x in ids))
         .replace("__PIVOTS__", ",".join(str(cands[x]["params"]["pivot"]) for x in ids))
         .replace("__DELTAS__", nums("min_delta", "{:.10f}"))
