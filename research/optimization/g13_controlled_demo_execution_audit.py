@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "forexai.g13.controlled_demo_execution_audit.m15.v1"
-PROMOTED_IDS = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 REQUIRED_COLUMNS = (
     "candidate_id",
     "config_hash",
@@ -55,7 +54,16 @@ def canonical_hash(value: Any) -> str:
     raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(raw).hexdigest()
 
-def load_frozen_hashes(handoff: Path) -> dict[int, str]:
+def load_promoted_ids(promotion: Path) -> tuple[int, ...]:
+    payload = json.loads(promotion.read_text(encoding="utf-8"))
+    assert payload.get("schema_version") == "forexai.g13.promotion_manifest.m15.v1"
+    assert payload.get("status") == "PROMOTION_READY"
+    ids = tuple(int(x) for x in payload.get("promoted_candidate_ids", []))
+    assert ids and len(ids) == len(set(ids))
+    assert tuple(int(x["candidate_id"]) for x in payload.get("candidates", [])) == ids
+    return ids
+
+def load_frozen_hashes(handoff: Path, promoted_ids: tuple[int, ...]) -> dict[int, str]:
     payload = json.loads(handoff.read_text(encoding="utf-8"))
     assert payload.get("schema_version") == "forexai.g13.candidate_handoff.frozen.v1"
     assert payload.get("handoff_policy", {}).get("parameters_are_frozen") is True
@@ -63,11 +71,11 @@ def load_frozen_hashes(handoff: Path) -> dict[int, str]:
     hashes: dict[int, str] = {}
     for candidate in payload.get("candidates", []):
         cid = int(candidate["candidate_id"])
-        if cid in PROMOTED_IDS:
+        if cid in promoted_ids:
             cfg = candidate["config_hash"]
             assert cfg == canonical_hash(candidate["params"])
             hashes[cid] = cfg
-    assert set(hashes) == set(PROMOTED_IDS)
+    assert set(hashes) == set(promoted_ids)
     return hashes
 
 def load_context(path: Path) -> dict[str, Any]:
@@ -79,8 +87,9 @@ def load_context(path: Path) -> dict[str, Any]:
     assert p.get("kill_switch") == "ALLOW"
     return p
 
-def audit(csv_path: Path, handoff: Path, context: Path) -> dict[str, Any]:
-    hashes = load_frozen_hashes(handoff)
+def audit(csv_path: Path, handoff: Path, context: Path, promotion: Path) -> dict[str, Any]:
+    promoted_ids = load_promoted_ids(promotion)
+    hashes = load_frozen_hashes(handoff, promoted_ids)
     ctx = load_context(context)
     rows = list(csv.DictReader(csv_path.open("r", encoding="utf-8", newline="")))
     assert rows, "execution audit CSV is empty"
@@ -92,7 +101,7 @@ def audit(csv_path: Path, handoff: Path, context: Path) -> dict[str, Any]:
     previous_ts = ""
     for idx, row in enumerate(rows, start=1):
         cid = int(row["candidate_id"])
-        assert cid in PROMOTED_IDS, f"row {idx}: unknown candidate {cid}"
+        assert cid in promoted_ids, f"row {idx}: unknown candidate {cid}"
         assert row["config_hash"] == hashes[cid], f"row {idx}: config hash mismatch for candidate {cid}"
         assert row["symbol"] == "EURUSD", f"row {idx}: wrong symbol {row['symbol']}"
         assert row["timeframe"] == "M15", f"row {idx}: wrong timeframe {row['timeframe']}"
@@ -165,8 +174,8 @@ def audit(csv_path: Path, handoff: Path, context: Path) -> dict[str, Any]:
         "scope": {
             "symbol": "EURUSD",
             "timeframe": "M15",
-            "candidate_count": len(PROMOTED_IDS),
-            "candidate_ids": list(PROMOTED_IDS),
+            "candidate_count": len(promoted_ids),
+            "candidate_ids": list(promoted_ids),
             "row_count": len(rows),
         },
         "events": events,
@@ -183,10 +192,11 @@ def main() -> int:
     ap.add_argument("--execution-csv", type=Path, required=True)
     ap.add_argument("--handoff", type=Path, required=True)
     ap.add_argument("--context", type=Path, required=True)
+    ap.add_argument("--promotion", type=Path, required=True)
     ap.add_argument("--report", type=Path, required=True)
     args = ap.parse_args()
 
-    result = audit(args.execution_csv, args.handoff, args.context)
+    result = audit(args.execution_csv, args.handoff, args.context, args.promotion)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({
