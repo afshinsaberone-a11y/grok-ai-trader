@@ -117,7 +117,7 @@ def test_expired_artifact_is_rejected():
     p = _good()
     p["sources"]["validation"]["artifact"]["expired"] = True
     try:
-        gate.validate_provenance(p)
+        gate.validate_provenance(p, "target-sha")
     except AssertionError:
         return
     raise AssertionError("expired artifact was accepted")
@@ -166,7 +166,7 @@ def test_wrong_workflow_id_is_rejected():
     p = _good()
     p["sources"]["oos"]["workflow_id"] = 355468598
     try:
-        gate.validate_provenance(p)
+        gate.validate_provenance(p, "target-sha")
     except AssertionError:
         return
     raise AssertionError("wrong producer workflow ID was accepted")
@@ -176,7 +176,7 @@ def test_wrong_workflow_identity_is_rejected():
     p = _good()
     p["sources"]["oos"]["workflow_name"] = "ForexAI G13 Validation M15"
     try:
-        gate.validate_provenance(p)
+        gate.validate_provenance(p, "target-sha")
     except AssertionError:
         return
     raise AssertionError("wrong producer workflow was accepted")
