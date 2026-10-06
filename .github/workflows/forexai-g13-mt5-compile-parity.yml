@@ -403,7 +403,7 @@ jobs:
             --done-file "$env:PARITY_DONE_FILE" `
             --started-file "$env:PARITY_STARTED_FILE"
 
-      - name: Compile all 15 EAs with MetaEditor
+      - name: Compile all promoted G13 EAs with MetaEditor
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
