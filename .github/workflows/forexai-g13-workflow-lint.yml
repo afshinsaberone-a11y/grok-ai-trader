@@ -208,8 +208,9 @@ jobs:
               "--provenance evidence/source-provenance.json",
               "promotion-run-attestation.json",
               "g13-promotion-manifest-m15",
-              "'research/optimization/g13_*.py'",
-              "'.github/workflows/forexai-g13-*.yml'",
+              "workflow_run:",
+              "ForexAI G13 OOS M15 Current",
+              "TARGET_SHA",
           ]:
               assert token in promotion, f"promotion provenance token missing: {token}"
 
