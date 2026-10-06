@@ -411,7 +411,10 @@ jobs:
           New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
           Remove-Item -Path (Join-Path $buildDir '*') -Recurse -Force -ErrorAction SilentlyContinue
           $files = @(Get-ChildItem 'artifacts/g13/mql5/ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
-          if ($files.Count -ne 15) { throw "Expected 15 mq5 files, found $($files.Count)" }
+           $promotion = Get-Content -LiteralPath $env:PROMOTION_MANIFEST -Raw | ConvertFrom-Json
+           $expectedCandidateCount = @($promotion.promoted_candidate_ids).Count
+           if ($expectedCandidateCount -lt 1) { throw "Promotion manifest contains no promoted candidates" }
+           if ($files.Count -ne $expectedCandidateCount) { throw "Expected $expectedCandidateCount mq5 files, found $($files.Count)" }
           foreach ($f in $files) {
             $src = Join-Path $buildDir $f.Name
             $ex5 = [System.IO.Path]::ChangeExtension($src, '.ex5')
@@ -746,10 +749,149 @@ jobs:
           }
           if (!(Select-String -LiteralPath $done -Pattern '^synthetic_data,false$' -Quiet)) {
             throw "MQL5 parity harness did not confirm synthetic_data=false"
+          }           $doneText = Get-Content -LiteralPath $done -Raw
+           $doneRow = [regex]::Match($doneText,'(?m)^candidate_count,(\d+)
+          $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
+          New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+          Copy-Item $parity (Join-Path $stageDir 'g13_mql5_parity.csv') -Force
+          Copy-Item $done (Join-Path $stageDir 'g13_mql5_parity.done.txt') -Force
+          "PARITY_CSV_RESOLVED=$(Join-Path $stageDir 'g13_mql5_parity.csv')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Copy-Item $env:DATA_MANIFEST_RESOLVED (Join-Path $stageDir 'g13_real_eurusd_m15.manifest.json') -Force
+          "DATA_MANIFEST_CI=$(Join-Path $stageDir 'g13_real_eurusd_m15.manifest.json')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DATA_CSV_RESOLVED=$(Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files\\g13_real_eurusd_m15.csv')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "MQL5_REAL_DATA_PARITY_OK"
+
+      - name: Collect MT5 parity diagnostics
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\diagnostics'
+          New-Item -ItemType Directory -Path $diag -Force | Out-Null
+
+          $serviceData = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075'
+          $commonFiles = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
+          $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
+          $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\mql5\\g13_parity_harness.ini'
+
+          if (Test-Path $terminal) {
+            (Get-Item $terminal).VersionInfo | Out-File (Join-Path $diag 'terminal_version.txt') -Encoding utf8
           }
-          if (!(Select-String -LiteralPath $done -Pattern '^candidate_count,15$' -Quiet)) {
-            throw "MQL5 parity harness did not process exactly 15 candidates"
+          Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" |
+            Select-Object ProcessId,ExecutablePath,CommandLine,CreationDate |
+            Format-List * |
+            Out-File (Join-Path $diag 'terminal_processes.txt') -Encoding utf8
+          if (Test-Path $config) { Copy-Item $config (Join-Path $diag 'g13_parity_harness.ini') -Force }
+
+          foreach ($logDir in @(
+            (Join-Path $serviceData 'logs'),
+            (Join-Path $serviceData 'MQL5\\Logs')
+          )) {
+            if (Test-Path $logDir) {
+              $out = Join-Path $diag ([IO.Path]::GetFileName($logDir))
+              New-Item -ItemType Directory -Path $out -Force | Out-Null
+              Get-ChildItem $logDir -File |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 10 |
+                ForEach-Object { Copy-Item $_.FullName (Join-Path $out $_.Name) -Force }
+            }
           }
+
+          if (Test-Path $commonFiles) {
+            Get-ChildItem $commonFiles -File |
+              Where-Object { $_.Name -like 'g13_mql5_parity*' -or $_.Name -like 'g13_real_eurusd_m15*.csv' } |
+              Select-Object Name,Length,LastWriteTime |
+              Format-Table -AutoSize |
+              Out-File (Join-Path $diag 'common_files_inventory.txt') -Encoding utf8
+          }
+          Write-Host "MT5_DIAGNOSTICS_COLLECTED=$diag"
+
+
+      - name: Verify generated parity input
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!(Test-Path -LiteralPath $env:PARITY_CSV_RESOLVED -PathType Leaf)) {
+            throw "Generated MQL5 parity CSV missing: $env:PARITY_CSV_RESOLVED"
+          }
+          Write-Host "PARITY_INPUT_OK"
+          
+      - name: Run fail-closed Python vs MQL5 signal parity
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:PYTHON_EXE -m research.optimization.g13_mql5_parity `
+            --data "$env:DATA_CSV_RESOLVED" `
+            --data-manifest "$env:DATA_MANIFEST_RESOLVED" `
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
+            --manifest artifacts/g13/g13-promotion-manifest-m15.json `
+            --mt5 "$env:PARITY_CSV_RESOLVED" `
+            --output artifacts/g13-mql5-signal-parity.json
+
+      - name: Build immutable Demo package manifest
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:PYTHON_EXE -m research.optimization.g13_demo_package_manifest_builder_m15 `
+            --promotion artifacts/g13/g13-promotion-manifest-m15.json `
+            --parity artifacts/g13-mql5-signal-parity.json `
+            --package-root artifacts/g13/mql5 `
+            --output artifacts/g13/g13-demo-package-manifest-m15.json `
+            --source-commit "$env:TARGET_SHA" `
+            --compile-parity-run-id ([int64]$env:GITHUB_RUN_ID)
+      - name: Print MT5 parity diagnostics
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\diagnostics'
+          if (Test-Path $diag) {
+            Write-Host "MT5_DIAGNOSTICS_DIR=$diag"
+            Get-ChildItem $diag -Recurse -File |
+              Sort-Object FullName |
+              Select-Object FullName,Length,LastWriteTime |
+              Format-Table -AutoSize |
+              Out-String |
+              Write-Host
+            foreach ($file in @(Get-ChildItem $diag -Recurse -File | Where-Object { $_.Extension -in @('.txt','.log') } | Sort-Object LastWriteTime -Descending | Select-Object -First 5)) {
+              Write-Host "===== MT5_DIAGNOSTIC_FILE=$($file.FullName) ====="
+              Get-Content -LiteralPath $file.FullName -ErrorAction Continue |
+                Select-Object -Last 80 |
+                ForEach-Object { if ($_.Trim()) { Write-Host $_ } }
+            }
+          } else {
+            Write-Host 'MT5_DIAGNOSTICS_DIR_MISSING'
+          }
+
+          $parityJson = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13-mql5-signal-parity.json'
+          if (Test-Path $parityJson) {
+            Write-Host "===== G13_SIGNAL_PARITY_JSON ====="
+            Get-Content -LiteralPath $parityJson -Raw | Write-Host
+          }
+
+      - name: Upload MT5 parity diagnostics
+        if: always()
+        uses: ./.github/actions/g13-artifact-upload
+        with:
+          name: g13-mt5-parity-diagnostics-${{ github.run_id }}
+          path: artifacts/g13/diagnostics/**
+          if-no-files-found: warn
+
+      - name: Upload compile + parity evidence
+        if: always()
+        uses: ./.github/actions/g13-artifact-upload
+        with:
+          name: g13-mt5-compile-parity-${{ github.run_id }}
+          path: |
+            artifacts/g13/mql5/*.mq5
+            artifacts/g13/mql5/*.ex5
+            artifacts/g13/mql5/g13_parity_harness.ini
+            artifacts/g13/g13-demo-package-manifest-m15.json
+            artifacts/g13-mql5-signal-parity.json
+            artifacts/g13/ci_inputs/*
+          if-no-files-found: warn
+)
+           if (!$doneRow.Success) { throw "MQL5 parity completion marker candidate_count missing" }
+           $promotion = Get-Content -LiteralPath $env:PROMOTION_MANIFEST -Raw | ConvertFrom-Json
+           $expectedCandidateCount = @($promotion.promoted_candidate_ids).Count
+           if ([int]$doneRow.Groups[1].Value -ne $expectedCandidateCount) {
+             throw "MQL5 parity harness candidate_count $($doneRow.Groups[1].Value) does not match Promotion candidate count $expectedCandidateCount"
+           }
 
           $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
           New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
