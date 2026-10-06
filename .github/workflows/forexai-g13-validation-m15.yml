@@ -9,6 +9,10 @@ on:
       - research/optimization/rsi_divergence_discovery_g13.py
       - .github/workflows/forexai-g13-validation-m15.yml
 
+concurrency:
+  group: g13-validation-m15
+  cancel-in-progress: true
+
 permissions:
   contents: read
   actions: read
