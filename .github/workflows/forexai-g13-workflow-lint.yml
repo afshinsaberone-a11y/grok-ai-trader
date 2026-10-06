@@ -405,3 +405,4 @@ jobs:
           print("G13_RUNTIME_SYMBOL_PERMISSION_CONTRACT_OK")
           print("G13_WORKFLOW_STATIC_CONTRACT_OK")
           PY
+# Exact-SHA final refresh 2026-10-06: regenerate all G13 evidence and static validation on the same main commit.
