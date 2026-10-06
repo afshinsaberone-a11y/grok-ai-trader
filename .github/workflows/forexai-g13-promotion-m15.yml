@@ -7,15 +7,12 @@ name: ForexAI G13 Final Promotion M15
 # Exact-SHA evidence hardening: every upstream G13 source run must succeed on this SHA.
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'research/optimization/g13_*.py'
-      - 'research/real_data/*.py'
-      - 'research/optimization/g13_mql5_parity_harness.mq5'
-      - 'artifacts/g13/frozen/g13-candidate-handoff-m15.json'
-      - 'artifacts/g13/g13-promotion-manifest-m15.json'
-      - '.github/workflows/forexai-g13-*.yml'
-      - '.github/actions/g13-artifact-upload/**'
+  workflow_run:
+    workflows:
+      - "ForexAI G13 OOS M15 Current"
+    types: [completed]
+    branches:
+      - main
 
 concurrency:
   group: g13-promotion-m15
@@ -26,17 +23,23 @@ permissions:
   actions: read
 
 env:
-  TARGET_SHA: ${{ github.sha }}
+  TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   promotion:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.name == 'ForexAI G13 OOS M15 Current') }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       PYTHONOPTIMIZE: '0'
     steps:
-      - name: Checkout
+      - name: Checkout exact target SHA
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - name: Fail fast on stale main SHA
         env:
           GH_TOKEN: ${{ github.token }}

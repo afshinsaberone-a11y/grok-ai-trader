@@ -6,17 +6,12 @@ name: ForexAI G13 Preflight Dispatcher M15
 # Compile + Signal Parity workflow to succeed, then dispatches the existing read-only
 # Controlled Demo Package Preflight with the exact successful Compile/Parity run ID.
 on:
-  push:
+  workflow_run:
+    workflows:
+      - "ForexAI G13 MT5 Compile + Signal Parity"
+    types: [completed]
     branches:
       - main
-    paths:
-      - 'research/optimization/g13_*.py'
-      - 'research/real_data/*.py'
-      - 'research/optimization/g13_mql5_parity_harness.mq5'
-      - 'artifacts/g13/g13-promotion-manifest-m15.json'
-      - 'artifacts/g13/frozen/g13-candidate-handoff-m15.json'
-      - '.github/workflows/forexai-g13-*.yml'
-      - '.github/actions/g13-artifact-upload/**'
 
 permissions:
   contents: read
@@ -28,11 +23,14 @@ concurrency:
 
 jobs:
   dispatch-preflight:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.name == 'ForexAI G13 MT5 Compile + Signal Parity' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_SHA: ${{ github.sha }}
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Resolve COMPLETE successful Compile/Parity run
         shell: bash
