@@ -1,6 +1,7 @@
 name: ForexAI G13 Robustness M15
 
 # Trigger marker: run robustness on the current main revision.
+# G13 exact-SHA refresh: ci: refresh G13 robustness after parity harness fix
 # G13 exact-SHA refresh: ci: trigger exact-SHA G13 robustness refresh after handoff fix
 # G13 exact-SHA chain refresh: synchronized rerun after artifact transport repair.
 # execution marker 2026-09-12: run frozen-candidate robustness gate
