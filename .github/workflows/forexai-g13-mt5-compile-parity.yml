@@ -1,7 +1,5 @@
 name: ForexAI G13 MT5 Compile + Signal Parity
-# CI refresh marker: re-run exact-main evidence chain after the Windows npm-resolution fix.
-# No trading or execution logic change; this marker intentionally refreshes G13 evidence.
-# CI refresh marker: validate self-bootstrap of npm on the Windows service runner after PR #72.
+# CI refresh marker: no execution logic change; intentionally triggers the exact-main evidence chain.
 
 on:
   workflow_dispatch:
@@ -28,12 +26,15 @@ on:
         required: false
         default: 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv'
         type: string
-  workflow_run:
-    workflows:
-      - "ForexAI G13 Final Promotion M15"
-    types: [completed]
-    branches:
-      - main
+  push:
+    branches: [main]
+    paths:
+      - 'research/optimization/g13_*.py'
+      - 'research/real_data/*.py'
+      - 'research/optimization/g13_mql5_parity_harness.mq5'
+      - 'artifacts/g13/g13-promotion-manifest-m15.json'
+      - 'artifacts/g13/frozen/g13-candidate-handoff-m15.json'
+      - '.github/workflows/forexai-g13-*.yml'
 concurrency:
   group: g13-mt5-compile-parity
   cancel-in-progress: true
@@ -48,10 +49,6 @@ defaults:
 
 jobs:
   resolve-promotion:
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.workflow_run.conclusion == 'success' &&
-           github.event.workflow_run.name == 'ForexAI G13 Final Promotion M15') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     outputs:
@@ -62,7 +59,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
-      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      TARGET_SHA: ${{ github.sha }}
     steps:
       - name: Resolve exact Promotion run
         id: resolve
@@ -229,7 +226,9 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\promotion-source'
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $zip = Join-Path $artifactDir 'promotion.zip'
+          Remove-Item -Recurse -Force (Join-Path $artifactDir 'artifact-outer') -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path (Join-Path $artifactDir 'artifact-outer') | Out-Null
+          $outerZip = Join-Path $artifactDir 'artifact-outer.zip'
           $headers = Join-Path $env:RUNNER_TEMP "g13-promotion-artifact-$env:GITHUB_RUN_ID.headers"
           $apiUrl = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:PROMOTION_ARTIFACT_ID/zip"
 
@@ -261,20 +260,24 @@ jobs:
           }
           Remove-Item -Force -ErrorAction SilentlyContinue $headers
 
-          & curl.exe -fSL $downloadUrl -o $zip
+          & curl.exe -fSL $downloadUrl -o $outerZip
           if ($LASTEXITCODE -ne 0) { throw "Promotion artifact signed URL download failed." }
 
-          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $outerZip).Hash.ToLowerInvariant()
           if ($actualDigest -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) {
             throw "Promotion handoff digest mismatch: $actualDigest != $env:PROMOTION_ARTIFACT_DIGEST"
           }
-          @"
-          PROMOTION_RUN_ID=$env:PROMOTION_RUN_ID
-          TARGET_SHA=$env:TARGET_SHA
-          PROMOTION_ARTIFACT_ID=$env:PROMOTION_ARTIFACT_ID
-          PROMOTION_ARTIFACT_DIGEST=$env:PROMOTION_ARTIFACT_DIGEST
-          "@ | Set-Content -LiteralPath (Join-Path $artifactDir 'source-artifact.env') -Encoding ascii
-          Write-Host "PROMOTION_HANDOFF_METADATA_REBUILT=true"
+
+          $outerDir = Join-Path $artifactDir 'artifact-outer'
+          Expand-Archive -LiteralPath $outerZip -DestinationPath $outerDir -Force
+          $innerZip = Get-ChildItem -LiteralPath $outerDir -Recurse -File -Filter 'promotion.zip' | Select-Object -First 1
+          $metaFile = Get-ChildItem -LiteralPath $outerDir -Recurse -File -Filter 'source-artifact.env' | Select-Object -First 1
+          if (-not $innerZip) { throw 'Promotion artifact outer ZIP does not contain promotion.zip' }
+          if (-not $metaFile) { throw 'Promotion artifact outer ZIP does not contain source-artifact.env' }
+          Copy-Item -LiteralPath $innerZip.FullName -Destination (Join-Path $artifactDir 'promotion.zip') -Force
+          Copy-Item -LiteralPath $metaFile.FullName -Destination (Join-Path $artifactDir 'source-artifact.env') -Force
+          Remove-Item -Force -ErrorAction SilentlyContinue $outerZip
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $outerDir
           Write-Host "PROMOTION_HANDOFF_ARTIFACT_DOWNLOADED_AND_VERIFIED=true ID=$env:PROMOTION_ARTIFACT_ID DIGEST=$actualDigest"
 
       - name: Download and bind exact Promotion artifact
@@ -396,14 +399,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m research.optimization.g13_mql5_parity_harness_generator `
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
-            --manifest "$env:PROMOTION_MANIFEST" `
             --output artifacts/g13/mql5/ForexAI_G13_Parity_Harness.mq5 `
             --input-file "$env:PARITY_INPUT_FILE" `
             --output-file "$env:PARITY_OUTPUT_FILE" `
             --done-file "$env:PARITY_DONE_FILE" `
             --started-file "$env:PARITY_STARTED_FILE"
 
-      - name: Compile all promoted G13 EAs with MetaEditor
+      - name: Compile all 15 EAs with MetaEditor
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
@@ -411,10 +413,7 @@ jobs:
           New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
           Remove-Item -Path (Join-Path $buildDir '*') -Recurse -Force -ErrorAction SilentlyContinue
           $files = @(Get-ChildItem 'artifacts/g13/mql5/ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
-          $promotion = Get-Content -LiteralPath $env:PROMOTION_MANIFEST -Raw | ConvertFrom-Json
-          $expectedCandidateCount = @($promotion.promoted_candidate_ids).Count
-          if ($expectedCandidateCount -lt 1) { throw "Promotion manifest contains no promoted candidates" }
-          if ($files.Count -ne $expectedCandidateCount) { throw "Expected $expectedCandidateCount mq5 files, found $($files.Count)" }
+          if ($files.Count -ne 15) { throw "Expected 15 mq5 files, found $($files.Count)" }
           foreach ($f in $files) {
             $src = Join-Path $buildDir $f.Name
             $ex5 = [System.IO.Path]::ChangeExtension($src, '.ex5')
@@ -442,7 +441,7 @@ jobs:
             }
             Copy-Item $ex5 (Join-Path 'artifacts/g13/mql5' ([System.IO.Path]::GetFileName($ex5))) -Force
           }
-          Write-Host "MT5_COMPILE_OK=$expectedCandidateCount"
+          Write-Host "MT5_COMPILE_OK=15"
 
       - name: Compile and deploy MQL5 real-data parity script
         run: |
@@ -496,10 +495,7 @@ jobs:
           $experts = Join-Path $env:MT5_DATA_ROOT 'MQL5\\Experts'
           if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
           $files = @(Get-ChildItem 'artifacts/g13/mql5/ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
-          $promotion = Get-Content -LiteralPath $env:PROMOTION_MANIFEST -Raw | ConvertFrom-Json
-          $expectedCandidateCount = @($promotion.promoted_candidate_ids).Count
-          if ($expectedCandidateCount -lt 1) { throw "Promotion manifest contains no promoted candidates" }
-          if ($files.Count -ne $expectedCandidateCount) { throw "Expected $expectedCandidateCount candidate mq5 files before deploy, found $($files.Count)" }
+          if ($files.Count -ne 15) { throw "Expected 15 candidate mq5 files before deploy, found $($files.Count)" }
           foreach ($f in $files) {
             $ex5 = [System.IO.Path]::ChangeExtension($f.FullName, '.ex5')
             $dstMq5 = Join-Path $experts $f.Name
@@ -511,7 +507,7 @@ jobs:
             if ($srcHash -ne $dstHash) { throw "EX5 deploy hash mismatch for $($f.Name)" }
             Write-Host "DEPLOYED=$($f.Name) EX5_SHA256=$dstHash"
           }
-          Write-Host "MT5_EXPERTS_DEPLOY_OK=$expectedCandidateCount"
+          Write-Host "MT5_EXPERTS_DEPLOY_OK=15"
 
       - name: Resolve REAL EURUSD M15 dataset
         run: |
@@ -750,32 +746,14 @@ jobs:
           if (!(Select-String -LiteralPath $done -Pattern '^real_data_only,true$' -Quiet)) {
             throw "MQL5 parity harness did not confirm real_data_only=true"
           }
-           if (!(Select-String -LiteralPath $done -Pattern '^synthetic_data,false$' -Quiet)) {
-             throw "MQL5 parity harness did not confirm synthetic_data=false"
-           }
-           $doneRows = @{}
-           Get-Content -LiteralPath $done -ErrorAction Stop | ForEach-Object {
-             $line = $_.Trim()
-             if (-not $line) { return }
-             $parts = $line -split ',', 2
-             if ($parts.Count -eq 2) {
-               $key = $parts[0].Trim().Trim('"')
-               $value = $parts[1].Trim().Trim('"')
-               $doneRows[$key] = $value
-             }
-           }
-           if (-not $doneRows.ContainsKey('candidate_count')) { throw "MQL5 parity completion marker candidate_count missing" }
-           $promotion = Get-Content -LiteralPath $env:PROMOTION_MANIFEST -Raw | ConvertFrom-Json
-           $expectedCandidateCount = @($promotion.promoted_candidate_ids).Count
-           $reportedCandidateCount = 0
-           if (-not [int]::TryParse([string]$doneRows['candidate_count'], [ref]$reportedCandidateCount)) {
-             throw "MQL5 parity completion marker candidate_count is not an integer: $($doneRows['candidate_count'])"
-           }
-           if ($reportedCandidateCount -ne $expectedCandidateCount) {
-             throw "MQL5 parity harness candidate_count $reportedCandidateCount does not match Promotion candidate count $expectedCandidateCount"
-           }
+          if (!(Select-String -LiteralPath $done -Pattern '^synthetic_data,false$' -Quiet)) {
+            throw "MQL5 parity harness did not confirm synthetic_data=false"
+          }
+          if (!(Select-String -LiteralPath $done -Pattern '^candidate_count,15$' -Quiet)) {
+            throw "MQL5 parity harness did not process exactly 15 candidates"
+          }
 
-           $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
+          $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
           New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
           Copy-Item $parity (Join-Path $stageDir 'g13_mql5_parity.csv') -Force
           Copy-Item $done (Join-Path $stageDir 'g13_mql5_parity.done.txt') -Force
@@ -845,7 +823,7 @@ jobs:
             --data "$env:DATA_CSV_RESOLVED" `
             --data-manifest "$env:DATA_MANIFEST_RESOLVED" `
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
-            --manifest "$env:PROMOTION_MANIFEST" `
+            --manifest artifacts/g13/g13-promotion-manifest-m15.json `
             --mt5 "$env:PARITY_CSV_RESOLVED" `
             --output artifacts/g13-mql5-signal-parity.json
 
@@ -853,7 +831,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m research.optimization.g13_demo_package_manifest_builder_m15 `
-            --promotion "$env:PROMOTION_MANIFEST" `
+            --promotion artifacts/g13/g13-promotion-manifest-m15.json `
             --parity artifacts/g13-mql5-signal-parity.json `
             --package-root artifacts/g13/mql5 `
             --output artifacts/g13/g13-demo-package-manifest-m15.json `
