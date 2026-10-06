@@ -12,6 +12,8 @@ import hashlib
 import json
 from pathlib import Path
 
+# CI refresh marker: rerun the exact G13 evidence chain after uploader hardening.
+
 import pandas as pd
 
 from research.optimization.cost_aware_gate_v14 import validation_gate
