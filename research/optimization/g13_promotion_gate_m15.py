@@ -19,13 +19,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-EXPECTED_VALIDATION_RUN = 34559825574
-EXPECTED_VALIDATION_ARTIFACT = 10184001419
-EXPECTED_ROBUST_RUN = 34679210600
-EXPECTED_ROBUST_ARTIFACT = 10293181701
-EXPECTED_OOS_RUN = 34679937623
-EXPECTED_OOS_ARTIFACT = 10293797420
-
 EXPECTED_SOURCE_JOB_NAMES = {
     "validation": "g13-validation",
     "robustness": "g13-robustness",
@@ -60,24 +53,26 @@ def load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def validate_provenance(provenance: dict[str, Any]) -> None:
+def validate_provenance(provenance: dict[str, Any], target_sha: str) -> None:
     assert provenance["schema_version"] == "forexai.g13.promotion_evidence_provenance.m15.v1"
-    expected = {
-        "validation": (EXPECTED_VALIDATION_RUN, EXPECTED_VALIDATION_ARTIFACT),
-        "robustness": (EXPECTED_ROBUST_RUN, EXPECTED_ROBUST_ARTIFACT),
-        "oos": (EXPECTED_OOS_RUN, EXPECTED_OOS_ARTIFACT),
+    assert provenance["target_sha"] == target_sha
+    expected_workflow_ids = {
+        "validation": 355468598,
+        "robustness": 355473409,
+        "oos": 356162316,
     }
-    for key, (run_id, artifact_id) in expected.items():
+    for key in ("validation", "robustness", "oos"):
         row = provenance["sources"][key]
-        assert row["run_id"] == run_id
+        assert isinstance(row.get("run_id"), int) and row["run_id"] > 0
         assert row.get("workflow_name") == EXPECTED_SOURCE_WORKFLOW_NAMES[key]
-        assert int(row.get("workflow_id")) == EXPECTED_SOURCE_WORKFLOW_IDS[key]
+        assert int(row.get("workflow_id")) == expected_workflow_ids[key]
         assert row.get("head_branch") == "main"
+        assert row.get("head_sha") == target_sha, (key, row.get("head_sha"), target_sha)
         assert isinstance(row.get("job_id"), int) and row["job_id"] > 0
         assert row.get("job_name") == EXPECTED_SOURCE_JOB_NAMES[key]
         assert row["conclusion"] == "success"
         artifact = row["artifact"]
-        assert artifact["artifact_id"] == artifact_id
+        assert isinstance(artifact.get("artifact_id"), int) and artifact["artifact_id"] > 0
         assert artifact["name"] == EXPECTED_SOURCE_ARTIFACT_NAMES[key]
         assert artifact["expired"] is False
         digest = str(artifact["digest"])
@@ -85,7 +80,7 @@ def validate_provenance(provenance: dict[str, Any]) -> None:
         assert row.get("local_zip_sha256") == digest.split(":", 1)[1]
 
 
-def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, Any], validation_path: Path) -> None:
+def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, Any], validation_path: Path, validation_run_id: int) -> None:
     assert validation["schema"] == "forexai.g13.validation_m15.v1"
     assert validation["symbol"] == "EURUSD"
     assert validation["timeframe"] == "M15"
@@ -104,6 +99,7 @@ def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, 
     assert validation["promotion"]["ea_generation_allowed"] is False
     file_sha256 = hashlib.sha256(validation_path.read_bytes()).hexdigest()
     assert handoff["source_validation_sha256"] == file_sha256
+    assert int(handoff["source_validation_run_id"]) == validation_run_id
 
     handoff_candidates = {
         int(c["candidate_id"]): (c["config_hash"], c["params"])
@@ -120,17 +116,22 @@ def validate_validation_artifact(validation: dict[str, Any], handoff: dict[str, 
         assert canonical_hash(params) == expected_hash
 
 
-def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: Path, provenance_path: Path, validation_path: Path) -> dict[str, Any]:
+def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: Path, provenance_path: Path, validation_path: Path, target_sha: str) -> dict[str, Any]:
     h = load(handoff_path)
     r = load(robustness_path)
     o = load(oos_path)
     provenance = load(provenance_path)
     validation = load(validation_path)
-    validate_provenance(provenance)
-    validate_validation_artifact(validation, h, validation_path)
+    validate_provenance(provenance, target_sha)
+    validate_validation_artifact(
+        validation,
+        h,
+        validation_path,
+        int(provenance["sources"]["validation"]["run_id"]),
+    )
 
     assert h["schema_version"] == "forexai.g13.candidate_handoff.frozen.v1"
-    assert h["source_validation_run_id"] == EXPECTED_VALIDATION_RUN
+    assert h["source_validation_run_id"] == provenance["sources"]["validation"]["run_id"]
     assert h["research_symbol"] == "EURUSD" and h["research_timeframe"] == "M15"
     assert h["validation_qualified_count"] == 16 and len(h["candidates"]) == 16
     assert h["oos_policy"] == {"loaded": False, "status": "HELD_OUT"}
@@ -241,8 +242,9 @@ def main() -> int:
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--provenance", required=True, type=Path)
     ap.add_argument("--validation", required=True, type=Path)
+    ap.add_argument("--target-sha", required=True)
     a = ap.parse_args()
-    m = run(a.handoff, a.robustness, a.oos, a.output, a.provenance, a.validation)
+    m = run(a.handoff, a.robustness, a.oos, a.output, a.provenance, a.validation, a.target_sha)
     print(json.dumps({"status": m["status"], "promoted_count": m["counts"]["promoted"], "promoted_candidate_ids": m["promoted_candidate_ids"], "ea_generation_allowed": m["decision_policy"]["ea_generation_allowed"]}, sort_keys=True))
     return 0
 
