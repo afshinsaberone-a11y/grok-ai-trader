@@ -10,6 +10,7 @@ name: ForexAI G13 OOS M15 Current
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - research/optimization/g13_oos_m15.py
       - research/optimization/dukascopy_ingest.py
