@@ -89,9 +89,9 @@ def validate_preflight_binding(
     assert preflight["candidate_ids"] == list(promoted_ids)
     assert isinstance(promotion_manifest_sha256, str) and len(promotion_manifest_sha256) == 64
     assert preflight["promotion_manifest_sha256"] == promotion_manifest_sha256
-    assert preflight["binary_hashes_verified"] == 15
-    assert preflight["source_hashes_verified"] == 15
-    assert preflight["source_safety_contracts_verified"] == 15
+    assert preflight["binary_hashes_verified"] == len(promoted_ids)
+    assert preflight["source_hashes_verified"] == len(promoted_ids)
+    assert preflight["source_safety_contracts_verified"] == len(promoted_ids)
     assert preflight["real_data_only"] is True
     assert preflight["synthetic_data"] is False
     assert preflight["demo_trading_allowed_by_source"] is False
