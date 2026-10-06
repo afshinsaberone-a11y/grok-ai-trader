@@ -5,6 +5,7 @@ name: ForexAI G13 Validation M15
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - research/optimization/g13_validation_m15.py
       - research/optimization/rsi_divergence_discovery_g13.py

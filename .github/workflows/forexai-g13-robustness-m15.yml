@@ -8,6 +8,7 @@ name: ForexAI G13 Robustness M15
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - research/optimization/g13_robustness_m15.py
       - research/optimization/g13_validation_m15.py
