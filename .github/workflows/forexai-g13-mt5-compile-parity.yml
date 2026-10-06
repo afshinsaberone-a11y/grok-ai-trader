@@ -759,7 +759,7 @@ jobs:
              throw "MQL5 parity harness candidate_count $($doneRow.Groups[1].Value) does not match Promotion candidate count $expectedCandidateCount"
            }
 
-$stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
+           $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
           New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
           Copy-Item $parity (Join-Path $stageDir 'g13_mql5_parity.csv') -Force
           Copy-Item $done (Join-Path $stageDir 'g13_mql5_parity.done.txt') -Force
