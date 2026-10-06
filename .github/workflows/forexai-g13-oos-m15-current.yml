@@ -4,6 +4,7 @@ name: ForexAI G13 OOS M15 Current
 # 2026 is evaluated only; no selection or optimization is allowed.
 # The data window ends at the current UTC date, so the current partial UTC day is excluded.
 # Trigger marker: execute official 2026 OOS after G13 robustness pass.
+# Exact-SHA refresh marker: rerun OOS with the same commit as the full G13 evidence chain.
 
 on:
   workflow_dispatch:

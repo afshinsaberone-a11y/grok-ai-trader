@@ -1,5 +1,6 @@
 name: ForexAI G13 Validation M15
 
+# Exact-SHA refresh marker: rerun Validation with the same commit as the full G13 evidence chain.
 on:
   workflow_dispatch:
   push:
