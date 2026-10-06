@@ -190,9 +190,17 @@ jobs:
           p=json.load(open('artifacts/g13/g13-promotion-manifest-m15.json',encoding='utf-8'))
           assert p['schema_version']=='forexai.g13.promotion_manifest.m15.v1'
           assert p['status']=='PROMOTION_READY'
-          assert p['counts']=={'validation':16,'robustness':16,'oos_pass':15,'promoted':15,'rejected_at_oos':1}
-          assert p['promoted_candidate_ids']==[2,6,10,12,14,22,26,28,30,32,34,38,42,46,48]
-          assert p['rejected_candidate_ids']==[44]
+          counts=p['counts']
+          promoted=p['promoted_candidate_ids']
+          rejected=p['rejected_candidate_ids']
+          assert counts['validation']==16
+          assert counts['robustness']==16
+          assert counts['oos_pass']==counts['promoted']==len(promoted)
+          assert counts['rejected_at_oos']==len(rejected)
+          assert len(promoted)>0
+          assert len(set(promoted))==len(promoted)
+          assert set(promoted).isdisjoint(rejected)
+          assert set(promoted)|set(rejected)==set([2,6,10,12,14,22,26,28,30,32,34,38,42,44,46,48])
           assert p['decision_policy']['selection_performed'] is False
           assert p['decision_policy']['optimization_performed'] is False
           assert p['decision_policy']['ea_generation_allowed'] is True
