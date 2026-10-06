@@ -816,9 +816,9 @@ def generate(manifest_path: Path, handoff_path: Path, out_dir: Path) -> list[Pat
     assert hp['parameters_are_frozen'] is True
     assert hp['oos_optimization_disabled'] is True
     ids=sorted(int(x) for x in manifest['promoted_candidate_ids'])
-    assert len(ids)==15 and len(set(ids))==15
+    assert ids and len(set(ids))==len(ids)
     manifest_candidates={int(c['candidate_id']):c for c in manifest['candidates']}
-    assert len(manifest_candidates)==15
+    assert len(manifest_candidates)==len(ids)
     assert set(manifest_candidates)==set(ids)
     cands={int(c['candidate_id']):c for c in handoff['candidates']}
     assert set(cands)>=set(ids)
@@ -834,7 +834,7 @@ def generate(manifest_path: Path, handoff_path: Path, out_dir: Path) -> list[Pat
         path=out_dir/f'ForexAI_G13_Candidate_{cid:02d}.mq5'
         path.write_text(render(c),encoding='utf-8')
         paths.append(path)
-    assert len(paths)==15
+    assert len(paths)==len(ids)
     return paths
 
 
