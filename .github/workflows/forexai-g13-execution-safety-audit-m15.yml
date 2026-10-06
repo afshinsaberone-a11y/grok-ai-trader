@@ -70,6 +70,75 @@ jobs:
           echo "PROMOTION_MANIFEST=$PROMOTION_MANIFEST" >> "$GITHUB_ENV"
           echo "G13_EXACT_PROMOTION_MANIFEST_OK run=$promotion_id sha=$TARGET_SHA"
 
+name: ForexAI G13 Execution Safety Audit M15
+
+# Static/source-level safety gate for the currently promoted M15 candidates.
+# Runs only after the exact-main Promotion succeeds; never connects to a broker.
+# No Demo/Live trading is enabled by this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      promotion_run_id:
+        description: "Successful G13 Final Promotion M15 run"
+        required: true
+        type: string
+  workflow_run:
+    workflows:
+      - "ForexAI G13 Final Promotion M15"
+    types: [completed]
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: g13-execution-safety-audit-m15
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.name == 'ForexAI G13 Final Promotion M15') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact Promotion SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
+
+      - name: Resolve and download exact Promotion manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
+        run: |
+          set -euo pipefail
+          TARGET_SHA="$(git rev-parse HEAD)"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            promotion_id="$MANUAL_PROMOTION_RUN_ID"
+          else
+            promotion_id="$GITHUB_RUN_ID"
+            promotion_id="${{ github.event.workflow_run.id }}"
+          fi
+          json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$promotion_id")"
+          python -c 'import json,sys; x=json.load(sys.stdin); assert x["name"]=="ForexAI G13 Final Promotion M15"; assert x["conclusion"]=="success"; assert x["head_branch"]=="main"; assert x["head_sha"]==sys.argv[1], (x["id"],x["head_sha"],sys.argv[1]); print("PROMOTION_RUN_OK",x["id"],x["head_sha"])' "$TARGET_SHA" <<< "$json"
+          mkdir -p evidence/promotion
+          meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$promotion_id/artifacts")"
+          read -r artifact_id artifact_digest <<< "$(printf '%s' "$meta" | python -c 'import json,sys; a=[x for x in json.load(sys.stdin).get("artifacts",[]) if x.get("name")=="g13-promotion-manifest-m15" and not x.get("expired")]; assert len(a)==1; print(a[0]["id"],a[0]["digest"])')"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > evidence/promotion/source.zip
+          actual="sha256:$(sha256sum evidence/promotion/source.zip | awk '{print tolower($1)}')"
+          [ "$actual" = "$artifact_digest" ] || { echo "Promotion artifact digest mismatch"; exit 1; }
+          unzip -q -o evidence/promotion/source.zip -d evidence/promotion/extracted
+          PROMOTION_MANIFEST="$(find evidence/promotion/extracted -name 'g13-promotion-manifest-m15.json' -type f | head -n1)"
+          [ -n "$PROMOTION_MANIFEST" ] || { echo "Promotion manifest not found"; exit 1; }
+          echo "PROMOTION_MANIFEST=$PROMOTION_MANIFEST" >> "$GITHUB_ENV"
+          echo "PROMOTION_RUN_ID=$promotion_id" >> "$GITHUB_ENV"
+          echo "G13_EXACT_PROMOTION_MANIFEST_OK run=$promotion_id sha=$TARGET_SHA"
+
       - name: Compile audit and generator
         run: |
           python -m py_compile \
