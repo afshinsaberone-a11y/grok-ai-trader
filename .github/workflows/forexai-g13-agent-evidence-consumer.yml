@@ -10,6 +10,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: g13-agent-evidence-${{ github.event.workflow_run.workflow_id }}-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
 jobs:
   consume:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}

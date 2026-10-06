@@ -16,6 +16,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: agent-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   agent-runtime:
     runs-on: ubuntu-latest

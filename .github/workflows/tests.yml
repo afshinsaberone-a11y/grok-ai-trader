@@ -16,6 +16,10 @@ on:
         default: "2026-08-04"
         type: string
 
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   python-tests:
     runs-on: ubuntu-latest
