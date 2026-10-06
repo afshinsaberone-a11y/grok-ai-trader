@@ -18,6 +18,10 @@ on:
       - artifacts/g13/frozen/g13-candidate-handoff-m15.json
       - .github/workflows/forexai-g13-oos-m15-current.yml
 
+concurrency:
+  group: g13-oos-m15-current
+  cancel-in-progress: true
+
 permissions:
   contents: read
   actions: read

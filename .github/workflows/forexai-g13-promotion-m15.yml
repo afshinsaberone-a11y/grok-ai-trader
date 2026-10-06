@@ -17,6 +17,10 @@ on:
       - '.github/workflows/forexai-g13-*.yml'
       - '.github/actions/g13-artifact-upload/**'
 
+concurrency:
+  group: g13-promotion-m15
+  cancel-in-progress: true
+
 permissions:
   contents: read
   actions: read
