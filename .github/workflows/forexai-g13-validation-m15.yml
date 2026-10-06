@@ -1,6 +1,7 @@
 name: ForexAI G13 Validation M15
 
 # Exact-SHA refresh marker: rerun Validation with the same commit as the full G13 evidence chain.
+# G13 exact-SHA refresh: ci: refresh G13 validation after parity harness fix
 # G13 exact-SHA refresh: ci: trigger exact-SHA G13 validation refresh after handoff fix
 # G13 exact-SHA chain refresh: synchronized rerun after artifact transport repair.
 # G13 exact-SHA chain refresh: 2026-10-06
