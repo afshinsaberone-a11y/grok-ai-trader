@@ -8,6 +8,7 @@ from research.optimization import g13_promotion_gate_m15 as gate
 def _good() -> dict:
     return {
         "schema_version": "forexai.g13.promotion_evidence_provenance.m15.v1",
+        "target_sha": "target-sha",
         "sources": {
             "validation": {
                 "run_id": 1001,
@@ -106,7 +107,7 @@ def test_zip_digest_mismatch_is_rejected():
     p = _good()
     p["sources"]["robustness"]["local_zip_sha256"] = "0" * 64
     try:
-        gate.validate_provenance(p)
+        gate.validate_provenance(p, "target-sha")
     except AssertionError:
         return
     raise AssertionError("artifact byte digest mismatch was accepted")
@@ -116,7 +117,7 @@ def test_expired_artifact_is_rejected():
     p = _good()
     p["sources"]["validation"]["artifact"]["expired"] = True
     try:
-        gate.validate_provenance(p)
+        gate.validate_provenance(p, "target-sha")
     except AssertionError:
         return
     raise AssertionError("expired artifact was accepted")
@@ -155,7 +156,7 @@ def test_validation_artifact_candidate_mismatch_is_rejected(tmp_path: Path):
     path.write_text(json.dumps(validation, sort_keys=True), encoding="utf-8")
     handoff["source_validation_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     try:
-        gate.validate_validation_artifact(validation, handoff, path)
+        gate.validate_validation_artifact(validation, handoff)
     except AssertionError:
         return
     raise AssertionError("validation artifact candidate mismatch was accepted")
@@ -165,7 +166,7 @@ def test_wrong_workflow_id_is_rejected():
     p = _good()
     p["sources"]["oos"]["workflow_id"] = 355468598
     try:
-        gate.validate_provenance(p)
+        gate.validate_provenance(p, "target-sha")
     except AssertionError:
         return
     raise AssertionError("wrong producer workflow ID was accepted")
@@ -175,7 +176,7 @@ def test_wrong_workflow_identity_is_rejected():
     p = _good()
     p["sources"]["oos"]["workflow_name"] = "ForexAI G13 Validation M15"
     try:
-        gate.validate_provenance(p)
+        gate.validate_provenance(p, "target-sha")
     except AssertionError:
         return
     raise AssertionError("wrong producer workflow was accepted")

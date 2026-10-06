@@ -173,6 +173,7 @@ def test_preflight_binding_rejects_tampering(field, value):
             parity_run_id=55,
             parity_head_sha="main-sha",
             main_head_sha="main-sha",
+            promoted_ids=tuple(_preflight()["candidate_ids"]),
         )
 
 
@@ -187,4 +188,5 @@ def test_preflight_candidate_hash_mismatch_fails():
             parity_run_id=55,
             parity_head_sha="main-sha",
             main_head_sha="main-sha",
+            promoted_ids=tuple(_preflight()["candidate_ids"]),
         )
