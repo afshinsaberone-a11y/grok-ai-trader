@@ -6,6 +6,7 @@ name: ForexAI G13 OOS M15 Current
 # Trigger marker: execute official 2026 OOS after G13 robustness pass.
 # Exact-SHA refresh marker: rerun OOS with the same commit as the full G13 evidence chain.
 
+# G13 exact-SHA chain refresh: 2026-10-06
 on:
   workflow_dispatch:
   push:
