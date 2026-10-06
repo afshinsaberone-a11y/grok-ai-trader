@@ -24,6 +24,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: dropbox-evidence-sync-${{ github.event_name == 'workflow_run' && github.event.workflow_run.workflow_id || inputs.source_run_id }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'manual' }}
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
