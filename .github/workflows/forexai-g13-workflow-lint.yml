@@ -416,3 +416,4 @@ jobs:
 # Exact-SHA post-MT5-workflow-repair refresh 2026-10-06: rebuild G13 source evidence and static validation on the repaired MT5 workflow.
 # Final source-evidence refresh 2026-10-06: rebuild G13 Validation/Robustness/OOS/Static on the same main SHA after event-driven CI hardening.
 # Final G13 source refresh 2026-10-06: rebuild evidence on current main after CI backlog hardening.
+# Post-parity-fix exact-SHA refresh 2026-10-06: regenerate G13 source evidence and static validation after the MQL5 marker hardening.
