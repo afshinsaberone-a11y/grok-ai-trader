@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           rm -rf artifacts/g13/safety-audit-generated
           python -m research.optimization.g13_mql5_generator_v2 \
-            --manifest "$env:PROMOTION_MANIFEST" \
+            --manifest "$PROMOTION_MANIFEST" \
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
             --output-dir artifacts/g13/safety-audit-generated
 
