@@ -1,23 +1,38 @@
-name: "G13 Local Artifact Upload"
-description: "Upload workflow artifacts without downloading a remote JavaScript action on the self-hosted MT5 runner."
+name: 'Upload a Build Artifact'
+description: 'Upload a build artifact that can be used by subsequent workflow steps'
+author: 'GitHub'
 inputs:
   name:
-    description: "Artifact name"
-    required: true
+    description: 'Artifact name.'
+    default: 'artifact'
   path:
-    description: "Newline-separated file or glob patterns"
+    description: 'A file, directory or wildcard pattern that describes what to upload.'
     required: true
   if-no-files-found:
-    description: "Behavior when no files match: error, warn, or ignore"
-    required: false
-    default: "warn"
+    description: 'Behavior when no files are found: warn, error, or ignore.'
+    default: 'warn'
+  retention-days:
+    description: 'Duration after which artifact will expire in days.'
+    default: '0'
+  compression-level:
+    description: 'Compression level 0-9.'
+    default: '6'
+  overwrite:
+    description: 'If true, overwrite an existing artifact with the same name.'
+    default: 'false'
+  include-hidden-files:
+    description: 'If true, hidden files are included.'
+    default: 'false'
+  archive:
+    description: 'If true, create an archive before upload.'
+    default: 'true'
 outputs:
   artifact-id:
-    description: "Uploaded artifact ID"
+    description: 'A unique identifier for the artifact that was just uploaded.'
   artifact-url:
-    description: "Artifact UI URL"
+    description: 'A download URL for the artifact that was just uploaded.'
   artifact-digest:
-    description: "Uploaded artifact SHA-256 digest"
+    description: 'SHA-256 digest for the artifact that was just uploaded.'
 runs:
-  using: "node24"
-  main: "index.js"
+  using: 'node24'
+  main: 'loader.js'
