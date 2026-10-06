@@ -183,3 +183,4 @@ jobs:
             artifacts/g13-oos-m15-2026.json
           if-no-files-found: error
 # Refresh marker 2026-10-06: trigger exact-SHA evidence refresh after resolver fix.
+# Exact-SHA refresh 2026-10-06: regenerate official evidence after Promotion candidate-scope hardening.
