@@ -86,6 +86,7 @@ jobs:
           set -euo pipefail
           python -m research.optimization.g13_execution_safety_audit_m15 \
             --generator research/optimization/g13_mql5_generator_v2.py \
+            --manifest "$PROMOTION_MANIFEST" \
             --output-dir artifacts/g13/safety-audit-generated \
             --report artifacts/g13/g13-execution-safety-audit-m15.json
 
