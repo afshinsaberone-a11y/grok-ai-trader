@@ -251,8 +251,8 @@ def audit(generator: Path, output_dir: Path, manifest: Path) -> dict[str, Any]:
     assert all(row["pass"] for row in matrix)
 
     generated = sorted(output_dir.glob("ForexAI_G13_Candidate_*.mq5"))
-    assert len(generated) == len(CANDIDATE_IDS), (
-        f"expected {len(CANDIDATE_IDS)} generated EAs, found {len(generated)}"
+    assert len(generated) == len(candidate_ids), (
+        f"expected {len(candidate_ids)} generated EAs, found {len(generated)}"
     )
     by_id = {}
     for path in generated:
