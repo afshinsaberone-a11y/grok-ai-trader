@@ -98,3 +98,4 @@ jobs:
             artifacts/g13-validation-m15.json
             artifacts/g13-candidate-handoff-m15.json
           if-no-files-found: error
+# Refresh marker 2026-10-06: trigger exact-SHA evidence refresh after resolver fix.
