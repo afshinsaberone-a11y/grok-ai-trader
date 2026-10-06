@@ -63,7 +63,7 @@ jobs:
                   return 1
                   ;;
                 PENDING|*|NOT_STARTED|*)
-                  echo "Waiting for exact SHA source: $workflow_name attempt=$attempt state=$state SHA=$GITHUB_SHA"
+                  echo "Waiting for exact SHA source: $workflow_name attempt=$attempt state=$state SHA=$GITHUB_SHA" >&2
                   sleep 30
                   ;;
               esac
