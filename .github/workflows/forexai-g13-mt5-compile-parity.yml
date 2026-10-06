@@ -220,66 +220,32 @@ jobs:
           & $env:PYTHON_EXE -m pip install -r requirements.txt
 
       - name: Download exact Promotion artifact handoff
-        env:
-          GH_TOKEN: ${{ github.token }}
+        uses: actions/download-artifact@v4
+        with:
+          name: g13-promotion-source-handoff
+          path: artifacts\\g13\\promotion-source
+
+      - name: Verify exact Promotion artifact handoff
         run: |
           $ErrorActionPreference = 'Stop'
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\promotion-source'
-          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          Remove-Item -Recurse -Force (Join-Path $artifactDir 'artifact-outer') -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path (Join-Path $artifactDir 'artifact-outer') | Out-Null
-          $outerZip = Join-Path $artifactDir 'artifact-outer.zip'
-          $headers = Join-Path $env:RUNNER_TEMP "g13-promotion-artifact-$env:GITHUB_RUN_ID.headers"
-          $apiUrl = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:PROMOTION_ARTIFACT_ID/zip"
-
-          & curl.exe -sS -D $headers -o NUL -H "Authorization: Bearer $env:GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" $apiUrl
-          if ($LASTEXITCODE -ne 0) {
-            $headerText = if (Test-Path -LiteralPath $headers) { Get-Content -LiteralPath $headers -Raw } else { '<no response headers>' }
-            Remove-Item -Force -ErrorAction SilentlyContinue $headers
-            throw "Promotion artifact redirect request failed. Headers: $headerText"
+          $zip = Join-Path $artifactDir 'promotion.zip'
+          $metaFile = Join-Path $artifactDir 'source-artifact.env'
+          if (!(Test-Path -LiteralPath $zip -PathType Leaf)) { throw "Resolver Promotion handoff ZIP not found: $zip" }
+          if (!(Test-Path -LiteralPath $metaFile -PathType Leaf)) { throw "Resolver Promotion handoff metadata not found: $metaFile" }
+          $meta = @{}
+          Get-Content -LiteralPath $metaFile | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { $meta[$matches[1]] = $matches[2] }
           }
-
-          $statusLine = Get-Content -LiteralPath $headers | Where-Object { $_.StartsWith('HTTP/', [System.StringComparison]::OrdinalIgnoreCase) -and $_.Contains(' 302 ') } | Select-Object -Last 1
-          if (-not $statusLine) {
-            $headerText = Get-Content -LiteralPath $headers -Raw
-            Remove-Item -Force -ErrorAction SilentlyContinue $headers
-            throw "Expected Promotion artifact HTTP 302, got: $headerText"
-          }
-
-          $locationLine = Get-Content -LiteralPath $headers | Where-Object { $_.StartsWith('Location:', [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
-          if (-not $locationLine) {
-            $headerText = Get-Content -LiteralPath $headers -Raw
-            Remove-Item -Force -ErrorAction SilentlyContinue $headers
-            throw "Promotion artifact redirect Location header missing. Headers: $headerText"
-          }
-
-          $downloadUrl = $locationLine.Substring($locationLine.IndexOf(':') + 1).Trim()
-          if ([string]::IsNullOrWhiteSpace($downloadUrl)) {
-            Remove-Item -Force -ErrorAction SilentlyContinue $headers
-            throw "Promotion artifact redirect URL is empty."
-          }
-          Remove-Item -Force -ErrorAction SilentlyContinue $headers
-
-          & curl.exe -fSL $downloadUrl -o $outerZip
-          if ($LASTEXITCODE -ne 0) { throw "Promotion artifact signed URL download failed." }
-
-          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $outerZip).Hash.ToLowerInvariant()
-          if ($actualDigest -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) {
-            throw "Promotion handoff digest mismatch: $actualDigest != $env:PROMOTION_ARTIFACT_DIGEST"
-          }
-
-          $outerDir = Join-Path $artifactDir 'artifact-outer'
-          Expand-Archive -LiteralPath $outerZip -DestinationPath $outerDir -Force
-          $innerZip = Get-ChildItem -LiteralPath $outerDir -Recurse -File -Filter 'promotion.zip' | Select-Object -First 1
-          $metaFile = Get-ChildItem -LiteralPath $outerDir -Recurse -File -Filter 'source-artifact.env' | Select-Object -First 1
-          if (-not $innerZip) { throw 'Promotion artifact outer ZIP does not contain promotion.zip' }
-          if (-not $metaFile) { throw 'Promotion artifact outer ZIP does not contain source-artifact.env' }
-          Copy-Item -LiteralPath $innerZip.FullName -Destination (Join-Path $artifactDir 'promotion.zip') -Force
-          Copy-Item -LiteralPath $metaFile.FullName -Destination (Join-Path $artifactDir 'source-artifact.env') -Force
-          Remove-Item -Force -ErrorAction SilentlyContinue $outerZip
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $outerDir
+          if ($meta.PROMOTION_RUN_ID -ne $env:PROMOTION_RUN_ID) { throw "Resolver Promotion run mismatch: $($meta.PROMOTION_RUN_ID) != $env:PROMOTION_RUN_ID" }
+          if ($meta.TARGET_SHA -ne $env:TARGET_SHA) { throw "Resolver Promotion handoff SHA mismatch: $($meta.TARGET_SHA) != $env:TARGET_SHA" }
+          if ($meta.PROMOTION_ARTIFACT_ID -ne $env:PROMOTION_ARTIFACT_ID) { throw "Resolver Promotion artifact ID mismatch: $($meta.PROMOTION_ARTIFACT_ID) != $env:PROMOTION_ARTIFACT_ID" }
+          if ($meta.PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant() -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) { throw "Resolver Promotion handoff digest mismatch: $($meta.PROMOTION_ARTIFACT_DIGEST) != $env:PROMOTION_ARTIFACT_DIGEST" }
+          if ($env:PROMOTION_ARTIFACT_DIGEST -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw "Invalid Promotion artifact digest: $env:PROMOTION_ARTIFACT_DIGEST" }
+          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          if ($actualDigest -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) { throw "Promotion artifact digest mismatch: $actualDigest != $env:PROMOTION_ARTIFACT_DIGEST" }
           Write-Host "PROMOTION_HANDOFF_ARTIFACT_DOWNLOADED_AND_VERIFIED=true ID=$env:PROMOTION_ARTIFACT_ID DIGEST=$actualDigest"
-
+          Write-Host "G13_RESOLVER_HANDOFF_CONSUMED=true"
       - name: Download and bind exact Promotion artifact
         run: |
           $ErrorActionPreference = 'Stop'
