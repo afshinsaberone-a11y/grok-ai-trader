@@ -26,6 +26,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   audit:
@@ -40,6 +41,35 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Resolve exact Promotion manifest for current HEAD
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          TARGET_SHA="$(git rev-parse HEAD)"
+          promotion_id=""
+          for attempt in $(seq 1 80); do
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&per_page=50")"
+            promotion_id="$(printf '%s' "$payload" | python -c 'import json,sys; target=sys.argv[1]; rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("head_branch")=="main" and r.get("head_sha")==target and r.get("name")=="ForexAI G13 Final Promotion M15"]; good=[r for r in rs if r.get("conclusion")=="success"]; print(max(good,key=lambda x:x["id"])["id"] if good else "")' "$TARGET_SHA")"
+            if [ -n "$promotion_id" ]; then
+              echo "PROMOTION_RUN_ID=$promotion_id" >> "$GITHUB_ENV"
+              break
+            fi
+            sleep 15
+          done
+          [ -n "$promotion_id" ] || { echo "No successful exact-SHA Promotion run"; exit 1; }
+          mkdir -p evidence/promotion
+          meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$promotion_id/artifacts")"
+          read -r artifact_id artifact_digest <<< "$(printf '%s' "$meta" | python -c 'import json,sys; a=[x for x in json.load(sys.stdin).get("artifacts",[]) if x.get("name")=="g13-promotion-manifest-m15" and not x.get("expired")]; assert len(a)==1; print(a[0]["id"],a[0]["digest"])')"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > evidence/promotion/source.zip
+          actual="sha256:$(sha256sum evidence/promotion/source.zip | awk '{print tolower($1)}')"
+          [ "$actual" = "$artifact_digest" ] || { echo "Promotion artifact digest mismatch"; exit 1; }
+          unzip -q -o evidence/promotion/source.zip -d evidence/promotion/extracted
+          PROMOTION_MANIFEST="$(find evidence/promotion/extracted -name 'g13-promotion-manifest-m15.json' -type f | head -n1)"
+          [ -n "$PROMOTION_MANIFEST" ] || { echo "Promotion manifest not found"; exit 1; }
+          echo "PROMOTION_MANIFEST=$PROMOTION_MANIFEST" >> "$GITHUB_ENV"
+          echo "G13_EXACT_PROMOTION_MANIFEST_OK run=$promotion_id sha=$TARGET_SHA"
+
       - name: Compile audit and generator
         run: |
           python -m py_compile \
@@ -51,7 +81,7 @@ jobs:
           set -euo pipefail
           rm -rf artifacts/g13/safety-audit-generated
           python -m research.optimization.g13_mql5_generator_v2 \
-            --manifest artifacts/g13/g13-promotion-manifest-m15.json \
+            --manifest "$env:PROMOTION_MANIFEST" \
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
             --output-dir artifacts/g13/safety-audit-generated
 
@@ -70,8 +100,9 @@ jobs:
           p=json.load(open('artifacts/g13/g13-execution-safety-audit-m15.json',encoding='utf-8'))
           assert p['schema']=='forexai.g13.execution_safety_audit_m15.v1'
           assert p['status']=='PASS'
-          assert p['scope']['candidate_count']==15
-          assert p['scope']['candidate_ids']==[2,6,10,12,14,22,26,28,30,32,34,38,42,46,48]
+          assert p['scope']['candidate_count']>=1
+          assert len(p['scope']['candidate_ids'])==p['scope']['candidate_count']
+          assert len(set(p['scope']['candidate_ids']))==p['scope']['candidate_count']
           assert p['policy']['live_trading_allowed'] is False
           assert p['policy']['demo_trading_default_authorized'] is False
           assert p['policy']['demo_requires_account_mode']=='DEMO'
@@ -89,7 +120,7 @@ jobs:
           assert allowed['kill_switch']=='ALLOW'
           assert allowed['other_g13_position'] is False
           assert all(row['pass'] for row in p['matrix'])
-          assert len(p['sources'])==15
+          assert len(p['sources'])==p['scope']['candidate_count']
           assert all(row['pass'] for row in p['sources'])
           print('G13_EXECUTION_SAFETY_AUDIT_OK')
           print('LIVE_TRADING_ALLOWED',p['policy']['live_trading_allowed'])
