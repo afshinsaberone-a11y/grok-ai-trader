@@ -112,4 +112,4 @@ def test_audit_rejects_transaction_id_mismatch(tmp_path, monkeypatch):
     csv_path = tmp_path / "audit.csv"
     _write_csv(csv_path, [_row(), _transaction(deal="9999")])
     with pytest.raises(AssertionError, match="no matching TRADE_TRANSACTION"):
-        mod.audit(csv_path, tmp_path / "handoff.json", tmp_path / "context.json")
+        mod.audit(csv_path, tmp_path / "handoff.json", tmp_path / "context.json", tmp_path / "promotion.json")
