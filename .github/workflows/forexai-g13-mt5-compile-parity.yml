@@ -396,6 +396,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m research.optimization.g13_mql5_parity_harness_generator `
             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
+            --manifest "$env:PROMOTION_MANIFEST" `
             --output artifacts/g13/mql5/ForexAI_G13_Parity_Harness.mq5 `
             --input-file "$env:PARITY_INPUT_FILE" `
             --output-file "$env:PARITY_OUTPUT_FILE" `
