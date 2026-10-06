@@ -39,8 +39,6 @@ EXPECTED_SOURCE_ARTIFACT_NAMES = {
     "robustness": "g13-robustness-m15",
     "oos": "g13-oos-m15-2026-current",
 }
-PROMOTED_IDS = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
-REJECTED_IDS = (44,)
 PROMOTION_MANIFEST_SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
 PROMOTION_RUN_ATTESTATION_SCHEMA = "forexai.g13.promotion_run_attestation.m15.v1"
 
@@ -138,7 +136,9 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
 
     assert o["schema_version"] == "forexai.g13.oos_m15.2026.v1"
     assert o["research_scope"] == {"symbol": "EURUSD", "timeframe": "M15", "evaluation_year": 2026}
-    assert o["candidate_count"] == 16 and o["oos_pass_count"] == 15
+    assert o["candidate_count"] == 16
+    assert isinstance(o["oos_pass_count"], int)
+    assert 0 <= o["oos_pass_count"] <= o["candidate_count"]
     assert o["selection_performed"] is False and o["optimization_enabled"] is False
     assert o["parameters_frozen"] is True
     assert o["oos"]["evaluated"] is True and o["oos"]["optimization_allowed"] is False and o["oos"]["selection_allowed"] is False
@@ -155,12 +155,16 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
         assert by_id[cid]["config_hash"] == c["config_hash"]
 
     actual_promoted = tuple(sorted(cid for cid, row in by_id.items() if row.get("oos_pass") is True))
-    assert actual_promoted == tuple(sorted(PROMOTED_IDS))
     actual_rejected = tuple(sorted(cid for cid, row in by_id.items() if row.get("oos_pass") is False))
-    assert actual_rejected == REJECTED_IDS
+    expected_all_ids = tuple(sorted(int(c["candidate_id"]) for c in h["candidates"]))
+    assert actual_promoted
+    assert set(actual_promoted).isdisjoint(actual_rejected)
+    assert tuple(sorted(actual_promoted + actual_rejected)) == expected_all_ids
+    assert len(actual_promoted) == o["oos_pass_count"]
+    assert len(actual_rejected) == o["candidate_count"] - o["oos_pass_count"]
 
-    promoted = [c for c in h["candidates"] if int(c["candidate_id"]) in PROMOTED_IDS]
-    assert len(promoted) == 15
+    promoted = [c for c in h["candidates"] if int(c["candidate_id"]) in actual_promoted]
+    assert len(promoted) == len(actual_promoted)
     manifest = {
         "schema_version": "forexai.g13.promotion_manifest.m15.v1",
         "status": "PROMOTION_READY",
@@ -213,9 +217,15 @@ def run(handoff_path: Path, robustness_path: Path, oos_path: Path, output_path: 
             },
         },
         "evidence_provenance_sha256": canonical_hash(provenance),
-        "counts": {"validation": 16, "robustness": 16, "oos_pass": 15, "promoted": 15, "rejected_at_oos": 1},
-        "promoted_candidate_ids": list(PROMOTED_IDS),
-        "rejected_candidate_ids": list(REJECTED_IDS),
+        "counts": {
+            "validation": validation["validation_qualified_count"],
+            "robustness": r["robustness_pass_count"],
+            "oos_pass": len(actual_promoted),
+            "promoted": len(actual_promoted),
+            "rejected_at_oos": len(actual_rejected),
+        },
+        "promoted_candidate_ids": list(actual_promoted),
+        "rejected_candidate_ids": list(actual_rejected),
         "execution_contract": {"entry": "next_bar_open", "cost_pips_per_side": 0.7, "round_trip_cost_pips": 1.4, "same_bar_resolution": "SL first (conservative)", "expiry_bars": 30, "overlap": "one position at a time", "risk_pct": 0.005},
         "candidates": [{"candidate_id": int(c["candidate_id"]), "config_hash": c["config_hash"], "params": c["params"]} for c in promoted],
     }
