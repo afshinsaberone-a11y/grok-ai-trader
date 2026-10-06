@@ -89,9 +89,12 @@ jobs:
             exit 1
           fi
           unzip -q -o package/source.zip -d package/extracted
-          test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.ex5' | wc -l)" -eq 15
-          test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
           manifest_file="$(find package/extracted -name 'g13-demo-package-manifest-m15.json' -type f | head -n1)"
+          test -n "$manifest_file"
+          expected_count="$(python -c 'import json,sys; p=json.load(open(sys.argv[1],encoding="utf-8")); print(len(p["candidates"]))' "$manifest_file")"
+          test "$expected_count" -ge 1
+          test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.ex5' | wc -l)" -eq "$expected_count"
+          test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq "$expected_count"
           parity_file="$(find package/extracted -name 'g13-mql5-signal-parity.json' -type f | head -n1)"
           data_manifest_file="$(find package/extracted -name 'g13_real_eurusd_m15.manifest.json' -type f | head -n1)"
           test -n "$manifest_file" && test -n "$parity_file" && test -n "$data_manifest_file"
@@ -103,7 +106,7 @@ jobs:
             echo "COMPILE_PARITY_ARTIFACT_DIGEST=$artifact_digest"
             echo "COMPILE_PARITY_ZIP_SHA256=${actual_digest#sha256:}"
           } >> "$GITHUB_ENV"
-          echo "EXACT_COMPILED_PACKAGE_DOWNLOADED_AND_DIGEST_VERIFIED=15_EX5_15_MQ5"
+          echo "EXACT_COMPILED_PACKAGE_DOWNLOADED_AND_DIGEST_VERIFIED=${expected_count}_EX5_${expected_count}_MQ5"
 
       - name: Run offline Demo package preflight
         run: |
@@ -128,10 +131,10 @@ jobs:
           import json
           p=json.load(open("artifacts/g13/g13-demo-package-preflight-m15.json",encoding="utf-8"))
           assert p["status"]=="PASS"
-          assert p["candidate_count"]==15
-          assert p["binary_hashes_verified"]==15
-          assert p["source_hashes_verified"]==15
-          assert p["source_safety_contracts_verified"]==15
+          assert p["candidate_count"]>=1
+          assert p["binary_hashes_verified"]==p["candidate_count"]
+          assert p["source_hashes_verified"]==p["candidate_count"]
+          assert p["source_safety_contracts_verified"]==p["candidate_count"]
           assert p["real_data_only"] is True
           assert p["synthetic_data"] is False
           assert p["demo_trading_allowed_by_source"] is False

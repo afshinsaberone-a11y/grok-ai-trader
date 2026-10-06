@@ -6,8 +6,8 @@ on:
       candidate_id:
         description: "Promoted G13 candidate to audit (one candidate only)"
         required: true
-        type: choice
-        options: ["2","6","10","12","14","22","26","28","30","32","34","38","42","46","48"]
+        type: string
+
       symbol:
         description: "Demo symbol"
         required: true
@@ -31,6 +31,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   controlled-demo-audit:
@@ -53,6 +54,36 @@ jobs:
 
       - name: Checkout exact revision
         uses: actions/checkout@v4
+
+      - name: Resolve exact Promotion manifest
+        shell: pwsh
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          $sha = git rev-parse HEAD
+          $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=50" | ConvertFrom-Json
+          $matches = @($runs.workflow_runs | Where-Object { $_.head_branch -eq 'main' -and $_.head_sha -eq $sha -and $_.name -eq 'ForexAI G13 Final Promotion M15' })
+          if ($matches.Count -ne 1) { throw "G13_EXACT_PROMOTION_RUN_NOT_FOUND" }
+          $promotionRun = $matches[0]
+          $artifactList = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($promotionRun.id)/artifacts" | ConvertFrom-Json
+          $artifact = @($artifactList.artifacts | Where-Object { $_.name -eq 'g13-promotion-manifest-m15' -and !$_.expired })
+          if ($artifact.Count -ne 1) { throw "G13_PROMOTION_ARTIFACT_NOT_FOUND" }
+          New-Item -ItemType Directory -Force -Path evidence/g13-promotion | Out-Null
+          gh api --method GET "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($artifact[0].id)/zip" --output evidence/g13-promotion/source.zip
+          $actual = (Get-FileHash evidence/g13-promotion/source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = ([string]$artifact[0].digest).Split(':')[-1].ToLowerInvariant()
+          if ($actual -ne $expected) { throw "G13_PROMOTION_ARTIFACT_DIGEST_MISMATCH" }
+          Expand-Archive -Path evidence/g13-promotion/source.zip -DestinationPath evidence/g13-promotion/extracted -Force
+          $manifest = Get-ChildItem evidence/g13-promotion/extracted -Recurse -Filter 'g13-promotion-manifest-m15.json' | Select-Object -First 1
+          if ($null -eq $manifest) { throw "G13_PROMOTION_MANIFEST_NOT_FOUND" }
+          $payload = Get-Content $manifest.FullName -Raw | ConvertFrom-Json
+          $ids = @($payload.promoted_candidate_ids | ForEach-Object { [int]$_ })
+          if ($ids.Count -lt 1) { throw "G13_NO_PROMOTED_CANDIDATES" }
+          if ($ids -notcontains [int]$env:CANDIDATE_ID) { throw "G13_CANDIDATE_NOT_PROMOTED:$env:CANDIDATE_ID" }
+          "PROMOTION_MANIFEST=$($manifest.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "PROMOTION_RUN_ID=$($promotionRun.id)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "G13_EXACT_PROMOTION_OK=$($promotionRun.id)"
+          Write-Output "G13_PROMOTED_CANDIDATES=$($ids -join ',')"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -152,7 +183,7 @@ jobs:
       - name: Validate actual broker-backed Demo execution
         shell: pwsh
         run: |
-          python -m research.optimization.g13_controlled_demo_execution_audit --execution-csv artifacts/g13-controlled-demo/g13_demo_execution_audit.csv --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json --context artifacts/g13-controlled-demo/context.json --report artifacts/g13-controlled-demo/g13-controlled-demo-execution-audit.json
+          python -m research.optimization.g13_controlled_demo_execution_audit --execution-csv artifacts/g13-controlled-demo/g13_demo_execution_audit.csv --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json --context artifacts/g13-controlled-demo/context.json --promotion "$env:PROMOTION_MANIFEST" --report artifacts/g13-controlled-demo/g13-controlled-demo-execution-audit.json
           @' 
           import csv, json, os
           from pathlib import Path

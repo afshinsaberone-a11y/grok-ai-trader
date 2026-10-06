@@ -29,7 +29,6 @@ from research.optimization.rsi_divergence_discovery_g13 import prep, signals
 HANDOFF_SCHEMA = "forexai.g13.candidate_handoff.frozen.v1"
 MANIFEST_SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
 REAL_DATA_SOURCES = ("HistData.com", "Dukascopy")
-PROMOTED = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 
 
 def expected_signals(data: pd.DataFrame, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -105,7 +104,8 @@ def main() -> int:
     m = json.loads(a.manifest.read_text(encoding="utf-8"))
     assert h["schema_version"] == HANDOFF_SCHEMA
     assert m["schema_version"] == MANIFEST_SCHEMA and m["status"] == "PROMOTION_READY"
-    assert tuple(sorted(map(int, m["promoted_candidate_ids"]))) == PROMOTED
+    promoted = tuple(sorted(map(int, m["promoted_candidate_ids"])))
+    assert promoted and len(promoted) == len(set(promoted))
     assert h["handoff_policy"]["parameters_are_frozen"] is True
     assert h["handoff_policy"]["oos_optimization_disabled"] is True
     assert h["research_symbol"] == "EURUSD" and h["research_timeframe"] == "M15"
@@ -128,14 +128,14 @@ def main() -> int:
 
     actual = read_mt5(a.mt5)
     results = []
-    by_id: dict[int, list[dict[str, Any]]] = {cid: [] for cid in PROMOTED}
+    by_id: dict[int, list[dict[str, Any]]] = {cid: [] for cid in promoted}
     for row in actual:
         cid = int(row["candidate_id"])
         assert cid in by_id, f"unpromoted/unknown candidate in MT5 output: {cid}"
         by_id[cid].append(row)
 
     candidates = {int(c["candidate_id"]): c for c in h["candidates"]}
-    for cid in PROMOTED:
+    for cid in promoted:
         results.append(compare(expected_signals(raw, candidates[cid]["params"]), by_id[cid], cid, a.tolerance))
 
     payload = {
@@ -145,7 +145,7 @@ def main() -> int:
         "synthetic_data": False,
         "selection_performed": False,
         "optimization_enabled": False,
-        "candidate_count": 15,
+        "candidate_count": len(promoted),
         "passed_count": len(results),
         "tolerance": a.tolerance,
         "data_sha256": data_sha256,
@@ -161,7 +161,7 @@ def main() -> int:
     }
     a.output.parent.mkdir(parents=True, exist_ok=True)
     a.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    print(json.dumps({"status": "PASS", "candidate_count": 15, "passed_count": len(results)}, sort_keys=True))
+    print(json.dumps({"status": "PASS", "candidate_count": len(promoted), "passed_count": len(results)}, sort_keys=True))
     return 0
 
 

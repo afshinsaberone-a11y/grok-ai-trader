@@ -149,6 +149,7 @@ def test_exact_preflight_binding_passes():
         parity_run_id=55,
         parity_head_sha="main-sha",
         main_head_sha="main-sha",
+        promoted_ids=tuple(_preflight()["candidate_ids"]),
     )
 
 

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from itertools import product
 
-CANDIDATE_IDS = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
+PROMOTION_SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
 REQUIRED_TOKENS = (
     'input bool   DemoTradingAuthorized = false;',
     'bool DemoTradingExecutionAllowed()',
@@ -235,13 +235,24 @@ def test_matrix() -> list[dict[str, Any]]:
 
     return rows
 
-def audit(generator: Path, output_dir: Path) -> dict[str, Any]:
+def load_candidate_ids(manifest: Path) -> tuple[int, ...]:
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == PROMOTION_SCHEMA
+    assert payload["status"] == "PROMOTION_READY"
+    ids = tuple(sorted(int(x) for x in payload["promoted_candidate_ids"]))
+    assert ids and len(ids) == len(set(ids))
+    assert len(payload["candidates"]) == len(ids)
+    assert tuple(sorted(int(x["candidate_id"]) for x in payload["candidates"])) == ids
+    return ids
+
+def audit(generator: Path, output_dir: Path, manifest: Path) -> dict[str, Any]:
+    candidate_ids = load_candidate_ids(manifest)
     matrix = test_matrix()
     assert all(row["pass"] for row in matrix)
 
     generated = sorted(output_dir.glob("ForexAI_G13_Candidate_*.mq5"))
-    assert len(generated) == len(CANDIDATE_IDS), (
-        f"expected {len(CANDIDATE_IDS)} generated EAs, found {len(generated)}"
+    assert len(generated) == len(candidate_ids), (
+        f"expected {len(candidate_ids)} generated EAs, found {len(generated)}"
     )
     by_id = {}
     for path in generated:
@@ -250,9 +261,9 @@ def audit(generator: Path, output_dir: Path) -> dict[str, Any]:
         except (ValueError, IndexError) as exc:
             raise AssertionError(f"unrecognised EA filename: {path.name}") from exc
         by_id[cid] = path
-    assert tuple(sorted(by_id)) == CANDIDATE_IDS
+    assert tuple(sorted(by_id)) == candidate_ids
 
-    sources = [audit_source(by_id[cid], cid) for cid in CANDIDATE_IDS]
+    sources = [audit_source(by_id[cid], cid) for cid in candidate_ids]
     assert all(row["pass"] for row in sources)
 
     result = {
@@ -261,8 +272,8 @@ def audit(generator: Path, output_dir: Path) -> dict[str, Any]:
         "scope": {
             "symbol": "EURUSD",
             "timeframe": "M15",
-            "candidate_count": len(CANDIDATE_IDS),
-            "candidate_ids": list(CANDIDATE_IDS),
+                "candidate_count": len(candidate_ids),
+            "candidate_ids": list(candidate_ids),
         },
         "policy": {
             "live_trading_allowed": False,
@@ -292,12 +303,13 @@ def audit(generator: Path, output_dir: Path) -> dict[str, Any]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--generator", type=Path, required=True)
+    ap.add_argument("--manifest", type=Path, required=True)
     ap.add_argument("--output-dir", type=Path, required=True)
     ap.add_argument("--report", type=Path, required=True)
     args = ap.parse_args()
 
     assert args.generator.exists(), f"missing generator: {args.generator}"
-    result = audit(args.generator, args.output_dir)
+    result = audit(args.generator, args.output_dir, args.manifest)
     result["generator_sha256"] = __import__("hashlib").sha256(
         args.generator.read_bytes()
     ).hexdigest()

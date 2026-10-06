@@ -17,7 +17,6 @@ import hashlib
 import json
 from pathlib import Path
 
-PROMOTED = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 MANIFEST_SCHEMA = "forexai.g13.demo_package_manifest.m15.v2"
 
 REQUIRED_SOURCE_TOKENS = (
@@ -67,7 +66,9 @@ def load_manifest(path: Path) -> dict:
     assert payload.get("synthetic_data") is False
     assert payload.get("demo_trading_allowed_by_source") is False
     assert payload.get("live_trading_allowed") is False
-    assert tuple(x["candidate_id"] for x in payload["candidates"]) == PROMOTED
+    promoted = tuple(int(x) for x in payload["promoted_candidate_ids"])
+    assert promoted and len(promoted) == len(set(promoted))
+    assert tuple(int(x["candidate_id"]) for x in payload["candidates"]) == promoted
     return payload
 
 
@@ -131,6 +132,7 @@ def audit(
     data_manifest_path: Path,
 ) -> dict:
     manifest = load_manifest(manifest_path)
+    promoted = tuple(int(x) for x in manifest["promoted_candidate_ids"])
     parity = json.loads(parity_evidence_path.read_text(encoding="utf-8"))
     assert manifest["parity_evidence_sha256"] == sha256(parity_evidence_path)
     assert parity["schema_version"] == "forexai.g13.mql5_signal_parity.v2"
@@ -142,8 +144,8 @@ def audit(
     assert parity["status"] == "PASS"
     assert parity["real_data_only"] is True
     assert parity["synthetic_data"] is False
-    assert parity["candidate_count"] == 15
-    assert parity["passed_count"] == 15
+    assert parity["candidate_count"] == len(promoted)
+    assert parity["passed_count"] == len(promoted)
     assert parity["scope"] == {
         "symbol": "EURUSD",
         "timeframe": "M15",
@@ -165,8 +167,8 @@ def audit(
     ex5 = sorted(package.glob("ForexAI_G13_Candidate_*.ex5"))
     mq5 = sorted(package.glob("ForexAI_G13_Candidate_*.mq5"))
 
-    assert len(ex5) == 15, f"expected 15 EX5 files, found {len(ex5)}"
-    assert len(mq5) == 15, f"expected 15 MQ5 files, found {len(mq5)}"
+    assert len(ex5) == len(promoted), f"expected {len(promoted)} EX5 files, found {len(ex5)}"
+    assert len(mq5) == len(promoted), f"expected {len(promoted)} MQ5 files, found {len(mq5)}"
 
     verified = []
     for f in ex5:
@@ -208,14 +210,14 @@ def audit(
         "ea_source_commit": manifest["ea_source_commit"],
         "symbol": manifest["symbol"],
         "timeframe": manifest["timeframe"],
-        "candidate_count": 15,
-        "candidate_ids": list(PROMOTED),
-        "candidate_config_hashes": {str(cid): rows[cid]["config_hash"] for cid in PROMOTED},
-        "candidate_mq5_hashes": {str(cid): rows[cid]["mq5_sha256"] for cid in PROMOTED},
-        "candidate_ex5_hashes": {str(cid): rows[cid]["ex5_sha256"] for cid in PROMOTED},
-        "binary_hashes_verified": 15,
-        "source_hashes_verified": 15,
-        "source_safety_contracts_verified": 15,
+        "candidate_count": len(promoted),
+        "candidate_ids": list(promoted),
+        "candidate_config_hashes": {str(cid): rows[cid]["config_hash"] for cid in promoted},
+        "candidate_mq5_hashes": {str(cid): rows[cid]["mq5_sha256"] for cid in promoted},
+        "candidate_ex5_hashes": {str(cid): rows[cid]["ex5_sha256"] for cid in promoted},
+        "binary_hashes_verified": len(promoted),
+        "source_hashes_verified": len(promoted),
+        "source_safety_contracts_verified": len(promoted),
         "real_data_only": True,
         "synthetic_data": False,
         "demo_trading_allowed_by_source": False,

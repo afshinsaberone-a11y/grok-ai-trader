@@ -6,7 +6,7 @@ import pytest
 
 from research.optimization.g13_mql5_generator_v2 import canonical_hash, generate, render
 
-PROMOTED = [2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48]
+PROMOTED = [2, 6, 10, 12]
 
 
 def _params(cid: int) -> dict[str, float | int]:
@@ -74,7 +74,7 @@ def test_generator_consumes_current_promotion_candidate_contract(tmp_path):
 
     generated = generate(manifest_path, handoff_path, out_dir)
 
-    assert len(generated) == 15
+    assert len(generated) == len(PROMOTED)
     for path, cid in zip(generated, PROMOTED):
         text = path.read_text(encoding="utf-8")
         assert f"Candidate {cid:02d}" in text

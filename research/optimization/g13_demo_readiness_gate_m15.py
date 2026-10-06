@@ -18,7 +18,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-PROMOTED_IDS = [2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48]
 GENERATOR_FILE = "research/optimization/g13_mql5_generator_v2.py"
 PROMOTION_FILE = "artifacts/g13/g13-promotion-manifest-m15.json"
 HANDOFF_FILE = "artifacts/g13/frozen/g13-candidate-handoff-m15.json"
@@ -81,17 +80,18 @@ def validate_preflight_binding(
     parity_run_id: int,
     parity_head_sha: str,
     main_head_sha: str,
+    promoted_ids: tuple[int, ...],
 ) -> None:
     assert promotion["status"] == "PROMOTION_READY"
     assert preflight["schema_version"] == "forexai.g13.controlled_demo_package_preflight.m15.v1"
     assert preflight["status"] == "PASS"
-    assert preflight["candidate_count"] == 15
-    assert preflight["candidate_ids"] == PROMOTED_IDS
+    assert preflight["candidate_count"] == len(promoted_ids)
+    assert preflight["candidate_ids"] == list(promoted_ids)
     assert isinstance(promotion_manifest_sha256, str) and len(promotion_manifest_sha256) == 64
     assert preflight["promotion_manifest_sha256"] == promotion_manifest_sha256
-    assert preflight["binary_hashes_verified"] == 15
-    assert preflight["source_hashes_verified"] == 15
-    assert preflight["source_safety_contracts_verified"] == 15
+    assert preflight["binary_hashes_verified"] == len(promoted_ids)
+    assert preflight["source_hashes_verified"] == len(promoted_ids)
+    assert preflight["source_safety_contracts_verified"] == len(promoted_ids)
     assert preflight["real_data_only"] is True
     assert preflight["synthetic_data"] is False
     assert preflight["demo_trading_allowed_by_source"] is False
@@ -140,6 +140,8 @@ def gate(
     safety_head_sha: str,
 ) -> dict[str, Any]:
     p = load_json(promotion)
+    promoted_ids = tuple(int(x) for x in p["promoted_candidate_ids"])
+    assert promoted_ids and len(promoted_ids) == len(set(promoted_ids))
     prov = load_json(provenance)
     attest = load_json(attestation)
     pf = load_json(preflight)
@@ -157,7 +159,7 @@ def gate(
     assert p["status"] == "PROMOTION_READY"
     assert p["decision_policy"]["demo_trading_allowed"] is False
     assert p["decision_policy"]["live_trading_allowed"] is False
-    assert p["promoted_candidate_ids"] == PROMOTED_IDS
+    assert p["promoted_candidate_ids"] == list(promoted_ids)
     validate_preflight_binding(
         p,
         pf,
@@ -165,10 +167,11 @@ def gate(
         parity_run_id=parity_run_id,
         parity_head_sha=parity_head_sha,
         main_head_sha=main_head_sha,
+        promoted_ids=promoted_ids,
     )
 
     assert s["status"] == "PASS"
-    assert s["scope"]["candidate_count"] == 15
+    assert s["scope"]["candidate_count"] == len(promoted_ids)
     assert s["policy"]["live_trading_allowed"] is False
     assert par["schema_version"] == "forexai.g13.mql5_signal_parity.v2"
     assert len(par["data_sha256"]) == 64
@@ -178,8 +181,8 @@ def gate(
     assert par["status"] == "PASS"
     assert par["real_data_only"] is True
     assert par["synthetic_data"] is False
-    assert par["candidate_count"] == 15
-    assert par["passed_count"] == 15
+    assert par["candidate_count"] == len(promoted_ids)
+    assert par["passed_count"] == len(promoted_ids)
     assert all(row["status"] == "PASS" for row in par["results"])
     assert pf["data_sha256"] == par["data_sha256"]
     assert pf["data_manifest_sha256"] == par["data_manifest_sha256"]
@@ -268,7 +271,7 @@ def gate(
             "run_id": promotion_run_id,
             "head_sha": main_head_sha,
             "evidence_provenance_sha256": p["evidence_provenance_sha256"],
-            "candidate_count": len(PROMOTED_IDS),
+            "candidate_count": len(promoted_ids),
             "demo_trading_allowed": p["decision_policy"]["demo_trading_allowed"],
             "live_trading_allowed": p["decision_policy"]["live_trading_allowed"],
         },

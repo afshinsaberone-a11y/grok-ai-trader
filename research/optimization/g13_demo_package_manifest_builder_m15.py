@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-PROMOTED = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 PROMOTION_SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
 PARITY_SCHEMA = "forexai.g13.mql5_signal_parity.v2"
 OUTPUT_SCHEMA = "forexai.g13.demo_package_manifest.m15.v2"
@@ -50,11 +49,14 @@ def build(
 
     assert promotion["schema_version"] == PROMOTION_SCHEMA
     assert promotion["status"] == "PROMOTION_READY"
+    promoted = tuple(int(x) for x in promotion["promoted_candidate_ids"])
+    assert promoted and len(promoted) == len(set(promoted))
+    assert tuple(sorted(int(x["candidate_id"]) for x in promotion["candidates"])) == tuple(sorted(promoted))
     assert promotion["symbol"] == "EURUSD"
     assert promotion["timeframe"] == "M15"
     assert promotion["decision_policy"]["demo_trading_allowed"] is False
     assert promotion["decision_policy"]["live_trading_allowed"] is False
-    assert promotion["promoted_candidate_ids"] == list(PROMOTED)
+    assert promotion["promoted_candidate_ids"] == list(promoted)
 
     assert parity["schema_version"] == PARITY_SCHEMA
     assert parity["status"] == "PASS"
@@ -65,8 +67,8 @@ def build(
         "timeframe": "M15",
         "data_end_exclusive": "2026-01-01T00:00:00+00:00",
     }
-    assert parity["candidate_count"] == 15
-    assert parity["passed_count"] == 15
+    assert parity["candidate_count"] == len(promoted)
+    assert parity["passed_count"] == len(promoted)
     assert all(row["status"] == "PASS" for row in parity["results"])
 
     candidates = sorted(
@@ -77,17 +79,17 @@ def build(
         package_root.glob("ForexAI_G13_Candidate_*.mq5"),
         key=lambda p: int(p.stem.rsplit("_", 1)[1]),
     )
-    assert len(candidates) == 15, f"expected 15 EX5 files, found {len(candidates)}"
-    assert len(sources) == 15, f"expected 15 MQ5 files, found {len(sources)}"
+    assert len(candidates) == len(promoted), f"expected {len(promoted)} EX5 files, found {len(candidates)}"
+    assert len(sources) == len(promoted), f"expected {len(promoted)} MQ5 files, found {len(sources)}"
 
     by_id = {int(x["candidate_id"]): x for x in promotion["candidates"]}
-    assert tuple(sorted(by_id)) == PROMOTED
+    assert tuple(sorted(by_id)) == tuple(sorted(promoted))
 
     source_by_id = {
         int(source.stem.rsplit("_", 1)[1]): source
         for source in sources
     }
-    assert tuple(sorted(source_by_id)) == PROMOTED
+    assert tuple(sorted(source_by_id)) == tuple(sorted(promoted))
 
     rows = []
     for binary in candidates:
@@ -100,7 +102,7 @@ def build(
             "mq5_sha256": sha256(source),
             "ex5_sha256": sha256(binary),
         })
-    assert tuple(row["candidate_id"] for row in rows) == PROMOTED
+    assert tuple(row["candidate_id"] for row in rows) == promoted
 
     output = {
         "schema_version": OUTPUT_SCHEMA,
@@ -121,7 +123,7 @@ def build(
         "synthetic_data": False,
         "demo_trading_allowed_by_source": False,
         "live_trading_allowed": False,
-        "candidate_count": 15,
+        "candidate_count": len(promoted),
         "candidates": rows,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
