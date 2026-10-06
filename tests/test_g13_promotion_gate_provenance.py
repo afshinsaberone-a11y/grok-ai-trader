@@ -95,7 +95,7 @@ def test_valid_provenance_is_accepted():
 
 def test_wrong_run_id_is_rejected():
     p = _good()
-    p["sources"]["oos"]["run_id"] += 1
+    p["sources"]["oos"]["run_id"] = 0
     try:
         gate.validate_provenance(p, "target-sha")
     except AssertionError:
