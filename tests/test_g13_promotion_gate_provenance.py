@@ -10,51 +10,51 @@ def _good() -> dict:
         "schema_version": "forexai.g13.promotion_evidence_provenance.m15.v1",
         "sources": {
             "validation": {
-                "run_id": gate.EXPECTED_VALIDATION_RUN,
+                "run_id": 1001,
                 "workflow_name": "ForexAI G13 Validation M15",
                 "workflow_id": 355468598,
                 "head_branch": "main",
                 "conclusion": "success",
-                "head_sha": "validation-sha",
+                "head_sha": "target-sha",
                 "job_id": 103140078741,
                 "job_name": "g13-validation",
                 "local_zip_sha256": "a" * 64,
                 "artifact": {
-                    "artifact_id": gate.EXPECTED_VALIDATION_ARTIFACT,
+                    "artifact_id": 2001,
                     "name": "g13-validation-m15",
                     "digest": "sha256:" + "a" * 64,
                     "expired": False,
                 },
             },
             "robustness": {
-                "run_id": gate.EXPECTED_ROBUST_RUN,
+                "run_id": 1002,
                 "workflow_name": "ForexAI G13 Robustness M15",
                 "workflow_id": 355473409,
                 "head_branch": "main",
                 "conclusion": "success",
-                "head_sha": "robust-sha",
+                "head_sha": "target-sha",
                 "job_id": 103514547206,
                 "job_name": "g13-robustness",
                 "local_zip_sha256": "b" * 64,
                 "artifact": {
-                    "artifact_id": gate.EXPECTED_ROBUST_ARTIFACT,
+                    "artifact_id": 2002,
                     "name": "g13-robustness-m15",
                     "digest": "sha256:" + "b" * 64,
                     "expired": False,
                 },
             },
             "oos": {
-                "run_id": gate.EXPECTED_OOS_RUN,
+                "run_id": 1003,
                 "workflow_name": "ForexAI G13 OOS M15 Current",
                 "workflow_id": 356162316,
                 "head_branch": "main",
                 "conclusion": "success",
-                "head_sha": "oos-sha",
+                "head_sha": "target-sha",
                 "job_id": 103516577859,
                 "job_name": "G13 2026 OOS M15 Current",
                 "local_zip_sha256": "c" * 64,
                 "artifact": {
-                    "artifact_id": gate.EXPECTED_OOS_ARTIFACT,
+                    "artifact_id": 2003,
                     "name": "g13-oos-m15-2026-current",
                     "digest": "sha256:" + "c" * 64,
                     "expired": False,
@@ -89,14 +89,14 @@ def _validation_artifact() -> dict:
 
 
 def test_valid_provenance_is_accepted():
-    gate.validate_provenance(_good())
+    gate.validate_provenance(_good(), "target-sha")
 
 
 def test_wrong_run_id_is_rejected():
     p = _good()
     p["sources"]["oos"]["run_id"] += 1
     try:
-        gate.validate_provenance(p)
+        gate.validate_provenance(p, "target-sha")
     except AssertionError:
         return
     raise AssertionError("wrong OOS run id was accepted")
@@ -138,7 +138,7 @@ def test_validation_artifact_matching_handoff_is_accepted(tmp_path: Path):
     path = tmp_path / "validation.json"
     path.write_text(json.dumps(validation, sort_keys=True), encoding="utf-8")
     handoff["source_validation_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-    gate.validate_validation_artifact(validation, handoff, path)
+    gate.validate_validation_artifact(validation, handoff)
 
 
 def test_validation_artifact_candidate_mismatch_is_rejected(tmp_path: Path):
