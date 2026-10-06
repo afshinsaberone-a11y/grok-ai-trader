@@ -64,7 +64,8 @@ def _write_csv(path: Path, rows):
 
 
 def _patch(monkeypatch):
-    monkeypatch.setattr(mod, "load_frozen_hashes", lambda _p: {2: "hash-2"})
+    monkeypatch.setattr(mod, "load_promoted_ids", lambda _p: (2,))
+    monkeypatch.setattr(mod, "load_frozen_hashes", lambda _p, _ids: {2: "hash-2"})
     monkeypatch.setattr(
         mod,
         "load_context",
@@ -82,7 +83,7 @@ def test_audit_requires_done_full_fill_and_matching_transaction(tmp_path, monkey
     _patch(monkeypatch)
     csv_path = tmp_path / "audit.csv"
     _write_csv(csv_path, [_row(), _transaction()])
-    result = mod.audit(csv_path, tmp_path / "handoff.json", tmp_path / "context.json")
+    result = mod.audit(csv_path, tmp_path / "handoff.json", tmp_path / "context.json", tmp_path / "promotion.json")
     assert result["status"] == "PASS"
     assert result["events"]["ORDER_ATTEMPT"] == 1
     assert result["events"]["TRADE_TRANSACTION"] == 1
@@ -102,7 +103,7 @@ def test_audit_rejects_non_accepted_execution(tmp_path, monkeypatch, overrides, 
     csv_path = tmp_path / "audit.csv"
     _write_csv(csv_path, [_row(**overrides), _transaction()])
     with pytest.raises(AssertionError) as excinfo:
-        mod.audit(csv_path, tmp_path / "handoff.json", tmp_path / "context.json")
+        mod.audit(csv_path, tmp_path / "handoff.json", tmp_path / "context.json", tmp_path / "promotion.json")
     assert error in str(excinfo.value)
 
 
