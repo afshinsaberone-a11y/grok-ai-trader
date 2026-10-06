@@ -2,6 +2,8 @@ name: ForexAI G13 Final Promotion M15
 
 # Final deterministic bridge from independently validated research evidence
 # to an EA-generation authorization manifest. No trading is enabled here.
+
+# CI refresh marker: re-run G13 promotion after the artifact-uploader syntax hardening.
 on:
   workflow_dispatch:
   push:
