@@ -118,21 +118,27 @@ jobs:
           set -euo pipefail
           rm -rf /tmp/g13_mql5_smoke
           python -m research.optimization.g13_mql5_generator_v2             --manifest artifacts/g13/g13-promotion-manifest-m15.json             --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json             --output-dir /tmp/g13_mql5_smoke
-          test "$(find /tmp/g13_mql5_smoke -maxdepth 1 -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq 15
+          EXPECTED_COUNT="$(python -c 'import json; print(len(json.load(open("artifacts/g13/g13-promotion-manifest-m15.json", encoding="utf-8"))["promoted_candidate_ids"]))')"
+          test "$EXPECTED_COUNT" -ge 1
+          test "$(find /tmp/g13_mql5_smoke -maxdepth 1 -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq "$EXPECTED_COUNT"
           ! grep -R -nE 'MqlTick tick=\{\};|trans\.magic|trans\.comment' /tmp/g13_mql5_smoke
           ! grep -R -nF 'StringFormat(""' /tmp/g13_mql5_smoke
           ! grep -R -nF 'StringReplace(value,"""' /tmp/g13_mql5_smoke
           ! grep -R -nF 'PositionsByMagic(' /tmp/g13_mql5_smoke
           ! grep -R -nF 'lots=MathMin(lots,broker_lots)' /tmp/g13_mql5_smoke
-          test "$(grep -R -lF 'StringFormat("\"deal_ticket' /tmp/g13_mql5_smoke | wc -l)" -eq 15
-          test "$(grep -R -lF 'double lots=0.0;' /tmp/g13_mql5_smoke | wc -l)" -eq 15
-          test "$(grep -R -lF 'LotSize(risk,entry)' /tmp/g13_mql5_smoke | wc -l)" -eq 15
-          test "$(grep -R -lE 'input[[:space:]]+bool[[:space:]]+DemoTradingAuthorized[[:space:]]*=[[:space:]]*false;' /tmp/g13_mql5_smoke | wc -l)" -eq 15
+          test "$(grep -R -lF 'StringFormat("\"deal_ticket' /tmp/g13_mql5_smoke | wc -l)" -eq "$EXPECTED_COUNT"
+          test "$(grep -R -lF 'double lots=0.0;' /tmp/g13_mql5_smoke | wc -l)" -eq "$EXPECTED_COUNT"
+          test "$(grep -R -lF 'LotSize(risk,entry)' /tmp/g13_mql5_smoke | wc -l)" -eq "$EXPECTED_COUNT"
+          test "$(grep -R -lE 'input[[:space:]]+bool[[:space:]]+DemoTradingAuthorized[[:space:]]*=[[:space:]]*false;' /tmp/g13_mql5_smoke | wc -l)" -eq "$EXPECTED_COUNT"
           python - <<'PY'
           from pathlib import Path
+          import json
 
+          manifest = json.loads(Path("artifacts/g13/g13-promotion-manifest-m15.json").read_text(encoding="utf-8"))
+          expected_count = len(manifest["promoted_candidate_ids"])
+          assert expected_count >= 1
           paths = sorted(Path("/tmp/g13_mql5_smoke").glob("ForexAI_G13_Candidate_*.mq5"))
-          assert len(paths) == 15
+          assert len(paths) == expected_count
           bs = chr(92)
           required = [
               bs + '"side' + bs + '":' + bs + '"SELL' + bs + '"',
