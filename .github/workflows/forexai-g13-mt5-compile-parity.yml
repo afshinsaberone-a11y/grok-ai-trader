@@ -427,7 +427,7 @@ jobs:
             if (Test-Path -LiteralPath $log -PathType Leaf) {
               $logText = Get-Content -LiteralPath $log -Raw -ErrorAction Stop
               $logText -split "`r?`n" | ForEach-Object { if ($_.Trim()) { Write-Host "METAEDITOR_LOG=$($_)" } }
-              $resultMatch = [regex]::Match($logText, 'Result:s*(d+) errors,s*(d+) warnings')
+              $resultMatch = [regex]::Match($logText, 'Result:\s*(\d+) errors,\s*(\d+) warnings')
               if (!$resultMatch.Success) { throw "Unable to parse MetaEditor compile result for $($f.Name)" }
               $errors = [int]$resultMatch.Groups[1].Value
               $warnings = [int]$resultMatch.Groups[2].Value
@@ -747,11 +747,19 @@ jobs:
           if (!(Select-String -LiteralPath $done -Pattern '^real_data_only,true$' -Quiet)) {
             throw "MQL5 parity harness did not confirm real_data_only=true"
           }
-          if (!(Select-String -LiteralPath $done -Pattern '^synthetic_data,false$' -Quiet)) {
-            throw "MQL5 parity harness did not confirm synthetic_data=false"
-          }           $doneText = Get-Content -LiteralPath $done -Raw
-           $doneRow = [regex]::Match($doneText,'(?m)^candidate_count,(\d+)
-          $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
+           if (!(Select-String -LiteralPath $done -Pattern '^synthetic_data,false$' -Quiet)) {
+             throw "MQL5 parity harness did not confirm synthetic_data=false"
+           }
+           $doneText = Get-Content -LiteralPath $done -Raw
+           $doneRow = [regex]::Match($doneText,'(?m)^candidate_count,(\d+)$')
+           if (!$doneRow.Success) { throw "MQL5 parity completion marker candidate_count missing" }
+           $promotion = Get-Content -LiteralPath $env:PROMOTION_MANIFEST -Raw | ConvertFrom-Json
+           $expectedCandidateCount = @($promotion.promoted_candidate_ids).Count
+           if ([int]$doneRow.Groups[1].Value -ne $expectedCandidateCount) {
+             throw "MQL5 parity harness candidate_count $($doneRow.Groups[1].Value) does not match Promotion candidate count $expectedCandidateCount"
+           }
+
+$stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
           New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
           Copy-Item $parity (Join-Path $stageDir 'g13_mql5_parity.csv') -Force
           Copy-Item $done (Join-Path $stageDir 'g13_mql5_parity.done.txt') -Force
