@@ -29,7 +29,6 @@ from research.optimization.rsi_divergence_discovery_g13 import prep, signals
 HANDOFF_SCHEMA = "forexai.g13.candidate_handoff.frozen.v1"
 MANIFEST_SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
 REAL_DATA_SOURCES = ("HistData.com", "Dukascopy")
-PROMOTED = (2, 6, 10, 12, 14, 22, 26, 28, 30, 32, 34, 38, 42, 46, 48)
 
 
 def expected_signals(data: pd.DataFrame, params: dict[str, Any]) -> list[dict[str, Any]]:
