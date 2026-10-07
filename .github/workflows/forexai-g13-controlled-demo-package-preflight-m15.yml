@@ -47,7 +47,7 @@ jobs:
           COMPILE_PARITY_HEAD_SHA="$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")"
           echo "COMPILE_PARITY_HEAD_SHA=$COMPILE_PARITY_HEAD_SHA" >> "$GITHUB_ENV"
 
-      - name: Download and verify exact compiled package artifact
+      - name: Download exact compiled package artifact
         uses: actions/download-artifact@v4
         with:
           name: g13-mt5-compile-parity-${{ env.COMPILE_PARITY_RUN_ID }}
@@ -66,8 +66,8 @@ jobs:
           artifact_id="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]=="g13-mt5-compile-parity-"+sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["id"])' "$COMPILE_PARITY_RUN_ID" <<< "$artifact_json")"
           artifact_digest="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]=="g13-mt5-compile-parity-"+sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["digest"])' "$COMPILE_PARITY_RUN_ID" <<< "$artifact_json")"
           test "$artifact_digest" = sha256:*
-          downloaded_zip_sha256="${artifact_digest#sha256:}"
-          test "${#downloaded_zip_sha256}" -eq 64
+          artifact_sha256="${artifact_digest#sha256:}"
+          test "${#artifact_sha256}" -eq 64
           manifest_file="$(find package/extracted -name 'g13-demo-package-manifest-m15.json' -type f | head -n1)"
           test -n "$manifest_file"
           expected_count="$(python -c 'import json,sys; p=json.load(open(sys.argv[1],encoding="utf-8")); print(len(p["candidates"]))' "$manifest_file")"
@@ -76,17 +76,22 @@ jobs:
           test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq "$expected_count"
           parity_file="$(find package/extracted -name 'g13-mql5-signal-parity.json' -type f | head -n1)"
           data_manifest_file="$(find package/extracted -name 'g13_real_eurusd_m15.manifest.json' -type f | head -n1)"
-          test -n "$parity_file" && test -n "$data_manifest_file"
+          test -n "$manifest_file" && test -n "$parity_file" && test -n "$data_manifest_file"
           {
             echo "DEMO_PACKAGE_MANIFEST=$manifest_file"
             echo "PARITY_EVIDENCE=$parity_file"
             echo "DATA_MANIFEST_EVIDENCE=$data_manifest_file"
             echo "COMPILE_PARITY_ARTIFACT_ID=$artifact_id"
             echo "COMPILE_PARITY_ARTIFACT_DIGEST=$artifact_digest"
-            echo "COMPILE_PARITY_ZIP_SHA256=$downloaded_zip_sha256"
+            # actions/download-artifact extracts the official GitHub artifact.
+            # Bind the preflight to GitHub's official artifact digest while the
+            # extracted EX5/MQ5 payloads are verified against the manifest hashes below.
+            echo "COMPILE_PARITY_ZIP_SHA256=$artifact_sha256"
           } >> "$GITHUB_ENV"
           echo "G13_ARTIFACT_DOWNLOAD_OK RUN=$COMPILE_PARITY_RUN_ID ARTIFACT=$artifact_id"
           echo "EXACT_COMPILED_PACKAGE_DOWNLOADED_AND_STRUCTURE_VERIFIED=${expected_count}_EX5_${expected_count}_MQ5"
+          echo "OFFICIAL_GITHUB_ARTIFACT_DIGEST_BOUND=$artifact_digest"
+
       - name: Run offline Demo package preflight
         run: |
           set -euo pipefail
