@@ -17,15 +17,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - research/optimization/g13_oos_m15.py
-      - research/optimization/dukascopy_ingest.py
-      - research/real_data/dukascopy_ingest.py
-      - research/real_data/normalizer.py
-      - research/real_data/validator.py
-      - artifacts/g13/frozen/g13-candidate-handoff-m15.json
-      - .github/workflows/forexai-g13-*.yml
-      - .github/workflows/forexai-g13-oos-m15-current.yml
 
 concurrency:
   group: g13-oos-m15-current
@@ -229,3 +220,4 @@ jobs:
 # Final G13 source refresh 2026-10-06: rebuild evidence on current main after CI backlog hardening.
 # Post-parity-fix exact-SHA refresh 2026-10-06: regenerate G13 source evidence and static validation after the MQL5 marker hardening.
 # Final G13 refresh 2026-10-06: rebuild exact-SHA Validation/Robustness/OOS/Static after MT5 Promotion-manifest binding fix.
+# Trigger hardening: run OOS on every main push; downstream gates remain exact-SHA fail-closed.
