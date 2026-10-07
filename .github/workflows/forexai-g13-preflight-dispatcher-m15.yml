@@ -39,7 +39,7 @@ jobs:
           (github.event.workflow_run.conclusion == 'success' &&
            github.event.workflow_run.name == 'ForexAI G13 MT5 Compile + Signal Parity') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
       TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
@@ -51,8 +51,9 @@ jobs:
 
           # A push event is only a fallback kick. The compile workflow's
           # workflow_run(completed) event is the authoritative completion trigger.
-          # Do not turn a temporarily queued self-hosted MT5 job into a red check.
-          for attempt in $(seq 1 20); do
+          # Allow up to 24 minutes for the self-hosted MT5 Compile/Parity path to finish
+          # before deferring to the completion-triggered dispatcher.
+          for attempt in $(seq 1 48); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-compile-parity.yml/runs?branch=main&per_page=50")"
             state="$(printf '%s' "$payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("head_branch")=="main" and r.get("head_sha")==target and r.get("name")=="ForexAI G13 MT5 Compile + Signal Parity"]; success=[r for r in rs if r.get("conclusion")=="success" and r.get("status")=="completed"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' "$TARGET_SHA")"
 
