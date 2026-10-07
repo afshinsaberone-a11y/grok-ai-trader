@@ -1,5 +1,6 @@
 name: ForexAI G13 MT5 Compile + Signal Parity
-# CI refresh marker: no execution logic change; intentionally triggers the exact-main evidence chain.
+# CI hardening: self-hosted MT5 consumes the exact Promotion artifact through GitHub REST,
+# avoiding the GitHub Actions artifact-service resolver used by actions/download-artifact.
 
 on:
   workflow_dispatch:
@@ -219,11 +220,44 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m pip install -r requirements.txt
 
-      - name: Download exact Promotion artifact handoff
-        uses: actions/download-artifact@v4
-        with:
-          name: g13-promotion-source-handoff
-          path: artifacts\\g13\\promotion-source
+      - name: Download exact Promotion artifact handoff via GitHub REST
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\promotion-source'
+          New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+          $zip = Join-Path $artifactDir 'promotion.zip'
+          $metaFile = Join-Path $artifactDir 'source-artifact.env'
+
+          if ($env:PROMOTION_ARTIFACT_ID -notmatch '^\\d+$') {
+            throw "Invalid Promotion artifact ID: $env:PROMOTION_ARTIFACT_ID"
+          }
+          if ($env:PROMOTION_ARTIFACT_DIGEST -notmatch '^sha256:[0-9a-fA-F]{64}$') {
+            throw "Invalid Promotion artifact digest: $env:PROMOTION_ARTIFACT_DIGEST"
+          }
+
+          & gh api --method GET "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:PROMOTION_ARTIFACT_ID/zip" --output $zip
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub REST Promotion artifact download failed for artifact $env:PROMOTION_ARTIFACT_ID"
+          }
+          if (!(Test-Path -LiteralPath $zip -PathType Leaf)) {
+            throw "Promotion artifact ZIP was not created: $zip"
+          }
+
+          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          if ($actualDigest -ne $env:PROMOTION_ARTIFACT_DIGEST.ToLowerInvariant()) {
+            throw "Promotion artifact digest mismatch: $actualDigest != $env:PROMOTION_ARTIFACT_DIGEST"
+          }
+
+          @(
+            "PROMOTION_RUN_ID=$env:PROMOTION_RUN_ID"
+            "TARGET_SHA=$env:TARGET_SHA"
+            "PROMOTION_ARTIFACT_ID=$env:PROMOTION_ARTIFACT_ID"
+            "PROMOTION_ARTIFACT_DIGEST=$env:PROMOTION_ARTIFACT_DIGEST"
+          ) | Set-Content -LiteralPath $metaFile -Encoding utf8
+
+          Write-Host "PROMOTION_REST_DOWNLOAD_OK=true ID=$env:PROMOTION_ARTIFACT_ID DIGEST=$actualDigest"
 
       - name: Verify exact Promotion artifact handoff
         run: |
@@ -854,7 +888,7 @@ jobs:
 
       - name: Upload MT5 parity diagnostics
         if: always()
-        uses: ./.github/actions/g13-artifact-upload
+        uses: actions/upload-artifact@v4
         with:
           name: g13-mt5-parity-diagnostics-${{ github.run_id }}
           path: artifacts/g13/diagnostics/**
@@ -862,7 +896,7 @@ jobs:
 
       - name: Upload compile + parity evidence
         if: always()
-        uses: ./.github/actions/g13-artifact-upload
+        uses: actions/upload-artifact@v4
         with:
           name: g13-mt5-compile-parity-${{ github.run_id }}
           path: |
