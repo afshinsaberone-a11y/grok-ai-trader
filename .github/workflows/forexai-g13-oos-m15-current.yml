@@ -1,5 +1,6 @@
 name: ForexAI G13 OOS M15 Current
 
+# G13 exact-SHA post-compile-gate-repair refresh: rebuild official evidence on the repaired main SHA.
 # Independent G13 OOS evaluation using real Dukascopy JETTA data.
 # G13 exact-SHA refresh: ci: refresh G13 OOS after parity harness fix
 # G13 exact-SHA refresh: ci: trigger exact-SHA G13 OOS refresh after handoff fix
