@@ -19,7 +19,7 @@ concurrency:
 jobs:
   dispatch-oos:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 130
     steps:
       - name: Verify current main and dispatch official OOS
         env:
@@ -32,6 +32,44 @@ jobs:
             exit 1
           fi
 
-          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-oos-m15-current.yml/dispatches"             -f ref=main
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-oos-m15-current.yml/dispatches" -f ref=main
+          echo "G13_OOS_WATCHDOG_OOS_DISPATCHED=true SHA=$GITHUB_SHA"
 
-          echo "G13_OOS_WATCHDOG_DISPATCHED=true SHA=$GITHUB_SHA"
+          oos_run_id=""
+          for attempt in $(seq 1 120); do
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-oos-m15-current.yml/runs?branch=main&per_page=50")"
+            state="$(printf '%s' "$payload" | python -c 'import json,sys; target=sys.argv[1]; rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("name")=="ForexAI G13 OOS M15 Current" and r.get("head_branch")=="main" and r.get("head_sha")==target]; success=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else ("PENDING|" if pending else "NOT_STARTED|")))' "$GITHUB_SHA")"
+            case "$state" in
+              SUCCESS\|*)
+                oos_run_id="${state#SUCCESS|}"
+                echo "G13_OOS_SUCCESS_RESOLVED=true RUN=$oos_run_id SHA=$GITHUB_SHA"
+                break
+                ;;
+              FAILED\|*)
+                echo "G13_OOS_FAILED_FOR_SHA=$GITHUB_SHA RUN=${state#FAILED|}"
+                exit 1
+                ;;
+              PENDING\|*|NOT_STARTED\|*)
+                echo "G13_OOS_WAIT attempt=$attempt state=$state SHA=$GITHUB_SHA"
+                sleep 30
+                ;;
+            esac
+          done
+
+          if [[ -z "$oos_run_id" ]]; then
+            echo "G13_OOS_WAIT_TIMEOUT_FOR_SHA=$GITHUB_SHA"
+            exit 1
+          fi
+
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [[ "$current_main" != "$GITHUB_SHA" ]]; then
+            echo "G13_WATCHDOG_MAIN_MOVED_DURING_OOS=true CURRENT_MAIN=$current_main ORIGINAL_SHA=$GITHUB_SHA"
+            exit 1
+          fi
+
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/dispatches" -f ref=main
+          echo "G13_PROMOTION_EXPLICITLY_DISPATCHED=true OOS_RUN_ID=$oos_run_id SHA=$GITHUB_SHA"
+
+          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"target_sha":sys.argv[1]}}))' "$GITHUB_SHA")"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-oos-compile-dispatcher-m15.yml/dispatches" --input - <<< "$payload"
+          echo "G13_OOS_TO_COMPILE_EXPLICITLY_DISPATCHED=true OOS_RUN_ID=$oos_run_id SHA=$GITHUB_SHA"
