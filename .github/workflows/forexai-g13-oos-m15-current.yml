@@ -5,6 +5,7 @@ name: ForexAI G13 OOS M15 Current
 # G13 exact-SHA refresh: ci: refresh G13 OOS after parity harness fix
 # G13 exact-SHA refresh: ci: trigger exact-SHA G13 OOS refresh after handoff fix
 # G13 exact-SHA chain refresh: synchronized rerun after artifact transport repair.
+# G13 synchronized evidence refresh: rebuild Validation/Robustness/OOS/Promotion/MT5 on one exact main SHA after candidate-guard repair.
 # 2026 is evaluated only; no selection or optimization is allowed.
 # The data window ends at the current UTC date, so the current partial UTC day is excluded.
 # Trigger marker: execute official 2026 OOS after G13 robustness pass.
