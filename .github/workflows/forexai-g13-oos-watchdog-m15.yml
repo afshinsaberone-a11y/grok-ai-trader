@@ -32,7 +32,26 @@ jobs:
             exit 1
           fi
 
-          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-oos-m15-current.yml/dispatches" -f ref=main
+          dispatch_workflow() {
+            local workflow_file="$1"
+            local body="$2"
+            local status
+            status="$(curl -sS -o /tmp/dispatch-response.txt -w '%{http_code}' \
+              -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_file/dispatches" \
+              --data "$body")"
+            if [[ "$status" != "204" ]]; then
+              echo "G13_WORKFLOW_DISPATCH_FAILED workflow=$workflow_file http=$status"
+              cat /tmp/dispatch-response.txt
+              return 1
+            fi
+            echo "G13_WORKFLOW_DISPATCH_OK workflow=$workflow_file"
+          }
+
+          dispatch_workflow "forexai-g13-oos-m15-current.yml" '{"ref":"main"}'
           echo "G13_OOS_WATCHDOG_OOS_DISPATCHED=true SHA=$GITHUB_SHA"
 
           oos_run_id=""
@@ -67,9 +86,9 @@ jobs:
             exit 1
           fi
 
-          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/dispatches" -f ref=main
+          dispatch_workflow "forexai-g13-promotion-m15.yml" '{"ref":"main"}'
           echo "G13_PROMOTION_EXPLICITLY_DISPATCHED=true OOS_RUN_ID=$oos_run_id SHA=$GITHUB_SHA"
 
           payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"target_sha":sys.argv[1]}}))' "$GITHUB_SHA")"
-          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-oos-compile-dispatcher-m15.yml/dispatches" --input - <<< "$payload"
+          dispatch_workflow "forexai-g13-oos-compile-dispatcher-m15.yml" "$payload"
           echo "G13_OOS_TO_COMPILE_EXPLICITLY_DISPATCHED=true OOS_RUN_ID=$oos_run_id SHA=$GITHUB_SHA"
