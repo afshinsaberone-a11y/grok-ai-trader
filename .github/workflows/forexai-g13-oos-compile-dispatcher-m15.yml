@@ -1,17 +1,7 @@
 name: ForexAI G13 OOS to Compile/Parity Dispatcher M15
 
 on:
-  workflow_run:
-    workflows:
-      - "ForexAI G13 OOS M15 Current"
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
-    inputs:
-      target_sha:
-        description: "Exact main SHA whose successful OOS should be handed to Compile/Parity"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -23,9 +13,6 @@ concurrency:
 
 jobs:
   dispatch-compile:
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
