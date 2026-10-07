@@ -366,9 +366,15 @@ jobs:
           if (@($candidateIds | Select-Object -Unique).Count -ne $candidateIds.Count) {
             throw 'Promotion manifest contains duplicate promoted candidate IDs'
           }
-          $manifestCandidateIds = @($promotionPayload.candidates | ForEach-Object { [int]$_.candidate_id })
-          if (@($manifestCandidateIds | Sort-Object) -join ',' -ne @($candidateIds | Sort-Object) -join ',') {
-            throw 'Promotion manifest promoted_candidate_ids do not match candidate records'
+          $manifestCandidateIds = @($promotionPayload.candidates | ForEach-Object { [int]$_.candidate_id } | Sort-Object)
+          $promotedCandidateIds = @($candidateIds | Sort-Object)
+          $manifestCandidateKey = ($manifestCandidateIds | ForEach-Object { [string]$_ }) -join ','
+          $promotedCandidateKey = ($promotedCandidateIds | ForEach-Object { [string]$_ }) -join ','
+          if ($manifestCandidateKey -ne $promotedCandidateKey) {
+            throw "Promotion manifest candidate record mismatch: promoted=$promotedCandidateKey records=$manifestCandidateKey"
+          }
+          if ($manifestCandidateIds.Count -ne $candidateIds.Count) {
+            throw "Promotion manifest candidate count mismatch: promoted=$($candidateIds.Count) records=$($manifestCandidateIds.Count)"
           }
           "G13_CANDIDATE_COUNT=$($candidateIds.Count)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "G13_PROMOTED_CANDIDATE_COUNT=$($candidateIds.Count)"
