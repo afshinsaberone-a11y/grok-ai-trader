@@ -7,6 +7,7 @@ name: ForexAI G13 Workflow Static Validation
 on:
   push:
     paths:
+      - '.github/workflows/forexai-g13-*.yml'
       - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
       - '.github/workflows/forexai-g13-workflow-lint.yml'
       - '.github/workflows/forexai-g13-demo-readiness-gate-m15.yml'
@@ -35,6 +36,7 @@ on:
       - 'tests/test_g13_promotion_gate_provenance.py'
   pull_request:
     paths:
+      - '.github/workflows/forexai-g13-*.yml'
       - '.github/workflows/forexai-g13-promotion-m15.yml'
       - 'research/optimization/g13_promotion_gate_m15.py'
       - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
