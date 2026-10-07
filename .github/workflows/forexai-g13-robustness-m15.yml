@@ -19,6 +19,7 @@ on:
       - research/optimization/rsi_divergence_discovery_g13.py
       - research/optimization/execution_contract_v1.py
       - artifacts/g13/frozen/g13-candidate-handoff-m15.json
+      - .github/workflows/forexai-g13-*.yml
       - .github/workflows/forexai-g13-robustness-m15.yml
 
 concurrency:
