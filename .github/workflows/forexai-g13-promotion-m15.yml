@@ -7,16 +7,7 @@ name: ForexAI G13 Final Promotion M15
 # Exact-SHA evidence hardening: every upstream G13 source run must succeed on this SHA.
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows:
-      - "ForexAI G13 OOS M15 Current"
-    types: [completed]
-    branches:
-      - main
-
-concurrency:
-  group: g13-promotion-m15
-  cancel-in-progress: true
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,9 +18,6 @@ env:
 
 jobs:
   promotion:
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -38,7 +26,7 @@ jobs:
       - name: Checkout exact target SHA
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: main
       - name: Fail fast on stale main SHA
         env:
           GH_TOKEN: ${{ github.token }}
