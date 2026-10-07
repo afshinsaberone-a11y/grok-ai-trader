@@ -66,13 +66,13 @@ jobs:
           set -euo pipefail
           eval "$(python - <<'PY'
           from datetime import timedelta, timezone
-          from email.utils import parsedate_to_datetime
+          import os\n          from email.utils import parsedate_to_datetime
           from urllib.request import Request, urlopen
 
           url = "https://api.github.com/repos/afshinsaberone-a11y/grok-ai-trader"
           request = Request(
               url,
-              headers={"Accept":"application/vnd.github+json","User-Agent":"ForexAI/0.1-real-data-cutoff"},
+              headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {os.environ[\"GITHUB_TOKEN\"]}","User-Agent":"ForexAI/0.1-real-data-cutoff"},
           )
           with urlopen(request, timeout=30) as response:
               server_date = response.headers.get("Date")
