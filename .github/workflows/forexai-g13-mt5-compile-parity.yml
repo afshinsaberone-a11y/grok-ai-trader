@@ -385,7 +385,7 @@ jobs:
             --done-file "$env:PARITY_DONE_FILE" `
             --started-file "$env:PARITY_STARTED_FILE"
 
-      - name: Compile all 15 EAs with MetaEditor
+      - name: Compile all promoted G13 EAs with MetaEditor
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
@@ -729,8 +729,8 @@ jobs:
           if (!(Select-String -LiteralPath $done -Pattern '^synthetic_data,false$' -Quiet)) {
             throw "MQL5 parity harness did not confirm synthetic_data=false"
           }
-          if (!(Select-String -LiteralPath $done -Pattern (\"^candidate_count,$env:G13_CANDIDATE_COUNT$\") -Quiet)) {
-            throw \"MQL5 parity harness did not process exactly $env:G13_CANDIDATE_COUNT candidates\"
+          if (!(Select-String -LiteralPath $done -Pattern "^candidate_count,$env:G13_CANDIDATE_COUNT$" -Quiet)) {
+            throw "MQL5 parity harness did not process exactly $env:G13_CANDIDATE_COUNT candidates"
           }
 
           $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
