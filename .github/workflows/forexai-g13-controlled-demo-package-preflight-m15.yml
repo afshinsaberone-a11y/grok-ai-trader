@@ -65,7 +65,7 @@ jobs:
           artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$COMPILE_PARITY_RUN_ID/artifacts")"
           artifact_id="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]=="g13-mt5-compile-parity-"+sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["id"])' "$COMPILE_PARITY_RUN_ID" <<< "$artifact_json")"
           artifact_digest="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]=="g13-mt5-compile-parity-"+sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["digest"])' "$COMPILE_PARITY_RUN_ID" <<< "$artifact_json")"
-          test "$artifact_digest" = sha256:*
+          [[ "$artifact_digest" == sha256:* ]]
           downloaded_zip_sha256="${artifact_digest#sha256:}"
           test "${#downloaded_zip_sha256}" -eq 64
           manifest_file="$(find package/extracted -name 'g13-demo-package-manifest-m15.json' -type f | head -n1)"
