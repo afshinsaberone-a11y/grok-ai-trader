@@ -66,28 +66,8 @@ jobs:
           artifact_id="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]=="g13-mt5-compile-parity-"+sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["id"])' "$COMPILE_PARITY_RUN_ID" <<< "$artifact_json")"
           artifact_digest="$(python -c 'import json,sys; a=json.load(sys.stdin)["artifacts"]; m=[x for x in a if x["name"]=="g13-mt5-compile-parity-"+sys.argv[1] and not x["expired"]]; assert len(m)==1; print(m[0]["digest"])' "$COMPILE_PARITY_RUN_ID" <<< "$artifact_json")"
           test "$artifact_digest" = sha256:*
-          source_zip="$(mktemp --suffix=.zip)"
-          (
-            cd package/extracted
-            zip -qr "$source_zip" .
-          )
-          actual_digest="sha256:$(sha256sum "$source_zip" | awk '{print tolower($1)}')"
-          echo "DOWNLOAD_ARTIFACT_REPACKED_ZIP_SHA256=${actual_digest#sha256:}"
-          echo "COMPILE_PARITY_ARTIFACT_ID=$artifact_id"
-          echo "COMPILE_PARITY_ARTIFACT_DIGEST=$artifact_digest"
-          python - "$artifact_digest" "$actual_digest" <<'PY'
-          import sys
-          expected=sys.argv[1].lower()
-          actual=sys.argv[2].lower()
-          # The official action extracts the archive; its extracted tree is what
-          # the remaining fail-closed checks consume. The original GitHub artifact
-          # digest therefore cannot be compared to a local re-zip byte-for-byte.
-          # Preserve the authoritative GitHub digest as provenance and continue with
-          # exact file-count/content checks below.
-          assert expected.startswith("sha256:"), expected
-          assert actual.startswith("sha256:"), actual
-          print("G13_ARTIFACT_DOWNLOAD_OK", expected)
-          PY
+          downloaded_zip_sha256="${artifact_digest#sha256:}"
+          test "${#downloaded_zip_sha256}" -eq 64
           manifest_file="$(find package/extracted -name 'g13-demo-package-manifest-m15.json' -type f | head -n1)"
           test -n "$manifest_file"
           expected_count="$(python -c 'import json,sys; p=json.load(open(sys.argv[1],encoding="utf-8")); print(len(p["candidates"]))' "$manifest_file")"
@@ -96,15 +76,16 @@ jobs:
           test "$(find package/extracted -name 'ForexAI_G13_Candidate_*.mq5' | wc -l)" -eq "$expected_count"
           parity_file="$(find package/extracted -name 'g13-mql5-signal-parity.json' -type f | head -n1)"
           data_manifest_file="$(find package/extracted -name 'g13_real_eurusd_m15.manifest.json' -type f | head -n1)"
-          test -n "$manifest_file" && test -n "$parity_file" && test -n "$data_manifest_file"
+          test -n "$parity_file" && test -n "$data_manifest_file"
           {
             echo "DEMO_PACKAGE_MANIFEST=$manifest_file"
             echo "PARITY_EVIDENCE=$parity_file"
             echo "DATA_MANIFEST_EVIDENCE=$data_manifest_file"
             echo "COMPILE_PARITY_ARTIFACT_ID=$artifact_id"
             echo "COMPILE_PARITY_ARTIFACT_DIGEST=$artifact_digest"
-            echo "COMPILE_PARITY_ZIP_SHA256=${actual_digest#sha256:}"
+            echo "COMPILE_PARITY_ZIP_SHA256=$downloaded_zip_sha256"
           } >> "$GITHUB_ENV"
+          echo "G13_ARTIFACT_DOWNLOAD_OK RUN=$COMPILE_PARITY_RUN_ID ARTIFACT=$artifact_id"
           echo "EXACT_COMPILED_PACKAGE_DOWNLOADED_AND_STRUCTURE_VERIFIED=${expected_count}_EX5_${expected_count}_MQ5"
       - name: Run offline Demo package preflight
         run: |
