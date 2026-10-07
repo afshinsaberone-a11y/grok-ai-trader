@@ -3,6 +3,8 @@
 Consumes only the committed final promotion manifest plus frozen validation
 handoff. It never ranks or mutates candidates. Generated EAs are research
 artifacts only; live trading is not authorized here.
+
+# CI refresh marker: preserve generator behavior while forcing a fresh exact-SHA G13 evidence chain.
 """
 from __future__ import annotations
 
