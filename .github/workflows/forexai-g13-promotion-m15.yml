@@ -241,7 +241,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          payload="$(python -c 'import json,sys; print(json.dumps({\"ref\":\"main\",\"inputs\":{\"promotion_run_id\":sys.argv[1]}}))' "$GITHUB_RUN_ID")"
+          payload="$(python - "$GITHUB_RUN_ID" <<'PY'
+          import json, sys
+          print(json.dumps({"ref": "main", "inputs": {"promotion_run_id": sys.argv[1]}}))
+          PY
+          )"
           status="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
