@@ -2,6 +2,11 @@ name: ForexAI G13 OOS to Compile/Parity Dispatcher M15
 
 on:
   workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Exact main SHA whose successful OOS and Promotion evidence must be compiled"
+        required: true
+        type: string
 
 permissions:
   contents: read
