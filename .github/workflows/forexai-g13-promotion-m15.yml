@@ -7,14 +7,13 @@ name: ForexAI G13 Final Promotion M15
 # Exact-SHA evidence hardening: every upstream G13 source run must succeed on this SHA.
 on:
   workflow_dispatch:
-  workflow_dispatch:
 
 permissions:
   contents: read
   actions: read
 
 env:
-  TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  TARGET_SHA: ${{ github.sha }}
 
 jobs:
   promotion:
