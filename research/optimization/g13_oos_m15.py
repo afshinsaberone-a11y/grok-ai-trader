@@ -192,3 +192,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# G13 CI refresh marker: execute after trusted UTC cutoff authorization hardening.
