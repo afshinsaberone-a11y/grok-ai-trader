@@ -71,7 +71,7 @@ On the Windows MT5 machine:
 
 1. Create/use the parity Custom Symbol (for example `ForexAI_EURUSD_G13`) when the broker symbol lacks the complete 2022-2025 history.
 2. Import the real M15 bars from the canonical CSV used by the Python research environment. Verify the imported symbol contains the complete source range before testing.
-3. Compile the 15 generated EAs with MetaEditor.
+3. Compile every generated EA in the exact Promotion manifest with MetaEditor.
 4. Open Strategy Tester.
 5. Select one generated G13 EA at a time.
 6. Use the parity symbol containing the canonical real data and timeframe `M15`.
