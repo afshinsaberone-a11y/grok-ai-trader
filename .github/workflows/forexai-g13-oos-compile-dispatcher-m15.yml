@@ -25,8 +25,7 @@ jobs:
   dispatch-compile:
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.workflow_run.conclusion == 'success' &&
-           github.event.workflow_run.name == 'ForexAI G13 OOS M15 Current') }}
+          github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
