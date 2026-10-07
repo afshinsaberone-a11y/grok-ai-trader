@@ -1,5 +1,7 @@
 name: ForexAI G13 Execution Safety Audit M15
 
+# Current safety audit revision is intentionally re-triggered with the current repository commit for evidence freshness.
+
 # Static/source-level safety gate for the currently promoted M15 candidates.
 # Runs only after the exact-main Promotion succeeds; never connects to a broker.
 # No Demo/Live trading is enabled by this workflow.
