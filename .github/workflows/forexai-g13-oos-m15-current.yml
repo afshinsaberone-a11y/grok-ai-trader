@@ -66,7 +66,8 @@ jobs:
           set -euo pipefail
           eval "$(python - <<'PY'
           from datetime import timedelta, timezone
-          import os\n          from email.utils import parsedate_to_datetime
+          import os
+          from email.utils import parsedate_to_datetime
           from urllib.request import Request, urlopen
 
           url = "https://api.github.com/repos/afshinsaberone-a11y/grok-ai-trader"
