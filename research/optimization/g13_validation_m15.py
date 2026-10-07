@@ -163,3 +163,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+# G13 exact-SHA refresh marker: rebuild evidence after controlled Demo preflight artifact handoff fix.
