@@ -37,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-oos-m15-current.yml/runs?branch=main&per_page=50")"
-          oos_run_id="$(printf '%s' "$payload" | jq -r '[.workflow_runs[] | select(.name=="ForexAI G13 OOS M15 Current" and .head_branch=="main" and .head_sha==$ENV.TARGET_SHA and .status=="completed" and .conclusion=="success") | .id] | if length == 0 then empty else max end')"
+          oos_run_id="$(printf '%s' "$payload" | jq -r --arg target "$TARGET_SHA" '[.workflow_runs[] | select(.name=="ForexAI G13 OOS M15 Current" and .head_branch=="main" and .head_sha==$target and .status=="completed" and .conclusion=="success") | .id] | if length == 0 then empty else max end')"
           test -n "$oos_run_id"
           echo "OOS_VERIFIED $oos_run_id $TARGET_SHA"
           echo "OOS_RUN_ID=$oos_run_id" >> "$GITHUB_ENV"
@@ -49,9 +49,9 @@ jobs:
           promotion_run_id=""
           for attempt in $(seq 1 48); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&per_page=50")"
-            success_id="$(printf '%s' "$payload" | jq -r '[.workflow_runs[] | select(.name=="ForexAI G13 Final Promotion M15" and .head_branch=="main" and .head_sha==$ENV.TARGET_SHA and .status=="completed" and .conclusion=="success") | .id] | if length == 0 then empty else max end')"
-            pending="$(printf '%s' "$payload" | jq -r '[.workflow_runs[] | select(.name=="ForexAI G13 Final Promotion M15" and .head_branch=="main" and .head_sha==$ENV.TARGET_SHA and (.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="requested" or .status=="pending"))] | length')"
-            failed_id="$(printf '%s' "$payload" | jq -r '[.workflow_runs[] | select(.name=="ForexAI G13 Final Promotion M15" and .head_branch=="main" and .head_sha==$ENV.TARGET_SHA and .status=="completed" and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out" or .conclusion=="action_required" or .conclusion=="startup_failure")) | .id] | if length == 0 then empty else max end')"
+            success_id="$(printf '%s' "$payload" | jq -r --arg target "$TARGET_SHA" '[.workflow_runs[] | select(.name=="ForexAI G13 Final Promotion M15" and .head_branch=="main" and .head_sha==$target and .status=="completed" and .conclusion=="success") | .id] | if length == 0 then empty else max end')"
+            pending="$(printf '%s' "$payload" | jq -r --arg target "$TARGET_SHA" '[.workflow_runs[] | select(.name=="ForexAI G13 Final Promotion M15" and .head_branch=="main" and .head_sha==$target and (.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="requested" or .status=="pending"))] | length')"
+            failed_id="$(printf '%s' "$payload" | jq -r --arg target "$TARGET_SHA" '[.workflow_runs[] | select(.name=="ForexAI G13 Final Promotion M15" and .head_branch=="main" and .head_sha==$target and .status=="completed" and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out" or .conclusion=="action_required" or .conclusion=="startup_failure")) | .id] | if length == 0 then empty else max end')"
             if [[ -n "$success_id" ]]; then
               state="SUCCESS|$success_id"
             elif [[ "$pending" -gt 0 ]]; then
