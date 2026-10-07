@@ -124,6 +124,7 @@ def build(
         "demo_trading_allowed_by_source": False,
         "live_trading_allowed": False,
         "candidate_count": len(promoted),
+        "promoted_candidate_ids": list(promoted),
         "candidates": rows,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)

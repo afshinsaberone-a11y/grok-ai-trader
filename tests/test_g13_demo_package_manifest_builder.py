@@ -70,6 +70,7 @@ def test_builder_binds_exact_package(tmp_path):
     )
 
     assert result["candidate_count"] == 15
+    assert result["promoted_candidate_ids"] == PROMOTED
     assert result["ea_source_commit"] == "main-sha"
     assert result["compile_parity_run_id"] == 123
     assert result["parity_evidence_sha256"]
