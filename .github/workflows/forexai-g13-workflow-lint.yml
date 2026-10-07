@@ -208,11 +208,21 @@ jobs:
               "--provenance evidence/source-provenance.json",
               "promotion-run-attestation.json",
               "g13-promotion-manifest-m15",
-              "workflow_run:",
-              "ForexAI G13 OOS M15 Current",
+              "workflow_dispatch:",
               "TARGET_SHA",
           ]:
               assert token in promotion, f"promotion provenance token missing: {token}"
+
+          watchdog = Path(".github/workflows/forexai-g13-oos-watchdog-m15.yml").read_text(encoding="utf-8")
+          for token in [
+              "actions: write",
+              "g13-oos-m15-current.yml/dispatches",
+              "g13-promotion-m15.yml/dispatches",
+              "g13-oos-compile-dispatcher-m15.yml/dispatches",
+              "G13_OOS_SUCCESS_RESOLVED=true",
+              "G13_WATCHDOG_MAIN_MOVED_DURING_OOS=true",
+          ]:
+              assert token in watchdog, f"G13 watchdog explicit-dispatch token missing: {token}"
 
           gate = Path("research/optimization/g13_promotion_gate_m15.py").read_text(encoding="utf-8")
           for token in [
