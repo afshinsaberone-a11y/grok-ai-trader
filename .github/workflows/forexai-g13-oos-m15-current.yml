@@ -15,8 +15,6 @@ name: ForexAI G13 OOS M15 Current
 # Trigger: rerun official OOS on repaired trusted-UTC heredoc
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 concurrency:
   group: g13-oos-m15-current
