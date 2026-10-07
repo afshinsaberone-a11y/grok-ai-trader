@@ -1,6 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const partDir = path.join(root, "dist-upload");
@@ -21,5 +22,15 @@ const source = (await Promise.all(
   partNames.map((name) => readFile(path.join(partDir, name), "utf8"))
 )).join("");
 
-const encoded = Buffer.from(source, "utf8").toString("base64");
-await import("data:text/javascript;base64," + encoded);
+const tempDir = await mkdtemp(path.join(os.tmpdir(), "g13-artifact-upload-"));
+const bundlePath = path.join(tempDir, "index.mjs");
+
+try {
+  // Execute the ncc bundle from a real file URL. The bundled
+  // @actions/artifact runtime resolves resources relative to import.meta.url;
+  // importing from a data: URL makes new URL(".", import.meta.url) invalid.
+  await writeFile(bundlePath, source, "utf8");
+  await import(pathToFileURL(bundlePath).href);
+} finally {
+  await rm(tempDir, { recursive: true, force: true });
+}
