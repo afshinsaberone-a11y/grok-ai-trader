@@ -72,10 +72,13 @@ jobs:
           from urllib.request import Request, urlopen
 
           url = "https://api.github.com/repos/afshinsaberone-a11y/grok-ai-trader"
-          request = Request(
-              url,
-              headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {os.environ[\"GITHUB_TOKEN\"]}","User-Agent":"ForexAI/0.1-real-data-cutoff"},
-          )
+          token = os.environ["GITHUB_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": "Bearer " + token,
+              "User-Agent": "ForexAI/0.1-real-data-cutoff",
+          }
+          request = Request(url, headers=headers)
           with urlopen(request, timeout=30) as response:
               server_date = response.headers.get("Date")
           if not server_date:
