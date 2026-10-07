@@ -60,16 +60,36 @@ jobs:
             research/optimization/execution_contract_v1.py \
             research/real_data/dukascopy_ingest.py
 
-      - name: Determine latest complete UTC data cutoff
+      - name: Determine latest complete UTC data cutoff from trusted GitHub server time
         shell: bash
         run: |
           set -euo pipefail
-          END_DATE="$(date -u +%Y-%m-%d)"
-          LAST_COMPLETE="$(date -u -d 'yesterday' +%Y-%m-%d)"
-          END_TAG="$(date -u -d 'yesterday' +%Y%m%d)"
+          eval "$(python - <<'PY'
+          from datetime import timedelta, timezone
+          from email.utils import parsedate_to_datetime
+          from urllib.request import Request, urlopen
+
+          url = "https://api.github.com/repos/afshinsaberone-a11y/grok-ai-trader"
+          request = Request(
+              url,
+              headers={"Accept":"application/vnd.github+json","User-Agent":"ForexAI/0.1-real-data-cutoff"},
+          )
+          with urlopen(request, timeout=30) as response:
+              server_date = response.headers.get("Date")
+          if not server_date:
+              raise SystemExit("REAL_DATA_REQUIRED: GitHub API Date header unavailable")
+          current_utc = parsedate_to_datetime(server_date).astimezone(timezone.utc).date()
+          last_complete = current_utc - timedelta(days=1)
+          print(f"END_DATE={current_utc.isoformat()}")
+          print(f"LAST_COMPLETE={last_complete.isoformat()}")
+          print(f"END_TAG={last_complete.strftime('%Y%m%d')}")
+          print(f"TRUSTED_GITHUB_UTC_DATE={current_utc.isoformat()}")
+          PY
+          )"
           echo "END_DATE=$END_DATE" >> "$GITHUB_ENV"
           echo "LAST_COMPLETE=$LAST_COMPLETE" >> "$GITHUB_ENV"
           echo "END_TAG=$END_TAG" >> "$GITHUB_ENV"
+          echo "TRUSTED_GITHUB_UTC_DATE=$TRUSTED_GITHUB_UTC_DATE"
           echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
 
       - name: JETTA API smoke test on known real weekday
