@@ -218,9 +218,9 @@ jobs:
           watchdog = Path(".github/workflows/forexai-g13-oos-watchdog-m15.yml").read_text(encoding="utf-8")
           for token in [
               "actions: write",
-              "g13-oos-m15-current.yml/dispatches",
-              "g13-promotion-m15.yml/dispatches",
-              "g13-oos-compile-dispatcher-m15.yml/dispatches",
+              'dispatch_workflow "forexai-g13-oos-m15-current.yml"',
+              'dispatch_workflow "forexai-g13-promotion-m15.yml"',
+              'dispatch_workflow "forexai-g13-oos-compile-dispatcher-m15.yml"',
               "G13_OOS_SUCCESS_RESOLVED=true",
               "G13_WATCHDOG_MAIN_MOVED_DURING_OOS=true",
           ]:
