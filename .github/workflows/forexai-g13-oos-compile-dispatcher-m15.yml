@@ -49,7 +49,18 @@ jobs:
           promotion_run_id=""
           for attempt in $(seq 1 48); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&per_page=50")"
-            state="$(printf '%s' "$payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI G13 Final Promotion M15" and r.get("head_branch")=="main" and r.get("head_sha")==target]; success=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' "$TARGET_SHA")"
+            success_id="$(printf '%s' "$payload" | jq -r '[.workflow_runs[] | select(.name=="ForexAI G13 Final Promotion M15" and .head_branch=="main" and .head_sha==$ENV.TARGET_SHA and .status=="completed" and .conclusion=="success") | .id] | if length == 0 then empty else max end')"
+            pending="$(printf '%s' "$payload" | jq -r '[.workflow_runs[] | select(.name=="ForexAI G13 Final Promotion M15" and .head_branch=="main" and .head_sha==$ENV.TARGET_SHA and (.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="requested" or .status=="pending"))] | length')"
+            failed_id="$(printf '%s' "$payload" | jq -r '[.workflow_runs[] | select(.name=="ForexAI G13 Final Promotion M15" and .head_branch=="main" and .head_sha==$ENV.TARGET_SHA and .status=="completed" and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out" or .conclusion=="action_required" or .conclusion=="startup_failure")) | .id] | if length == 0 then empty else max end')"
+            if [[ -n "$success_id" ]]; then
+              state="SUCCESS|$success_id"
+            elif [[ "$pending" -gt 0 ]]; then
+              state="PENDING|"
+            elif [[ -n "$failed_id" ]]; then
+              state="FAILED|$failed_id"
+            else
+              state="NOT_STARTED|"
+            fi
             case "$state" in
               SUCCESS\|*) promotion_run_id="${state#SUCCESS|}"; break ;;
               PENDING\|*|NOT_STARTED\|*) echo "PROMOTION_WAIT attempt=$attempt state=$state"; sleep 30 ;;
