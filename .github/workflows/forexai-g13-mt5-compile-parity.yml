@@ -27,15 +27,8 @@ on:
         required: false
         default: 'C:\\actions-runner\\ForexAI\\market-data-cache\\g13\\normalized\\EURUSD_M15_20220101_20251231.csv'
         type: string
-  push:
-    branches: [main]
-    paths:
-      - 'research/optimization/g13_*.py'
-      - 'research/real_data/*.py'
-      - 'research/optimization/g13_mql5_parity_harness.mq5'
-      - 'artifacts/g13/g13-promotion-manifest-m15.json'
-      - 'artifacts/g13/frozen/g13-candidate-handoff-m15.json'
-      - '.github/workflows/forexai-g13-*.yml'
+  # Compile/Parity is intentionally dispatch-only.
+  # G13 Watchdog dispatches this workflow only after exact-SHA OOS + Promotion succeed.
 concurrency:
   group: g13-mt5-compile-parity
   cancel-in-progress: true
