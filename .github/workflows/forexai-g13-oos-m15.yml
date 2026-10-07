@@ -62,22 +62,36 @@ jobs:
           assert all(len(data[k]) == len(data['times']) for k in ('opens','highs','lows','closes','volumes'))
           print('JETTA_SMOKE_OK', url, 'candles=', len(data['times']))
           PY
-      - name: Download REAL EURUSD M1 from Dukascopy including 2026 OOS
+      - name: Determine latest complete UTC data cutoff
+        shell: bash
         run: |
+          set -euo pipefail
+          START_DATE="2025-01-01"
+          END_EXCLUSIVE="$(date -u +%Y-%m-%d)"
+          [[ "$END_EXCLUSIVE" > "$START_DATE" ]]
+          END_INCLUSIVE="$(date -u -d "$END_EXCLUSIVE - 1 day" +%Y-%m-%d)"
+          echo "OOS_START=$START_DATE" >> "$GITHUB_ENV"
+          echo "OOS_END_EXCLUSIVE=$END_EXCLUSIVE" >> "$GITHUB_ENV"
+          echo "OOS_END_INCLUSIVE=$END_INCLUSIVE" >> "$GITHUB_ENV"
+          echo "G13_OOS_CUTOFF_OK START=$START_DATE END_EXCLUSIVE=$END_EXCLUSIVE COMPLETE_THROUGH=$END_INCLUSIVE"
+
+      - name: Download REAL EURUSD M1 through latest complete UTC day
+        run: |
+          set -euo pipefail
           python -m research.real_data.dukascopy_ingest \
-            --symbol EURUSD --start 2025-01-01 --end 2027-01-01 \
+            --symbol EURUSD --start "$OOS_START" --end "$OOS_END_EXCLUSIVE" \
             --timeframe M1 --output data/real --validate --manifest --resume
       - name: Locate dataset
         shell: bash
         run: |
           set -euo pipefail
-          DATA="$(find data/real/normalized -type f -name 'EURUSD_M1_20250101_20261231.csv' | sort | head -n1)"
+          DATA="$(find data/real/normalized -type f -name "EURUSD_M1_${OOS_START//-/}_${OOS_END_INCLUSIVE//-/}.csv" | sort | head -n1)"
           test -n "$DATA"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
       - name: Build M15 OOS dataset from real M1
         shell: bash
         run: |
-          DATASET="$DATA" python - <<'PY'
+          DATASET="$DATA" OOS_START="$OOS_START" OOS_END_EXCLUSIVE="$OOS_END_EXCLUSIVE" OOS_END_INCLUSIVE="$OOS_END_INCLUSIVE" python - <<'PY'
           import os
           import pandas as pd
           from pathlib import Path
@@ -91,12 +105,12 @@ jobs:
           report=validate_ohlcv(m15,symbol='EURUSD',timeframe='M15')
           if report.status != 'PASS':
               raise SystemExit(f'REAL_DATA_REQUIRED: M15 validation failed: {report.to_dict()}')
-          out=Path('data/real/normalized/EURUSD_M15_20250101_20261231.csv')
+          out=Path('data/real/normalized') / ('EURUSD_M15_' + os.environ['OOS_START'].replace('-','') + '_' + os.environ['OOS_END_INCLUSIVE'].replace('-','') + '.csv')
           m15.to_csv(out,index=False)
           print(report.to_dict())
           print('M15_DATASET',out,len(m15))
           PY
-          echo "DATA=data/real/normalized/EURUSD_M15_20250101_20261231.csv" >> "$GITHUB_ENV"
+          echo "DATA=$out" >> "$GITHUB_ENV"
       - name: Verify frozen handoff and strict OOS boundary
         run: |
           DATASET="$DATA" python - <<'PY'
