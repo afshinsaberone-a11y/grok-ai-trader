@@ -81,6 +81,7 @@ jobs:
           fi
 
       - name: Verify exact successful Compile/Parity run
+        if: ${{ env.COMPILE_PARITY_RUN_ID != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -88,6 +89,7 @@ jobs:
           python -c 'import json,sys; p=json.load(sys.stdin); assert p["name"]=="ForexAI G13 MT5 Compile + Signal Parity", p["name"]; assert p["head_branch"]=="main", p["head_branch"]; assert p["conclusion"]=="success", (p["id"],p["conclusion"]); assert p["head_sha"]==sys.argv[1], (p["id"],p["head_sha"],sys.argv[1]); print("COMPILE_PARITY_RUN_VERIFIED",p["id"],p["head_sha"])' "$TARGET_SHA" <<< "$json"
 
       - name: Dispatch exact Controlled Demo Package Preflight
+        if: ${{ env.COMPILE_PARITY_RUN_ID != '' }}
         shell: bash
         run: |
           set -euo pipefail
