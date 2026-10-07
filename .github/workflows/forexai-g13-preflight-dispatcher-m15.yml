@@ -49,36 +49,48 @@ jobs:
         run: |
           set -euo pipefail
 
-          # A push event is only a fallback kick. The compile workflow's
-          # workflow_run(completed) event is the authoritative completion trigger.
-          # Allow up to 24 minutes for the self-hosted MT5 Compile/Parity path to finish
-          # before deferring to the completion-triggered dispatcher.
-          for attempt in $(seq 1 48); do
+          # Authoritative path: workflow_run.completed carries the exact Compile/Parity
+          # run that just finished. Bind directly to that immutable run ID and SHA.
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
+            compile_run_id="$(python -c 'import json; print(json.load(open(__import__("os").environ["GITHUB_EVENT_PATH"]))["workflow_run"]["id"])')"
+            echo "COMPILE_PARITY_TRIGGER_RUN=$compile_run_id"
+            if [[ -z "$compile_run_id" ]]; then
+              echo "COMPILE_PARITY_TRIGGER_RUN_MISSING=true"
+              exit 1
+            fi
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$compile_run_id")"
+            printf '%s' "$payload" | python -c 'import json,sys; p=json.load(sys.stdin); target=sys.argv[1]; assert p["name"]=="ForexAI G13 MT5 Compile + Signal Parity", p["name"]; assert p["head_branch"]=="main", p["head_branch"]; assert p["status"]=="completed", (p["id"],p["status"]); assert p["conclusion"]=="success", (p["id"],p["conclusion"]); assert p["head_sha"]==target, (p["id"],p["head_sha"],target); print("COMPILE_PARITY_TRIGGER_RUN_VERIFIED",p["id"],p["head_sha"])' "$TARGET_SHA"
+            echo "COMPILE_PARITY_RUN_ID=$compile_run_id" >> "$GITHUB_ENV"
+            echo "COMPILE_PARITY_RUN_RESOLVED=true RUN=$compile_run_id SHA=$TARGET_SHA SOURCE=workflow_run"
+            exit 0
+          fi
+
+          # Recovery path: a main push may race with Compile/Parity. Poll for the
+          # exact successful run for this SHA, then dispatch Preflight.
+          for attempt in $(seq 1 60); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-compile-parity.yml/runs?branch=main&per_page=50")"
             state="$(printf '%s' "$payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("head_branch")=="main" and r.get("head_sha")==target and r.get("name")=="ForexAI G13 MT5 Compile + Signal Parity"]; success=[r for r in rs if r.get("conclusion")=="success" and r.get("status")=="completed"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' "$TARGET_SHA")"
-
             case "$state" in
-              SUCCESS\|*)
+              SUCCESS|*)
                 compile_run_id="${state#SUCCESS|}"
                 echo "COMPILE_PARITY_RUN_ID=$compile_run_id" >> "$GITHUB_ENV"
-                echo "COMPILE_PARITY_RUN_RESOLVED=true RUN=$compile_run_id SHA=$TARGET_SHA"
+                echo "COMPILE_PARITY_RUN_RESOLVED=true RUN=$compile_run_id SHA=$TARGET_SHA SOURCE=push-fallback"
                 break
                 ;;
-              PENDING\|*|NOT_STARTED\|*)
+              PENDING|*|NOT_STARTED|*)
                 echo "COMPILE_PARITY_WAIT attempt=$attempt state=$state SHA=$TARGET_SHA"
                 sleep 30
                 ;;
-              FAILED\|*)
+              FAILED|*)
                 echo "COMPILE_PARITY_FAILED_FOR_SHA=$TARGET_SHA RUN=${state#FAILED|}"
                 exit 1
                 ;;
             esac
           done
 
-          if [ -z "${compile_run_id:-}" ]; then
-            echo "COMPILE_PARITY_WAIT_DEFERRED_FOR_SHA=$TARGET_SHA"
-            echo "The exact workflow_run(completed) event will re-enter this dispatcher when Compile/Parity finishes."
-            exit 0
+          if [[ -z "${compile_run_id:-}" ]]; then
+            echo "COMPILE_PARITY_WAIT_TIMEOUT_FOR_SHA=$TARGET_SHA"
+            exit 1
           fi
 
       - name: Verify exact successful Compile/Parity run
