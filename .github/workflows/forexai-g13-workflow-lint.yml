@@ -215,6 +215,17 @@ jobs:
           ]:
               assert token in promotion, f"promotion provenance token missing: {token}"
 
+          oos = Path(".github/workflows/forexai-g13-oos-m15-current.yml").read_text(encoding="utf-8")
+          for token in [
+              "actions/cache/restore@v4",
+              "actions/cache/save@v4",
+              "forexai-dukascopy-eurusd-m1-",
+              "steps.cutoff.outputs.end_tag",
+              "--timeout 60 --retries 6 --workers 1 --batch-size 2 --batch-pause 4",
+              "if: always()",
+          ]:
+              assert token in oos, f"OOS resumable transport token missing: {token}"
+
           watchdog = Path(".github/workflows/forexai-g13-oos-watchdog-m15.yml").read_text(encoding="utf-8")
           for token in [
               "actions: write",
