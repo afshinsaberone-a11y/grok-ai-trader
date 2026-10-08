@@ -21,18 +21,6 @@ on:
       preflight_run_id:
         description: "Successful G13 Controlled Demo Package Preflight run for the current main commit"
         required: true
-  workflow_run:
-    workflows:
-      - "ForexAI G13 MT5 Compile + Signal Parity"
-      - "ForexAI G13 Execution Safety Audit M15"
-      - "ForexAI G13 MT5 Runtime Safety Probe M15 v2"
-      - "ForexAI G13 Workflow Static Validation"
-      - "ForexAI G13 Final Promotion M15"
-      - "ForexAI G13 Controlled Demo Package Preflight M15"
-    types: [completed]
-    branches:
-      - main
-
 permissions:
   contents: read
   actions: read
@@ -43,10 +31,7 @@ concurrency:
 
 jobs:
   readiness:
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.workflow_run.conclusion == 'success' &&
-           github.event.workflow_run.name == 'ForexAI G13 Controlled Demo Package Preflight M15') }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
       PYTHONOPTIMIZE: '0'
@@ -66,47 +51,17 @@ jobs:
           MANUAL_PARITY_RUN_ID: ${{ inputs.parity_run_id }}
           MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
           MANUAL_PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
-          EVENT_WORKFLOW: ${{ github.event.workflow_run.name }}
-          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
 
           MAIN_SHA="$(git rev-parse HEAD)"
           echo "MAIN_HEAD_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
 
-          latest_success() {
-            local workflow_file="$1"
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
-              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful run for " + sys.argv[1]; print(max(rs,key=lambda x:x["id"])["id"])' "$workflow_file"
-          }
-
-          latest_success_exact() {
-            local workflow_file="$1"
-            local target_sha="$2"
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
-              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; sha=sys.argv[2]; m=[r for r in rs if r.get("head_sha")==sha]; assert m, "no successful run for current main " + sys.argv[1] + " @ " + sha; print(max(m,key=lambda x:x["id"])["id"])' "$workflow_file" "$target_sha"
-          }
-
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            runtime_id="${MANUAL_RUNTIME_RUN_ID}"
-            safety_id="${MANUAL_SAFETY_RUN_ID}"
-            parity_id="${MANUAL_PARITY_RUN_ID}"
-            promotion_id="${MANUAL_PROMOTION_RUN_ID}"
-            preflight_id="${MANUAL_PREFLIGHT_RUN_ID}"
-          else
-            runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")"
-            safety_id="$(latest_success "forexai-g13-execution-safety-audit-m15.yml")"
-            parity_id="$(latest_success "forexai-g13-mt5-compile-parity.yml")"
-            promotion_id="$(latest_success_exact "forexai-g13-promotion-m15.yml" "$MAIN_SHA")"
-            preflight_id="$(latest_success_exact "forexai-g13-controlled-demo-package-preflight-m15.yml" "$MAIN_SHA")"
-            case "${EVENT_WORKFLOW}" in
-              "ForexAI G13 MT5 Runtime Safety Probe M15 v2") runtime_id="${EVENT_RUN_ID}" ;;
-              "ForexAI G13 Execution Safety Audit M15") safety_id="${EVENT_RUN_ID}" ;;
-              "ForexAI G13 MT5 Compile + Signal Parity") parity_id="${EVENT_RUN_ID}" ;;
-              "ForexAI G13 Final Promotion M15") promotion_id="${EVENT_RUN_ID}" ;;
-              "ForexAI G13 Controlled Demo Package Preflight M15") preflight_id="${EVENT_RUN_ID}" ;;
-            esac
-          fi
+          runtime_id="${MANUAL_RUNTIME_RUN_ID}"
+          safety_id="${MANUAL_SAFETY_RUN_ID}"
+          parity_id="${MANUAL_PARITY_RUN_ID}"
+          promotion_id="${MANUAL_PROMOTION_RUN_ID}"
+          preflight_id="${MANUAL_PREFLIGHT_RUN_ID}"
 
           for pair in "RUNTIME=$runtime_id" "SAFETY=$safety_id" "PARITY=$parity_id" "PROMOTION=$promotion_id" "PREFLIGHT=$preflight_id"; do
             key="${pair%%=*}"
@@ -115,9 +70,7 @@ jobs:
             json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")"
             python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); assert x["head_branch"]=="main", (x["id"],x["head_branch"]); print(x["id"],x["head_sha"])' <<< "$json"
             sha="$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")"
-            if [ "$key" = "PROMOTION" ] || [ "$key" = "PARITY" ] || [ "$key" = "PREFLIGHT" ]; then
-              [ "$sha" = "$MAIN_SHA" ] || { echo "$key run head SHA mismatch: $sha != $MAIN_SHA"; exit 1; }
-            fi
+            [ "$sha" = "$MAIN_SHA" ] || { echo "$key run head SHA mismatch: $sha != $MAIN_SHA"; exit 1; }
             echo "${key}_HEAD_SHA=$sha" >> "$GITHUB_ENV"
             echo "${key}_RUN_ID=$id" >> "$GITHUB_ENV"
           done
