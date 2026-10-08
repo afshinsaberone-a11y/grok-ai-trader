@@ -1,4 +1,5 @@
 """Independent G13 Validation for EURUSD M15.
+# G13 source-chain trigger marker: keep exact-SHA Validation/Robustness refresh observable on main.
 
 Discovery selection is strictly based on 2022-2024 pre-OOS evidence from the
 G13 discovery artifact. The 2025 validation year is never used to select or
