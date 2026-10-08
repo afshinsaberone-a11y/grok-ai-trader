@@ -1,7 +1,7 @@
 name: ForexAI G13 OOS M15 Current
 
 # G13 exact-SHA post-compile-gate-repair refresh: rebuild official evidence on the repaired main SHA.
-# Independent G13 OOS evaluation using real Dukascopy JETTA data.
+# Independent G13 OOS evaluation using real canonical HistData M1 data.
 # G13 exact-SHA refresh: ci: refresh G13 OOS after parity harness fix
 # G13 exact-SHA refresh: ci: trigger exact-SHA G13 OOS refresh after handoff fix
 # G13 exact-SHA chain refresh: synchronized rerun after artifact transport repair.
@@ -39,11 +39,6 @@ jobs:
 
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Compile
         run: |
           python -m py_compile \
@@ -91,213 +86,56 @@ jobs:
           echo "TRUSTED_GITHUB_UTC_DATE=$TRUSTED_GITHUB_UTC_DATE"
           echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
 
-      - name: Dukascopy real-feed smoke test on known weekday
+      - name: Download and validate canonical REAL EURUSD M1 through latest complete UTC day
         run: |
-          python - <<'PY'
-          import lzma
-          import json
-          import time
-          from datetime import date
-          from urllib.error import HTTPError, URLError
-          from urllib.request import Request, urlopen
+          set -euo pipefail
+          rm -rf data/real
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --timeframe M1 \
+            --start 2025-01-01 \
+            --end "$END_DATE" \
+            --output data/real \
+            --validate \
+            --manifest
 
-          day = date(2025, 2, 14)
-          jetta_url = (
-              f"https://jetta.dukascopy.com/v1/candles/minute/EUR-USD/BID/"
-              f"{day.year:04d}/{day.month:02d}/{day.day:02d}"
-          )
-          legacy_url = (
-              f"https://datafeed.dukascopy.com/datafeed/EURUSD/{day.year:04d}/"
-              f"{day.month - 1:02d}/{day.day:02d}/BID_candles_min_1.bi5"
-          )
-          browser_headers = {
-              "User-Agent": (
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-              ),
-              "Accept": "application/json, text/plain, */*",
-              "Accept-Language": "en-US,en;q=0.9",
-              "Accept-Encoding": "identity",
-          }
-
-          last_error = None
-          for attempt in range(1, 4):
-              try:
-                  request = Request(jetta_url, headers=browser_headers)
-                  with urlopen(request, timeout=30) as response:
-                      payload = response.read()
-                  data = json.loads(payload.decode("utf-8"))
-                  required = {
-                      "timestamp", "multiplier", "times", "shift",
-                      "open", "high", "low", "close",
-                      "opens", "highs", "lows", "closes", "volumes",
-                  }
-                  missing = required.difference(data)
-                  assert not missing, f"JETTA schema missing: {sorted(missing)}"
-                  assert len(data["times"]) > 0
-                  assert all(
-                      len(data[k]) == len(data["times"])
-                      for k in ("opens", "highs", "lows", "closes", "volumes")
-                  )
-                  print("DUKASCOPY_SMOKE_OK", "source=JETTA", "candles=", len(data["times"]), "attempt=", attempt)
-                  break
-              except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError, AssertionError) as exc:
-                  last_error = f"{type(exc).__name__}: {exc}"
-                  if attempt < 3:
-                      delay = 2 ** attempt
-                      print(f"JETTA_SMOKE_RETRY attempt={attempt} delay={delay}s error={last_error}")
-                      time.sleep(delay)
-          else:
-              print("JETTA_SMOKE_FALLBACK", "error=", last_error)
-              for attempt in range(1, 4):
-                  try:
-                      request = Request(legacy_url, headers=browser_headers)
-                      with urlopen(request, timeout=30) as response:
-                          payload = response.read()
-                      assert payload, "empty BI5 payload"
-                      decoded = lzma.decompress(payload)
-                      assert len(decoded) > 0 and len(decoded) % 24 == 0
-                      print(
-                          "DUKASCOPY_SMOKE_OK",
-                          "source=legacy-BI5",
-                          "records=", len(decoded) // 24,
-                          "attempt=", attempt,
-                      )
-                      break
-                  except (HTTPError, URLError, TimeoutError, OSError, lzma.LZMAError, AssertionError) as exc:
-                      last_error = f"{type(exc).__name__}: {exc}"
-                      if attempt < 3:
-                          delay = 2 ** attempt
-                          print(f"BI5_SMOKE_RETRY attempt={attempt} delay={delay}s error={last_error}")
-                          time.sleep(delay)
-              else:
-                  raise SystemExit(
-                      "REAL_DATA_REQUIRED: neither Dukascopy JETTA nor legacy BI5 smoke succeeded: "
-                      + str(last_error)
-                  )
-          PY
-      - name: Install pinned Dukascopy Node downloader
-        run: |
-          npm install --no-save --ignore-scripts dukascopy-node@1.50.0
-
-      - name: Dukascopy Node real-feed smoke test
-        run: |
-          rm -rf data/real/node-smoke
-          mkdir -p data/real/node-smoke
-          npx --no-install dukascopy-node \
-            -i eurusd \
-            -from 2025-02-14 \
-            -to 2025-02-15 \
-            -t m1 \
-            -p bid \
-            -f csv \
-            -dir data/real/node-smoke \
-            -fn EURUSD_M1_SMOKE.csv \
-            -bs 5 \
-            -bp 2000 \
-            -r 4 \
-            -re \
-            -rp 3000
-          test -s data/real/node-smoke/EURUSD_M1_SMOKE.csv
-          python - <<'PY'
-          import pandas as pd
-          from pathlib import Path
-          p=Path("data/real/node-smoke/EURUSD_M1_SMOKE.csv")
-          d=pd.read_csv(p)
-          required={"timestamp","open","high","low","close","volume"}
-          missing=sorted(required-set(d.columns))
-          if missing:
-              raise SystemExit(f"REAL_DATA_REQUIRED: dukascopy-node smoke schema missing {missing}")
-          if d.empty:
-              raise SystemExit("REAL_DATA_REQUIRED: dukascopy-node smoke returned empty CSV")
-          print("DUKASCOPY_NODE_SMOKE_OK", len(d), d.iloc[0]["timestamp"], d.iloc[-1]["timestamp"])
-          PY
-
-      - name: Download REAL EURUSD M1 through latest complete UTC day
-        run: |
-          rm -rf data/real/node
-          mkdir -p data/real/node
-          npx --no-install dukascopy-node \
-            -i eurusd \
-            -from 2025-01-01 \
-            -to "$END_DATE" \
-            -t m1 \
-            -p bid \
-            -f csv \
-            -v \
-            -dir data/real/node \
-            -fn "EURUSD_M1_20250101_${END_TAG}.csv" \
-            -bs 5 \
-            -bp 2000 \
-            -r 5 \
-            -re \
-            -rp 3000
-          test -s "data/real/node/EURUSD_M1_20250101_${END_TAG}.csv"
-
-      - name: Normalize and validate Dukascopy Node M1 dataset
-        run: |
-          RAW="data/real/node/EURUSD_M1_20250101_${END_TAG}.csv"
-          NORMALIZED="data/real/normalized/EURUSD_M1_20250101_${END_TAG}.csv"
+          DATA="data/real/normalized/EURUSD_M1_20250101_${END_TAG}.csv"
           MANIFEST="data/real/normalized/EURUSD_M1_20250101_${END_TAG}.manifest.json"
-          RAW="$RAW" NORMALIZED="$NORMALIZED" MANIFEST="$MANIFEST" END_TAG="$END_TAG" LAST_COMPLETE="$LAST_COMPLETE" python - <<'PY'
+          test -s "$DATA"
+          test -s "$MANIFEST"
+
+          DATA="$DATA" MANIFEST="$MANIFEST" LAST_COMPLETE="$LAST_COMPLETE" python - <<'PY'
           import json
           import os
           from pathlib import Path
 
-          import numpy as np
           import pandas as pd
 
-          from research.real_data.manifest import build_manifest, sha256_file
-          from research.real_data.normalizer import canonicalize_ohlcv
-          from research.real_data.validator import validate_ohlcv
-
-          raw=Path(os.environ["RAW"])
-          out=Path(os.environ["NORMALIZED"])
+          data=Path(os.environ["DATA"])
           manifest=Path(os.environ["MANIFEST"])
-
-          d=pd.read_csv(raw)
-          required={"timestamp","open","high","low","close","volume"}
+          d=pd.read_csv(data)
+          required={"timestamp","open","high","low","close","volume","spread"}
           missing=sorted(required-set(d.columns))
           if missing:
-              raise SystemExit(f"REAL_DATA_REQUIRED: dukascopy-node CSV missing columns {missing}")
+              raise SystemExit(f"REAL_DATA_REQUIRED: HistData canonical dataset missing columns {missing}")
           if d.empty:
-              raise SystemExit("REAL_DATA_REQUIRED: dukascopy-node produced an empty M1 dataset")
+              raise SystemExit("REAL_DATA_REQUIRED: HistData canonical dataset is empty")
 
-          ts_numeric=pd.to_numeric(d["timestamp"],errors="coerce")
-          if ts_numeric.isna().any():
-              raise SystemExit("REAL_DATA_REQUIRED: non-numeric epoch timestamps in dukascopy-node CSV")
-          d["timestamp"]=pd.to_datetime(ts_numeric,unit="ms",utc=True,errors="raise")
-          d["spread"]=np.nan
-
-          source=canonicalize_ohlcv(d,symbol="EURUSD",source="Dukascopy/dukascopy-node@1.50.0")
-          report=validate_ohlcv(source,symbol="EURUSD",timeframe="M1",require_complete_bars=False)
-          if report.status!="PASS":
-              raise SystemExit("REAL_DATA_REQUIRED: normalized M1 quality validation failed: "+json.dumps(report.to_dict(),ensure_ascii=False))
-
+          ts=pd.to_datetime(d["timestamp"],utc=True,errors="raise")
           cutoff=pd.Timestamp(os.environ["LAST_COMPLETE"],tz="UTC")+pd.Timedelta(days=1)
-          ts=source["timestamp"]
           if ts.min()>=pd.Timestamp("2026-01-01",tz="UTC"):
-              raise SystemExit("REAL_DATA_REQUIRED: source does not contain pre-OOS history")
+              raise SystemExit("REAL_DATA_REQUIRED: OOS dataset has no pre-2026 history")
           if ts.max()>=cutoff:
-              raise SystemExit(f"REAL_DATA_REQUIRED: M1 dataset crosses trusted cutoff {cutoff.isoformat()}")
+              raise SystemExit(f"REAL_DATA_REQUIRED: dataset crosses trusted cutoff {cutoff.isoformat()}")
 
-          out.parent.mkdir(parents=True,exist_ok=True)
-          source.to_csv(out,index=False)
-          raw_hash=sha256_file(raw)
-          build_manifest(
-              source,
-              dataset_id="20250101_"+os.environ["END_TAG"],
-              symbol="EURUSD",
-              timeframe="M1",
-              source="Dukascopy/dukascopy-node@1.50.0",
-              source_hash=raw_hash,
-              quality_status=report.status,
-              output_path=manifest,
-              dataset_path=out,
-          )
-          print("DUKASCOPY_NODE_M1_NORMALIZED_OK",len(source),source["timestamp"].min().isoformat(),source["timestamp"].max().isoformat(),"raw_sha256=",raw_hash)
+          m=json.loads(manifest.read_text(encoding="utf-8"))
+          if m.get("symbol")!="EURUSD" or m.get("timeframe")!="M1":
+              raise SystemExit("REAL_DATA_REQUIRED: HistData manifest scope mismatch")
+          if m.get("quality_status")!="PASS":
+              raise SystemExit("REAL_DATA_REQUIRED: HistData manifest quality status is not PASS")
+          print("HISTDATA_CANONICAL_OOS_DATASET_OK",len(d),ts.min().isoformat(),ts.max().isoformat())
+          print("HISTDATA_MANIFEST_OK",manifest)
           PY
-
       - name: Locate dataset
         shell: bash
         run: |
