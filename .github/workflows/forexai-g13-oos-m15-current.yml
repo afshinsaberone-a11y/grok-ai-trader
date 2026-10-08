@@ -50,6 +50,7 @@ jobs:
             research/real_data/dukascopy_ingest.py
 
       - name: Determine latest complete UTC data cutoff from trusted GitHub server time
+        id: cutoff
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -86,6 +87,15 @@ jobs:
           echo "END_TAG=$END_TAG" >> "$GITHUB_ENV"
           echo "TRUSTED_GITHUB_UTC_DATE=$TRUSTED_GITHUB_UTC_DATE"
           echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
+          echo "end_tag=$END_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Restore real Dukascopy raw-data cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: forexai-dukascopy-eurusd-m1-${{ steps.cutoff.outputs.end_tag }}
+          restore-keys: |
+            forexai-dukascopy-eurusd-m1-
 
       - name: Dukascopy real-feed smoke test on known weekday
         run: |
@@ -177,7 +187,14 @@ jobs:
           python -m research.real_data.dukascopy_ingest \
             --symbol EURUSD --start 2025-01-01 --end "$END_DATE" \
             --timeframe M1 --output data/real --validate --manifest --resume \
-            --workers 2 --batch-size 5 --batch-pause 2
+            --timeout 60 --retries 6 --workers 1 --batch-size 2 --batch-pause 4
+
+      - name: Save partial real Dukascopy raw-data cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: forexai-dukascopy-eurusd-m1-${{ steps.cutoff.outputs.end_tag }}
 
       - name: Locate dataset
         shell: bash
