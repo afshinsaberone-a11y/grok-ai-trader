@@ -2,6 +2,7 @@ name: ForexAI G13 OOS Watchdog M15
 
 # Deterministic recovery/orchestration for the official G13 M15 chain.
 # Source evidence (Validation + Robustness) is dispatched explicitly before OOS,
+# A main push also refreshes exact-SHA G13 evidence after orchestration-only fixes.
 # removing reliance on push-trigger delivery. Exact SHA is enforced throughout.
 # This workflow does not alter strategy logic, candidate parameters, data policy,
 # or trading permissions. Live remains disabled.
