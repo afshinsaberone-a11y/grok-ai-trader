@@ -95,6 +95,8 @@ jobs:
       - name: Validate G13 workflows
         run: |
           ./actionlint .github/workflows/forexai-g13-mt5-compile-parity.yml
+          ./actionlint .github/workflows/forexai-g13-oos-m15-current.yml
+          ./actionlint .github/workflows/forexai-g13-oos-watchdog-m15.yml
           ./actionlint .github/workflows/forexai-g13-execution-safety-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
@@ -234,9 +236,30 @@ jobs:
           validation_dispatch = watchdog.index('dispatch_workflow "forexai-g13-validation-m15.yml"')
           robustness_dispatch = watchdog.index('dispatch_workflow "forexai-g13-robustness-m15.yml"')
           oos_dispatch = watchdog.index("forexai-g13-oos-m15-current.yml/dispatches")
-          assert validation_dispatch < robustness_dispatch < oos_dispatch, (
-              "G13 source evidence must be dispatched before OOS"
+          promotion_dispatch = watchdog.index("forexai-g13-promotion-m15.yml/dispatches")
+          compile_dispatch = watchdog.index("forexai-g13-mt5-compile-parity.yml/dispatches")
+          assert validation_dispatch < robustness_dispatch < oos_dispatch < promotion_dispatch < compile_dispatch, (
+              "G13 source evidence -> OOS -> Promotion -> MT5 ordering is mandatory"
           )
+
+          for token in [
+              'r.get("name")==name',
+              'r.get("head_branch")=="main"',
+              'r.get("head_sha")==target',
+              'r.get("status")=="completed"',
+              'r.get("conclusion")=="success"',
+          ]:
+              assert token in watchdog, f"G13 watchdog exact-SHA resolver token missing: {token}"
+
+          oos = Path(".github/workflows/forexai-g13-oos-m15-current.yml").read_text(encoding="utf-8")
+          assert "research.real_data.histdata_ingest" in oos, "G13 OOS must use canonical HistData ingestion"
+          forbidden_data_plane = [
+              "dukascopy-node",
+              "dukascopy_ingest",
+              "npm install",
+          ]
+          for token in forbidden_data_plane:
+              assert token not in oos, f"G13 OOS forbidden data-plane token reintroduced: {token}"
 
           gate = Path("research/optimization/g13_promotion_gate_m15.py").read_text(encoding="utf-8")
           for token in [
