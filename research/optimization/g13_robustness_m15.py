@@ -30,8 +30,15 @@ def canonical_hash(params: dict[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def metrics(d: pd.DataFrame, p: dict[str, Any]) -> dict[str, Any]:
-    r = np.asarray(trade_returns(d, p), dtype=float)
+def metrics(
+    d: pd.DataFrame,
+    p: dict[str, Any],
+    *,
+    returns: list[float] | None = None,
+) -> dict[str, Any]:
+    # Optional precomputed returns preserve exact formulas while allowing
+    # run() to reuse identical (year, parameter) calculations.
+    r = np.asarray(trade_returns(d, p) if returns is None else returns, dtype=float)
     n = len(r)
     gp = float(r[r > 0].sum()) if n else 0.0
     gl = float(-r[r < 0].sum()) if n else 0.0
@@ -130,16 +137,33 @@ def run(data_path: str, handoff_path: str, output_path: str) -> dict[str, Any]:
     candidates = h.get("candidates", [])
     rows = []
     robust_pass_count = 0
-    for item in candidates:
+    years_data = {y: d[d.index.year == y] for y in YEARS}
+    returns_cache: dict[tuple[int, str], list[float]] = {}
+
+    def cached_returns(year: int, params: dict[str, Any]) -> list[float]:
+        key = (year, canonical_hash(params))
+        if key not in returns_cache:
+            returns_cache[key] = trade_returns(years_data[year], params)
+        return returns_cache[key]
+
+    for item_index, item in enumerate(candidates, start=1):
         center = item["params"]
-        center_yearly = {str(y): metrics(d[d.index.year == y], center) for y in YEARS}
+        center_returns = {y: cached_returns(y, center) for y in YEARS}
+        center_yearly = {
+            str(y): metrics(years_data[y], center, returns=center_returns[y])
+            for y in YEARS
+        }
         center_rs: list[float] = []
         for y in YEARS:
-            center_rs.extend(trade_returns(d[d.index.year == y], center))
+            center_rs.extend(center_returns[y])
         center_stable_years = sum(stable_enough(center_yearly[str(y)]) for y in YEARS)
         neighbors = []
         for q in neighborhood(center):
-            nm = {str(y): metrics(d[d.index.year == y], q) for y in YEARS}
+            neighbor_returns = {y: cached_returns(y, q) for y in YEARS}
+            nm = {
+                str(y): metrics(years_data[y], q, returns=neighbor_returns[y])
+                for y in YEARS
+            }
             stable_pre = sum(stable_enough(nm[str(y)], min_trades=80) for y in PRE_OOS)
             neighbors.append({"params": q, "config_hash": canonical_hash(q), "yearly": nm, "pre_oos_stable_years": stable_pre})
         stable_neighbors = sum(x["pre_oos_stable_years"] == 3 for x in neighbors)
@@ -160,6 +184,13 @@ def run(data_path: str, handoff_path: str, output_path: str) -> dict[str, Any]:
             "robustness_pass": passed,
             "selection_performed": False,
         })
+        print(json.dumps({
+            "phase": "g13_robustness",
+            "candidate": int(item["candidate_id"]),
+            "completed": item_index,
+            "total": len(candidates),
+            "cache_entries": len(returns_cache),
+        }, sort_keys=True))
     report = {
         "schema": "forexai.g13.robustness_m15.v1",
         "status": "PASS",
