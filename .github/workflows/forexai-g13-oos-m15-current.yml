@@ -32,13 +32,328 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Resolve local Python runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = New-Object System.Collections.Generic.List[string]
+          function Add-Candidate([string]$p) {
+            if (-not $p -or $candidates.Contains($p)) { return }
+            try {
+              if (Test-Path -LiteralPath $p -PathType Leaf) { [void]$candidates.Add($p) }
+            } catch [System.UnauthorizedAccessException] {
+              Write-Host "PYTHON_PATH_SKIPPED_ACCESS_DENIED=$p"
+            } catch {
+              Write-Host "PYTHON_PATH_SKIPPED_ERROR=$p :: $($_.Exception.Message)"
+            }
+          }
+
+          $cmd = Get-Command python -ErrorAction SilentlyContinue
+          if ($cmd) { Add-Candidate $cmd.Source }
+
+          $py = Get-Command py -ErrorAction SilentlyContinue
+          if ($py) {
+            try {
+              $candidate = & $py.Source -0p 2>$null | Select-Object -First 1
+              if ($candidate) {
+                $candidate = $candidate.Trim()
+                if ($candidate -match '^\s*(?:-V:)?3\.\d+\s+(.+)
+      - name: Compile
+        run: |
+          python -m py_compile \
+            research/optimization/g13_oos_m15.py \
+            research/optimization/g13_robustness_m15.py \
+            research/optimization/rsi_divergence_discovery_g13.py \
+            research/optimization/execution_contract_v1.py \
+            research/real_data/dukascopy_ingest.py
+
+      - name: Determine latest complete UTC data cutoff from trusted GitHub server time
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          eval "$(python - <<'PY'
+          from datetime import timedelta, timezone
+          import os
+          from email.utils import parsedate_to_datetime
+          from urllib.request import Request, urlopen
+
+          url = "https://api.github.com/repos/afshinsaberone-a11y/grok-ai-trader"
+          token = os.environ["GITHUB_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": "Bearer " + token,
+              "User-Agent": "ForexAI/0.1-real-data-cutoff",
+          }
+          request = Request(url, headers=headers)
+          with urlopen(request, timeout=30) as response:
+              server_date = response.headers.get("Date")
+          if not server_date:
+              raise SystemExit("REAL_DATA_REQUIRED: GitHub API Date header unavailable")
+          current_utc = parsedate_to_datetime(server_date).astimezone(timezone.utc).date()
+          last_complete = current_utc - timedelta(days=1)
+          print(f"END_DATE={current_utc.isoformat()}")
+          print(f"LAST_COMPLETE={last_complete.isoformat()}")
+          print(f"END_TAG={last_complete.strftime('%Y%m%d')}")
+          print(f"TRUSTED_GITHUB_UTC_DATE={current_utc.isoformat()}")
+          PY
+          )"
+          echo "END_DATE=$END_DATE" >> "$GITHUB_ENV"
+          echo "LAST_COMPLETE=$LAST_COMPLETE" >> "$GITHUB_ENV"
+          echo "END_TAG=$END_TAG" >> "$GITHUB_ENV"
+          echo "TRUSTED_GITHUB_UTC_DATE=$TRUSTED_GITHUB_UTC_DATE"
+          echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
+
+      - name: Dukascopy real-feed smoke test on known weekday
+        run: |
+          python - <<'PY'
+          import lzma
+          import json
+          import time
+          from datetime import date
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          day = date(2025, 2, 14)
+          jetta_url = (
+              f"https://jetta.dukascopy.com/v1/candles/minute/EUR-USD/BID/"
+              f"{day.year:04d}/{day.month:02d}/{day.day:02d}"
+          )
+          legacy_url = (
+              f"https://datafeed.dukascopy.com/datafeed/EURUSD/{day.year:04d}/"
+              f"{day.month - 1:02d}/{day.day:02d}/BID_candles_min_1.bi5"
+          )
+          browser_headers = {
+              "User-Agent": (
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+              ),
+              "Accept": "application/json, text/plain, */*",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Accept-Encoding": "identity",
+          }
+
+          last_error = None
+          for attempt in range(1, 4):
+              try:
+                  request = Request(jetta_url, headers=browser_headers)
+                  with urlopen(request, timeout=30) as response:
+                      payload = response.read()
+                  data = json.loads(payload.decode("utf-8"))
+                  required = {
+                      "timestamp", "multiplier", "times", "shift",
+                      "open", "high", "low", "close",
+                      "opens", "highs", "lows", "closes", "volumes",
+                  }
+                  missing = required.difference(data)
+                  assert not missing, f"JETTA schema missing: {sorted(missing)}"
+                  assert len(data["times"]) > 0
+                  assert all(
+                      len(data[k]) == len(data["times"])
+                      for k in ("opens", "highs", "lows", "closes", "volumes")
+                  )
+                  print("DUKASCOPY_SMOKE_OK", "source=JETTA", "candles=", len(data["times"]), "attempt=", attempt)
+                  break
+              except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError, AssertionError) as exc:
+                  last_error = f"{type(exc).__name__}: {exc}"
+                  if attempt < 3:
+                      delay = 2 ** attempt
+                      print(f"JETTA_SMOKE_RETRY attempt={attempt} delay={delay}s error={last_error}")
+                      time.sleep(delay)
+          else:
+              print("JETTA_SMOKE_FALLBACK", "error=", last_error)
+              for attempt in range(1, 4):
+                  try:
+                      request = Request(legacy_url, headers=browser_headers)
+                      with urlopen(request, timeout=30) as response:
+                          payload = response.read()
+                      assert payload, "empty BI5 payload"
+                      decoded = lzma.decompress(payload)
+                      assert len(decoded) > 0 and len(decoded) % 24 == 0
+                      print(
+                          "DUKASCOPY_SMOKE_OK",
+                          "source=legacy-BI5",
+                          "records=", len(decoded) // 24,
+                          "attempt=", attempt,
+                      )
+                      break
+                  except (HTTPError, URLError, TimeoutError, OSError, lzma.LZMAError, AssertionError) as exc:
+                      last_error = f"{type(exc).__name__}: {exc}"
+                      if attempt < 3:
+                          delay = 2 ** attempt
+                          print(f"BI5_SMOKE_RETRY attempt={attempt} delay={delay}s error={last_error}")
+                          time.sleep(delay)
+              else:
+                  raise SystemExit(
+                      "REAL_DATA_REQUIRED: neither Dukascopy JETTA nor legacy BI5 smoke succeeded: "
+                      + str(last_error)
+                  )
+          PY
+      - name: Download REAL EURUSD M1 through latest complete UTC day
+        run: |
+          python -m research.real_data.dukascopy_ingest \
+            --symbol EURUSD --start 2025-01-01 --end "$END_DATE" \
+            --timeframe M1 --output data/real --validate --manifest --resume \
+            --workers 2 --batch-size 5 --batch-pause 2
+
+      - name: Locate dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name "EURUSD_M1_20250101_${END_TAG}.csv" | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "M1_DATASET=$DATA"
+
+      - name: Build M15 OOS dataset from real M1
+        shell: bash
+        run: |
+          DATASET="$DATA" END_TAG="$END_TAG" python - <<'PY'
+          import os
+          import pandas as pd
+          from pathlib import Path
+          from research.real_data.normalizer import resample_ohlcv
+          from research.real_data.validator import validate_ohlcv
+          src=Path(os.environ['DATASET'])
+          d=pd.read_csv(src,parse_dates=['timestamp'])
+          d['timestamp']=pd.to_datetime(d['timestamp'],utc=True)
+          m15=resample_ohlcv(d,'15min')
+          report=validate_ohlcv(m15,symbol='EURUSD',timeframe='M15')
+          if report.status != 'PASS':
+              raise SystemExit(f'REAL_DATA_REQUIRED: M15 validation failed: {report.to_dict()}')
+          out=Path(f"data/real/normalized/EURUSD_M15_20250101_{os.environ['END_TAG']}.csv")
+          m15.to_csv(out,index=False)
+          print(report.to_dict())
+          print('M15_DATASET',out,len(m15))
+          PY
+          echo "DATA=data/real/normalized/EURUSD_M15_20250101_${END_TAG}.csv" >> "$GITHUB_ENV"
+
+      - name: Verify frozen handoff and strict OOS boundary
+        run: |
+          DATASET="$DATA" LAST_COMPLETE="$LAST_COMPLETE" python - <<'PY'
+          import json,os
+          import pandas as pd
+          h=json.load(open('artifacts/g13/frozen/g13-candidate-handoff-m15.json',encoding='utf-8'))
+          assert h['schema_version']=='forexai.g13.candidate_handoff.frozen.v1'
+          assert h['research_symbol']=='EURUSD'
+          assert h['research_timeframe']=='M15'
+          assert h['validation_qualified_count']==16
+          assert len(h['candidates'])==16
+          assert h['oos_policy']=={'loaded':False,'status':'HELD_OUT'}
+          policy=h['handoff_policy']
+          assert policy['parameters_are_frozen'] is True
+          assert policy['oos_optimization_disabled'] is True
+          assert policy['robustness_may_not_select'] is True
+          assert policy['validation_must_approve'] is True
+          for c in h['candidates']:
+              assert c['config_hash']
+          d=pd.read_csv(os.environ['DATASET'])
+          ts=pd.to_datetime(d['timestamp'],utc=True)
+          cutoff=pd.Timestamp(os.environ['LAST_COMPLETE'],tz='UTC') + pd.Timedelta(days=1)
+          oos=d[(ts>=pd.Timestamp('2026-01-01',tz='UTC'))&(ts<cutoff)]
+          assert not oos.empty
+          assert ts.max()<cutoff
+          assert ts.min()<pd.Timestamp('2026-01-01',tz='UTC')
+          print('FROZEN_OOS_INPUT_OK',len(h['candidates']),len(oos),ts.min().isoformat(),ts.max().isoformat(),'cutoff=',cutoff.isoformat())
+          PY
+
+      - name: Run independent G13 2026 OOS
+        run: |
+          python -m research.optimization.g13_oos_m15 \
+            --data "$DATA" \
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
+            --output artifacts/g13-oos-m15-2026.json
+
+      - name: Fail closed OOS gate
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('artifacts/g13-oos-m15-2026.json',encoding='utf-8'))
+          assert r['real_data_only'] is True
+          assert r['research_scope']['timeframe']=='M15'
+          assert r['research_scope']['evaluation_year']==2026
+          assert r['candidate_count']==16
+          assert r['selection_performed'] is False
+          assert r['optimization_enabled'] is False
+          assert r['parameters_frozen'] is True
+          assert r['oos']['status']=='EVALUATED'
+          assert r['oos']['optimization_allowed'] is False
+          assert r['oos']['selection_allowed'] is False
+          assert r['promotion_gate']['ea_generation_allowed'] is False
+          print('G13_OOS_FAIL_CLOSED_OK')
+          print('OOS_PASS',r.get('oos_pass_count'))
+          print('OOS_IDS',[x['candidate_id'] for x in r['candidates'] if x.get('oos_pass')])
+          PY
+
+      - name: Upload OOS evidence
+        uses: actions/upload-artifact@v4
         with:
-          python-version: '3.12'
+          name: g13-oos-m15-2026-current
+          path: |
+            artifacts/g13/frozen/g13-candidate-handoff-m15.json
+            artifacts/g13-oos-m15-2026.json
+          if-no-files-found: error
+# Refresh marker 2026-10-06: trigger exact-SHA evidence refresh after resolver fix.
+# Exact-SHA refresh 2026-10-06: regenerate official evidence after Promotion candidate-scope hardening.
+# Exact-SHA final refresh 2026-10-06: regenerate all G13 evidence and static validation on the same main commit.
+# Exact-SHA post-MT5-workflow-repair refresh 2026-10-06: rebuild G13 source evidence and static validation on the repaired MT5 workflow.
+# Final source-evidence refresh 2026-10-06: rebuild G13 Validation/Robustness/OOS/Static on the same main SHA after event-driven CI hardening.
+# Final G13 source refresh 2026-10-06: rebuild evidence on current main after CI backlog hardening.
+# Post-parity-fix exact-SHA refresh 2026-10-06: regenerate G13 source evidence and static validation after the MQL5 marker hardening.
+# Final G13 refresh 2026-10-06: rebuild exact-SHA Validation/Robustness/OOS/Static after MT5 Promotion-manifest binding fix.
+# Trigger hardening: run OOS on every main push; downstream gates remain exact-SHA fail-closed.
+) {
+                  $candidate = $Matches[1].Trim()
+                }
+                Add-Candidate $candidate
+              }
+            } catch {
+              Write-Host "PYTHON_LAUNCHER_DISCOVERY_FAILED=$($_.Exception.Message)"
+            }
+          }
+
+          foreach ($userRoot in @('C:\Users\Star', $env:USERPROFILE)) {
+            if ($userRoot -and (Test-Path -LiteralPath $userRoot -PathType Container)) {
+              foreach ($ver in 'Python313','Python312','Python311') {
+                Add-Candidate "$userRoot\AppData\Local\Programs\Python\$ver\python.exe"
+                Add-Candidate "$userRoot\AppData\Programs\Python\$ver\python.exe"
+              }
+            }
+          }
+
+          Add-Candidate 'C:\Program Files\Python313\python.exe'
+          Add-Candidate 'C:\Program Files\Python312\python.exe'
+          Add-Candidate 'C:\Program Files\Python311\python.exe'
+          Add-Candidate 'C:\ProgramData\Anaconda3\python.exe'
+          Add-Candidate 'C:\ProgramData\Miniconda3\python.exe'
+
+          foreach ($candidate in $candidates) {
+            try {
+              $version = (& $candidate -c "import sys; print('.'.join(map(str,sys.version_info[:3])))" 2>&1 | Select-Object -Last 1).Trim()
+              if ($LASTEXITCODE -eq 0 -and $version -match '^3\.(11|12|13)(?:\.|$)') {
+                $pythonDir = Split-Path -Parent $candidate
+                Write-Host "PYTHON=$candidate"
+                Write-Host "PYTHON_VERSION=$version"
+                "PYTHON_EXE=$candidate" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+                $pythonDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                break
+              }
+            } catch {
+              Write-Host "PYTHON_EXECUTION_SKIPPED=$candidate :: $($_.Exception.Message)"
+            }
+          }
+
+          if (-not (Get-Content $env:GITHUB_ENV -ErrorAction SilentlyContinue | Select-String '^PYTHON_EXE=')) {
+            Write-Host 'PYTHON_CANDIDATES=' ($candidates -join ';')
+            throw 'Python 3.11+ not found on the self-hosted runner.'
+          }
 
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:PYTHON_EXE -m pip install -r requirements.txt
 
       - name: Compile
         run: |
