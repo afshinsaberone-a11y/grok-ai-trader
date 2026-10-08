@@ -61,15 +61,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $sha = git rev-parse HEAD
-          $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=50" | ConvertFrom-Json
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $base = "https://api.github.com/repos/$env:GITHUB_REPOSITORY"
+          $runsUrl = "$base/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=50"
+          $runs = Invoke-RestMethod -Method Get -Uri $runsUrl -Headers $headers
           $matches = @($runs.workflow_runs | Where-Object { $_.head_branch -eq 'main' -and $_.head_sha -eq $sha -and $_.name -eq 'ForexAI G13 Final Promotion M15' })
           if ($matches.Count -ne 1) { throw "G13_EXACT_PROMOTION_RUN_NOT_FOUND" }
           $promotionRun = $matches[0]
-          $artifactList = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($promotionRun.id)/artifacts" | ConvertFrom-Json
+          $artifactUrl = "$base/actions/runs/$($promotionRun.id)/artifacts"
+          $artifactList = Invoke-RestMethod -Method Get -Uri $artifactUrl -Headers $headers
           $artifact = @($artifactList.artifacts | Where-Object { $_.name -eq 'g13-promotion-manifest-m15' -and !$_.expired })
           if ($artifact.Count -ne 1) { throw "G13_PROMOTION_ARTIFACT_NOT_FOUND" }
           New-Item -ItemType Directory -Force -Path evidence/g13-promotion | Out-Null
-          gh api --method GET "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($artifact[0].id)/zip" --output evidence/g13-promotion/source.zip
+          $zipUrl = "$base/actions/artifacts/$($artifact[0].id)/zip"
+          Invoke-WebRequest -Method Get -Uri $zipUrl -Headers $headers -OutFile evidence/g13-promotion/source.zip
           $actual = (Get-FileHash evidence/g13-promotion/source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $expected = ([string]$artifact[0].digest).Split(':')[-1].ToLowerInvariant()
           if ($actual -ne $expected) { throw "G13_PROMOTION_ARTIFACT_DIGEST_MISMATCH" }
