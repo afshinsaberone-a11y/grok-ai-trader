@@ -215,6 +215,29 @@ jobs:
           ]:
               assert token in promotion, f"promotion provenance token missing: {token}"
 
+          oos = Path(".github/workflows/forexai-g13-oos-m15-current.yml").read_text(encoding="utf-8")
+          for token in [
+              "actions/cache/restore@v4",
+              "actions/cache/save@v4",
+              "forexai-dukascopy-node-cache-",
+              "runner.os",
+              "github.sha",
+              "github.run_id",
+              "-ch",
+              "-chpath data/real/node-cache",
+          ]:
+              assert token in oos, f"G13 Node persistent-cache token missing: {token}"
+
+          for token in [
+              "dukascopy-node@1.50.0",
+              "-bs 1",
+              "-bp 5000",
+              "-bs 2",
+              "-r 8",
+              "-rp 10000",
+          ]:
+              assert token in oos, f"G13 Node transport hardening token missing: {token}"
+
           watchdog = Path(".github/workflows/forexai-g13-oos-watchdog-m15.yml").read_text(encoding="utf-8")
           for token in [
               "actions: write",

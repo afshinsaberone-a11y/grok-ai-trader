@@ -180,6 +180,13 @@ jobs:
         run: |
           npm install --no-save --ignore-scripts dukascopy-node@1.50.0
 
+      - name: Restore Dukascopy Node historical cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/real/node-cache
+          key: forexai-dukascopy-node-cache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            forexai-dukascopy-node-cache-${{ runner.os }}-
       - name: Dukascopy Node real-feed smoke test
         run: |
           rm -rf data/real/node-smoke
@@ -192,12 +199,14 @@ jobs:
             -p bid \
             -f csv \
             -dir data/real/node-smoke \
+            -ch \
+            -chpath data/real/node-cache \
             -fn EURUSD_M1_SMOKE.csv \
-            -bs 5 \
-            -bp 2000 \
-            -r 4 \
+            -bs 1 \
+            -bp 5000 \
+            -r 8 \
             -re \
-            -rp 3000
+            -rp 10000
           test -s data/real/node-smoke/EURUSD_M1_SMOKE.csv
           python - <<'PY'
           import pandas as pd
@@ -213,6 +222,12 @@ jobs:
           print("DUKASCOPY_NODE_SMOKE_OK", len(d), d.iloc[0]["timestamp"], d.iloc[-1]["timestamp"])
           PY
 
+      - name: Save Dukascopy Node historical cache after smoke
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/real/node-cache
+          key: forexai-dukascopy-node-cache-${{ runner.os }}-${{ github.sha }}
       - name: Download REAL EURUSD M1 through latest complete UTC day
         run: |
           rm -rf data/real/node
@@ -226,14 +241,22 @@ jobs:
             -f csv \
             -v \
             -dir data/real/node \
+            -ch \
+            -chpath data/real/node-cache \
             -fn "EURUSD_M1_20250101_${END_TAG}.csv" \
-            -bs 5 \
-            -bp 2000 \
-            -r 5 \
+            -bs 2 \
+            -bp 5000 \
+            -r 8 \
             -re \
-            -rp 3000
+            -rp 10000
           test -s "data/real/node/EURUSD_M1_20250101_${END_TAG}.csv"
 
+      - name: Save Dukascopy Node historical cache after acquisition
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/real/node-cache
+          key: forexai-dukascopy-node-cache-${{ runner.os }}-${{ github.run_id }}
       - name: Normalize and validate Dukascopy Node M1 dataset
         run: |
           RAW="data/real/node/EURUSD_M1_20250101_${END_TAG}.csv"
