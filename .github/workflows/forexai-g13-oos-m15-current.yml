@@ -102,21 +102,57 @@ jobs:
         run: |
           DATASET_URL='https://jetta.dukascopy.com/v1/candles/minute/EUR-USD/BID/2025/02/14'
           DATASET_URL="$DATASET_URL" python - <<'PY'
-          import json, os
+          import json, os, time
+          from urllib.error import HTTPError, URLError
           from urllib.request import Request, urlopen
-          url=os.environ['DATASET_URL']
-          request=Request(url,headers={'User-Agent':'ForexAI/0.1 real-data-ingestion','Accept':'application/json'})
-          with urlopen(request,timeout=30) as response:
-              payload=response.read()
-          data=json.loads(payload.decode('utf-8'))
-          required={'timestamp','multiplier','times','shift','open','high','low','close','opens','highs','lows','closes','volumes'}
-          missing=required.difference(data)
-          assert not missing, f'JETTA schema missing: {sorted(missing)}'
-          assert len(data['times']) > 0
-          assert all(len(data[k]) == len(data['times']) for k in ('opens','highs','lows','closes','volumes'))
-          print('JETTA_SMOKE_OK',url,'candles=',len(data['times']))
-          PY
 
+          url = os.environ['DATASET_URL']
+          last_error = None
+          for attempt in range(1, 6):
+              try:
+                  request = Request(
+                      url,
+                      headers={
+                          'User-Agent': 'ForexAI/0.1 real-data-ingestion',
+                          'Accept': 'application/json',
+                          'Accept-Encoding': 'identity',
+                      },
+                  )
+                  with urlopen(request, timeout=30) as response:
+                      content_type = response.headers.get('Content-Type', '')
+                      payload = response.read()
+                  data = json.loads(payload.decode('utf-8'))
+                  required = {
+                      'timestamp', 'multiplier', 'times', 'shift',
+                      'open', 'high', 'low', 'close',
+                      'opens', 'highs', 'lows', 'closes', 'volumes',
+                  }
+                  missing = required.difference(data)
+                  assert not missing, f'JETTA schema missing: {sorted(missing)}'
+                  assert len(data['times']) > 0
+                  assert all(
+                      len(data[k]) == len(data['times'])
+                      for k in ('opens', 'highs', 'lows', 'closes', 'volumes')
+                  )
+                  print(
+                      'JETTA_SMOKE_OK',
+                      url,
+                      'candles=', len(data['times']),
+                      'content_type=', content_type,
+                      'attempt=', attempt,
+                  )
+                  break
+              except HTTPError as exc:
+                  last_error = f'HTTP {exc.code}: {exc.reason}'
+              except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                  last_error = f'{type(exc).__name__}: {exc}'
+              if attempt < 5:
+                  delay = min(12, 2 ** attempt)
+                  print(f'JETTA_SMOKE_RETRY attempt={attempt} delay={delay}s error={last_error}')
+                  time.sleep(delay)
+          else:
+              raise SystemExit(f'REAL_DATA_REQUIRED: JETTA smoke failed after 5 attempts: {last_error}')
+          PY
       - name: Download REAL EURUSD M1 through latest complete UTC day
         run: |
           python -m research.real_data.dukascopy_ingest \
