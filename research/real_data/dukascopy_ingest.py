@@ -13,7 +13,6 @@ import json
 import logging
 import lzma
 import struct
-import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -96,6 +95,7 @@ class DukascopyM1Ingestor:
             return True
 
         last_error: Exception | None = None
+        retry_after: str | None = None
         for attempt in range(1, self.retries + 1):
             tmp = destination.with_suffix(destination.suffix + ".part")
             try:
@@ -116,6 +116,7 @@ class DukascopyM1Ingestor:
                 return True
             except HTTPError as exc:
                 last_error = exc
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 if exc.code == 404:
                     if self._is_weekend(day):
                         LOGGER.info("No JETTA source for weekend %s", day.isoformat())
@@ -153,11 +154,12 @@ class DukascopyM1Ingestor:
                 last_error = exc
             except (URLError, TimeoutError, OSError) as exc:
                 last_error = exc
+                retry_after = None
 
             if tmp.exists():
                 tmp.unlink()
             if attempt < self.retries:
-                delay = min(8.0, 1.5 * (2 ** (attempt - 1))) + random.uniform(0.0, 0.5)
+                delay = DukascopyM1Ingestor._retry_delay(attempt, retry_after)
                 LOGGER.warning(
                     "Transient JETTA failure for %s (attempt %d/%d); retrying in %.2fs: %s",
                     day.isoformat(), attempt, self.retries, delay, last_error,
@@ -175,6 +177,17 @@ class DukascopyM1Ingestor:
             f"{self.retries} attempts: {url}: {last_error}"
         )
 
+    @staticmethod
+    def _retry_delay(attempt: int, retry_after: str | None = None) -> float:
+        if retry_after:
+            try:
+                hinted = float(retry_after.strip())
+                if hinted >= 0:
+                    return min(60.0, hinted)
+            except ValueError:
+                pass
+        return min(15.0, 2.0 ** (attempt - 1))
+
     def _download_legacy(self, destination: Path, *, day: date, force: bool = False) -> bool:
         url = self.legacy_url_for(day)
         if destination.exists() and destination.stat().st_size > 0 and not force:
@@ -182,6 +195,7 @@ class DukascopyM1Ingestor:
             return True
 
         last_error: Exception | None = None
+        retry_after: str | None = None
         for attempt in range(1, self.retries + 1):
             tmp = destination.with_suffix(destination.suffix + ".part")
             try:
@@ -205,6 +219,7 @@ class DukascopyM1Ingestor:
                 return True
             except HTTPError as exc:
                 last_error = exc
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 if exc.code == 404:
                     if tmp.exists():
                         tmp.unlink()
@@ -216,11 +231,12 @@ class DukascopyM1Ingestor:
                     ) from exc
             except (URLError, TimeoutError, OSError, lzma.LZMAError, DukascopyIngestError) as exc:
                 last_error = exc
+                retry_after = None
 
             if tmp.exists():
                 tmp.unlink()
             if attempt < self.retries:
-                delay = min(8.0, 1.5 * (2 ** (attempt - 1)))
+                delay = self._retry_delay(attempt, retry_after)
                 LOGGER.warning(
                     "Transient Dukascopy BI5 failure for %s (attempt %d/%d); retrying in %.2fs: %s",
                     day.isoformat(), attempt, self.retries, delay, last_error,
