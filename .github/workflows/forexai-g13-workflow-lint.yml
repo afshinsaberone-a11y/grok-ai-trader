@@ -218,13 +218,25 @@ jobs:
           watchdog = Path(".github/workflows/forexai-g13-oos-watchdog-m15.yml").read_text(encoding="utf-8")
           for token in [
               "actions: write",
-              'dispatch_workflow "forexai-g13-oos-m15-current.yml"',
-              'dispatch_workflow "forexai-g13-promotion-m15.yml"',
-              'dispatch_workflow "forexai-g13-oos-compile-dispatcher-m15.yml"',
+              'dispatch_workflow "forexai-g13-validation-m15.yml"',
+              'dispatch_workflow "forexai-g13-robustness-m15.yml"',
+              "forexai-g13-oos-m15-current.yml/dispatches",
+              "forexai-g13-promotion-m15.yml/dispatches",
+              "forexai-g13-mt5-compile-parity.yml/dispatches",
+              "G13_SOURCE_PRODUCERS_DISPATCHED=true",
+              "G13_EXACT_SOURCE_EVIDENCE_READY=true",
               "G13_OOS_SUCCESS_RESOLVED=true",
+              "G13_PROMOTION_SUCCESS_RESOLVED=true",
               "G13_WATCHDOG_MAIN_MOVED_DURING_OOS=true",
           ]:
               assert token in watchdog, f"G13 watchdog explicit-dispatch token missing: {token}"
+
+          validation_dispatch = watchdog.index('dispatch_workflow "forexai-g13-validation-m15.yml"')
+          robustness_dispatch = watchdog.index('dispatch_workflow "forexai-g13-robustness-m15.yml"')
+          oos_dispatch = watchdog.index("forexai-g13-oos-m15-current.yml/dispatches")
+          assert validation_dispatch < robustness_dispatch < oos_dispatch, (
+              "G13 source evidence must be dispatched before OOS"
+          )
 
           gate = Path("research/optimization/g13_promotion_gate_m15.py").read_text(encoding="utf-8")
           for token in [
