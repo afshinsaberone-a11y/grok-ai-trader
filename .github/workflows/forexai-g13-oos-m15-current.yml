@@ -45,7 +45,7 @@ jobs:
             research/optimization/g13_oos_m15.py \
             research/optimization/g13_robustness_m15.py \
             research/optimization/rsi_divergence_discovery_g13.py \
-            research/optimization/execution_contract_v1.py \
+            research/optimization/execution_contract_v1.py
 
       - name: Determine latest complete UTC data cutoff from trusted GitHub server time
         shell: bash
@@ -79,9 +79,11 @@ jobs:
           print(f"TRUSTED_GITHUB_UTC_DATE={current_utc.isoformat()}")
           PY
           )"
-          echo "END_DATE=$END_DATE" >> "$GITHUB_ENV"
-          echo "LAST_COMPLETE=$LAST_COMPLETE" >> "$GITHUB_ENV"
-          echo "END_TAG=$END_TAG" >> "$GITHUB_ENV"
+          {
+            echo "END_DATE=$END_DATE"
+            echo "LAST_COMPLETE=$LAST_COMPLETE"
+            echo "END_TAG=$END_TAG"
+          } >> "$GITHUB_ENV"
           echo "TRUSTED_GITHUB_UTC_DATE=$TRUSTED_GITHUB_UTC_DATE"
           echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
 
