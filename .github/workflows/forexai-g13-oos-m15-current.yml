@@ -39,6 +39,11 @@ jobs:
 
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
 
       - name: Compile
         run: |
@@ -172,12 +177,127 @@ jobs:
                       + str(last_error)
                   )
           PY
+      - name: Install pinned Dukascopy Node downloader
+        run: |
+          npm install --no-save --ignore-scripts dukascopy-node@1.50.0
+
+      - name: Dukascopy Node real-feed smoke test
+        run: |
+          rm -rf data/real/node-smoke
+          mkdir -p data/real/node-smoke
+          npx --no-install dukascopy-node \
+            -i eurusd \
+            -from 2025-02-14 \
+            -to 2025-02-15 \
+            -t m1 \
+            -p bid \
+            -f csv \
+            -dir data/real/node-smoke \
+            -fn EURUSD_M1_SMOKE.csv \
+            -bs 5 \
+            -bp 2000 \
+            -r 4 \
+            -re \
+            -rp 3000
+          test -s data/real/node-smoke/EURUSD_M1_SMOKE.csv
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          p=Path("data/real/node-smoke/EURUSD_M1_SMOKE.csv")
+          d=pd.read_csv(p)
+          required={"timestamp","open","high","low","close","volume"}
+          missing=sorted(required-set(d.columns))
+          if missing:
+              raise SystemExit(f"REAL_DATA_REQUIRED: dukascopy-node smoke schema missing {missing}")
+          if d.empty:
+              raise SystemExit("REAL_DATA_REQUIRED: dukascopy-node smoke returned empty CSV")
+          print("DUKASCOPY_NODE_SMOKE_OK", len(d), d.iloc[0]["timestamp"], d.iloc[-1]["timestamp"])
+          PY
+
       - name: Download REAL EURUSD M1 through latest complete UTC day
         run: |
-          python -m research.real_data.dukascopy_ingest \
-            --symbol EURUSD --start 2025-01-01 --end "$END_DATE" \
-            --timeframe M1 --output data/real --validate --manifest --resume \
-            --workers 2 --batch-size 5 --batch-pause 2
+          rm -rf data/real/node
+          mkdir -p data/real/node
+          npx --no-install dukascopy-node \
+            -i eurusd \
+            -from 2025-01-01 \
+            -to "$END_DATE" \
+            -t m1 \
+            -p bid \
+            -f csv \
+            -v \
+            -dir data/real/node \
+            -fn "EURUSD_M1_20250101_${END_TAG}.csv" \
+            -bs 5 \
+            -bp 2000 \
+            -r 5 \
+            -re \
+            -rp 3000
+          test -s "data/real/node/EURUSD_M1_20250101_${END_TAG}.csv"
+
+      - name: Normalize and validate Dukascopy Node M1 dataset
+        run: |
+          RAW="data/real/node/EURUSD_M1_20250101_${END_TAG}.csv"
+          NORMALIZED="data/real/normalized/EURUSD_M1_20250101_${END_TAG}.csv"
+          MANIFEST="data/real/normalized/EURUSD_M1_20250101_${END_TAG}.manifest.json"
+          RAW="$RAW" NORMALIZED="$NORMALIZED" MANIFEST="$MANIFEST" END_TAG="$END_TAG" LAST_COMPLETE="$LAST_COMPLETE" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import numpy as np
+          import pandas as pd
+
+          from research.real_data.manifest import build_manifest, sha256_file
+          from research.real_data.normalizer import canonicalize_ohlcv
+          from research.real_data.validator import validate_ohlcv
+
+          raw=Path(os.environ["RAW"])
+          out=Path(os.environ["NORMALIZED"])
+          manifest=Path(os.environ["MANIFEST"])
+
+          d=pd.read_csv(raw)
+          required={"timestamp","open","high","low","close","volume"}
+          missing=sorted(required-set(d.columns))
+          if missing:
+              raise SystemExit(f"REAL_DATA_REQUIRED: dukascopy-node CSV missing columns {missing}")
+          if d.empty:
+              raise SystemExit("REAL_DATA_REQUIRED: dukascopy-node produced an empty M1 dataset")
+
+          ts_numeric=pd.to_numeric(d["timestamp"],errors="coerce")
+          if ts_numeric.isna().any():
+              raise SystemExit("REAL_DATA_REQUIRED: non-numeric epoch timestamps in dukascopy-node CSV")
+          d["timestamp"]=pd.to_datetime(ts_numeric,unit="ms",utc=True,errors="raise")
+          d["spread"]=np.nan
+
+          source=canonicalize_ohlcv(d,symbol="EURUSD",source="Dukascopy/dukascopy-node@1.50.0")
+          report=validate_ohlcv(source,symbol="EURUSD",timeframe="M1",require_complete_bars=False)
+          if report.status!="PASS":
+              raise SystemExit("REAL_DATA_REQUIRED: normalized M1 quality validation failed: "+json.dumps(report.to_dict(),ensure_ascii=False))
+
+          cutoff=pd.Timestamp(os.environ["LAST_COMPLETE"],tz="UTC")+pd.Timedelta(days=1)
+          ts=source["timestamp"]
+          if ts.min()>=pd.Timestamp("2026-01-01",tz="UTC"):
+              raise SystemExit("REAL_DATA_REQUIRED: source does not contain pre-OOS history")
+          if ts.max()>=cutoff:
+              raise SystemExit(f"REAL_DATA_REQUIRED: M1 dataset crosses trusted cutoff {cutoff.isoformat()}")
+
+          out.parent.mkdir(parents=True,exist_ok=True)
+          source.to_csv(out,index=False)
+          raw_hash=sha256_file(raw)
+          build_manifest(
+              source,
+              dataset_id="20250101_"+os.environ["END_TAG"],
+              symbol="EURUSD",
+              timeframe="M1",
+              source="Dukascopy/dukascopy-node@1.50.0",
+              source_hash=raw_hash,
+              quality_status=report.status,
+              output_path=manifest,
+              dataset_path=out,
+          )
+          print("DUKASCOPY_NODE_M1_NORMALIZED_OK",len(source),source["timestamp"].min().isoformat(),source["timestamp"].max().isoformat(),"raw_sha256=",raw_hash)
+          PY
 
       - name: Locate dataset
         shell: bash
