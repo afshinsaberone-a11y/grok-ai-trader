@@ -16,6 +16,7 @@ on:
     paths:
       - research/optimization/g13_robustness_m15.py
       - research/optimization/g13_validation_m15.py
+      - research/optimization/g13_demo_readiness_gate_m15.py
       - research/optimization/rsi_divergence_discovery_g13.py
       - research/optimization/execution_contract_v1.py
       - artifacts/g13/frozen/g13-candidate-handoff-m15.json

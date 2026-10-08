@@ -13,6 +13,7 @@ on:
     paths:
       - research/optimization/g13_validation_m15.py
       - research/optimization/rsi_divergence_discovery_g13.py
+      - research/optimization/g13_demo_readiness_gate_m15.py
       - .github/workflows/forexai-g13-*.yml
       - .github/workflows/forexai-g13-validation-m15.yml
       - .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
