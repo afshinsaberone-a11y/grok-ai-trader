@@ -86,7 +86,6 @@ jobs:
           Write-Host "PYTHON_VERSION=$version"
 
       - name: Install dependencies
-        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m pip install -r requirements.txt
