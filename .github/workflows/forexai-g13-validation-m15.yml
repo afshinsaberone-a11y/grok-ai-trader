@@ -15,6 +15,7 @@ on:
       - research/optimization/rsi_divergence_discovery_g13.py
       - .github/workflows/forexai-g13-*.yml
       - .github/workflows/forexai-g13-validation-m15.yml
+      - .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
 
 concurrency:
   group: g13-validation-m15
