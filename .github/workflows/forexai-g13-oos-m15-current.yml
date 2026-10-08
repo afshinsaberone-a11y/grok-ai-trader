@@ -23,6 +23,10 @@ permissions:
   contents: read
   actions: read
 
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+
 jobs:
   g13-oos:
     name: G13 2026 OOS M15 Current
