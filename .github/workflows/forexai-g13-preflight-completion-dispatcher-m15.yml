@@ -90,7 +90,9 @@ jobs:
             esac
           done
           test -n "$runtime_id"
-          echo "RUNTIME_RUN_ID=$runtime_id" >> "$GITHUB_ENV"
+          {
+            echo "RUNTIME_RUN_ID=$runtime_id"
+          } >> "$GITHUB_ENV"
           echo "RUNTIME_FRESH_EXACT_SUCCESS=$runtime_id SHA=$TARGET_SHA"
 
       - name: Resolve exact current safety, parity, promotion
@@ -115,9 +117,11 @@ jobs:
             python -c 'import json,sys; x=json.load(sys.stdin); assert x["status"]=="completed" and x["conclusion"]=="success"; assert x["head_sha"]==sys.argv[1] and x["head_branch"]=="main"; print("EXACT_SOURCE_OK",x["id"],x["name"],x["head_sha"])' "$TARGET_SHA" <<< "$json"
           done
 
-          echo "SAFETY_RUN_ID=$safety_id" >> "$GITHUB_ENV"
-          echo "PARITY_RUN_ID=$parity_id" >> "$GITHUB_ENV"
-          echo "PROMOTION_RUN_ID=$promotion_id" >> "$GITHUB_ENV"
+          {
+            echo "SAFETY_RUN_ID=$safety_id"
+            echo "PARITY_RUN_ID=$parity_id"
+            echo "PROMOTION_RUN_ID=$promotion_id"
+          } >> "$GITHUB_ENV"
 
       - name: Dispatch Demo Readiness only after completed preflight
         env:
