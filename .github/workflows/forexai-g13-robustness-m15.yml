@@ -23,6 +23,7 @@ on:
       - .github/workflows/forexai-g13-*.yml
       - .github/workflows/forexai-g13-robustness-m15.yml
       - .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
+      - research/optimization/g13_demo_readiness_gate_m15.py
 
 concurrency:
   group: g13-robustness-m15
