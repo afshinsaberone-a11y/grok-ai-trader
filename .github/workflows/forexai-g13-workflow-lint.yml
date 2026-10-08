@@ -249,6 +249,9 @@ jobs:
               workflow_text = Path(workflow_name).read_text(encoding="utf-8")
               assert "PYTHONOPTIMIZE: '0'" in workflow_text, f"optimized Python not blocked in workflow: {workflow_name}"
 
+          oos = Path(".github/workflows/forexai-g13-oos-m15-current.yml").read_text(encoding="utf-8")
+          assert "cache: npm" not in oos, "OOS Node setup must not require a package-lock.json cache"
+
           for gate_name in [
               "research/optimization/g13_promotion_gate_m15.py",
               "research/optimization/g13_demo_readiness_gate_m15.py",
