@@ -99,6 +99,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml
+          ./actionlint .github/workflows/forexai-g13-preflight-completion-dispatcher-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
 
       - name: Compile all G13 Python gates
@@ -345,18 +346,28 @@ jobs:
           assert "synthetic_data" in harness and 'false' in harness, "synthetic-data contract missing"
 
           readiness = Path("research/optimization/g13_demo_readiness_gate_m15.py").read_text(encoding="utf-8")
-          readiness_workflow = Path(".github/workflows/forexai-g13-demo-readiness-gate-m15.yml").read_text(encoding="utf-8")
+          readiness_workflow = Path("$.github/workflows/forexai-g13-demo-readiness-gate-m15.yml").read_text(encoding="utf-8")
+          preflight_workflow = Path("$.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
+          completion_dispatcher = Path("$.github/workflows/forexai-g13-preflight-completion-dispatcher-m15.yml").read_text(encoding="utf-8")
           for token in [
               "promotion_run_id",
               "preflight_run_id",
               "g13-controlled-demo-package-preflight-m15",
-              "latest_success_exact",
-              "local target_sha=\"$2\"",
-              "github.event.workflow_run.name == 'ForexAI G13 Controlled Demo Package Preflight M15'",
+              "if: ${{ github.event_name == 'workflow_dispatch' }}",
+              '[ "$sha" = "$MAIN_SHA" ] ||',
               "download_exact_artifact",
               "G13_EVIDENCE_ARTIFACTS_BYTE_BOUND=true",
           ]:
               assert token in readiness_workflow, f"readiness workflow binding token missing: {token}"
+          assert "Dispatch Demo Readiness Gate explicitly" not in preflight_workflow
+          for token in [
+              "ForexAI G13 Controlled Demo Package Preflight M15",
+              "FRESH_RUNTIME_PROBE_DISPATCHED=true",
+              "Resolve fresh exact-SHA Runtime Safety Probe",
+              "G13_DEMO_READINESS_DISPATCHED=true",
+          ]:
+              assert token in completion_dispatcher, f"preflight completion dispatcher token missing: {token}"
+
           for token in [
               'PROMOTION_FILE = "artifacts/g13/g13-promotion-manifest-m15.json"',
               'HANDOFF_FILE = "artifacts/g13/frozen/g13-candidate-handoff-m15.json"',
