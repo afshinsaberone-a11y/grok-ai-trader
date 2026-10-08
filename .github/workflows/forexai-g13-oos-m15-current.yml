@@ -193,11 +193,11 @@ jobs:
             -f csv \
             -dir data/real/node-smoke \
             -fn EURUSD_M1_SMOKE.csv \
-            -bs 5 \
-            -bp 2000 \
-            -r 4 \
+            -bs 1 \
+            -bp 5000 \
+            -r 8 \
             -re \
-            -rp 3000
+            -rp 10000
           test -s data/real/node-smoke/EURUSD_M1_SMOKE.csv
           python - <<'PY'
           import pandas as pd
@@ -227,11 +227,11 @@ jobs:
             -v \
             -dir data/real/node \
             -fn "EURUSD_M1_20250101_${END_TAG}.csv" \
-            -bs 5 \
-            -bp 2000 \
-            -r 5 \
+            -bs 2 \
+            -bp 5000 \
+            -r 8 \
             -re \
-            -rp 3000
+            -rp 10000
           test -s "data/real/node/EURUSD_M1_20250101_${END_TAG}.csv"
 
       - name: Normalize and validate Dukascopy Node M1 dataset
