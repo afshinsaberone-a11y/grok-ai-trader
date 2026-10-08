@@ -133,7 +133,25 @@ class DukascopyM1Ingestor:
                     raise DukascopyIngestError(
                         f"Non-retryable Dukascopy HTTP {exc.code}: {url}"
                     ) from exc
-            except (URLError, TimeoutError, OSError, json.JSONDecodeError, DukascopyIngestError) as exc:
+            except json.JSONDecodeError as exc:
+                if tmp.exists():
+                    tmp.unlink()
+                raise DukascopyIngestError(
+                    f"REAL_DATA_REQUIRED: invalid JETTA JSON payload for {day.isoformat()}: {url}"
+                ) from exc
+            except UnicodeDecodeError as exc:
+                if tmp.exists():
+                    tmp.unlink()
+                raise DukascopyIngestError(
+                    f"REAL_DATA_REQUIRED: non-text JETTA payload for {day.isoformat()}: {url}"
+                ) from exc
+            except DukascopyIngestError as exc:
+                if tmp.exists():
+                    tmp.unlink()
+                if str(exc).startswith("Empty Dukascopy response:"):
+                    raise
+                last_error = exc
+            except (URLError, TimeoutError, OSError) as exc:
                 last_error = exc
 
             if tmp.exists():

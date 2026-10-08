@@ -7,6 +7,7 @@ name: ForexAI G13 OOS M15
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - research/optimization/g13_oos_m15.py
       - research/optimization/g13_robustness_m15.py
@@ -23,8 +24,8 @@ permissions:
 jobs:
   g13-oos:
     name: G13 2026 OOS M15
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,31 +43,90 @@ jobs:
             research/optimization/rsi_divergence_discovery_g13.py \
             research/optimization/execution_contract_v1.py \
             research/real_data/dukascopy_ingest.py
-      - name: JETTA API smoke test on known real weekday
+      - name: Dukascopy real-feed smoke test on known weekday
         run: |
-          DATASET_URL='https://jetta.dukascopy.com/v1/candles/minute/EUR-USD/BID/2025/02/14'
-          DATASET_URL="$DATASET_URL" python - <<'PY'
+          python - <<'PY'
           import json
-          import os
+          import lzma
+          import time
+          from datetime import date
+          from urllib.error import HTTPError, URLError
           from urllib.request import Request, urlopen
 
-          url=os.environ['DATASET_URL']
-          request=Request(url,headers={'User-Agent':'ForexAI/0.1 real-data-ingestion','Accept':'application/json'})
-          with urlopen(request,timeout=30) as response:
-              payload=response.read()
-          data=json.loads(payload.decode('utf-8'))
-          required={'timestamp','multiplier','times','shift','open','high','low','close','opens','highs','lows','closes','volumes'}
-          missing=required.difference(data)
-          assert not missing, f'JETTA schema missing: {sorted(missing)}'
-          assert len(data['times']) > 0
-          assert all(len(data[k]) == len(data['times']) for k in ('opens','highs','lows','closes','volumes'))
-          print('JETTA_SMOKE_OK', url, 'candles=', len(data['times']))
+          day = date(2025, 2, 14)
+          jetta_url = (
+              f"https://jetta.dukascopy.com/v1/candles/minute/EUR-USD/BID/"
+              f"{day.year:04d}/{day.month:02d}/{day.day:02d}"
+          )
+          legacy_url = (
+              f"https://datafeed.dukascopy.com/datafeed/EURUSD/{day.year:04d}/"
+              f"{day.month - 1:02d}/{day.day:02d}/BID_candles_min_1.bi5"
+          )
+          headers = {
+              "User-Agent": (
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+              ),
+              "Accept": "application/json, text/plain, */*",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Accept-Encoding": "identity",
+          }
+
+          last_error = None
+          for attempt in range(1, 4):
+              try:
+                  with urlopen(Request(jetta_url, headers=headers), timeout=30) as response:
+                      payload = response.read()
+                  data = json.loads(payload.decode("utf-8"))
+                  required = {
+                      "timestamp", "multiplier", "times", "shift",
+                      "open", "high", "low", "close",
+                      "opens", "highs", "lows", "closes", "volumes",
+                  }
+                  missing = required.difference(data)
+                  assert not missing, f"JETTA schema missing: {sorted(missing)}"
+                  assert len(data["times"]) > 0
+                  assert all(
+                      len(data[k]) == len(data["times"])
+                      for k in ("opens", "highs", "lows", "closes", "volumes")
+                  )
+                  print("DUKASCOPY_SMOKE_OK source=JETTA candles=", len(data["times"]), "attempt=", attempt)
+                  break
+              except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError, AssertionError) as exc:
+                  last_error = f"{type(exc).__name__}: {exc}"
+                  if attempt < 3:
+                      delay = 2 ** attempt
+                      print(f"JETTA_SMOKE_RETRY attempt={attempt} delay={delay}s error={last_error}")
+                      time.sleep(delay)
+          else:
+              print("JETTA_SMOKE_FALLBACK error=", last_error)
+              for attempt in range(1, 4):
+                  try:
+                      with urlopen(Request(legacy_url, headers=headers), timeout=30) as response:
+                          payload = response.read()
+                      assert payload, "empty BI5 payload"
+                      decoded = lzma.decompress(payload)
+                      assert len(decoded) > 0 and len(decoded) % 24 == 0
+                      print("DUKASCOPY_SMOKE_OK source=legacy-BI5 records=", len(decoded) // 24, "attempt=", attempt)
+                      break
+                  except (HTTPError, URLError, TimeoutError, OSError, lzma.LZMAError, AssertionError) as exc:
+                      last_error = f"{type(exc).__name__}: {exc}"
+                      if attempt < 3:
+                          delay = 2 ** attempt
+                          print(f"BI5_SMOKE_RETRY attempt={attempt} delay={delay}s error={last_error}")
+                          time.sleep(delay)
+              else:
+                  raise SystemExit(
+                      "REAL_DATA_REQUIRED: neither Dukascopy JETTA nor legacy BI5 smoke succeeded: "
+                      + str(last_error)
+                  )
           PY
       - name: Download REAL EURUSD M1 from Dukascopy including 2026 OOS
         run: |
           python -m research.real_data.dukascopy_ingest \
             --symbol EURUSD --start 2025-01-01 --end 2027-01-01 \
-            --timeframe M1 --output data/real --validate --manifest --resume
+            --timeframe M1 --output data/real --validate --manifest --resume \
+            --workers 2 --batch-size 5 --batch-pause 2
       - name: Locate dataset
         shell: bash
         run: |
