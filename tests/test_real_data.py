@@ -182,3 +182,14 @@ def test_strategy_does_not_trade_before_atr_warmup():
     }, index=ts)
     result = GrokHybridStrategy().backtest_simple(data)
     assert result["trades"] == 0
+
+
+def test_dukascopy_retry_delay_prefers_bounded_retry_after():
+    assert DukascopyM1Ingestor._retry_delay(1, "7") == 7.0
+    assert DukascopyM1Ingestor._retry_delay(3, "999") == 60.0
+    assert DukascopyM1Ingestor._retry_delay(1, None) == 1.0
+    assert DukascopyM1Ingestor._retry_delay(5, "invalid") == 15.0
+
+
+def test_dukascopy_retry_delay_rejects_negative_retry_after():
+    assert DukascopyM1Ingestor._retry_delay(2, "-5") == 2.0
