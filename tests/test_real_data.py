@@ -90,6 +90,11 @@ def test_weekend_gap_is_not_reported_as_missing_intraday_bars():
     assert report.status == "PASS"
 
 
+def test_dukascopy_legacy_url_uses_zero_based_month():
+    url = DukascopyM1Ingestor.legacy_url_for(pd.Timestamp("2026-02-14").date())
+    assert url.endswith("/EURUSD/2026/01/14/BID_candles_min_1.bi5")
+
+
 def test_dukascopy_bi5_ohlc_field_order(tmp_path: Path):
     # Dukascopy candle BI5 order is seconds, Open, Close, Low, High, Volume.
     payload = struct.pack(">IIIIIf", 60, 110000, 110200, 109900, 110300, 12.5)

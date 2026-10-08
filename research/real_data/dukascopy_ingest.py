@@ -30,6 +30,7 @@ from .validator import validate_ohlcv
 
 LOGGER = logging.getLogger(__name__)
 DATA_API_ROOT = "https://jetta.dukascopy.com/v1"
+LEGACY_DATAFEED_ROOT = "https://datafeed.dukascopy.com/datafeed"
 TRANSIENT_HTTP_CODES = {408, 429, 500, 502, 503, 504}
 
 
@@ -44,6 +45,7 @@ class DownloadedDay:
     url: str
     sha256: str
     bytes: int
+    source: str
 
 
 class DukascopyM1Ingestor:
@@ -79,6 +81,14 @@ class DukascopyM1Ingestor:
     @staticmethod
     def _is_weekend(day: date) -> bool:
         return day.weekday() >= 5
+
+    @staticmethod
+    def legacy_url_for(day: date) -> str:
+        # Dukascopy's legacy historical feed uses a zero-based month path.
+        return (
+            f"{LEGACY_DATAFEED_ROOT}/EURUSD/{day.year:04d}/{day.month - 1:02d}/{day.day:02d}/"
+            "BID_candles_min_1.bi5"
+        )
 
     def _download(self, url: str, destination: Path, *, day: date, force: bool = False) -> bool:
         if destination.exists() and destination.stat().st_size > 0 and not force:
@@ -147,6 +157,63 @@ class DukascopyM1Ingestor:
             f"{self.retries} attempts: {url}: {last_error}"
         )
 
+    def _download_legacy(self, destination: Path, *, day: date, force: bool = False) -> bool:
+        url = self.legacy_url_for(day)
+        if destination.exists() and destination.stat().st_size > 0 and not force:
+            LOGGER.info("Using cached Dukascopy BI5: %s", destination)
+            return True
+
+        last_error: Exception | None = None
+        for attempt in range(1, self.retries + 1):
+            tmp = destination.with_suffix(destination.suffix + ".part")
+            try:
+                request = Request(
+                    url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                        "Accept": "*/*",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Accept-Encoding": "identity",
+                    },
+                )
+                with urlopen(request, timeout=self.timeout) as response:
+                    payload = response.read()
+                if not payload:
+                    raise DukascopyIngestError(f"Empty Dukascopy BI5 response: {url}")
+                lzma.decompress(payload)
+                tmp.write_bytes(payload)
+                tmp.replace(destination)
+                return True
+            except HTTPError as exc:
+                last_error = exc
+                if exc.code == 404:
+                    if tmp.exists():
+                        tmp.unlink()
+                    if self._is_weekend(day):
+                        return False
+                    raise DukascopyIngestError(
+                        f"REAL_DATA_REQUIRED: Dukascopy BI5 returned 404 for weekday "
+                        f"{day.isoformat()}: {url}"
+                    ) from exc
+            except (URLError, TimeoutError, OSError, lzma.LZMAError, DukascopyIngestError) as exc:
+                last_error = exc
+
+            if tmp.exists():
+                tmp.unlink()
+            if attempt < self.retries:
+                delay = min(8.0, 1.5 * (2 ** (attempt - 1)))
+                LOGGER.warning(
+                    "Transient Dukascopy BI5 failure for %s (attempt %d/%d); retrying in %.2fs: %s",
+                    day.isoformat(), attempt, self.retries, delay, last_error,
+                )
+                time.sleep(delay)
+
+        raise DukascopyIngestError(
+            f"REAL_DATA_REQUIRED: failed to download Dukascopy BI5 data after "
+            f"{self.retries} attempts: {url}: {last_error}"
+        )
+
     def download_range(self, start: date, end: date, *, force: bool = False) -> list[DownloadedDay]:
         if end <= start:
             raise ValueError("end must be after start")
@@ -165,9 +232,27 @@ class DukascopyM1Ingestor:
         def fetch(day: date) -> DownloadedDay | None:
             destination = self.raw_dir / f"{day:%Y-%m-%d}.json"
             url = self.url_for(day)
-            if not self._download(url, destination, day=day, force=force):
-                return None
-            return DownloadedDay(day, destination, url, sha256_file(destination), destination.stat().st_size)
+            try:
+                if not self._download(url, destination, day=day, force=force):
+                    return None
+                return DownloadedDay(
+                    day, destination, url, sha256_file(destination), destination.stat().st_size,
+                    "Dukascopy JETTA v1 BID candles (JSON)",
+                )
+            except DukascopyIngestError as primary_error:
+                legacy_destination = self.raw_dir / f"{day:%Y-%m-%d}.bi5"
+                legacy_url = self.legacy_url_for(day)
+                LOGGER.warning(
+                    "JETTA unavailable for %s; attempting real Dukascopy BI5 fallback: %s",
+                    day.isoformat(), primary_error,
+                )
+                if not self._download_legacy(legacy_destination, day=day, force=force):
+                    return None
+                return DownloadedDay(
+                    day, legacy_destination, legacy_url, sha256_file(legacy_destination),
+                    legacy_destination.stat().st_size,
+                    "Dukascopy datafeed BID candles (BI5)",
+                )
 
         # CI uses bounded batches plus resume-cache behavior so long historical pulls
         # remain restartable without turning expected weekend gaps into network retries.
@@ -187,7 +272,7 @@ class DukascopyM1Ingestor:
 
         downloaded.sort(key=lambda item: item.day)
         if not downloaded:
-            raise DukascopyIngestError("REAL_DATA_REQUIRED: no real JETTA files were downloaded")
+            raise DukascopyIngestError("REAL_DATA_REQUIRED: no real Dukascopy files were downloaded")
         return downloaded
 
     @staticmethod
@@ -311,12 +396,14 @@ class DukascopyM1Ingestor:
             raise DukascopyIngestError(
                 f"REAL_DATA_REQUIRED: normalized dataset failed validation: {report.to_dict()}"
             )
+        sources = sorted({item.source for item in files})
+        source = sources[0] if len(sources) == 1 else "Dukascopy real EURUSD M1 (JETTA JSON + legacy BI5 fallback)"
         manifest = build_manifest(
             m1,
             dataset_id=dataset_id,
             symbol="EURUSD",
             timeframe="M1",
-            source="Dukascopy JETTA v1 BID candles (JSON)",
+            source=source,
             source_hash=source_hash,
             quality_status=report.status,
             output_path=self.normalized_dir / f"EURUSD_M1_{dataset_id}.manifest.json",
