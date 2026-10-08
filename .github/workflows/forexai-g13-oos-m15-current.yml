@@ -92,11 +92,11 @@ jobs:
 
       - name: Compile
         run: |
-          python -m py_compile \
-            research/optimization/g13_oos_m15.py \
-            research/optimization/g13_robustness_m15.py \
-            research/optimization/rsi_divergence_discovery_g13.py \
-            research/optimization/execution_contract_v1.py \
+          python -m py_compile `
+            research/optimization/g13_oos_m15.py `
+            research/optimization/g13_robustness_m15.py `
+            research/optimization/rsi_divergence_discovery_g13.py `
+            research/optimization/execution_contract_v1.py `
             research/real_data/dukascopy_ingest.py
 
       - name: Determine latest complete UTC data cutoff from trusted GitHub server time
