@@ -212,6 +212,7 @@ jobs:
               "promotion-run-attestation.json",
               "g13-promotion-manifest-m15",
               "workflow_dispatch:",
+              "MANUAL_RUNTIME_RUN_ID",
               "TARGET_SHA",
           ]:
               assert token in promotion, f"promotion provenance token missing: {token}"
@@ -346,14 +347,14 @@ jobs:
           assert "synthetic_data" in harness and 'false' in harness, "synthetic-data contract missing"
 
           readiness = Path("research/optimization/g13_demo_readiness_gate_m15.py").read_text(encoding="utf-8")
-          readiness_workflow = Path("$.github/workflows/forexai-g13-demo-readiness-gate-m15.yml").read_text(encoding="utf-8")
-          preflight_workflow = Path("$.github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
-          completion_dispatcher = Path("$.github/workflows/forexai-g13-preflight-completion-dispatcher-m15.yml").read_text(encoding="utf-8")
+          readiness_workflow = Path(".github/workflows/forexai-g13-demo-readiness-gate-m15.yml").read_text(encoding="utf-8")
+          preflight_workflow = Path(".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
+          completion_dispatcher = Path(".github/workflows/forexai-g13-preflight-completion-dispatcher-m15.yml").read_text(encoding="utf-8")
           for token in [
               "promotion_run_id",
               "preflight_run_id",
               "g13-controlled-demo-package-preflight-m15",
-              "if: ${{ github.event_name == 'workflow_dispatch' }}",
+              "workflow_dispatch:",
               '[ "$sha" = "$MAIN_SHA" ] ||',
               "download_exact_artifact",
               "G13_EVIDENCE_ARTIFACTS_BYTE_BOUND=true",
