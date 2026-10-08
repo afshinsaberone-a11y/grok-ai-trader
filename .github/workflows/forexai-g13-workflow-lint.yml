@@ -95,6 +95,8 @@ jobs:
       - name: Validate G13 workflows
         run: |
           ./actionlint .github/workflows/forexai-g13-mt5-compile-parity.yml
+          ./actionlint .github/workflows/forexai-g13-oos-m15-current.yml
+          ./actionlint .github/workflows/forexai-g13-oos-watchdog-m15.yml
           ./actionlint .github/workflows/forexai-g13-execution-safety-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
@@ -237,6 +239,11 @@ jobs:
           assert validation_dispatch < robustness_dispatch < oos_dispatch, (
               "G13 source evidence must be dispatched before OOS"
           )
+
+          oos = Path(".github/workflows/forexai-g13-oos-m15-current.yml").read_text(encoding="utf-8")
+          assert "research.real_data.histdata_ingest" in oos, "G13 OOS must use canonical HistData ingestion"
+          for forbidden in ["dukascopy-node", "dukascopy_ingest", "npm install"]:
+              assert forbidden not in oos, f"G13 OOS forbidden data-plane token reintroduced: {forbidden}"
 
           gate = Path("research/optimization/g13_promotion_gate_m15.py").read_text(encoding="utf-8")
           for token in [
