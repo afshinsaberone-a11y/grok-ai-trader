@@ -222,7 +222,7 @@ def gate(
     assert on["account_mode"] == "0"
     assert on["real_account_detected"] == "false"
 
-    required_permission_keys = (
+    required_boolean_permission_keys = (
         "terminal_connected",
         "terminal_trade_allowed",
         "mql_trade_allowed",
@@ -231,12 +231,16 @@ def gate(
         "symbol_market_order_allowed",
         "symbol_sl_allowed",
         "symbol_tp_allowed",
-        "symbol_trade_mode",
-        "stops_level_points",
     )
-    for key in required_permission_keys:
+    for key in required_boolean_permission_keys:
         assert off[key] in ("true", "false")
         assert on[key] in ("true", "false")
+
+    # These fields are typed values, not boolean permission flags.
+    assert off["symbol_trade_mode"].strip() != ""
+    assert on["symbol_trade_mode"].strip() != ""
+    assert int(off["stops_level_points"]) >= 0
+    assert int(on["stops_level_points"]) >= 0
 
     expected_allowed = (
         on["authorization"] == "true"
