@@ -133,3 +133,32 @@ jobs:
           name: g13-controlled-demo-package-preflight-m15
           path: artifacts/g13/g13-demo-package-preflight-m15.json
           if-no-files-found: error
+
+
+      - name: Dispatch Demo Readiness after successful preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest_success() {
+            local workflow_file="$1"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
+              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful run for "+sys.argv[1]; print(max(rs,key=lambda x:x["id"])["id"])' "$workflow_file"
+          }
+          runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")"
+          safety_id="$(latest_success "forexai-g13-execution-safety-audit-m15.yml")"
+          promotion_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=50")"
+          promotion_id="$(printf '%s' "$promotion_json" | python -c 'import json,sys; rs=[r for r in json.load(sys.stdin)["workflow_runs"] if r.get("head_sha")==sys.argv[1]]; assert rs, "no successful promotion for current main"; print(max(rs,key=lambda x:x["id"])["id"])' "$MAIN_HEAD_SHA")"
+          export RUNTIME_ID="$runtime_id"
+          export SAFETY_ID="$safety_id"
+          export PROMOTION_ID="$promotion_id"
+          echo "READINESS_DISPATCH_INPUTS runtime=$runtime_id safety=$safety_id parity=$COMPILE_PARITY_RUN_ID promotion=$promotion_id preflight=$GITHUB_RUN_ID"
+          gh workflow run forexai-g13-demo-readiness-gate-m15.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f runtime_run_id="$runtime_id" \
+            -f safety_run_id="$safety_id" \
+            -f parity_run_id="$COMPILE_PARITY_RUN_ID" \
+            -f promotion_run_id="$promotion_id" \
+            -f preflight_run_id="$GITHUB_RUN_ID"
+          echo "G13_DEMO_READINESS_DISPATCHED=true"
