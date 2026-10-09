@@ -23,6 +23,11 @@ def test_capital_authorization_preflight_is_manual_read_only_and_fail_closed():
     assert "order_send" not in workflow.lower()
     assert "order_check" not in workflow.lower()
     assert "tools/materialize_mql5_authorization_v1.py" not in workflow
+    assert "$env:FOREXAI_TRADE_LEDGER_PATH" in workflow
+    assert "$env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH" in workflow
+    assert "inputs.ledger_path" not in workflow
+    assert "inputs.authenticated_envelope_path" not in workflow
+    assert "inputs.expected_trade_id" not in workflow
 
 
 def test_diagnostic_does_not_materialize_or_print_raw_trade_identity():
