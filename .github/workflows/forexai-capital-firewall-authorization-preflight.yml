@@ -1,0 +1,123 @@
+name: ForexAI Capital Firewall Authorization Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: "Promoted G13 candidate ID"
+        required: true
+        default: "2"
+        type: string
+      terminal_path:
+        description: "MT5 terminal executable"
+        required: true
+        default: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forexai-capital-firewall-authorization-preflight
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 10
+    env:
+      PYTHONUNBUFFERED: "1"
+      CANDIDATE_ID: ${{ inputs.candidate_id }}
+      TERMINAL_PATH: ${{ inputs.terminal_path }}
+      FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Resolve MT5 owner profile and set fail-closed kill switch
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            & (Join-Path $env:GITHUB_WORKSPACE 'tools\\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch |
+              ForEach-Object {
+                $line = [string]$_
+                if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
+                elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') { Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]' }
+                elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
+                else { Write-Output $line }
+              }
+          } catch {
+            throw 'CAPITAL_AUTH_PREFLIGHT_MT5_PROFILE_RESOLUTION_FAILED'
+          }
+
+      - name: Resolve Python runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidatePaths = @(
+            (Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+            'C:\\Users\\Star\\AppData\\Local\\Programs\\Python\\Python312\\python.exe',
+            'C:\\Program Files\\Python312\\python.exe'
+          ) | Where-Object { $_ }
+          $pythonExe = $null
+          foreach ($candidate in $candidatePaths) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+              try {
+                $version = (& $candidate -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>$null | Select-Object -Last 1).Trim()
+                if ($LASTEXITCODE -eq 0 -and $version -match '^3 (11|12|13)$') { $pythonExe = $candidate; break }
+              } catch { }
+            }
+          }
+          if (-not $pythonExe) { throw 'CAPITAL_AUTH_PREFLIGHT_PYTHON_NOT_FOUND' }
+          "PYTHON_EXE=$pythonExe" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'CAPITAL_AUTH_PREFLIGHT_PYTHON=PASS'
+
+      - name: Run read-only Capital Firewall prerequisite diagnostic
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Paths and the optional Trade ID are runner-local environment variables,
+          # not workflow inputs, so their values are never echoed into public logs.
+          $ledger = $env:FOREXAI_TRADE_LEDGER_PATH
+          $authenticatedEnvelope = $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH
+          $expectedTradeId = $env:FOREXAI_EXPECTED_TRADE_ID
+
+          New-Item -ItemType Directory -Force -Path 'artifacts/g13-capital-authorization-preflight' | Out-Null
+          $reportPath = Join-Path $env:GITHUB_WORKSPACE 'artifacts/g13-capital-authorization-preflight/report.json'
+          $args = @(
+            'tools/diagnose_capital_authorization_prerequisites_v1.py',
+            '--candidate-id', $env:CANDIDATE_ID,
+            '--common-files', $env:FOREXAI_MT5_COMMON_FILES,
+            '--report-out', $reportPath
+          )
+          if (-not [string]::IsNullOrWhiteSpace($ledger)) {
+            $args += @('--ledger-path', $ledger)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($authenticatedEnvelope)) {
+            $args += @('--authenticated-envelope-path', $authenticatedEnvelope)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($expectedTradeId)) {
+            $args += @('--expected-trade-id', $expectedTradeId)
+          }
+          & $env:PYTHON_EXE @args
+          if ($LASTEXITCODE -ne 0) { throw "CAPITAL_AUTH_PREFLIGHT_DIAGNOSTIC_FAILED:$LASTEXITCODE" }
+
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          "CAPITAL_AUTH_PREFLIGHT_STATUS=$($report.status)" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "BLOCKER_COUNT=$(@($report.blockers).Count)" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "AUTHORIZATION_RECORD_CREATED=$($report.authorization_record_created)" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "ORDER_SUBMISSION_PERFORMED=$($report.order_submission_performed)" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          Write-Output "CAPITAL_AUTH_PREFLIGHT_STATUS=$($report.status)"
+          Write-Output "CAPITAL_AUTH_PREFLIGHT_BLOCKERS=$(@($report.blockers) -join ',')"
+          Write-Output 'AUTHORIZATION_RECORD_CREATED=false'
+          Write-Output 'ORDER_SUBMISSION_PERFORMED=false'
+
+      - name: Upload redacted prerequisite report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-capital-authorization-preflight
+          path: artifacts/g13-capital-authorization-preflight/report.json
+          if-no-files-found: warn
+          retention-days: 7
