@@ -142,13 +142,13 @@ jobs:
           set -euo pipefail
           latest_success() {
             local workflow_file="$1"
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
-              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful run for "+sys.argv[1]; print(max(rs,key=lambda x:x["id"])["id"])' "$workflow_file"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=completed&per_page=50" |
+              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; m=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; assert m, "no successful run for "+sys.argv[1]; print(max(m,key=lambda x:x["id"])["id"])' "$workflow_file"
           }
           runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")"
           safety_id="$(latest_success "forexai-g13-execution-safety-audit-m15.yml")"
-          promotion_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=50")"
-          promotion_id="$(printf '%s' "$promotion_json" | python -c 'import json,sys; rs=[r for r in json.load(sys.stdin)["workflow_runs"] if r.get("head_sha")==sys.argv[1]]; assert rs, "no successful promotion for current main"; print(max(rs,key=lambda x:x["id"])["id"])' "$MAIN_HEAD_SHA")"
+          promotion_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=completed&per_page=50")"
+          promotion_id="$(printf '%s' "$promotion_json" | python -c 'import json,sys; rs=[r for r in json.load(sys.stdin)["workflow_runs"] if r.get("status")=="completed" and r.get("conclusion")=="success" and r.get("head_branch")=="main" and r.get("head_sha")==sys.argv[1] and r.get("name")=="ForexAI G13 Final Promotion M15"]; assert rs, "no successful promotion for current main"; print(max(rs,key=lambda x:x["id"])["id"])' "$MAIN_HEAD_SHA")"
           export RUNTIME_ID="$runtime_id"
           export SAFETY_ID="$safety_id"
           export PROMOTION_ID="$promotion_id"
