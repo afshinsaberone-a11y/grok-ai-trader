@@ -41,7 +41,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/mt5-preflight | Out-Null
-          python tools/mt5_terminal_preflight_v1.py --symbol "${{ inputs.symbol }}" --path "${{ inputs.mt5_root }}" | Tee-Object artifacts/mt5-preflight/preflight.json
+          python -m tools.mt5_terminal_preflight_v1 --symbol "${{ inputs.symbol }}" --path "${{ inputs.mt5_root }}" | Tee-Object artifacts/mt5-preflight/preflight.json
+          if ($LASTEXITCODE -ne 0) { throw "MT5_PREFLIGHT_PROCESS_FAILED:$LASTEXITCODE" }
           $j = Get-Content artifacts/mt5-preflight/preflight.json -Raw | ConvertFrom-Json
           if ($j.status -ne "PASS") { throw "MT5_PREFLIGHT_STATUS_NOT_PASS" }
           if ($j.account_mode -ne "DEMO") { throw "MT5_PREFLIGHT_ACCOUNT_NOT_DEMO" }
