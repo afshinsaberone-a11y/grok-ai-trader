@@ -31,6 +31,7 @@ def test_mt5_common_files_resolver_never_issues_authorization_or_allows_trading(
     assert "SetDenyKillSwitch" in helper
     assert "'DENY'" in helper
     assert "'ALLOW'" not in helper
+    assert helper.index("-Value 'DENY'") < helper.index("$probe = Join-Path")
 
 
 def test_demo_runbook_documents_narrow_network_service_acl():
