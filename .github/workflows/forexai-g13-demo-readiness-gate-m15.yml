@@ -76,15 +76,15 @@ jobs:
 
           latest_success() {
             local workflow_file="$1"
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
-              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; assert rs, "no successful run for " + sys.argv[1]; print(max(rs,key=lambda x:x["id"])["id"])' "$workflow_file"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=completed&per_page=50" |
+              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; m=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; assert m, "no successful run for " + sys.argv[1]; print(max(m,key=lambda x:x["id"])["id"])' "$workflow_file"
           }
 
           latest_success_exact() {
             local workflow_file="$1"
             local target_sha="$2"
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=success&per_page=50" |
-              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; sha=sys.argv[2]; m=[r for r in rs if r.get("head_sha")==sha]; assert m, "no successful run for current main " + sys.argv[1] + " @ " + sha; print(max(m,key=lambda x:x["id"])["id"])' "$workflow_file" "$target_sha"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${workflow_file}/runs?branch=main&status=completed&per_page=50" |
+              python -c 'import json,sys; rs=json.load(sys.stdin)["workflow_runs"]; sha=sys.argv[2]; m=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success" and r.get("head_sha")==sha]; assert m, "no successful run for current main " + sys.argv[1] + " @ " + sha; print(max(m,key=lambda x:x["id"])["id"])' "$workflow_file" "$target_sha"
           }
 
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
