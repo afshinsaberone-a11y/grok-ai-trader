@@ -55,30 +55,82 @@ jobs:
       - name: Checkout exact revision
         uses: actions/checkout@v4
 
+      - name: Initialize Demo audit evidence
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/g13-controlled-demo | Out-Null
+          $invocation = [ordered]@{
+            schema = "forexai.g13.controlled_demo_invocation.v1"
+            run_id = [int]$env:GITHUB_RUN_ID
+            run_attempt = [int]$env:GITHUB_RUN_ATTEMPT
+            head_sha = $env:GITHUB_SHA
+            candidate_id = [int]$env:CANDIDATE_ID
+            symbol = $env:SYMBOL
+            timeframe = "M15"
+            operator_confirmation_accepted = $true
+            account_mode_verified = $false
+            order_submission_performed_by_workflow = $false
+            stage = "PROMOTION_RESOLUTION_PENDING"
+            created_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+          }
+          $invocation | ConvertTo-Json -Depth 5 | Set-Content artifacts/g13-controlled-demo/invocation.json -Encoding utf8
+
       - name: Resolve exact Promotion manifest
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           $sha = git rev-parse HEAD
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = "application/vnd.github+json"
             "X-GitHub-Api-Version" = "2022-11-28"
+            "User-Agent" = "ForexAI-G13-Controlled-Demo-Audit"
           }
           $base = "https://api.github.com/repos/$env:GITHUB_REPOSITORY"
-          $runsUrl = "$base/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=50"
-          $runs = Invoke-RestMethod -Method Get -Uri $runsUrl -Headers $headers
+          function Invoke-GitHubJsonWithRetry {
+            param([Parameter(Mandatory=$true)][string]$Uri)
+            $lastError = $null
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+              try {
+                return Invoke-RestMethod -Method Get -Uri $Uri -Headers $headers -TimeoutSec 60 -ErrorAction Stop
+              } catch {
+                $lastError = $_
+                Write-Warning "G13_GITHUB_API_RETRY attempt=$attempt/5 error=$($_.Exception.Message)"
+                if ($attempt -lt 5) { Start-Sleep -Seconds ([Math]::Min(2 * $attempt, 8)) }
+              }
+            }
+            throw "G13_GITHUB_API_REQUEST_FAILED_AFTER_RETRIES uri=$Uri error=$($lastError.Exception.Message)"
+          }
+          function Invoke-GitHubDownloadWithRetry {
+            param([Parameter(Mandatory=$true)][string]$Uri,[Parameter(Mandatory=$true)][string]$OutFile)
+            $lastError = $null
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+              try {
+                Invoke-WebRequest -Method Get -Uri $Uri -Headers $headers -TimeoutSec 120 -OutFile $OutFile -ErrorAction Stop
+                return
+              } catch {
+                $lastError = $_
+                Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+                Write-Warning "G13_ARTIFACT_DOWNLOAD_RETRY attempt=$attempt/5 error=$($_.Exception.Message)"
+                if ($attempt -lt 5) { Start-Sleep -Seconds ([Math]::Min(2 * $attempt, 8)) }
+              }
+            }
+            throw "G13_ARTIFACT_DOWNLOAD_FAILED_AFTER_RETRIES uri=$Uri error=$($lastError.Exception.Message)"
+          }
+          $runsUrl = "$base/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=25"
+          $runs = Invoke-GitHubJsonWithRetry -Uri $runsUrl
           $matches = @($runs.workflow_runs | Where-Object { $_.head_branch -eq 'main' -and $_.head_sha -eq $sha -and $_.name -eq 'ForexAI G13 Final Promotion M15' })
           if ($matches.Count -ne 1) { throw "G13_EXACT_PROMOTION_RUN_NOT_FOUND" }
           $promotionRun = $matches[0]
           $artifactUrl = "$base/actions/runs/$($promotionRun.id)/artifacts"
-          $artifactList = Invoke-RestMethod -Method Get -Uri $artifactUrl -Headers $headers
+          $artifactList = Invoke-GitHubJsonWithRetry -Uri $artifactUrl
           $artifact = @($artifactList.artifacts | Where-Object { $_.name -eq 'g13-promotion-manifest-m15' -and !$_.expired })
           if ($artifact.Count -ne 1) { throw "G13_PROMOTION_ARTIFACT_NOT_FOUND" }
           New-Item -ItemType Directory -Force -Path evidence/g13-promotion | Out-Null
           $zipUrl = "$base/actions/artifacts/$($artifact[0].id)/zip"
-          Invoke-WebRequest -Method Get -Uri $zipUrl -Headers $headers -OutFile evidence/g13-promotion/source.zip
+          Invoke-GitHubDownloadWithRetry -Uri $zipUrl -OutFile evidence/g13-promotion/source.zip
           $actual = (Get-FileHash evidence/g13-promotion/source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $expected = ([string]$artifact[0].digest).Split(':')[-1].ToLowerInvariant()
           if ($actual -ne $expected) { throw "G13_PROMOTION_ARTIFACT_DIGEST_MISMATCH" }
