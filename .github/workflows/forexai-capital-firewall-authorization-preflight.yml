@@ -13,21 +13,6 @@ on:
         required: true
         default: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
         type: string
-      ledger_path:
-        description: "Optional path to authoritative TradeLedger JSONL; blank uses FOREXAI_TRADE_LEDGER_PATH on the runner"
-        required: false
-        default: ""
-        type: string
-      authenticated_envelope_path:
-        description: "Optional path to authenticated runtime envelope JSON; blank uses FOREXAI_AUTHENTICATED_ENVELOPE_PATH on the runner"
-        required: false
-        default: ""
-        type: string
-      expected_trade_id:
-        description: "Optional exact Trade ID to compare; omitted means compare only identities found in the records"
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: read
@@ -44,9 +29,6 @@ jobs:
       PYTHONUNBUFFERED: "1"
       CANDIDATE_ID: ${{ inputs.candidate_id }}
       TERMINAL_PATH: ${{ inputs.terminal_path }}
-      LEDGER_PATH_INPUT: ${{ inputs.ledger_path }}
-      AUTHENTICATED_ENVELOPE_PATH_INPUT: ${{ inputs.authenticated_envelope_path }}
-      EXPECTED_TRADE_ID: ${{ inputs.expected_trade_id }}
       FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
     steps:
       - name: Checkout exact revision
@@ -55,7 +37,19 @@ jobs:
       - name: Resolve MT5 owner profile and set fail-closed kill switch
         shell: powershell
         run: |
-          & (Join-Path $env:GITHUB_WORKSPACE 'tools\\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch
+          $ErrorActionPreference = 'Stop'
+          try {
+            & (Join-Path $env:GITHUB_WORKSPACE 'tools\\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch |
+              ForEach-Object {
+                $line = [string]$_
+                if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
+                elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') { Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]' }
+                elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
+                else { Write-Output $line }
+              }
+          } catch {
+            throw 'CAPITAL_AUTH_PREFLIGHT_MT5_PROFILE_RESOLUTION_FAILED'
+          }
 
       - name: Resolve Python runtime
         shell: powershell
@@ -83,10 +77,11 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $ledger = $env:LEDGER_PATH_INPUT
-          if ([string]::IsNullOrWhiteSpace($ledger)) { $ledger = $env:FOREXAI_TRADE_LEDGER_PATH }
-          $authenticatedEnvelope = $env:AUTHENTICATED_ENVELOPE_PATH_INPUT
-          if ([string]::IsNullOrWhiteSpace($authenticatedEnvelope)) { $authenticatedEnvelope = $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH }
+          # Paths and the optional Trade ID are runner-local environment variables,
+          # not workflow inputs, so their values are never echoed into public logs.
+          $ledger = $env:FOREXAI_TRADE_LEDGER_PATH
+          $authenticatedEnvelope = $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH
+          $expectedTradeId = $env:FOREXAI_EXPECTED_TRADE_ID
 
           New-Item -ItemType Directory -Force -Path 'artifacts/g13-capital-authorization-preflight' | Out-Null
           $reportPath = Join-Path $env:GITHUB_WORKSPACE 'artifacts/g13-capital-authorization-preflight/report.json'
@@ -102,8 +97,8 @@ jobs:
           if (-not [string]::IsNullOrWhiteSpace($authenticatedEnvelope)) {
             $args += @('--authenticated-envelope-path', $authenticatedEnvelope)
           }
-          if (-not [string]::IsNullOrWhiteSpace($env:EXPECTED_TRADE_ID)) {
-            $args += @('--expected-trade-id', $env:EXPECTED_TRADE_ID)
+          if (-not [string]::IsNullOrWhiteSpace($expectedTradeId)) {
+            $args += @('--expected-trade-id', $expectedTradeId)
           }
           & $env:PYTHON_EXE @args
           if ($LASTEXITCODE -ne 0) { throw "CAPITAL_AUTH_PREFLIGHT_DIAGNOSTIC_FAILED:$LASTEXITCODE" }
