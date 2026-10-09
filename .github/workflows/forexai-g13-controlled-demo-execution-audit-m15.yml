@@ -119,11 +119,13 @@ jobs:
             }
             throw "G13_ARTIFACT_DOWNLOAD_FAILED_AFTER_RETRIES uri=$Uri error=$($lastError.Exception.Message)"
           }
-          $runsUrl = "$base/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=success&per_page=25"
+          $runsUrl = "$base/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=completed&per_page=25"
           $runs = Invoke-GitHubJsonWithRetry -Uri $runsUrl
-          $matches = @($runs.workflow_runs | Where-Object { $_.head_branch -eq 'main' -and $_.head_sha -eq $sha -and $_.name -eq 'ForexAI G13 Final Promotion M15' })
-          if ($matches.Count -ne 1) { throw "G13_EXACT_PROMOTION_RUN_NOT_FOUND" }
-          $promotionRun = $matches[0]
+          $matches = @($runs.workflow_runs | Where-Object { $_.head_branch -eq 'main' -and $_.head_sha -eq $sha -and $_.name -eq 'ForexAI G13 Final Promotion M15' -and $_.conclusion -eq 'success' })
+          if ($matches.Count -lt 1) { throw "G13_EXACT_SUCCESSFUL_PROMOTION_RUN_NOT_FOUND" }
+          # Multiple successful runs can exist for the same exact SHA (push + watchdog/dispatch).
+          # Select the newest successful exact-SHA run; its artifact will still be digest-verified below.
+          $promotionRun = $matches | Sort-Object { [datetime]$_.created_at } -Descending | Select-Object -First 1
           $artifactUrl = "$base/actions/runs/$($promotionRun.id)/artifacts"
           $artifactList = Invoke-GitHubJsonWithRetry -Uri $artifactUrl
           $artifact = @($artifactList.artifacts | Where-Object { $_.name -eq 'g13-promotion-manifest-m15' -and !$_.expired })
