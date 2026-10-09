@@ -60,6 +60,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Dropbox contract test runner
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check "pytest>=8,<9"
+
       - name: Verify Dropbox repository health before writes
         run: |
           set -euo pipefail
