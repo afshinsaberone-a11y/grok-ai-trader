@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
+TOKEN_URL = "https://api.dropbox.com/oauth2/token"
 
 
 class DropboxOAuthError(RuntimeError):
