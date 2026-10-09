@@ -226,8 +226,10 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/g13-controlled-demo | Out-Null
-          python tools/mt5_terminal_preflight_v1.py --symbol "$env:SYMBOL" --path "$env:TERMINAL_PATH" |
+          $env:PYTHONPATH = "$env:GITHUB_WORKSPACE;$env:PYTHONPATH"
+          & $env:PYTHON_EXE -m tools.mt5_terminal_preflight_v1 --symbol "$env:SYMBOL" --path "$env:TERMINAL_PATH" |
             Tee-Object artifacts/g13-controlled-demo/terminal-preflight.json
+          if ($LASTEXITCODE -ne 0) { throw "MT5_PREFLIGHT_PROCESS_FAILED:$LASTEXITCODE" }
           $j = Get-Content artifacts/g13-controlled-demo/terminal-preflight.json -Raw | ConvertFrom-Json
           if ($j.status -ne "PASS") { throw "MT5_PREFLIGHT_NOT_PASS" }
           if ($j.account_mode -ne "DEMO") { throw "MT5_PREFLIGHT_ACCOUNT_NOT_DEMO" }
