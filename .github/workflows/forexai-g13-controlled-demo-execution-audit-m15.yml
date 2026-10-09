@@ -310,25 +310,149 @@ jobs:
       - name: Wait for fresh MQL5 execution telemetry
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          $common = Join-Path $env:APPDATA "MetaQuotes\\Terminal\\Common\\Files"
+          $ErrorActionPreference = 'Stop'
+          $common = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
           $audit = Join-Path $common "g13_demo_execution_audit.csv"
+          $baselineRows = [int]$env:G13_AUDIT_BASELINE_ROWS
           $deadline = (Get-Date).AddMinutes([int]$env:AUDIT_WAIT_MINUTES)
           $found = $false
+          $allRows = @()
+          $freshRows = @()
+          $target = @()
           while ((Get-Date) -lt $deadline) {
-            if (Test-Path $audit) {
-              $rows = Import-Csv $audit
-              $target = @($rows | Where-Object {
+            $allRows = @()
+            if (Test-Path -LiteralPath $audit -PathType Leaf) {
+              $allRows = @(Import-Csv -LiteralPath $audit)
+            }
+            if ($allRows.Count -lt $baselineRows) {
+              throw "G13_DEMO_AUDIT_CSV_SHRANK_DURING_AUDIT"
+            }
+            $freshRows = @($allRows | Select-Object -Skip $baselineRows)
+            $attempts = @($freshRows | Where-Object { $_.event -eq "ORDER_ATTEMPT" })
+            if ($attempts.Count -gt 1) {
+              throw "G13_DEMO_MULTIPLE_FRESH_ORDER_ATTEMPTS:$($attempts.Count)"
+            }
+            if ($attempts.Count -eq 1) {
+              $target = @($attempts | Where-Object {
                 $_.candidate_id -eq $env:CANDIDATE_ID -and
-                $_.event -eq "ORDER_ATTEMPT" -and
                 $_.symbol -eq $env:SYMBOL -and
                 $_.timeframe -eq "M15"
               })
-              if ($target.Count -gt 0) { $found = $true; break }
+              if ($target.Count -ne 1) {
+                throw "G13_DEMO_FRESH_ORDER_ATTEMPT_NOT_BOUND_TO_TARGET"
+              }
+              $found = $true
+              break
             }
             Start-Sleep -Seconds 10
           }
-          if (!$found) { throw "G13_DEMO_EXECUTION_TELEMETRY_TIMEOUT" }
-          Copy-Item $audit artifacts/g13-controlled-demo/g13_demo_execution_audit.csv -Force
+
+          if (!$found) {
+            $allRows = @()
+            if (Test-Path -LiteralPath $audit -PathType Leaf) {
+              $allRows = @(Import-Csv -LiteralPath $audit)
+            }
+            if ($allRows.Count -ge $baselineRows) {
+              $freshRows = @($allRows | Select-Object -Skip $baselineRows)
+            } else {
+              $freshRows = @()
+            }
+            $target = @($freshRows | Where-Object {
+              $_.candidate_id -eq $env:CANDIDATE_ID -and
+              $_.event -eq "ORDER_ATTEMPT" -and
+              $_.symbol -eq $env:SYMBOL -and
+              $_.timeframe -eq "M15"
+            })
+            $tradeIdPath = Join-Path $common "ForexAI_G13_Demo_TradeId.txt"
+            $authPath = Join-Path $common ("ForexAI_Authorization_{0}_EURUSD.auth" -f (130000 + [int]$env:CANDIDATE_ID))
+            $killPath = Join-Path $common "g13_demo_kill_switch.txt"
+            $diagnostic = [ordered]@{
+              schema = "forexai.g13.demo_telemetry_timeout_diagnostics.v1"
+              status = "FAIL"
+              failure = "G13_DEMO_EXECUTION_TELEMETRY_TIMEOUT"
+              candidate_id = [int]$env:CANDIDATE_ID
+              trade_id = $env:TRADE_ID
+              symbol = $env:SYMBOL
+              timeframe = "M15"
+              audit_file_present = (Test-Path -LiteralPath $audit -PathType Leaf)
+              baseline_row_count = $baselineRows
+              current_row_count = $allRows.Count
+              new_row_count = $freshRows.Count
+              matching_new_order_attempt_count = $target.Count
+              trade_id_context_present = (Test-Path -LiteralPath $tradeIdPath -PathType Leaf)
+              authorization_file_present = (Test-Path -LiteralPath $authPath -PathType Leaf)
+              kill_switch_at_timeout = if (Test-Path -LiteralPath $killPath -PathType Leaf) { (Get-Content -LiteralPath $killPath -Raw).Trim() } else { "MISSING" }
+              order_submission_performed_by_workflow = $false
+              live_enabled = $false
+              note = "No matching fresh MQL5 ORDER_ATTEMPT observed. No synthetic or manual fallback is allowed."
+              created_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+            }
+            $diagnostic | ConvertTo-Json -Depth 5 | Set-Content artifacts/g13-controlled-demo/telemetry-diagnostics.json -Encoding utf8
+            throw "G13_DEMO_EXECUTION_TELEMETRY_TIMEOUT: see telemetry-diagnostics.json"
+          }
+
+          # Give the asynchronous OnTradeTransaction logger a brief bounded
+          # window to append its broker-matching row after ORDER_ATTEMPT.
+          for ($i = 0; $i -lt 5; $i++) {
+            $allRows = @(Import-Csv -LiteralPath $audit)
+            $freshRows = @($allRows | Select-Object -Skip $baselineRows)
+            $attempt = @($freshRows | Where-Object { $_.event -eq "ORDER_ATTEMPT" }) | Select-Object -First 1
+            if ($null -ne $attempt) {
+              $tx = @($freshRows | Where-Object {
+                $_.event -eq "TRADE_TRANSACTION" -and
+                $_.order -eq $attempt.order -and
+                $_.deal -eq $attempt.deal
+              })
+              if ($tx.Count -gt 0) { break }
+            }
+            Start-Sleep -Seconds 2
+          }
+
+          $env:G13_DEMO_AUDIT_SOURCE = $audit
+          $env:G13_DEMO_AUDIT_BASELINE_ROWS = [string]$baselineRows
+          $env:G13_DEMO_AUDIT_OUTPUT = "artifacts/g13-controlled-demo/g13_demo_execution_audit.csv"
+          $filterNewEvidence = @'
+          import csv
+          import json
+          import os
+          from pathlib import Path
+
+          source = Path(os.environ["G13_DEMO_AUDIT_SOURCE"])
+          output = Path(os.environ["G13_DEMO_AUDIT_OUTPUT"])
+          baseline = int(os.environ["G13_DEMO_AUDIT_BASELINE_ROWS"])
+
+          with source.open("r", encoding="utf-8-sig", newline="") as handle:
+              reader = csv.DictReader(handle)
+              columns = reader.fieldnames
+              rows = list(reader)
+          if not columns or len(rows) < baseline:
+              raise SystemExit("G13_DEMO_AUDIT_BASELINE_INVALID")
+          fresh = rows[baseline:]
+          attempts = [r for r in fresh if r.get("event") == "ORDER_ATTEMPT"]
+          if len(attempts) != 1:
+              raise SystemExit(f"G13_EXPECTED_EXACTLY_ONE_FRESH_ORDER_ATTEMPT:{len(attempts)}")
+          row = attempts[0]
+          if (row.get("candidate_id"), row.get("symbol"), row.get("timeframe")) != (
+              os.environ["CANDIDATE_ID"], os.environ["SYMBOL"], "M15"
+          ):
+              raise SystemExit("G13_FRESH_ORDER_ATTEMPT_IDENTITY_MISMATCH")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          with output.open("w", encoding="utf-8", newline="") as handle:
+              writer = csv.DictWriter(handle, fieldnames=columns)
+              writer.writeheader()
+              writer.writerows(fresh)
+          print(json.dumps({
+              "status": "PASS",
+              "baseline_row_count": baseline,
+              "fresh_row_count": len(fresh),
+              "fresh_order_attempt_count": len(attempts),
+              "target_candidate_id": row["candidate_id"],
+              "trade_id": os.environ["TRADE_ID"],
+              "evidence_csv": str(output),
+          }, sort_keys=True))
+          '@
+          $filterNewEvidence | & $env:PYTHON_EXE -
+          if ($LASTEXITCODE -ne 0) { throw "G13_FRESH_TELEMETRY_FILTER_FAILED" }
 
       - name: Validate actual broker-backed Demo execution
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -363,6 +487,20 @@ jobs:
           $kill = Join-Path $common "g13_demo_kill_switch.txt"
           Set-Content -Path $kill -Value "DENY" -NoNewline -Encoding ascii
           if ((Get-Content $kill -Raw) -ne "DENY") { throw "G13_KILL_SWITCH_SHUTDOWN_FAILED" }
+          $receiptPath = "artifacts/g13-controlled-demo/authorization-identity-binding.json"
+          if (Test-Path -LiteralPath $receiptPath -PathType Leaf) {
+            $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+            $tradeIdPath = Join-Path $common "ForexAI_G13_Demo_TradeId.txt"
+            if (Test-Path -LiteralPath $tradeIdPath -PathType Leaf) {
+              $activeTradeId = (Get-Content -LiteralPath $tradeIdPath -Raw).Trim()
+              if ($activeTradeId -eq [string]$receipt.trade_id) {
+                Remove-Item -LiteralPath $tradeIdPath -Force
+                Write-Output "G13_DEMO_TRADE_ID_CONTEXT_REMOVED=true"
+              } else {
+                Write-Warning "G13_DEMO_TRADE_ID_CONTEXT_NOT_REMOVED_MISMATCH=true"
+              }
+            }
+          }
 
       - name: Upload controlled Demo evidence
         if: always()
