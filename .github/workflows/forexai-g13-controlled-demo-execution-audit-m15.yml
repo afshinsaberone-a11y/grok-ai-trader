@@ -23,6 +23,10 @@ on:
         required: true
         default: "20"
         type: string
+      trade_id:
+        description: "Exact Trade ID from the pre-issued Capital Firewall authorization; G13 M15 SELL identity ends in -S."
+        required: true
+        type: string
       operator_confirmation:
         description: "Exact confirmation before the frozen EA is enabled for this Demo audit"
         required: true
@@ -32,6 +36,10 @@ on:
 permissions:
   contents: read
   actions: read
+
+concurrency:
+  group: forexai-g13-controlled-demo-execution-audit-m15
+  cancel-in-progress: false
 
 jobs:
   controlled-demo-audit:
@@ -43,6 +51,7 @@ jobs:
       SYMBOL: ${{ inputs.symbol }}
       TERMINAL_PATH: ${{ inputs.terminal_path }}
       AUDIT_WAIT_MINUTES: ${{ inputs.audit_wait_minutes }}
+      TRADE_ID: ${{ inputs.trade_id }}
     steps:
       - name: Validate operator confirmation
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -65,6 +74,7 @@ jobs:
             run_attempt = [int]$env:GITHUB_RUN_ATTEMPT
             head_sha = $env:GITHUB_SHA
             candidate_id = [int]$env:CANDIDATE_ID
+            trade_id = $env:TRADE_ID
             symbol = $env:SYMBOL
             timeframe = "M15"
             operator_confirmation_accepted = $true
@@ -74,6 +84,16 @@ jobs:
             created_at_utc = (Get-Date).ToUniversalTime().ToString("o")
           }
           $invocation | ConvertTo-Json -Depth 5 | Set-Content artifacts/g13-controlled-demo/invocation.json -Encoding utf8
+
+      - name: Set fail-closed Demo kill switch before audit setup
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $common = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
+          New-Item -ItemType Directory -Force -Path $common | Out-Null
+          $kill = Join-Path $common "g13_demo_kill_switch.txt"
+          Set-Content -Path $kill -Value "DENY" -NoNewline -Encoding ascii
+          if ((Get-Content $kill -Raw) -ne "DENY") { throw "G13_KILL_SWITCH_INITIAL_DENY_FAILED" }
+          Write-Output "G13_KILL_SWITCH_INITIAL_DENY=true"
 
       - name: Resolve exact Promotion manifest
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
