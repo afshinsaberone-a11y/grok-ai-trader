@@ -99,6 +99,8 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml
+          ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-audit-m15.yml
+          ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
 
       - name: Compile all G13 Python gates

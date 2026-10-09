@@ -60,7 +60,7 @@ jobs:
       - name: Resolve exact Promotion manifest
         shell: pwsh
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $sha = git rev-parse HEAD
           $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&status=completed&per_page=25" | ConvertFrom-Json
