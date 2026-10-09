@@ -39,20 +39,20 @@ All must be true before any Demo execution attempt:
 
 ## Windows runner and MT5 Common Files identity
 
-The Windows Actions service may run as \`NT AUTHORITY\NETWORK SERVICE\` while the interactive MT5 terminal runs as a user such as \`DESKTOP-GL1KKJH\Star\`. Those accounts have different default \`APPDATA\` roots. The controlled audit/collector now resolve the actual owner of the running \`terminal64.exe\` and bind later workflow steps to that terminal's profile; they fail closed if the profile is ambiguous or the Common Files directory is not writable.
+The Windows Actions service may run as `NT AUTHORITY\NETWORK SERVICE` while the interactive MT5 terminal runs as a user such as `DESKTOP-GL1KKJH\Star`. Those accounts have different default `APPDATA` roots. The controlled audit/collector now resolve the actual owner of the running `terminal64.exe` and bind later workflow steps to that terminal's profile; they fail closed if the profile is ambiguous or the Common Files directory is not writable.
 
-If the Actions runner service remains under \`NETWORK SERVICE\`, run the following from an elevated PowerShell session on the runner. Confirm the path matches the profile reported for the live terminal before applying it:
+If the Actions runner service remains under `NETWORK SERVICE`, run the following from an elevated PowerShell session on the runner. Confirm the path matches the profile reported for the live terminal before applying it:
 
-\`\`\`powershell
+```powershell
 $common = 'C:\Users\Star\AppData\Roaming\MetaQuotes\Terminal\Common\Files'
 if (-not (Test-Path -LiteralPath $common -PathType Container)) {
     throw "MT5 Common Files directory not found: $common"
 }
 icacls $common /grant 'NT AUTHORITY\NETWORK SERVICE:(OI)(CI)M'
 icacls $common
-\`\`\`
+```
 
-This grants the runner service Modify access only to the MT5 Common Files directory tree, rather than to the whole user profile. The workflow's write probe must pass before the audit can proceed. Do not manually create or copy a \`ForexAI_Authorization_*.auth\` file: the audit requires an authentic, unexpired record bound to the exact pre-issued Capital Firewall trade identity.
+This grants the runner service Modify access only to the MT5 Common Files directory tree, rather than to the whole user profile. The workflow's write probe must pass before the audit can proceed. Do not manually create or copy a `ForexAI_Authorization_*.auth` file: the audit requires an authentic, unexpired record bound to the exact pre-issued Capital Firewall trade identity.
 
 ## MT5 operator setup
 
