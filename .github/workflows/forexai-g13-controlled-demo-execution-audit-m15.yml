@@ -85,15 +85,10 @@ jobs:
           }
           $invocation | ConvertTo-Json -Depth 5 | Set-Content artifacts/g13-controlled-demo/invocation.json -Encoding utf8
 
-      - name: Set fail-closed Demo kill switch before audit setup
+      - name: Resolve MT5 owner profile and set fail-closed kill switch
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          $common = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
-          New-Item -ItemType Directory -Force -Path $common | Out-Null
-          $kill = Join-Path $common "g13_demo_kill_switch.txt"
-          Set-Content -Path $kill -Value "DENY" -NoNewline -Encoding ascii
-          if ((Get-Content $kill -Raw) -ne "DENY") { throw "G13_KILL_SWITCH_INITIAL_DENY_FAILED" }
-          Write-Output "G13_KILL_SWITCH_INITIAL_DENY=true"
+          & (Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch
 
       - name: Resolve exact Promotion manifest
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"

@@ -57,6 +57,11 @@ jobs:
       - name: Checkout exact workflow revision
         uses: actions/checkout@v4
 
+      - name: Resolve MT5 owner profile and Common Files
+        shell: pwsh
+        run: |
+          & (Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:G13_TERMINAL_PATH"
+
       - name: Resolve exact Promotion manifest
         shell: pwsh
         env:
