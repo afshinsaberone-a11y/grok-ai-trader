@@ -260,7 +260,76 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $tradeId = [string]$env:TRADE_ID
-          if ($tradeId -notmatch '^[A-Za-z0-9._:-]{1,124}-S
+          if ($tradeId -notmatch '^[A-Za-z0-9._:-]{1,124}-S$') {
+            throw "G13_DEMO_TRADE_ID_INVALID_OR_NOT_SELL_BOUND"
+          }
+          $common = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
+          $authName = "ForexAI_Authorization_{0}_EURUSD.auth" -f (130000 + [int]$env:CANDIDATE_ID)
+          $authPath = Join-Path $common $authName
+          if (!(Test-Path -LiteralPath $authPath -PathType Leaf)) {
+            throw "G13_DEMO_AUTHORIZATION_RECORD_MISSING"
+          }
+          $parts = (Get-Content -LiteralPath $authPath -Raw).Trim().Split('|')
+          if ($parts.Count -ne 23) { throw "G13_DEMO_AUTHORIZATION_RECORD_SHAPE_INVALID" }
+          if ($parts[0] -ne "FOREXAI-AUTH-V1" -or $parts[1] -ne "forexai.mql5_authorization_record.v1") {
+            throw "G13_DEMO_AUTHORIZATION_RECORD_SCHEMA_INVALID"
+          }
+          if ($parts[2] -ne $tradeId) { throw "G13_DEMO_AUTHORIZATION_TRADE_ID_MISMATCH" }
+          if ($parts[5] -ne "EURUSD" -or $parts[6] -ne "M15") {
+            throw "G13_DEMO_AUTHORIZATION_INSTRUMENT_MISMATCH"
+          }
+          # Never mint or refresh authorization here. The frozen EA checks
+          # integrity, freshness, expiry, account mode, and kill switch at order time.
+          $tradeIdPath = Join-Path $common "ForexAI_G13_Demo_TradeId.txt"
+          $receiptPath = "artifacts/g13-controlled-demo/authorization-identity-binding.json"
+          $receipt = [ordered]@{
+            schema = "forexai.g13.demo_authorization_identity_binding.v1"
+            status = "PASS"
+            candidate_id = [int]$env:CANDIDATE_ID
+            trade_id = $tradeId
+            symbol = "EURUSD"
+            timeframe = "M15"
+            authorization_file = $authName
+            authorization_trade_identity_match = $true
+            signed_authorization_freshness_verified_by_workflow = $false
+            trade_id_context_staged = $false
+            order_submission_performed_by_workflow = $false
+            live_enabled = $false
+            created_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+          }
+          $receipt | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $receiptPath -Encoding utf8
+          Set-Content -Path $tradeIdPath -Value $tradeId -NoNewline -Encoding ascii
+          if ((Get-Content -LiteralPath $tradeIdPath -Raw) -ne $tradeId) {
+            throw "G13_DEMO_TRADE_ID_CONTEXT_WRITE_FAILED"
+          }
+          $receipt.trade_id_context_staged = $true
+          $receipt | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $receiptPath -Encoding utf8
+          $invocationPath = "artifacts/g13-controlled-demo/invocation.json"
+          $invocation = Get-Content -LiteralPath $invocationPath -Raw | ConvertFrom-Json
+          $invocation.stage = "TRADE_ID_BOUND_TO_AUTHORIZATION"
+          $invocation.authorization_trade_identity_match = $true
+          $invocation | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $invocationPath -Encoding utf8
+
+      - name: Capture pre-audit telemetry baseline
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $common = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
+          $audit = Join-Path $common "g13_demo_execution_audit.csv"
+          $baselineRows = 0
+          if (Test-Path -LiteralPath $audit -PathType Leaf) {
+            $baselineRows = @(Import-Csv -LiteralPath $audit).Count
+          }
+          "G13_AUDIT_BASELINE_ROWS=$baselineRows" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          $baseline = [ordered]@{
+            schema = "forexai.g13.demo_telemetry_baseline.v1"
+            audit_file_present = (Test-Path -LiteralPath $audit -PathType Leaf)
+            baseline_row_count = $baselineRows
+            captured_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+            existing_rows_are_not_acceptable_as_new_execution_evidence = $true
+          }
+          $baseline | ConvertTo-Json -Depth 4 | Set-Content artifacts/g13-controlled-demo/telemetry-baseline.json -Encoding utf8
+
+      - name: Install explicit Demo kill switch
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $common = Join-Path $env:APPDATA "MetaQuotes\\Terminal\\Common\\Files"
@@ -318,7 +387,6 @@ jobs:
           $found = $false
           $allRows = @()
           $freshRows = @()
-          $target = @()
           while ((Get-Date) -lt $deadline) {
             $allRows = @()
             if (Test-Path -LiteralPath $audit -PathType Leaf) {
@@ -391,8 +459,6 @@ jobs:
             throw "G13_DEMO_EXECUTION_TELEMETRY_TIMEOUT: see telemetry-diagnostics.json"
           }
 
-          # Give the asynchronous OnTradeTransaction logger a brief bounded
-          # window to append its broker-matching row after ORDER_ATTEMPT.
           for ($i = 0; $i -lt 5; $i++) {
             $allRows = @(Import-Csv -LiteralPath $audit)
             $freshRows = @($allRows | Select-Object -Skip $baselineRows)
@@ -416,11 +482,9 @@ jobs:
           import json
           import os
           from pathlib import Path
-
           source = Path(os.environ["G13_DEMO_AUDIT_SOURCE"])
           output = Path(os.environ["G13_DEMO_AUDIT_OUTPUT"])
           baseline = int(os.environ["G13_DEMO_AUDIT_BASELINE_ROWS"])
-
           with source.open("r", encoding="utf-8-sig", newline="") as handle:
               reader = csv.DictReader(handle)
               columns = reader.fieldnames
@@ -490,14 +554,16 @@ jobs:
           $receiptPath = "artifacts/g13-controlled-demo/authorization-identity-binding.json"
           if (Test-Path -LiteralPath $receiptPath -PathType Leaf) {
             $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
-            $tradeIdPath = Join-Path $common "ForexAI_G13_Demo_TradeId.txt"
-            if (Test-Path -LiteralPath $tradeIdPath -PathType Leaf) {
-              $activeTradeId = (Get-Content -LiteralPath $tradeIdPath -Raw).Trim()
-              if ($activeTradeId -eq [string]$receipt.trade_id) {
-                Remove-Item -LiteralPath $tradeIdPath -Force
-                Write-Output "G13_DEMO_TRADE_ID_CONTEXT_REMOVED=true"
-              } else {
-                Write-Warning "G13_DEMO_TRADE_ID_CONTEXT_NOT_REMOVED_MISMATCH=true"
+            if ($receipt.trade_id_context_staged -eq $true) {
+              $tradeIdPath = Join-Path $common "ForexAI_G13_Demo_TradeId.txt"
+              if (Test-Path -LiteralPath $tradeIdPath -PathType Leaf) {
+                $activeTradeId = (Get-Content -LiteralPath $tradeIdPath -Raw).Trim()
+                if ($activeTradeId -eq [string]$receipt.trade_id) {
+                  Remove-Item -LiteralPath $tradeIdPath -Force
+                  Write-Output "G13_DEMO_TRADE_ID_CONTEXT_REMOVED=true"
+                } else {
+                  Write-Warning "G13_DEMO_TRADE_ID_CONTEXT_NOT_REMOVED_MISMATCH=true"
+                }
               }
             }
           }
