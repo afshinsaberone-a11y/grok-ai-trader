@@ -76,6 +76,19 @@ if (-not (Test-Path -LiteralPath $commonFiles -PathType Container)) {
     throw "G13_MT5_COMMON_FILES_DIRECTORY_NOT_FOUND:$commonFiles"
 }
 
+if ($SetDenyKillSwitch) {
+    $killSwitch = Join-Path $commonFiles 'g13_demo_kill_switch.txt'
+    try {
+        Set-Content -LiteralPath $killSwitch -Value 'DENY' -NoNewline -Encoding ascii
+        if ((Get-Content -LiteralPath $killSwitch -Raw) -ne 'DENY') {
+            throw 'G13_KILL_SWITCH_INITIAL_DENY_VERIFICATION_FAILED'
+        }
+    } catch {
+        throw "G13_KILL_SWITCH_INITIAL_DENY_FAILED:$commonFiles; stop and restore access before any Demo execution. InnerError=$($_.Exception.Message)"
+    }
+    Write-Output 'G13_KILL_SWITCH_INITIAL_DENY=true'
+}
+
 $probe = Join-Path $commonFiles (".forexai-write-probe-$([Guid]::NewGuid().ToString('N')).tmp")
 try {
     [System.IO.File]::WriteAllText(
@@ -87,15 +100,6 @@ try {
     throw "G13_MT5_COMMON_FILES_WRITE_ACCESS_DENIED:$commonFiles; grant Modify to NT AUTHORITY\NETWORK SERVICE for this directory or run the runner under the terminal owner; never fabricate an authorization record. InnerError=$($_.Exception.Message)"
 } finally {
     Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
-}
-
-if ($SetDenyKillSwitch) {
-    $killSwitch = Join-Path $commonFiles 'g13_demo_kill_switch.txt'
-    Set-Content -LiteralPath $killSwitch -Value 'DENY' -NoNewline -Encoding ascii
-    if ((Get-Content -LiteralPath $killSwitch -Raw) -ne 'DENY') {
-        throw 'G13_KILL_SWITCH_INITIAL_DENY_FAILED'
-    }
-    Write-Output 'G13_KILL_SWITCH_INITIAL_DENY=true'
 }
 
 # APPDATA is used by the Python MetaTrader gateway and by Windows workflows
