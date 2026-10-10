@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Resolve MT5 owner profile and set fail-closed kill switch
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           try {
@@ -51,7 +51,7 @@ jobs:
           }
 
       - name: Resolve Python runtime
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $candidatePaths = @(
@@ -73,7 +73,7 @@ jobs:
           Write-Output 'CAPITAL_AUTH_PREFLIGHT_PYTHON=PASS'
 
       - name: Run read-only Capital Firewall prerequisite diagnostic
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
         run: |
