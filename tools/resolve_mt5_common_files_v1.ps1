@@ -12,26 +12,47 @@ if (-not (Test-Path -LiteralPath $TerminalPath -PathType Leaf)) {
 }
 $expectedExe = [System.IO.Path]::GetFullPath($TerminalPath)
 
+$terminalProcesses = @(
+    Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'"
+)
+if ($terminalProcesses.Count -lt 1) {
+    throw "G13_MT5_TERMINAL_PROCESS_NOT_FOUND:$expectedExe"
+}
+
+# Under a restricted service identity, WMI may enumerate a process while
+# omitting ExecutablePath. Distinguish that visibility limitation from a
+# genuinely different executable path. Never accept a process with an unknown
+# path as the MT5 owner: profile resolution must remain exact-path and fail-closed.
+$processesWithReadablePath = @(
+    $terminalProcesses | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath)
+    }
+)
+$processesWithUnreadablePath = @(
+    $terminalProcesses | Where-Object {
+        [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath)
+    }
+)
+
 $matchingProcesses = @(
-    Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" |
+    $processesWithReadablePath |
         Where-Object {
-            if ([string]::IsNullOrWhiteSpace([string]$_.ExecutablePath)) {
+            try {
+                [System.String]::Equals(
+                    [System.IO.Path]::GetFullPath([string]$_.ExecutablePath),
+                    $expectedExe,
+                    [System.StringComparison]::OrdinalIgnoreCase
+                )
+            } catch {
                 $false
-            } else {
-                try {
-                    [System.String]::Equals(
-                        [System.IO.Path]::GetFullPath([string]$_.ExecutablePath),
-                        $expectedExe,
-                        [System.StringComparison]::OrdinalIgnoreCase
-                    )
-                } catch {
-                    $false
-                }
             }
         }
 )
 if ($matchingProcesses.Count -lt 1) {
-    throw "G13_MT5_TERMINAL_PROCESS_NOT_FOUND:$expectedExe"
+    if ($processesWithUnreadablePath.Count -gt 0) {
+        throw 'G13_MT5_TERMINAL_PROCESS_PATH_UNAVAILABLE'
+    }
+    throw 'G13_MT5_TERMINAL_PROCESS_PATH_MISMATCH'
 }
 
 $resolvedOwners = @()
