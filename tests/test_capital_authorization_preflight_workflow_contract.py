@@ -15,7 +15,7 @@ def test_capital_authorization_preflight_is_manual_read_only_and_fail_closed():
     assert "workflow_dispatch:" in workflow
     assert "runs-on: [self-hosted, windows, mt5]" in workflow
     assert workflow.count("shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}") == 3
-    assert "tools/diagnose_capital_authorization_prerequisites_v1.py" in workflow
+    assert "-m tools.diagnose_capital_authorization_prerequisites_v1" in workflow
     assert "-m tools.diagnose_capital_authorization_prerequisites_v1" in workflow
     assert "Push-Location -LiteralPath $env:GITHUB_WORKSPACE" in workflow
     assert "Pop-Location" in workflow
