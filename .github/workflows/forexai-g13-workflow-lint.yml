@@ -184,7 +184,7 @@ jobs:
           required_workflow_tokens = [
               "Compile and deploy MQL5 real-data parity script",
               "Run MQL5 real-data parity script",
-              "Script=ForexAI_G13_Parity_Harness.ex5",
+              "Script=ForexAI_G13_Parity_Harness",
               "AllowLiveTrading=0",
               "DATA_CSV_INPUT:",
               "DATA_MANIFEST_RESOLVED",
