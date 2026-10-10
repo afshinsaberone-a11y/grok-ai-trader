@@ -932,7 +932,7 @@ jobs:
             exit 0
           }
           try {
-            $tempRoot = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\\') + '\\'
+            $tempRoot = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
             $portableFull = [System.IO.Path]::GetFullPath($portableRoot)
             $leaf = Split-Path -Leaf $portableFull
             if (-not $portableFull.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
