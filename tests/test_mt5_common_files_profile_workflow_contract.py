@@ -44,12 +44,14 @@ def test_demo_runbook_documents_narrow_network_service_acl():
     assert "ForexAI_Authorization_*.auth" in runbook
 
 
-def test_mt5_resolver_distinguishes_inaccessible_process_paths_fail_closed():
+def test_mt5_resolver_uses_limited_process_query_right_and_fails_closed():
     helper = (ROOT / "tools/resolve_mt5_common_files_v1.ps1").read_text(encoding="utf-8")
 
     assert '$terminalProcesses = @(' in helper
+    assert "QueryFullProcessImageNameW" in helper
+    assert "PROCESS_QUERY_LIMITED_INFORMATION" in helper
     assert "G13_MT5_TERMINAL_PROCESS_PATH_UNAVAILABLE" in helper
     assert "G13_MT5_TERMINAL_PROCESS_PATH_MISMATCH" in helper
-    assert "$processesWithUnreadablePath.Count -gt 0" in helper
+    assert "$unresolvedProcessPathCount -gt 0" in helper
     assert "[System.StringComparison]::OrdinalIgnoreCase" in helper
     assert "$expectedExe" in helper
