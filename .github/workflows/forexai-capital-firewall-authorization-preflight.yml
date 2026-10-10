@@ -47,7 +47,25 @@ jobs:
                 else { Write-Output $line }
               }
           } catch {
-            throw 'CAPITAL_AUTH_PREFLIGHT_MT5_PROFILE_RESOLUTION_FAILED'
+            # The resolver's exception can contain local paths, usernames, or PIDs.
+            # Emit only an allowlisted reason code so the actionable cause is visible
+            # without exposing machine-specific data in public workflow logs.
+            $failureText = [string]$_.Exception.Message
+            $failureCode = switch -Regex ($failureText) {
+              '^G13_MT5_TERMINAL_EXECUTABLE_NOT_FOUND:' { 'TERMINAL_EXECUTABLE_NOT_FOUND'; break }
+              '^G13_MT5_TERMINAL_PROCESS_NOT_FOUND:' { 'TERMINAL_PROCESS_NOT_FOUND'; break }
+              '^G13_MT5_TERMINAL_OWNER_SID_UNRESOLVED:' { 'TERMINAL_OWNER_SID_UNRESOLVED'; break }
+              '^G13_MT5_TERMINAL_OWNER_UNRESOLVED:' { 'TERMINAL_OWNER_UNRESOLVED'; break }
+              '^G13_MT5_USER_PROFILE_UNRESOLVED:' { 'USER_PROFILE_UNRESOLVED'; break }
+              '^G13_MT5_MULTIPLE_TERMINAL_PROFILES_MATCH_EXECUTABLE$' { 'MULTIPLE_TERMINAL_PROFILES'; break }
+              '^G13_MT5_COMMON_FILES_DIRECTORY_NOT_FOUND:' { 'COMMON_FILES_DIRECTORY_NOT_FOUND'; break }
+              '^G13_KILL_SWITCH_INITIAL_DENY_FAILED:' { 'KILL_SWITCH_DENY_WRITE_FAILED'; break }
+              '^G13_KILL_SWITCH_INITIAL_DENY_VERIFICATION_FAILED$' { 'KILL_SWITCH_DENY_VERIFY_FAILED'; break }
+              '^G13_MT5_COMMON_FILES_WRITE_ACCESS_DENIED:' { 'COMMON_FILES_WRITE_ACCESS_DENIED'; break }
+              default { 'UNCLASSIFIED_RESOLVER_FAILURE' }
+            }
+            Write-Output "CAPITAL_AUTH_PREFLIGHT_RESOLVER_FAILURE_CODE=$failureCode"
+            throw "CAPITAL_AUTH_PREFLIGHT_MT5_PROFILE_RESOLUTION_FAILED:$failureCode"
           }
 
       - name: Resolve Python runtime
