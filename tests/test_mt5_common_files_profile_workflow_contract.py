@@ -50,6 +50,9 @@ def test_mt5_resolver_uses_limited_process_query_right_and_fails_closed():
     assert '$terminalProcesses = @(' in helper
     assert "QueryFullProcessImageNameW" in helper
     assert "PROCESS_QUERY_LIMITED_INFORMATION" in helper
+    assert "Marshal.GetLastWin32Error()" in helper
+    assert "G13_MT5_TERMINAL_PROCESS_ACCESS_DENIED" in helper
+    assert "$processPathErrorCode -eq 5" in helper
     assert "G13_MT5_TERMINAL_PROCESS_PATH_UNAVAILABLE" in helper
     assert "G13_MT5_TERMINAL_PROCESS_PATH_MISMATCH" in helper
     assert "$unresolvedProcessPathCount -gt 0" in helper
