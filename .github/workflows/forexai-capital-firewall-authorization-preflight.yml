@@ -106,23 +106,32 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path 'artifacts/g13-capital-authorization-preflight' | Out-Null
           $reportPath = Join-Path $env:GITHUB_WORKSPACE 'artifacts/g13-capital-authorization-preflight/report.json'
-          $args = @(
-            'tools/diagnose_capital_authorization_prerequisites_v1.py',
+          $diagnosticArgs = @(
             '--candidate-id', $env:CANDIDATE_ID,
             '--common-files', $env:FOREXAI_MT5_COMMON_FILES,
             '--report-out', $reportPath
           )
           if (-not [string]::IsNullOrWhiteSpace($ledger)) {
-            $args += @('--ledger-path', $ledger)
+            $diagnosticArgs += @('--ledger-path', $ledger)
           }
           if (-not [string]::IsNullOrWhiteSpace($authenticatedEnvelope)) {
-            $args += @('--authenticated-envelope-path', $authenticatedEnvelope)
+            $diagnosticArgs += @('--authenticated-envelope-path', $authenticatedEnvelope)
           }
           if (-not [string]::IsNullOrWhiteSpace($expectedTradeId)) {
-            $args += @('--expected-trade-id', $expectedTradeId)
+            $diagnosticArgs += @('--expected-trade-id', $expectedTradeId)
           }
-          & $env:PYTHON_EXE @args
-          if ($LASTEXITCODE -ne 0) { throw "CAPITAL_AUTH_PREFLIGHT_DIAGNOSTIC_FAILED:$LASTEXITCODE" }
+
+          # Invoke as a module from the repository root so imports such as
+          # "from tools.capital_firewall_v1 import CapitalFirewall" resolve
+          # consistently on the self-hosted Windows runner.
+          Push-Location -LiteralPath $env:GITHUB_WORKSPACE
+          try {
+            & $env:PYTHON_EXE -m tools.diagnose_capital_authorization_prerequisites_v1 @diagnosticArgs
+            $diagnosticExitCode = $LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
+          if ($diagnosticExitCode -ne 0) { throw "CAPITAL_AUTH_PREFLIGHT_DIAGNOSTIC_FAILED:$diagnosticExitCode" }
 
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
           "CAPITAL_AUTH_PREFLIGHT_STATUS=$($report.status)" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
