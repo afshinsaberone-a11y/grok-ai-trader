@@ -41,16 +41,25 @@ public static class ForexAI_NativeProcessPath
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
 
-    public static string TryGetPath(int processId)
+    public static string TryGetPath(int processId, out int errorCode)
     {
         const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
         IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
-        if (handle == IntPtr.Zero) return null;
+        if (handle == IntPtr.Zero)
+        {
+            errorCode = Marshal.GetLastWin32Error();
+            return null;
+        }
         try
         {
             StringBuilder path = new StringBuilder(32768);
             uint size = (uint)path.Capacity;
-            if (!QueryFullProcessImageNameW(handle, 0, path, ref size)) return null;
+            if (!QueryFullProcessImageNameW(handle, 0, path, ref size))
+            {
+                errorCode = Marshal.GetLastWin32Error();
+                return null;
+            }
+            errorCode = 0;
             return path.ToString();
         }
         finally
@@ -64,10 +73,20 @@ public static class ForexAI_NativeProcessPath
 
 $matchingProcesses = @()
 $unresolvedProcessPathCount = 0
+$accessDeniedProcessPathCount = 0
 foreach ($process in $terminalProcesses) {
-    $processPath = [ForexAI_NativeProcessPath]::TryGetPath([int]$process.ProcessId)
+    $processPathErrorCode = 0
+    $processPath = [ForexAI_NativeProcessPath]::TryGetPath(
+        [int]$process.ProcessId,
+        [ref]$processPathErrorCode
+    )
     if ([string]::IsNullOrWhiteSpace([string]$processPath)) {
         $unresolvedProcessPathCount++
+        if ($processPathErrorCode -eq 5) {
+            # Emit only this allowlisted classification later; never log raw
+            # Win32 error details, PIDs, or local filesystem paths.
+            $accessDeniedProcessPathCount++
+        }
         continue
     }
 
@@ -87,6 +106,9 @@ foreach ($process in $terminalProcesses) {
 }
 
 if ($matchingProcesses.Count -lt 1) {
+    if ($accessDeniedProcessPathCount -gt 0) {
+        throw 'G13_MT5_TERMINAL_PROCESS_ACCESS_DENIED'
+    }
     if ($unresolvedProcessPathCount -gt 0) {
         throw 'G13_MT5_TERMINAL_PROCESS_PATH_UNAVAILABLE'
     }

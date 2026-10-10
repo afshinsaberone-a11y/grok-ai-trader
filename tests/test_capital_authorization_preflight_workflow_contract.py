@@ -30,6 +30,7 @@ def test_capital_authorization_preflight_is_manual_read_only_and_fail_closed():
     assert "actions/upload-artifact@v4" in workflow
     assert "CAPITAL_AUTH_PREFLIGHT_RESOLVER_FAILURE_CODE=$failureCode" in workflow
     assert "'TERMINAL_PROCESS_NOT_FOUND'" in workflow
+    assert "'TERMINAL_PROCESS_ACCESS_DENIED'" in workflow
     assert "'TERMINAL_PROCESS_PATH_UNAVAILABLE'" in workflow
     assert "'TERMINAL_PROCESS_PATH_MISMATCH'" in workflow
     assert "'KILL_SWITCH_DENY_WRITE_FAILED'" in workflow
