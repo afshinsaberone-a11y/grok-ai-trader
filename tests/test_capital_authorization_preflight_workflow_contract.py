@@ -17,6 +17,12 @@ def test_capital_authorization_preflight_is_manual_read_only_and_fail_closed():
     assert "tools/diagnose_capital_authorization_prerequisites_v1.py" in workflow
     assert "-SetDenyKillSwitch" in workflow
     assert "secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET" in workflow
+    job_env = workflow.split("    steps:", 1)[0]
+    assert "FOREXAI_CONTROL_PLANE_HMAC_SECRET" not in job_env
+    diagnostic_step = workflow.split(
+        "- name: Run read-only Capital Firewall prerequisite diagnostic", 1
+    )[1].split("- name: Upload redacted prerequisite report", 1)[0]
+    assert "FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}" in diagnostic_step
     assert "actions/upload-artifact@v4" in workflow
     assert "ORDER_SUBMISSION_PERFORMED=false" in workflow
     assert "AUTHORIZATION_RECORD_CREATED=false" in workflow
