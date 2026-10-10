@@ -42,3 +42,14 @@ def test_demo_runbook_documents_narrow_network_service_acl():
     assert "icacls $common /grant" in runbook
     assert "Do not manually create or copy a" in runbook
     assert "ForexAI_Authorization_*.auth" in runbook
+
+
+def test_mt5_resolver_distinguishes_inaccessible_process_paths_fail_closed():
+    helper = (ROOT / "tools/resolve_mt5_common_files_v1.ps1").read_text(encoding="utf-8")
+
+    assert '$terminalProcesses = @(' in helper
+    assert "G13_MT5_TERMINAL_PROCESS_PATH_UNAVAILABLE" in helper
+    assert "G13_MT5_TERMINAL_PROCESS_PATH_MISMATCH" in helper
+    assert "$processesWithUnreadablePath.Count -gt 0" in helper
+    assert "[System.StringComparison]::OrdinalIgnoreCase" in helper
+    assert "$expectedExe" in helper
