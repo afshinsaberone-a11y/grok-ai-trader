@@ -340,12 +340,26 @@ jobs:
           $serviceData = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075'
           $target = Join-Path $serviceData 'MQL5\\Include'
           if (!(Test-Path -LiteralPath $source -PathType Container)) { throw "MT5 Include tree not found: $source" }
-          New-Item -ItemType Directory -Path $target -Force | Out-Null
-          Copy-Item (Join-Path $source '*') $target -Recurse -Force
+
+          $sourceCanonical = [System.IO.Path]::GetFullPath($source).TrimEnd('\\')
+          $targetCanonical = [System.IO.Path]::GetFullPath($target).TrimEnd('\\')
+          if ([System.String]::Equals($sourceCanonical, $targetCanonical, [System.StringComparison]::OrdinalIgnoreCase)) {
+            # When the runner executes as the MT5 profile owner, both paths are
+            # already the same tree. Copy-Item would fail by copying Array.mqh
+            # onto itself; verify the include tree in place instead.
+            Write-Host 'MT5_INCLUDE_TREE_ALREADY_AT_TARGET=true'
+          } else {
+            New-Item -ItemType Directory -Path $target -Force | Out-Null
+            Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force
+            }
+            Write-Host 'MT5_INCLUDE_TREE_COPIED_TO_SERVICE_PROFILE=true'
+          }
+
           $trade = Join-Path $target 'Trade\\Trade.mqh'
           if (!(Test-Path -LiteralPath $trade -PathType Leaf)) { throw "Trade.mqh not staged for service-account MetaEditor: $trade" }
           Write-Host "MT5_SERVICE_DATA_ROOT=$serviceData"
-          Write-Host "MT5_SERVICE_INCLUDE_OK=$target"
+          Write-Host "MT5_SERVICE_INCLUDE_OK=true"
 
       - name: Generate fresh frozen EAs
         run: |
