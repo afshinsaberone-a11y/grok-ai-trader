@@ -25,6 +25,12 @@ def test_capital_authorization_preflight_is_manual_read_only_and_fail_closed():
     )[1].split("- name: Upload redacted prerequisite report", 1)[0]
     assert "FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}" in diagnostic_step
     assert "actions/upload-artifact@v4" in workflow
+    assert "CAPITAL_AUTH_PREFLIGHT_RESOLVER_FAILURE_CODE=$failureCode" in workflow
+    assert "'TERMINAL_PROCESS_NOT_FOUND'" in workflow
+    assert "'KILL_SWITCH_DENY_WRITE_FAILED'" in workflow
+    assert "'COMMON_FILES_WRITE_ACCESS_DENIED'" in workflow
+    assert "$failureText" not in workflow
+    assert "Write-Output $failureText" not in workflow
     assert "ORDER_SUBMISSION_PERFORMED=false" in workflow
     assert "AUTHORIZATION_RECORD_CREATED=false" in workflow
     assert "order_send" not in workflow.lower()
