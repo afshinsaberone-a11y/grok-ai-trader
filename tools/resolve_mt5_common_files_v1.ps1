@@ -19,37 +19,75 @@ if ($terminalProcesses.Count -lt 1) {
     throw "G13_MT5_TERMINAL_PROCESS_NOT_FOUND:$expectedExe"
 }
 
-# Under a restricted service identity, WMI may enumerate a process while
-# omitting ExecutablePath. Distinguish that visibility limitation from a
-# genuinely different executable path. Never accept a process with an unknown
-# path as the MT5 owner: profile resolution must remain exact-path and fail-closed.
-$processesWithReadablePath = @(
-    $terminalProcesses | Where-Object {
-        -not [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath)
-    }
-)
-$processesWithUnreadablePath = @(
-    $terminalProcesses | Where-Object {
-        [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath)
-    }
-)
+# Win32_Process.ExecutablePath requires SeDebugPrivilege. Use the limited
+# PROCESS_QUERY_LIMITED_INFORMATION right and QueryFullProcessImageName instead,
+# so the runner does not need elevated debug privileges just to identify MT5.
+if ($null -eq ('ForexAI_NativeProcessPath' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
 
-$matchingProcesses = @(
-    $processesWithReadablePath |
-        Where-Object {
-            try {
-                [System.String]::Equals(
-                    [System.IO.Path]::GetFullPath([string]$_.ExecutablePath),
-                    $expectedExe,
-                    [System.StringComparison]::OrdinalIgnoreCase
-                )
-            } catch {
-                $false
-            }
+public static class ForexAI_NativeProcessPath
+{
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, int processId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true,
+        EntryPoint = "QueryFullProcessImageNameW")]
+    private static extern bool QueryFullProcessImageNameW(
+        IntPtr process, uint flags, StringBuilder exeName, ref uint size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    public static string TryGetPath(int processId)
+    {
+        const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+        IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+        if (handle == IntPtr.Zero) return null;
+        try
+        {
+            StringBuilder path = new StringBuilder(32768);
+            uint size = (uint)path.Capacity;
+            if (!QueryFullProcessImageNameW(handle, 0, path, ref size)) return null;
+            return path.ToString();
         }
-)
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+}
+'@
+}
+
+$matchingProcesses = @()
+$unresolvedProcessPathCount = 0
+foreach ($process in $terminalProcesses) {
+    $processPath = [ForexAI_NativeProcessPath]::TryGetPath([int]$process.ProcessId)
+    if ([string]::IsNullOrWhiteSpace([string]$processPath)) {
+        $unresolvedProcessPathCount++
+        continue
+    }
+
+    $isExpectedPath = $false
+    try {
+        $isExpectedPath = [System.String]::Equals(
+            [System.IO.Path]::GetFullPath([string]$processPath),
+            $expectedExe,
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+    } catch {
+        $isExpectedPath = $false
+    }
+    if ($isExpectedPath) {
+        $matchingProcesses += $process
+    }
+}
+
 if ($matchingProcesses.Count -lt 1) {
-    if ($processesWithUnreadablePath.Count -gt 0) {
+    if ($unresolvedProcessPathCount -gt 0) {
         throw 'G13_MT5_TERMINAL_PROCESS_PATH_UNAVAILABLE'
     }
     throw 'G13_MT5_TERMINAL_PROCESS_PATH_MISMATCH'
