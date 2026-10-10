@@ -708,7 +708,9 @@ jobs:
 
           $deadline = (Get-Date).AddSeconds(180)
           $startedSeen = $false
-          while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+          while ((Get-Date) -lt $deadline) {
+            # Check the durable marker before process state: ShutdownTerminal=1 can
+            # terminate MT5 immediately after the script writes its first marker.
             if (Test-Path -LiteralPath $started -PathType Leaf) {
               $startedSeen = $true
               Write-Host "MQL5_PARITY_SCRIPT_STARTED"
@@ -717,6 +719,7 @@ jobs:
               }
               break
             }
+            if ($proc.HasExited) { break }
             Start-Sleep -Seconds 2
           }
           if (-not $startedSeen) {
@@ -732,12 +735,13 @@ jobs:
 
           $deadline = (Get-Date).AddSeconds(600)
           $completed = $false
-          while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+          while ((Get-Date) -lt $deadline) {
             if (Test-Path -LiteralPath $done -PathType Leaf) {
               Write-Host "MQL5_PARITY_DONE_MARKER_DETECTED"
               $completed = $true
               break
             }
+            if ($proc.HasExited) { break }
             Start-Sleep -Seconds 2
           }
           if (-not $completed -and -not $proc.HasExited) {
