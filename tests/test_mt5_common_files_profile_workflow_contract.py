@@ -59,6 +59,7 @@ def test_mt5_resolver_uses_limited_process_query_right_and_fails_closed():
     assert "[System.StringComparison]::OrdinalIgnoreCase" in helper
     assert "$expectedExe" in helper
 
+
 def test_mt5_resolver_falls_back_to_cim_path_but_keeps_exact_path_match():
     helper = (ROOT / "tools/resolve_mt5_common_files_v1.ps1").read_text(encoding="utf-8")
 
@@ -67,7 +68,10 @@ def test_mt5_resolver_falls_back_to_cim_path_but_keeps_exact_path_match():
     # skip the normalized exact-path comparison or fail-closed branch.
     assert "$cimProcessPath = [string]$process.ExecutablePath" in helper
     assert "if (-not [string]::IsNullOrWhiteSpace($cimProcessPath))" in helper
-    assert helper.index("$cimProcessPath = [string]$process.ExecutablePath") < helper.index("$isExpectedPath = $false")
+    assert (
+        helper.index("$cimProcessPath = [string]$process.ExecutablePath")
+        < helper.index("$isExpectedPath = $false")
+    )
     assert "[System.IO.Path]::GetFullPath([string]$processPath)" in helper
     assert "$unresolvedProcessPathCount++" in helper
     assert "G13_MT5_TERMINAL_PROCESS_ACCESS_DENIED" in helper
