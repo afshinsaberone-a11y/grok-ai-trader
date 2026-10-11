@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "research/real_data/dukascopy_xauusd_ingest.py"
+      - "research/optimization/xauusd_execution_contract_v1.py"
       - "tests/test_dukascopy_xauusd_ingest.py"
       - "tests/test_xauusd_execution_contract_v1.py"
       - ".github/workflows/xauusd-real-data-intake.yml"
