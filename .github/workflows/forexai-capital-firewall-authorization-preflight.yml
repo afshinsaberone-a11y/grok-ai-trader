@@ -181,6 +181,25 @@ jobs:
           Write-Output 'AUTHORIZATION_RECORD_CREATED=false'
           Write-Output 'ORDER_SUBMISSION_PERFORMED=false'
 
+          # A green Actions run must mean that the diagnostic found no blockers.
+          # Keep the redacted report uploadable via the following if: always()
+          # step, but do not let a completed diagnostic with BLOCKED status look
+          # like a successful authorization preflight.
+          $reportedStatus = [string]$report.status
+          $blockers = @(
+            $report.blockers |
+              ForEach-Object { [string]$_ } |
+              Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          )
+          if ($reportedStatus -ne 'PREREQUISITES_PRESENT_NO_EXECUTION' -or $blockers.Count -gt 0) {
+            if ($reportedStatus -eq 'BLOCKED' -and $blockers.Count -gt 0) {
+              $reason = $blockers -join ','
+            } else {
+              $reason = 'UNEXPECTED_DIAGNOSTIC_STATUS'
+            }
+            throw "CAPITAL_AUTH_PREFLIGHT_NOT_READY:$reason"
+          }
+
       - name: Upload redacted prerequisite report
         if: always()
         uses: actions/upload-artifact@v4

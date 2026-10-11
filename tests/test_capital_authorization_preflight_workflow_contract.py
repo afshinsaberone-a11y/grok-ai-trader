@@ -69,3 +69,22 @@ def test_diagnostic_does_not_materialize_or_print_raw_trade_identity():
     assert "print(json.dumps(report" in source
     assert "write_mql5_authorization_record" not in source
     assert "CapitalFirewall(" in source
+
+def test_capital_authorization_preflight_cannot_be_green_when_report_is_blocked():
+    workflow = (
+        ROOT
+        / ".github"
+        / "workflows"
+        / "forexai-capital-firewall-authorization-preflight.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "$reportedStatus = [string]$report.status" in workflow
+    assert "$blockers = @(" in workflow
+    assert "$reportedStatus -ne 'PREREQUISITES_PRESENT_NO_EXECUTION' -or $blockers.Count -gt 0" in workflow
+    assert 'throw "CAPITAL_AUTH_PREFLIGHT_NOT_READY:$reason"' in workflow
+    # Report upload remains unconditional so a blocked run retains a redacted diagnostic.
+    assert "      - name: Upload redacted prerequisite report\n        if: always()" in workflow
+    # Diagnostic success must not imply a trade or authorization was performed.
+    assert "AUTHORIZATION_RECORD_CREATED=false" in workflow
+    assert "ORDER_SUBMISSION_PERFORMED=false" in workflow
+
