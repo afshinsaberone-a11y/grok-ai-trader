@@ -60,6 +60,7 @@ def test_short_uses_bid_entry_and_ask_exit() -> None:
     bars = bars_fixture()
     bars["signal"] = [-1, 0, 0, 0]
     # Ensure the ASK low triggers the short target on the third bar.
+    bars.loc[2, "ask_high"] = 2002.5
     bars.loc[2, "ask_low"] = 1992.0
     bars.loc[2, "ask_close"] = 1994.0
 
