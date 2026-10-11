@@ -81,13 +81,23 @@ foreach ($process in $terminalProcesses) {
         [ref]$processPathErrorCode
     )
     if ([string]::IsNullOrWhiteSpace([string]$processPath)) {
-        $unresolvedProcessPathCount++
-        if ($processPathErrorCode -eq 5) {
-            # Emit only this allowlisted classification later; never log raw
-            # Win32 error details, PIDs, or local filesystem paths.
-            $accessDeniedProcessPathCount++
+        # OpenProcess can be denied by the process DACL even when the Windows
+        # CIM provider can safely report ExecutablePath for this exact PID.
+        # Use that OS-reported path only as a fallback, then apply the same
+        # normalized, case-insensitive exact-path comparison below. If CIM
+        # does not expose the path either, retain the fail-closed behavior.
+        $cimProcessPath = [string]$process.ExecutablePath
+        if (-not [string]::IsNullOrWhiteSpace($cimProcessPath)) {
+            $processPath = $cimProcessPath
+        } else {
+            $unresolvedProcessPathCount++
+            if ($processPathErrorCode -eq 5) {
+                # Emit only this allowlisted classification later; never log raw
+                # Win32 error details, PIDs, or local filesystem paths.
+                $accessDeniedProcessPathCount++
+            }
+            continue
         }
-        continue
     }
 
     $isExpectedPath = $false
