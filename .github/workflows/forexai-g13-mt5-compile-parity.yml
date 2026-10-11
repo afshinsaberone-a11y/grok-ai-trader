@@ -325,11 +325,18 @@ jobs:
       - name: Verify MT5 script execution prerequisites
         run: |
           $ErrorActionPreference = 'Stop'
-          $scripts = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075\\MQL5\\Scripts'
+          # The runner service runs as LocalSystem, so APPDATA resolves to the
+          # service profile, not C:\Users\Star. MT5 launched by this job also
+          # uses that service profile; bootstrap the exact Scripts and Common
+          # Files paths consumed by the harness instead of assuming an
+          # interactive user's folders exist.
+          $serviceData = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075'
+          $scripts = Join-Path $serviceData 'MQL5\\Scripts'
           $common = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
-          if (!(Test-Path -LiteralPath $scripts -PathType Container)) { throw "MT5 Scripts folder not found: $scripts" }
-          if (!(Test-Path -LiteralPath $common -PathType Container)) { throw "MT5 Common Files folder not found: $common" }
-          Write-Host "MT5_SCRIPT_EXECUTION_ACCOUNT_INDEPENDENT=true"
+          New-Item -ItemType Directory -Path $scripts,$common -Force | Out-Null
+          if (!(Test-Path -LiteralPath $scripts -PathType Container)) { throw "MT5 Scripts folder not found after bootstrap: $scripts" }
+          if (!(Test-Path -LiteralPath $common -PathType Container)) { throw "MT5 Common Files folder not found after bootstrap: $common" }
+          Write-Host 'MT5_SCRIPT_EXECUTION_PROFILE_BOOTSTRAPPED=true'
           Write-Host "MT5_SCRIPTS=$scripts"
           Write-Host "MT5_COMMON_FILES=$common"
 
@@ -806,9 +813,14 @@ jobs:
             Out-File (Join-Path $diag 'terminal_processes.txt') -Encoding utf8
           if (Test-Path $config) { Copy-Item $config (Join-Path $diag 'g13_parity_harness.ini') -Force }
 
-          $logSources = @(
-            @{ Name = 'portable_terminal_logs'; Path = (Join-Path $portableRoot 'logs') },
-            @{ Name = 'portable_mql5_logs'; Path = (Join-Path $portableRoot 'MQL5\\Logs') },
+          $logSources = @()
+          if ($portableRoot) {
+            $logSources += @(
+              @{ Name = 'portable_terminal_logs'; Path = (Join-Path $portableRoot 'logs') },
+              @{ Name = 'portable_mql5_logs'; Path = (Join-Path $portableRoot 'MQL5\\Logs') }
+            )
+          }
+          $logSources += @(
             @{ Name = 'service_terminal_logs'; Path = (Join-Path $serviceData 'logs') },
             @{ Name = 'service_mql5_logs'; Path = (Join-Path $serviceData 'MQL5\\Logs') }
           )
