@@ -271,7 +271,7 @@ def run_xauusd_backtest(
     if position is not None:
         i = len(frame) - 1
         field = "bid_close" if position == 1 else "ask_close"
-        financing_accum += float(frame.at[i, "financing_usd_per_oz"])
+        # The last bar's financing row was already added by the main loop.
         close_position(
             exit_idx=i,
             raw_exit=float(frame.at[i, field]),
