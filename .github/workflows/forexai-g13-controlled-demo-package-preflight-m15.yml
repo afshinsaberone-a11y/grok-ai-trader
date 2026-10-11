@@ -179,7 +179,25 @@ jobs:
           safety_id=""
           for attempt in $(seq 1 80); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-execution-safety-audit-m15.yml/runs?branch=main&per_page=50")"
-            state="$(printf '%s' "$payload" | TARGET_SHA="$MAIN_HEAD_SHA" BASELINE_ID="$safety_baseline_id" python -c 'import json,os,sys; p=json.load(sys.stdin); target=os.environ["TARGET_SHA"]; baseline=int(os.environ["BASELINE_ID"]); rs=[r for r in p.get("workflow_runs",[]) if int(r.get("id",0))>baseline and r.get("name")=="ForexAI G13 Execution Safety Audit M15" and r.get("head_branch")=="main" and r.get("head_sha")==target]; print("NOT_STARTED|" if not rs else (("SUCCESS|"+str(max(rs,key=lambda x:x["id"])["id"])) if max(rs,key=lambda x:x["id"]).get("status")=="completed" and max(rs,key=lambda x:x["id"]).get("conclusion")=="success" else (("FAILED|"+str(max(rs,key=lambda x:x["id"])["id"])+"|"+str(max(rs,key=lambda x:x["id"]).get("conclusion"))) if max(rs,key=lambda x:x["id"]).get("status")=="completed" else ("PENDING|"+str(max(rs,key=lambda x:x["id"])["id"]))))')"
+            state="$(printf '%s' "$payload" | TARGET_SHA="$MAIN_HEAD_SHA" BASELINE_ID="$safety_baseline_id" python -c '
+import json, os, sys
+target = os.environ["TARGET_SHA"]
+baseline = int(os.environ["BASELINE_ID"])
+runs = json.load(sys.stdin).get("workflow_runs", [])
+runs = [r for r in runs if int(r.get("id", 0)) > baseline and
+        r.get("name") == "ForexAI G13 Execution Safety Audit M15" and
+        r.get("head_branch") == "main" and r.get("head_sha") == target]
+if not runs:
+    print("NOT_STARTED|")
+else:
+    run = max(runs, key=lambda row: row["id"])
+    if run.get("status") == "completed" and run.get("conclusion") == "success":
+        print("SUCCESS|" + str(run["id"]))
+    elif run.get("status") == "completed":
+        print("FAILED|" + str(run["id"]) + "|" + str(run.get("conclusion")))
+    else:
+        print("PENDING|" + str(run["id"]))
+')"
             case "$state" in
               SUCCESS\|*)
                 safety_id="${state#SUCCESS|}"
