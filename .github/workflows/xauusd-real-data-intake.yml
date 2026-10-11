@@ -18,6 +18,14 @@ on:
         required: true
         default: "2024-01-10"
         type: string
+      timeframe:
+        description: "Dukascopy source timeframe (H1 reduces requests; M1 is for later resampling/research)"
+        required: true
+        default: "H1"
+        type: choice
+        options:
+          - H1
+          - M1
 
 permissions:
   contents: read
@@ -53,12 +61,13 @@ jobs:
         env:
           START: ${{ inputs.start || '2024-01-08' }}
           END: ${{ inputs.end || '2024-01-10' }}
+          TIMEFRAME: ${{ inputs.timeframe || 'H1' }}
         run: |
-          python -m research.real_data.dukascopy_xauusd_ingest --start "$START" --end "$END" --output data/real/xauusd
+          python -m research.real_data.dukascopy_xauusd_ingest --start "$START" --end "$END" --timeframe "$TIMEFRAME" --output data/real/xauusd
       - name: Upload source-backed dataset and manifest
         uses: actions/upload-artifact@v4
         with:
-          name: xauusd-real-data-intake-${{ inputs.start }}-${{ inputs.end }}
+          name: xauusd-real-data-intake-${{ inputs.start }}-${{ inputs.end }}-${{ inputs.timeframe }}
           path: |
             data/real/xauusd/normalized/*.csv
             data/real/xauusd/normalized/*.manifest.json
