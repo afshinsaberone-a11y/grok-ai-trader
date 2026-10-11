@@ -17,11 +17,11 @@ def test_safety_audit_poller_python_is_valid_and_bound_to_fresh_current_sha() ->
     lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
     start = next(
         i for i, line in enumerate(lines)
-        if 'BASELINE_ID="$safety_baseline_id" python -c \' in line
+        if 'BASELINE_ID="$safety_baseline_id" python -c ' in line
     )
     end = next(
         i for i in range(start + 1, len(lines))
-        if lines[i].strip() == "')"+'"'
+        if lines[i].strip().endswith("')\\"")
     )
 
     # YAML's run-block indentation is ten spaces. Remove that common prefix,
