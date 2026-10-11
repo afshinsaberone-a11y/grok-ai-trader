@@ -35,6 +35,13 @@ def test_capital_authorization_preflight_is_manual_read_only_and_fail_closed():
     assert "'TERMINAL_PROCESS_PATH_MISMATCH'" in workflow
     assert "'KILL_SWITCH_DENY_WRITE_FAILED'" in workflow
     assert "'COMMON_FILES_WRITE_ACCESS_DENIED'" in workflow
+    resolver_step = workflow.split(
+        "- name: Resolve MT5 owner profile and set fail-closed kill switch", 1
+    )[1].split("- name: Resolve Python runtime", 1)[0]
+    assert "forexai.capital_authorization_preflight_early_failure.v1" in resolver_step
+    assert "$preflightReport.blockers = @($failureCode)" in resolver_step
+    assert "$preflightReport.kill_switch_deny_status = 'UNVERIFIED'" in resolver_step
+    assert "$reportPath" in resolver_step
     assert "Write-Output $failureText" not in workflow
     assert "throw $failureText" not in workflow
     assert "ORDER_SUBMISSION_PERFORMED=false" in workflow
