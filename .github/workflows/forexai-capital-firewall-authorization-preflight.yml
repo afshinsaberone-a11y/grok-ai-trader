@@ -37,6 +37,28 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
+          # Always preserve a redacted report even when MT5 profile discovery fails.
+          # In particular, do not turn a missing process into a successful preflight.
+          $reportDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts/g13-capital-authorization-preflight'
+          New-Item -ItemType Directory -Force -Path $reportDirectory | Out-Null
+          $reportPath = Join-Path $reportDirectory 'report.json'
+          $preflightReport = [ordered]@{
+            schema = 'forexai.capital_authorization_preflight_early_failure.v1'
+            checked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+            candidate_id = [string]$env:CANDIDATE_ID
+            symbol = 'EURUSD'
+            timeframe = 'M15'
+            status = 'BLOCKED'
+            stage = 'MT5_OWNER_PROFILE_RESOLUTION'
+            owner_profile_resolution = 'PENDING'
+            kill_switch_deny_status = 'UNVERIFIED'
+            authorization_record_created = $false
+            ledger_mutated = $false
+            order_submission_performed = $false
+            live_authorization_changed = $false
+            blockers = @('PREFLIGHT_NOT_COMPLETED')
+          }
+          $preflightReport | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encoding utf8
           try {
             & (Join-Path $env:GITHUB_WORKSPACE 'tools\\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch |
               ForEach-Object {
@@ -46,6 +68,11 @@ jobs:
                 elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
                 else { Write-Output $line }
               }
+            $preflightReport.stage = 'READ_ONLY_DIAGNOSTIC_PENDING'
+            $preflightReport.owner_profile_resolution = 'PASS'
+            $preflightReport.kill_switch_deny_status = 'VERIFIED_DENY'
+            $preflightReport.blockers = @('READ_ONLY_DIAGNOSTIC_PENDING')
+            $preflightReport | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encoding utf8
           } catch {
             # The resolver's exception can contain local paths, usernames, or PIDs.
             # Emit only an allowlisted reason code so the actionable cause is visible
@@ -66,6 +93,16 @@ jobs:
               '^G13_KILL_SWITCH_INITIAL_DENY_VERIFICATION_FAILED$' { 'KILL_SWITCH_DENY_VERIFY_FAILED'; break }
               '^G13_MT5_COMMON_FILES_WRITE_ACCESS_DENIED:' { 'COMMON_FILES_WRITE_ACCESS_DENIED'; break }
               default { 'UNCLASSIFIED_RESOLVER_FAILURE' }
+            }
+            $preflightReport.status = 'BLOCKED'
+            $preflightReport.stage = 'MT5_OWNER_PROFILE_RESOLUTION'
+            $preflightReport.owner_profile_resolution = 'FAIL'
+            $preflightReport.kill_switch_deny_status = 'UNVERIFIED'
+            $preflightReport.blockers = @($failureCode)
+            try {
+              $preflightReport | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encoding utf8
+            } catch {
+              Write-Output 'CAPITAL_AUTH_PREFLIGHT_REPORT_WRITE_FAILED=true'
             }
             Write-Output "CAPITAL_AUTH_PREFLIGHT_RESOLVER_FAILURE_CODE=$failureCode"
             throw "CAPITAL_AUTH_PREFLIGHT_MT5_PROFILE_RESOLUTION_FAILED:$failureCode"
