@@ -21,7 +21,7 @@ def test_safety_audit_poller_python_is_valid_and_bound_to_fresh_current_sha() ->
     )
     end = next(
         i for i in range(start + 1, len(lines))
-        if lines[i].strip().endswith("')\\"")
+        if lines[i].strip().endswith(')"')
     )
 
     # YAML's run-block indentation is ten spaces. Remove that common prefix,
