@@ -670,6 +670,21 @@ def record_issuance(
         raise AdmissionProviderError("PROVIDER_REGISTRY_GRANT_SIGNAL_MISMATCH")
     if promotion.get("source_grant_trade_id") != trade_id:
         raise AdmissionProviderError("PROVIDER_REGISTRY_GRANT_TRADE_MISMATCH")
+    authorization = request.get("authorization")
+    if not isinstance(authorization, Mapping):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_AUTHORIZATION_INVALID")
+    if promotion.get("source_grant_authorization_id") != authorization.get("authorization_id"):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_GRANT_AUTHORIZATION_MISMATCH")
+    if promotion.get("source_grant_reservation_id") != authorization.get("reservation_id"):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_GRANT_RESERVATION_MISMATCH")
+    if not isinstance(promotion.get("source_grant_sha256"), str) or not SHA256.fullmatch(
+        promotion["source_grant_sha256"]
+    ):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_GRANT_HASH_INVALID")
+    if not isinstance(promotion.get("evidence_bundle_sha256"), str) or not SHA256.fullmatch(
+        promotion["evidence_bundle_sha256"]
+    ):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_EVIDENCE_BUNDLE_HASH_INVALID")
     promoted_ids = promotion.get("promoted_candidate_ids")
     config_hashes = promotion.get("candidate_config_hashes")
     if not isinstance(promoted_ids, list) or candidate_id not in promoted_ids:
