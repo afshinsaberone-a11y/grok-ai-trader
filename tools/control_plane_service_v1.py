@@ -8,6 +8,8 @@ runtime envelope. It never changes the kill switch or submits broker orders.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -17,6 +19,9 @@ import re
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from typing import Any, Mapping
 
 from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall
@@ -37,7 +42,8 @@ from tools.trade_ledger_v1 import TradeLedger
 
 ADMISSION_SCHEMA = "forexai.control_plane_admission_request.v1"
 PROVIDER_KEY_ID = "forexai-demo-admission-provider-v1"
-PROVIDER_SECRET_ENV = "FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET"
+PROVIDER_PUBLIC_KEY_ENV = "FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY"
+EXPECTED_DEMO_ACCOUNT_FINGERPRINT_ENV = "FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT"
 MAX_ADMISSION_AGE_SECONDS = 30
 MAX_ADMISSION_WINDOW_SECONDS = 30
 MAX_SIGNAL_AGE_SECONDS = 10
@@ -70,7 +76,7 @@ _AUTHORIZATION_FIELDS = {
     "reserved_risk", "expires_at_utc", "policy_version",
     "risk_decision_id", "operator_approval_ref",
 }
-_SIGNATURE_FIELDS = {"algorithm", "key_id", "tag"}
+_SIGNATURE_FIELDS = {"algorithm", "key_id", "signature"}
 _REQUIRED_RUN_IDS = {
     "promotion", "validation", "robustness", "oos", "parity",
     "package_preflight", "safety_audit", "readiness",
@@ -164,25 +170,52 @@ def _secret_bytes(secret: str | bytes, code: str) -> bytes:
     return raw
 
 
-def _calculate_expected_admission_tag(
+def _decode_admission_public_key(encoded: str | bytes) -> Ed25519PublicKey:
+    if isinstance(encoded, bytes):
+        try:
+            encoded = encoded.decode("ascii")
+        except UnicodeError as exc:
+            raise ControlPlaneError("CONTROL_PLANE_ADMISSION_PUBLIC_KEY_INVALID") from exc
+    if not isinstance(encoded, str) or not encoded:
+        raise ControlPlaneError("CONTROL_PLANE_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ControlPlaneError("CONTROL_PLANE_ADMISSION_PUBLIC_KEY_INVALID") from exc
+    if len(raw) != 32:
+        raise ControlPlaneError("CONTROL_PLANE_ADMISSION_PUBLIC_KEY_INVALID")
+    try:
+        return Ed25519PublicKey.from_public_bytes(raw)
+    except ValueError as exc:
+        raise ControlPlaneError("CONTROL_PLANE_ADMISSION_PUBLIC_KEY_INVALID") from exc
+
+
+def _verify_admission_signature(
     request: Mapping[str, Any],
     *,
-    secret: str | bytes,
-) -> str:
-    """Internal HMAC verifier primitive. The production signer lives outside this repo."""
-    body = {key: value for key, value in request.items() if key != "signature"}
-    tag = hmac.new(
-        _secret_bytes(secret, "CONTROL_PLANE_ADMISSION_SECRET_INVALID"),
-        _canonical(body),
-        hashlib.sha256,
-    ).hexdigest()
-    return tag
+    admission_public_key: str | bytes,
+    signature_value: Any,
+) -> None:
+    if not isinstance(signature_value, str) or not signature_value:
+        raise ControlPlaneError("CONTROL_PLANE_SIGNATURE_INVALID")
+    try:
+        signature = base64.b64decode(signature_value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ControlPlaneError("CONTROL_PLANE_SIGNATURE_INVALID") from exc
+    if len(signature) != 64:
+        raise ControlPlaneError("CONTROL_PLANE_SIGNATURE_INVALID")
+    public_key = _decode_admission_public_key(admission_public_key)
+    body = _canonical({key: value for key, value in request.items() if key != "signature"})
+    try:
+        public_key.verify(signature, body)
+    except InvalidSignature as exc:
+        raise ControlPlaneError("CONTROL_PLANE_ADMISSION_SIGNATURE_INVALID") from exc
 
 
 def verify_admission_request(
     request: Mapping[str, Any],
     *,
-    admission_secret: str | bytes,
+    admission_public_key: str | bytes,
     now_utc: str,
     expected_provider_key_id: str = PROVIDER_KEY_ID,
 ) -> dict[str, Any]:
@@ -195,14 +228,13 @@ def verify_admission_request(
     signature = _require_exact_fields(
         request["signature"], _SIGNATURE_FIELDS, "CONTROL_PLANE_SIGNATURE_FIELDS_MISMATCH"
     )
-    if signature["algorithm"] != "HMAC-SHA256" or signature["key_id"] != expected_provider_key_id:
+    if signature["algorithm"] != "Ed25519" or signature["key_id"] != expected_provider_key_id:
         raise ControlPlaneError("CONTROL_PLANE_SIGNATURE_ALGORITHM_OR_KEY_MISMATCH")
-    supplied_tag = signature["tag"]
-    if not isinstance(supplied_tag, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied_tag):
-        raise ControlPlaneError("CONTROL_PLANE_SIGNATURE_TAG_INVALID")
-    expected_tag = _calculate_expected_admission_tag(request, secret=admission_secret)
-    if not hmac.compare_digest(supplied_tag, expected_tag):
-        raise ControlPlaneError("CONTROL_PLANE_ADMISSION_SIGNATURE_INVALID")
+    _verify_admission_signature(
+        request,
+        admission_public_key=admission_public_key,
+        signature_value=signature["signature"],
+    )
 
     request_id = _safe_id(request["request_id"], "CONTROL_PLANE_REQUEST_ID_INVALID")
     now = _parse_utc(now_utc, "CONTROL_PLANE_NOW_INVALID")
@@ -339,8 +371,13 @@ def inspect_demo_runtime(
     *,
     symbol: str,
     now_utc: str,
+    expected_account_fingerprint: str,
 ) -> dict[str, Any]:
     """Verify real terminal/account/symbol state; never writes files or submits orders."""
+    if not isinstance(expected_account_fingerprint, str) or not re.fullmatch(
+        r"[0-9a-f]{16}", expected_account_fingerprint
+    ):
+        raise ControlPlaneError("CONTROL_PLANE_EXPECTED_DEMO_ACCOUNT_FINGERPRINT_NOT_CONFIGURED")
     now = _parse_utc(now_utc, "CONTROL_PLANE_NOW_INVALID")
     account = mt5.account_info()
     terminal = mt5.terminal_info()
@@ -367,10 +404,9 @@ def inspect_demo_runtime(
     trade_mode = getattr(info, "trade_mode", None)
     if isinstance(trade_mode, bool) or not isinstance(trade_mode, int):
         raise ControlPlaneError("CONTROL_PLANE_MT5_SYMBOL_TRADE_MODE_INVALID")
-    disabled = int(getattr(mt5, "SYMBOL_TRADE_MODE_DISABLED", 0))
-    long_only = int(getattr(mt5, "SYMBOL_TRADE_MODE_LONGONLY", 1))
-    close_only = int(getattr(mt5, "SYMBOL_TRADE_MODE_CLOSEONLY", 3))
-    if trade_mode in {disabled, long_only, close_only}:
+    short_only = int(getattr(mt5, "SYMBOL_TRADE_MODE_SHORTONLY", 2))
+    full = int(getattr(mt5, "SYMBOL_TRADE_MODE_FULL", 4))
+    if trade_mode not in {short_only, full}:
         raise ControlPlaneError("CONTROL_PLANE_MT5_SELL_NOT_ALLOWED")
     bid = float(getattr(tick, "bid", 0.0) or 0.0)
     ask = float(getattr(tick, "ask", 0.0) or 0.0)
@@ -395,6 +431,9 @@ def inspect_demo_runtime(
         raise ControlPlaneError("CONTROL_PLANE_KILL_SWITCH_MUST_REMAIN_DENY")
 
     fingerprint_input = f"{int(getattr(account, 'login', 0))}|{str(getattr(account, 'server', ''))}"
+    account_fingerprint = hashlib.sha256(fingerprint_input.encode("utf-8")).hexdigest()[:16]
+    if not hmac.compare_digest(account_fingerprint, expected_account_fingerprint):
+        raise ControlPlaneError("CONTROL_PLANE_DEMO_ACCOUNT_FINGERPRINT_MISMATCH")
     return {
         "account_mode": "DEMO",
         "terminal_connected": True,
@@ -404,7 +443,7 @@ def inspect_demo_runtime(
         "bid": bid,
         "ask": ask,
         "tick_age_seconds": round(max(0.0, tick_age), 3),
-        "account_fingerprint": hashlib.sha256(fingerprint_input.encode("utf-8")).hexdigest()[:16],
+        "account_fingerprint": account_fingerprint,
         "terminal_build": str(getattr(terminal, "build", "")),
         "kill_switch": "DENY",
     }
@@ -461,7 +500,8 @@ def produce_authority(
     ledger_path: str | Path,
     authenticated_envelope_output: str | Path,
     mt5: Any,
-    admission_secret: str | bytes,
+    admission_public_key: str | bytes,
+    expected_demo_account_fingerprint: str,
     envelope_secret: str | bytes,
     now_utc: str,
 ) -> dict[str, Any]:
@@ -472,13 +512,18 @@ def produce_authority(
     """
     _secret_bytes(envelope_secret, "CONTROL_PLANE_ENVELOPE_SECRET_INVALID")
     verified = verify_admission_request(
-        request, admission_secret=admission_secret, now_utc=now_utc
+        request, admission_public_key=admission_public_key, now_utc=now_utc
     )
     parsed = verified["_parsed"]
     candidate = verified["candidate"]
     promotion = verified["promotion_evidence"]
     authorization = verified["authorization"]
-    broker = inspect_demo_runtime(mt5, symbol=candidate["symbol"], now_utc=now_utc)
+    broker = inspect_demo_runtime(
+        mt5,
+        symbol=candidate["symbol"],
+        now_utc=now_utc,
+        expected_account_fingerprint=expected_demo_account_fingerprint,
+    )
 
     ledger_target = Path(ledger_path)
     output_target = Path(authenticated_envelope_output)
@@ -606,9 +651,18 @@ def main() -> int:
             args.ledger.resolve(), args.authenticated_envelope_output.resolve()
         }:
             raise ControlPlaneError("CONTROL_PLANE_PATH_COLLISION")
-        admission_secret = os.environ.get(PROVIDER_SECRET_ENV)
-        if not admission_secret:
-            raise ControlPlaneError("CONTROL_PLANE_ADMISSION_SECRET_NOT_CONFIGURED")
+        admission_public_key = os.environ.get(PROVIDER_PUBLIC_KEY_ENV)
+        if not admission_public_key:
+            raise ControlPlaneError("CONTROL_PLANE_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED")
+        expected_demo_account_fingerprint = os.environ.get(
+            EXPECTED_DEMO_ACCOUNT_FINGERPRINT_ENV
+        )
+        if not expected_demo_account_fingerprint or not re.fullmatch(
+            r"[0-9a-f]{16}", expected_demo_account_fingerprint
+        ):
+            raise ControlPlaneError(
+                "CONTROL_PLANE_EXPECTED_DEMO_ACCOUNT_FINGERPRINT_NOT_CONFIGURED"
+            )
         envelope_secret = load_control_plane_secret(DEFAULT_SECRET_ENV)
         request = load_admission_request(args.admission_request)
         gateway = MT5TerminalGateway(
@@ -626,7 +680,8 @@ def main() -> int:
                 ledger_path=args.ledger,
                 authenticated_envelope_output=args.authenticated_envelope_output,
                 mt5=mt5,
-                admission_secret=admission_secret,
+                admission_public_key=admission_public_key,
+                expected_demo_account_fingerprint=expected_demo_account_fingerprint,
                 envelope_secret=envelope_secret,
                 now_utc=now_utc,
             )

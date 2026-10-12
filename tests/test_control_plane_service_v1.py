@@ -1,14 +1,16 @@
 """Contract/security tests for the G13 Control Plane producer."""
 from __future__ import annotations
 
+import base64
 import hashlib
-import hmac
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools.control_plane_service_v1 import (
     ADMISSION_SCHEMA,
@@ -23,7 +25,21 @@ from tools.trade_ledger_v1 import TradeLedger
 
 
 NOW = "2026-10-12T12:00:00+00:00"
-PROVIDER_SECRET = "test-only-provider-secret-0123456789abcdef"
+PROVIDER_PRIVATE_KEY = Ed25519PrivateKey.generate()
+WRONG_PROVIDER_PRIVATE_KEY = Ed25519PrivateKey.generate()
+PROVIDER_PUBLIC_KEY = base64.b64encode(
+    PROVIDER_PRIVATE_KEY.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+).decode("ascii")
+WRONG_PROVIDER_PUBLIC_KEY = base64.b64encode(
+    WRONG_PROVIDER_PRIVATE_KEY.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+).decode("ascii")
+DEFAULT_DEMO_ACCOUNT_FINGERPRINT = hashlib.sha256(b"123456|Broker-Demo").hexdigest()[:16]
 ENVELOPE_SECRET = "test-only-envelope-secret-0123456789abcdef"
 
 
@@ -31,6 +47,16 @@ def _canonical(value):
     return json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
+
+
+def _resign(request, private_key=PROVIDER_PRIVATE_KEY):
+    body = {key: value for key, value in request.items() if key != "signature"}
+    request["signature"] = {
+        "algorithm": "Ed25519",
+        "key_id": PROVIDER_KEY_ID,
+        "signature": base64.b64encode(private_key.sign(_canonical(body))).decode("ascii"),
+    }
+    return request
 
 
 def _signed_request(**overrides):
@@ -114,13 +140,7 @@ def _signed_request(**overrides):
             request["authorization"].update(value)
         else:
             request[key] = value
-    body = _canonical(request)
-    request["signature"] = {
-        "algorithm": "HMAC-SHA256",
-        "key_id": PROVIDER_KEY_ID,
-        "tag": hmac.new(PROVIDER_SECRET.encode(), body, hashlib.sha256).hexdigest(),
-    }
-    return request
+    return _resign(request)
 
 
 class FakeMT5:
@@ -129,6 +149,7 @@ class FakeMT5:
     SYMBOL_TRADE_MODE_LONGONLY = 1
     SYMBOL_TRADE_MODE_SHORTONLY = 2
     SYMBOL_TRADE_MODE_CLOSEONLY = 3
+    SYMBOL_TRADE_MODE_FULL = 4
 
     def __init__(
         self,
@@ -189,7 +210,12 @@ class FakeMT5:
         raise AssertionError("Control Plane must never submit orders")
 
 
-def _run(tmp_path: Path, request=None, mt5=None):
+def _run(
+    tmp_path: Path,
+    request=None,
+    mt5=None,
+    expected_demo_account_fingerprint: str | None = None,
+):
     request = request or _signed_request()
     mt5 = mt5 or FakeMT5(tmp_path / "mt5-common")
     return produce_authority(
@@ -197,7 +223,12 @@ def _run(tmp_path: Path, request=None, mt5=None):
         ledger_path=tmp_path / "ledger" / "trade-ledger.jsonl",
         authenticated_envelope_output=tmp_path / "runtime" / "authenticated-envelope.json",
         mt5=mt5,
-        admission_secret=PROVIDER_SECRET,
+        admission_public_key=PROVIDER_PUBLIC_KEY,
+        expected_demo_account_fingerprint=(
+            DEFAULT_DEMO_ACCOUNT_FINGERPRINT
+            if expected_demo_account_fingerprint is None
+            else expected_demo_account_fingerprint
+        ),
         envelope_secret=ENVELOPE_SECRET,
         now_utc=NOW,
     )
@@ -266,10 +297,7 @@ def test_stale_signal_fails_closed(tmp_path: Path):
     request["candidate"]["input_hash"] = hashlib.sha256(
         _canonical(request["candidate"]["signal_payload"])
     ).hexdigest()
-    body = {key: value for key, value in request.items() if key != "signature"}
-    request["signature"]["tag"] = hmac.new(
-        PROVIDER_SECRET.encode(), _canonical(body), hashlib.sha256
-    ).hexdigest()
+    _resign(request)
     with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_SIGNAL_STALE"):
         _run(tmp_path, request=request)
 
@@ -289,12 +317,31 @@ def test_real_account_is_blocked_even_with_signed_request(tmp_path: Path):
         ({"trade_allowed": False}, "CONTROL_PLANE_MT5_ACCOUNT_TRADING_DISABLED"),
         ({"trade_expert": False}, "CONTROL_PLANE_MT5_EXPERT_TRADING_DISABLED"),
         ({"symbol_trade_mode": 1}, "CONTROL_PLANE_MT5_SELL_NOT_ALLOWED"),
+        ({"symbol_trade_mode": 999}, "CONTROL_PLANE_MT5_SELL_NOT_ALLOWED"),
     ],
 )
 def test_demo_runtime_checks_fail_closed(tmp_path: Path, kwargs, expected):
     mt5 = FakeMT5(tmp_path / "mt5-common", **kwargs)
     with pytest.raises(ControlPlaneError, match=expected):
         _run(tmp_path, mt5=mt5)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_demo_account_fingerprint_must_match_allowlist(tmp_path: Path):
+    with pytest.raises(
+        ControlPlaneError,
+        match="CONTROL_PLANE_DEMO_ACCOUNT_FINGERPRINT_MISMATCH",
+    ):
+        _run(tmp_path, expected_demo_account_fingerprint="0" * 16)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_missing_demo_account_fingerprint_fails_closed_before_mutation(tmp_path: Path):
+    with pytest.raises(
+        ControlPlaneError,
+        match="CONTROL_PLANE_EXPECTED_DEMO_ACCOUNT_FINGERPRINT_NOT_CONFIGURED",
+    ):
+        _run(tmp_path, expected_demo_account_fingerprint="")
     assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
 
 
@@ -328,24 +375,25 @@ def test_authorization_cannot_exceed_cap_or_reservation(tmp_path: Path):
     assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
 
 
-def test_wrong_provider_secret_and_long_lived_admission_are_rejected():
+def test_wrong_provider_public_key_and_long_lived_admission_are_rejected():
     request = _signed_request()
     with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_ADMISSION_SIGNATURE_INVALID"):
         verify_admission_request(
             request,
-            admission_secret="wrong-provider-secret-0123456789abcdef",
+            admission_public_key=WRONG_PROVIDER_PUBLIC_KEY,
             now_utc=NOW,
         )
     request = _signed_request()
     request["valid_until_utc"] = (
         datetime.fromisoformat(NOW) + timedelta(minutes=10)
     ).isoformat()
-    body = {key: value for key, value in request.items() if key != "signature"}
-    request["signature"]["tag"] = hmac.new(
-        PROVIDER_SECRET.encode(), _canonical(body), hashlib.sha256
-    ).hexdigest()
+    _resign(request)
     with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_ADMISSION_WINDOW_TOO_LONG"):
-        verify_admission_request(request, admission_secret=PROVIDER_SECRET, now_utc=NOW)
+        verify_admission_request(
+            request,
+            admission_public_key=PROVIDER_PUBLIC_KEY,
+            now_utc=NOW,
+        )
 
 
 def test_live_permission_must_be_explicitly_false(tmp_path: Path):

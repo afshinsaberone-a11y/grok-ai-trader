@@ -3,3 +3,4 @@ pandas>=2.0,<3
 backtesting>=0.3.3,<0.4
 pytest>=8,<9
 openai-agents==0.22.0
+cryptography>=42,<52
