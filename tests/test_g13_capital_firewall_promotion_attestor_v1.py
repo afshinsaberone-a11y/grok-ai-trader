@@ -96,7 +96,11 @@ def fixture_chain():
         "readiness": 41008,
     }
     runs = {
-        role: {"id": rid, "name": spec["name"], "path": spec["path"], "head_sha": SHA}
+        role: {
+            "id": rid, "name": spec["name"], "path": spec["path"],
+            "workflow_id": spec["workflow_id"], "head_sha": SHA,
+            "_attestor_success_job_id": 61000 + rid,
+        }
         for role, rid in run_ids.items()
         for spec in [REQUIRED_RUNS[role]]
     }
@@ -119,6 +123,10 @@ def fixture_chain():
             "artifact_digest": digests[role],
             "run_head_sha": SHA,
             "head_branch": "main",
+            "workflow_id": runs[role]["workflow_id"],
+            "workflow_name": runs[role]["name"],
+            "job_id": runs[role]["_attestor_success_job_id"],
+            "job_name": REQUIRED_RUNS[role]["job_name"],
         }
 
     validation = {
@@ -197,6 +205,9 @@ def fixture_chain():
         "ea_source_commit": SHA,
         "compile_parity_head_sha": SHA,
         "compile_parity_run_id": run_ids["parity"],
+        "compile_parity_artifact_id": artifacts["parity"]["id"],
+        "compile_parity_artifact_digest": digests["parity"],
+        "downloaded_zip_sha256": digests["parity"][7:],
         "candidate_ids": [2],
         "candidate_count": 1,
         "source_hashes_verified": 1,
