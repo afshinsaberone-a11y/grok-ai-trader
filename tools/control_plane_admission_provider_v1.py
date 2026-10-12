@@ -220,6 +220,7 @@ def _validate_promotion(payload: Mapping[str, Any]) -> dict[str, Any]:
     expected = {
         "schema", "commit_sha", "gates", "readiness_status", "demo_trading_allowed",
         "live_trading_allowed", "real_data_only", "synthetic_data", "run_ids",
+        "promoted_candidate_ids", "candidate_config_hashes",
     }
     _exact_fields(payload, expected, "PROVIDER_PROMOTION_FIELDS_INVALID")
     if payload["schema"] != "forexai.g13.promotion_evidence.v1":
@@ -242,6 +243,18 @@ def _validate_promotion(payload: Mapping[str, Any]) -> dict[str, Any]:
     for run_id in run_ids.values():
         if isinstance(run_id, bool) or not isinstance(run_id, int) or run_id <= 0:
             raise AdmissionProviderError("PROVIDER_RUN_ID_INVALID")
+    promoted_ids = payload["promoted_candidate_ids"]
+    if not isinstance(promoted_ids, list) or not promoted_ids:
+        raise AdmissionProviderError("PROVIDER_PROMOTED_CANDIDATE_IDS_INVALID")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in promoted_ids):
+        raise AdmissionProviderError("PROVIDER_PROMOTED_CANDIDATE_IDS_INVALID")
+    if len(promoted_ids) != len(set(promoted_ids)):
+        raise AdmissionProviderError("PROVIDER_PROMOTED_CANDIDATE_IDS_DUPLICATE")
+    hashes = payload["candidate_config_hashes"]
+    if not isinstance(hashes, Mapping) or set(hashes) != {str(value) for value in promoted_ids}:
+        raise AdmissionProviderError("PROVIDER_CANDIDATE_CONFIG_HASH_MAP_INVALID")
+    if any(not isinstance(value, str) or not SHA256.fullmatch(value) for value in hashes.values()):
+        raise AdmissionProviderError("PROVIDER_CANDIDATE_CONFIG_HASH_MAP_INVALID")
     return dict(payload)
 
 
@@ -249,7 +262,7 @@ def _validate_signal(payload: Mapping[str, Any], now: datetime) -> dict[str, Any
     fields = {
         "schema", "candidate_id", "trade_id", "symbol", "timeframe", "side", "signal_id",
         "observed_at_utc", "strategy_id", "model_id", "decision_id", "snapshot_id",
-        "execution_contract_version", "signal_payload",
+        "execution_contract_version", "signal_payload", "config_hash",
     }
     _exact_fields(payload, fields, "PROVIDER_SIGNAL_FIELDS_INVALID")
     if payload["schema"] != "forexai.live_signal.v1":
@@ -268,6 +281,8 @@ def _validate_signal(payload: Mapping[str, Any], now: datetime) -> dict[str, Any
         raise AdmissionProviderError("PROVIDER_SIGNAL_IDENTITY_NOT_SUPPORTED")
     if payload["execution_contract_version"] != EXECUTION_CONTRACT_VERSION:
         raise AdmissionProviderError("PROVIDER_EXECUTION_CONTRACT_MISMATCH")
+    if not isinstance(payload["config_hash"], str) or not SHA256.fullmatch(payload["config_hash"]):
+        raise AdmissionProviderError("PROVIDER_SIGNAL_CONFIG_HASH_INVALID")
     observed = _parse_utc(payload["observed_at_utc"], "PROVIDER_SIGNAL_TIMESTAMP_INVALID")
     if observed > now + timedelta(seconds=2):
         raise AdmissionProviderError("PROVIDER_SIGNAL_FROM_FUTURE")
@@ -283,6 +298,7 @@ def _validate_signal(payload: Mapping[str, Any], now: datetime) -> dict[str, Any
         "side": payload["side"],
         "signal_id": payload["signal_id"],
         "observed_at_utc": payload["observed_at_utc"],
+        "config_hash": payload["config_hash"],
     }
     if any(raw_signal_payload.get(key) != value for key, value in identity.items()):
         raise AdmissionProviderError("PROVIDER_SIGNAL_PAYLOAD_IDENTITY_MISMATCH")
@@ -388,6 +404,13 @@ def build_admission_request(
     }
     promotion = _validate_promotion(attestations["promotion"])
     signal = _validate_signal(attestations["signal"], now)
+    if signal["candidate_id"] not in promotion["promoted_candidate_ids"]:
+        raise AdmissionProviderError("PROVIDER_SIGNAL_CANDIDATE_NOT_PROMOTED")
+    expected_config_hash = promotion["candidate_config_hashes"].get(str(signal["candidate_id"]))
+    if expected_config_hash is None:
+        raise AdmissionProviderError("PROVIDER_SIGNAL_CANDIDATE_NOT_PROMOTED")
+    if not hmac.compare_digest(signal["config_hash"], expected_config_hash):
+        raise AdmissionProviderError("PROVIDER_SIGNAL_CONFIG_HASH_MISMATCH")
     risk = _validate_risk(attestations["risk"])
     operator = _validate_operator_approval(attestations["operator_approval"], now)
 
@@ -419,6 +442,7 @@ def build_admission_request(
         "signal_observed_at_utc": signal["observed_at_utc"],
         "strategy_id": signal["strategy_id"],
         "model_id": signal["model_id"],
+        "config_hash": signal["config_hash"],
         "decision_id": signal["decision_id"],
         "snapshot_id": signal["snapshot_id"],
         "input_hash": hashlib.sha256(canonical_json(signal["signal_payload"])).hexdigest(),
@@ -439,6 +463,8 @@ def build_admission_request(
         "real_data_only": promotion["real_data_only"],
         "synthetic_data": promotion["synthetic_data"],
         "run_ids": promotion["run_ids"],
+        "promoted_candidate_ids": promotion["promoted_candidate_ids"],
+        "candidate_config_hashes": promotion["candidate_config_hashes"],
     }
     authorization = {
         "authorization_id": risk["authorization_id"],
@@ -588,10 +614,27 @@ def record_issuance(
     candidate = request["candidate"]
     if not isinstance(candidate, Mapping):
         raise AdmissionProviderError("PROVIDER_REGISTRY_CANDIDATE_INVALID")
+    candidate_id = candidate.get("candidate_id")
+    if isinstance(candidate_id, bool) or not isinstance(candidate_id, int) or candidate_id <= 0:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_CANDIDATE_ID_INVALID")
     signal_id = _safe_id(candidate.get("signal_id"), "PROVIDER_REGISTRY_SIGNAL_ID_INVALID")
     trade_id = _safe_id(candidate.get("trade_id"), "PROVIDER_REGISTRY_TRADE_ID_INVALID")
     if not trade_id.endswith("-S"):
         raise AdmissionProviderError("PROVIDER_REGISTRY_TRADE_ID_INVALID")
+    config_hash = candidate.get("config_hash")
+    if not isinstance(config_hash, str) or not SHA256.fullmatch(config_hash):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_CONFIG_HASH_INVALID")
+    promotion = request["promotion_evidence"]
+    if not isinstance(promotion, Mapping):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_PROMOTION_EVIDENCE_INVALID")
+    promoted_ids = promotion.get("promoted_candidate_ids")
+    config_hashes = promotion.get("candidate_config_hashes")
+    if not isinstance(promoted_ids, list) or candidate_id not in promoted_ids:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_CANDIDATE_NOT_PROMOTED")
+    if not isinstance(config_hashes, Mapping) or not hmac.compare_digest(
+        config_hash, str(config_hashes.get(str(candidate_id), ""))
+    ):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_CONFIG_HASH_MISMATCH")
     input_hash = candidate.get("input_hash")
     if not isinstance(input_hash, str) or not SHA256.fullmatch(input_hash):
         raise AdmissionProviderError("PROVIDER_REGISTRY_INPUT_HASH_INVALID")
@@ -601,6 +644,8 @@ def record_issuance(
     expected_hash = hashlib.sha256(canonical_json(signal_payload)).hexdigest()
     if not hmac.compare_digest(expected_hash, input_hash):
         raise AdmissionProviderError("PROVIDER_REGISTRY_INPUT_HASH_MISMATCH")
+    if signal_payload.get("candidate_id") != candidate_id or signal_payload.get("config_hash") != config_hash:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNAL_IDENTITY_MISMATCH")
     authorization = request["authorization"]
     if not isinstance(authorization, Mapping):
         raise AdmissionProviderError("PROVIDER_REGISTRY_AUTHORIZATION_INVALID")

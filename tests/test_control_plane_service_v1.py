@@ -68,6 +68,7 @@ def _signed_request(**overrides):
         "side": "SELL",
         "signal_id": "signal-001",
         "observed_at_utc": NOW,
+        "config_hash": "c" * 64,
         "close": 1.16325,
         "feature_window_sha256": "a" * 64,
     }
@@ -81,6 +82,7 @@ def _signed_request(**overrides):
         "signal_observed_at_utc": NOW,
         "strategy_id": "g13-london-breakout",
         "model_id": "frozen-m15-candidate-2",
+        "config_hash": "c" * 64,
         "decision_id": "decision-001",
         "snapshot_id": "snapshot-001",
         "input_hash": hashlib.sha256(_canonical(signal_payload)).hexdigest(),
@@ -100,6 +102,8 @@ def _signed_request(**overrides):
         "live_trading_allowed": False,
         "real_data_only": True,
         "synthetic_data": False,
+        "promoted_candidate_ids": [2],
+        "candidate_config_hashes": {"2": "c" * 64},
         "run_ids": {
             "promotion": 41001,
             "validation": 41002,
@@ -259,6 +263,32 @@ def test_signed_demo_request_creates_ledger_and_authenticated_envelope(tmp_path:
     assert len(ledger.events) == 6
     assert mt5.order_send_calls == 0
     assert (tmp_path / "mt5-common" / "Files" / "g13_demo_kill_switch.txt").read_text().strip() == "DENY"
+
+
+def test_candidate_must_be_in_signed_promoted_candidate_set(tmp_path: Path):
+    request = _signed_request(candidate={"candidate_id": 3})
+    request["candidate"]["signal_payload"]["candidate_id"] = 3
+    request["candidate"]["input_hash"] = hashlib.sha256(
+        _canonical(request["candidate"]["signal_payload"])
+    ).hexdigest()
+    _resign(request)
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_CANDIDATE_NOT_PROMOTED"):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_candidate_config_hash_must_match_signed_promoted_manifest(tmp_path: Path):
+    request = _signed_request(candidate={"config_hash": "d" * 64})
+    request["candidate"]["signal_payload"]["config_hash"] = "d" * 64
+    request["candidate"]["input_hash"] = hashlib.sha256(
+        _canonical(request["candidate"]["signal_payload"])
+    ).hexdigest()
+    _resign(request)
+    with pytest.raises(
+        ControlPlaneError, match="CONTROL_PLANE_CANDIDATE_CONFIG_HASH_MISMATCH"
+    ):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
 
 
 def test_missing_demo_permission_fails_before_ledger_mutation(tmp_path: Path):

@@ -63,13 +63,13 @@ _ROOT_FIELDS = {
 _CANDIDATE_FIELDS = {
     "candidate_id", "trade_id", "symbol", "timeframe", "side", "signal_id",
     "signal_observed_at_utc", "strategy_id", "model_id", "decision_id",
-    "snapshot_id", "input_hash", "execution_contract_version", "signal_payload",
+    "snapshot_id", "input_hash", "config_hash", "execution_contract_version", "signal_payload",
 }
 _PROMOTION_FIELDS = {
     "commit_sha", "validation_status", "robustness_status", "oos_status",
     "parity_status", "package_preflight_status", "safety_audit_status",
     "readiness_status", "demo_trading_allowed", "live_trading_allowed",
-    "real_data_only", "synthetic_data", "run_ids",
+    "real_data_only", "synthetic_data", "run_ids", "promoted_candidate_ids", "candidate_config_hashes",
 }
 _AUTHORIZATION_FIELDS = {
     "authorization_id", "reservation_id", "authorized_risk",
@@ -270,6 +270,8 @@ def verify_admission_request(
         raise ControlPlaneError("CONTROL_PLANE_EXECUTION_CONTRACT_MISMATCH")
     if not isinstance(candidate["input_hash"], str) or not _SHA256.fullmatch(candidate["input_hash"]):
         raise ControlPlaneError("CONTROL_PLANE_INPUT_HASH_INVALID")
+    if not isinstance(candidate["config_hash"], str) or not _SHA256.fullmatch(candidate["config_hash"]):
+        raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_CONFIG_HASH_INVALID")
 
     signal_time = _parse_utc(
         candidate["signal_observed_at_utc"], "CONTROL_PLANE_SIGNAL_TIMESTAMP_INVALID"
@@ -291,6 +293,7 @@ def verify_admission_request(
         "side": candidate["side"],
         "signal_id": candidate["signal_id"],
         "observed_at_utc": candidate["signal_observed_at_utc"],
+        "config_hash": candidate["config_hash"],
     }
     if any(signal_payload.get(key) != value for key, value in expected_signal_fields.items()):
         raise ControlPlaneError("CONTROL_PLANE_SIGNAL_PAYLOAD_IDENTITY_MISMATCH")
@@ -315,6 +318,23 @@ def verify_admission_request(
         raise ControlPlaneError("CONTROL_PLANE_LIVE_PERMISSION_MUST_REMAIN_DISABLED")
     if promotion["real_data_only"] is not True or promotion["synthetic_data"] is not False:
         raise ControlPlaneError("CONTROL_PLANE_REAL_DATA_POLICY_FAILED")
+    promoted_ids = promotion["promoted_candidate_ids"]
+    if not isinstance(promoted_ids, list) or not promoted_ids:
+        raise ControlPlaneError("CONTROL_PLANE_PROMOTED_CANDIDATE_IDS_INVALID")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in promoted_ids):
+        raise ControlPlaneError("CONTROL_PLANE_PROMOTED_CANDIDATE_IDS_INVALID")
+    if len(promoted_ids) != len(set(promoted_ids)):
+        raise ControlPlaneError("CONTROL_PLANE_PROMOTED_CANDIDATE_IDS_DUPLICATE")
+    if candidate_id not in promoted_ids:
+        raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_NOT_PROMOTED")
+    config_hashes = promotion["candidate_config_hashes"]
+    if not isinstance(config_hashes, Mapping) or set(config_hashes) != {str(value) for value in promoted_ids}:
+        raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_CONFIG_HASH_MAP_INVALID")
+    for key, value in config_hashes.items():
+        if not isinstance(value, str) or not _SHA256.fullmatch(value):
+            raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_CONFIG_HASH_MAP_INVALID")
+    if not hmac.compare_digest(candidate["config_hash"], config_hashes[str(candidate_id)]):
+        raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_CONFIG_HASH_MISMATCH")
     run_ids = promotion["run_ids"]
     _require_exact_fields(run_ids, _REQUIRED_RUN_IDS, "CONTROL_PLANE_PROMOTION_RUN_IDS_MISMATCH")
     for value in run_ids.values():
