@@ -29,7 +29,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: g13-preflight-dispatcher-m15
+  group: g13-preflight-dispatcher-m15-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
