@@ -287,7 +287,7 @@ def test_grant_policy_and_identity_fail_closed(field, value, reason):
 
 def test_tampered_grant_signature_is_rejected():
     grant = make_grant()
-    grant["trade_id"] = "FOREXAI-G13-C2-S-TAMPERED"
+    grant["signal_id"] = "signal-tampered-after-signing"
     with pytest.raises(AttestorError, match="G13_ATTESTOR_GRANT_SIGNATURE_VERIFICATION_FAILED"):
         _verify_grant(grant, repo=REPO, target_sha=SHA, now=NOW, public_key_encoded=raw_public(GRANT_KEY))
 
