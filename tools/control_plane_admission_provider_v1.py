@@ -220,7 +220,7 @@ def _validate_promotion(payload: Mapping[str, Any]) -> dict[str, Any]:
     expected = {
         "schema", "commit_sha", "gates", "readiness_status", "demo_trading_allowed",
         "source_default_demo_trading_allowed", "demo_grant_id", "authorized_demo_candidate_id",
-        "live_trading_allowed", "real_data_only", "synthetic_data", "run_ids",
+        "demo_grant_max_risk_fraction", "live_trading_allowed", "real_data_only", "synthetic_data", "run_ids",
         "promoted_candidate_ids", "candidate_config_hashes",
     }
     _exact_fields(payload, expected, "PROVIDER_PROMOTION_FIELDS_INVALID")
@@ -242,6 +242,9 @@ def _validate_promotion(payload: Mapping[str, Any]) -> dict[str, Any]:
     grant_candidate_id = payload["authorized_demo_candidate_id"]
     if isinstance(grant_candidate_id, bool) or not isinstance(grant_candidate_id, int) or grant_candidate_id <= 0:
         raise AdmissionProviderError("PROVIDER_DEMO_GRANT_CANDIDATE_ID_INVALID")
+    grant_risk_cap = _risk(
+        payload["demo_grant_max_risk_fraction"], "PROVIDER_DEMO_GRANT_RISK_CAP_INVALID"
+    )
     if payload["live_trading_allowed"] is not False:
         raise AdmissionProviderError("PROVIDER_LIVE_PERMISSION_MUST_REMAIN_DISABLED")
     if payload["real_data_only"] is not True or payload["synthetic_data"] is not False:
@@ -437,6 +440,8 @@ def build_admission_request(
     )
     if any(left != right for left, right in cross_links):
         raise AdmissionProviderError("PROVIDER_SOURCE_IDENTITY_CROSS_LINK_MISMATCH")
+    if risk["authorized_risk"] > promotion["demo_grant_max_risk_fraction"]:
+        raise AdmissionProviderError("PROVIDER_RISK_EXCEEDS_DEMO_GRANT_CAP")
     risk_expiry = _parse_utc(risk["expires_at_utc"], "PROVIDER_RISK_EXPIRY_INVALID")
     operator_expiry = _parse_utc(operator["valid_until_utc"], "PROVIDER_OPERATOR_APPROVAL_EXPIRY_INVALID")
     auth_expiry = min(risk_expiry, operator_expiry, now + timedelta(seconds=MAX_AUTHORIZATION_LIFETIME_SECONDS))
@@ -473,6 +478,7 @@ def build_admission_request(
         "source_default_demo_trading_allowed": promotion["source_default_demo_trading_allowed"],
         "demo_grant_id": promotion["demo_grant_id"],
         "authorized_demo_candidate_id": promotion["authorized_demo_candidate_id"],
+        "demo_grant_max_risk_fraction": promotion["demo_grant_max_risk_fraction"],
         "live_trading_allowed": promotion["live_trading_allowed"],
         "real_data_only": promotion["real_data_only"],
         "synthetic_data": promotion["synthetic_data"],
