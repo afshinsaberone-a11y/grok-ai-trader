@@ -41,6 +41,9 @@ SAFETY_CODE_FILES = [
 RUNTIME_CRITICAL_FILES = [
     "research/optimization/G13_Safety_Probe_AuthOff.mq5",
     "research/optimization/G13_Safety_Probe_AuthOn.mq5",
+    "tools/forexai_control_plane_v1.py",
+    "research/optimization/g13_control_plane_ea_gate_v1.py",
+    ".github/workflows/forexai-control-plane-v1.yml",
     ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml",
 ]
 
