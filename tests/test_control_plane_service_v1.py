@@ -114,6 +114,14 @@ def _signed_request(**overrides):
             "safety_audit": 41007,
             "readiness": 41008,
         },
+        "source_grant_id": "capital-firewall-grant-001",
+        "source_grant_candidate_id": 2,
+        "source_grant_signal_id": "signal-001",
+        "source_grant_trade_id": "FOREXAI-G13-C2-S",
+        "source_grant_authorization_id": "auth-001",
+        "source_grant_reservation_id": "reservation-001",
+        "source_grant_sha256": "f" * 64,
+        "evidence_bundle_sha256": "e" * 64,
     }
     authorization = {
         "authorization_id": "auth-001",
@@ -268,6 +276,7 @@ def test_signed_demo_request_creates_ledger_and_authenticated_envelope(tmp_path:
 def test_candidate_must_be_in_signed_promoted_candidate_set(tmp_path: Path):
     request = _signed_request(candidate={"candidate_id": 3})
     request["candidate"]["signal_payload"]["candidate_id"] = 3
+    request["promotion_evidence"]["source_grant_candidate_id"] = 3
     request["candidate"]["input_hash"] = hashlib.sha256(
         _canonical(request["candidate"]["signal_payload"])
     ).hexdigest()

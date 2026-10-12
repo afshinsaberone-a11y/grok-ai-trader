@@ -70,6 +70,9 @@ _PROMOTION_FIELDS = {
     "parity_status", "package_preflight_status", "safety_audit_status",
     "readiness_status", "demo_trading_allowed", "live_trading_allowed",
     "real_data_only", "synthetic_data", "run_ids", "promoted_candidate_ids", "candidate_config_hashes",
+    "source_grant_id", "source_grant_candidate_id", "source_grant_signal_id",
+    "source_grant_trade_id", "source_grant_authorization_id",
+    "source_grant_reservation_id", "source_grant_sha256", "evidence_bundle_sha256",
 }
 _AUTHORIZATION_FIELDS = {
     "authorization_id", "reservation_id", "authorized_risk",
@@ -335,6 +338,26 @@ def verify_admission_request(
             raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_CONFIG_HASH_MAP_INVALID")
     if not hmac.compare_digest(candidate["config_hash"], config_hashes[str(candidate_id)]):
         raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_CONFIG_HASH_MISMATCH")
+    grant_id = _safe_id(promotion["source_grant_id"], "CONTROL_PLANE_SOURCE_GRANT_ID_INVALID")
+    grant_candidate = promotion["source_grant_candidate_id"]
+    if isinstance(grant_candidate, bool) or not isinstance(grant_candidate, int) or grant_candidate <= 0:
+        raise ControlPlaneError("CONTROL_PLANE_SOURCE_GRANT_CANDIDATE_INVALID")
+    if grant_candidate != candidate_id:
+        raise ControlPlaneError("CONTROL_PLANE_SOURCE_GRANT_CANDIDATE_MISMATCH")
+    grant_signal = _safe_id(promotion["source_grant_signal_id"], "CONTROL_PLANE_SOURCE_GRANT_SIGNAL_INVALID")
+    grant_trade = _safe_id(promotion["source_grant_trade_id"], "CONTROL_PLANE_SOURCE_GRANT_TRADE_INVALID")
+    grant_authorization = _safe_id(
+        promotion["source_grant_authorization_id"], "CONTROL_PLANE_SOURCE_GRANT_AUTHORIZATION_INVALID"
+    )
+    grant_reservation = _safe_id(
+        promotion["source_grant_reservation_id"], "CONTROL_PLANE_SOURCE_GRANT_RESERVATION_INVALID"
+    )
+    for field in ("source_grant_sha256", "evidence_bundle_sha256"):
+        if not isinstance(promotion[field], str) or not _SHA256.fullmatch(promotion[field]):
+            raise ControlPlaneError(f"CONTROL_PLANE_{field.upper()}_INVALID")
+    if (grant_signal, grant_trade) != (candidate["signal_id"], candidate["trade_id"]):
+        raise ControlPlaneError("CONTROL_PLANE_SOURCE_GRANT_SIGNAL_TRADE_MISMATCH")
+
     run_ids = promotion["run_ids"]
     _require_exact_fields(run_ids, _REQUIRED_RUN_IDS, "CONTROL_PLANE_PROMOTION_RUN_IDS_MISMATCH")
     for value in run_ids.values():
@@ -351,6 +374,8 @@ def verify_admission_request(
     reservation_id = _safe_id(
         authorization["reservation_id"], "CONTROL_PLANE_RESERVATION_ID_INVALID"
     )
+    if (grant_authorization, grant_reservation) != (authorization_id, reservation_id):
+        raise ControlPlaneError("CONTROL_PLANE_SOURCE_GRANT_AUTHORIZATION_RESERVATION_MISMATCH")
     _safe_id(authorization["policy_version"], "CONTROL_PLANE_POLICY_VERSION_INVALID")
     _safe_id(authorization["risk_decision_id"], "CONTROL_PLANE_RISK_DECISION_ID_INVALID")
     _safe_id(authorization["operator_approval_ref"], "CONTROL_PLANE_OPERATOR_APPROVAL_MISSING")
