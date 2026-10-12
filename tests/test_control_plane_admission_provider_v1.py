@@ -149,6 +149,14 @@ def _packet(
             "safety_audit": 41007,
             "readiness": 41008,
         },
+        "source_grant_id": "capital-firewall-grant-001",
+        "source_grant_candidate_id": 12,
+        "source_grant_signal_id": signal["signal_id"],
+        "source_grant_trade_id": signal["trade_id"],
+        "source_grant_authorization_id": "auth-demo-001",
+        "source_grant_reservation_id": "reserve-demo-001",
+        "source_grant_sha256": "f" * 64,
+        "evidence_bundle_sha256": "e" * 64,
     }
     risk_payload = {
         "schema": "forexai.demo_risk_decision.v1",
@@ -348,6 +356,7 @@ def _with_new_signal(request: dict, signal_id: str, *, request_id: str) -> dict:
     changed["request_id"] = request_id
     changed["candidate"]["signal_id"] = signal_id
     changed["candidate"]["signal_payload"]["signal_id"] = signal_id
+    changed["promotion_evidence"]["source_grant_signal_id"] = signal_id
     changed["candidate"]["input_hash"] = hashlib.sha256(
         canonical_json(changed["candidate"]["signal_payload"])
     ).hexdigest()
@@ -437,3 +446,44 @@ def test_output_never_overwrites_an_existing_admission_request(tmp_path: Path):
     with pytest.raises(AdmissionProviderError, match="PROVIDER_OUTPUT_ALREADY_EXISTS"):
         write_request_new(target, {"safe": True})
     assert target.read_text(encoding="utf-8") == "do-not-overwrite"
+
+
+def test_capital_firewall_grant_identity_must_match_the_live_signal():
+    packet = _packet()
+    payload = dict(packet["promotion"]["payload"])
+    payload["source_grant_signal_id"] = "different-signal"
+    packet["promotion"] = _attest("promotion", payload)
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_CAPITAL_FIREWALL_GRANT_CROSS_LINK_MISMATCH"):
+        _build(packet)
+
+
+def test_capital_firewall_grant_must_match_the_risk_reservation():
+    packet = _packet()
+    payload = dict(packet["promotion"]["payload"])
+    payload["source_grant_reservation_id"] = "different-reservation"
+    packet["promotion"] = _attest("promotion", payload)
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_CAPITAL_FIREWALL_GRANT_CROSS_LINK_MISMATCH"):
+        _build(packet)
+
+
+def test_grant_id_is_one_shot_even_if_signal_and_request_ids_change(tmp_path: Path):
+    registry = tmp_path / "provider-state" / "issued.sqlite3"
+    first = _build()
+    record_issuance(first, registry, PROVIDER_PRIVATE_KEY.public_key())
+
+    second = _with_new_signal(first, "signal-new-grant-replay", request_id="admission-new-grant-replay")
+    second["candidate"]["trade_id"] = "FOREXAI-G13-C12-S-REPLAY"
+    second["promotion_evidence"]["source_grant_trade_id"] = second["candidate"]["trade_id"]
+    second["authorization"]["authorization_id"] = "auth-new-for-replay"
+    second["authorization"]["reservation_id"] = "reservation-new-for-replay"
+    second["promotion_evidence"]["source_grant_authorization_id"] = "auth-new-for-replay"
+    second["promotion_evidence"]["source_grant_reservation_id"] = "reservation-new-for-replay"
+    unsigned = {key: value for key, value in second.items() if key != "signature"}
+    second["signature"]["signature"] = base64.b64encode(
+        PROVIDER_PRIVATE_KEY.sign(canonical_json(unsigned))
+    ).decode("ascii")
+
+    with pytest.raises(
+        AdmissionProviderError, match="PROVIDER_SIGNAL_OR_AUTHORIZATION_ALREADY_ISSUED"
+    ):
+        record_issuance(second, registry, PROVIDER_PRIVATE_KEY.public_key())
