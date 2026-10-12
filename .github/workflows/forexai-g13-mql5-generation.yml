@@ -28,6 +28,8 @@ jobs:
           python-version: '3.12'
       - name: Compile generator and Control Plane gate
         run: python -m py_compile research/optimization/g13_mql5_generator_v2.py research/optimization/g13_control_plane_ea_gate_v1.py
+      - name: Install contract test runner
+        run: python -m pip install --disable-pip-version-check pytest
       - name: Verify promotion manifest
         run: |
           python - <<'PY'
