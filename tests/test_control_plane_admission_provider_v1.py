@@ -83,21 +83,32 @@ def _packet(
     mismatch_risk_signal: bool = False,
     risk: float = 0.003,
     reserved_risk: float = 0.002,
+    candidate_id: int = 12,
+    config_hash: str = "c" * 64,
+    promoted_candidate_ids: list[int] | None = None,
+    promotion_config_hashes: dict[str, str] | None = None,
 ) -> dict:
     observed = (NOW_DT - timedelta(seconds=signal_age_seconds)).isoformat()
+    promoted_ids = [12] if promoted_candidate_ids is None else promoted_candidate_ids
+    config_hashes = (
+        {str(value): config_hash for value in promoted_ids}
+        if promotion_config_hashes is None else promotion_config_hashes
+    )
     signal_payload = {
-        "candidate_id": 12,
+        "candidate_id": candidate_id,
         "symbol": "EURUSD",
         "timeframe": "M15",
         "side": side,
         "signal_id": "signal-20261012-001",
         "observed_at_utc": observed,
+        "config_hash": config_hash,
         "feature_window_sha256": "b" * 64,
     }
     signal = {
         "schema": "forexai.live_signal.v1",
-        "candidate_id": 12,
-        "trade_id": "FOREXAI-G13-C12-S",
+        "candidate_id": candidate_id,
+        "config_hash": config_hash,
+        "trade_id": f"FOREXAI-G13-C{candidate_id}-S",
         "symbol": "EURUSD",
         "timeframe": "M15",
         "side": side,
@@ -126,6 +137,8 @@ def _packet(
         "live_trading_allowed": live_allowed,
         "real_data_only": True,
         "synthetic_data": False,
+        "promoted_candidate_ids": promoted_ids,
+        "candidate_config_hashes": config_hashes,
         "run_ids": {
             "promotion": 41001,
             "validation": 41002,
@@ -260,6 +273,26 @@ def test_unsupported_signal_side_is_rejected(side):
     # Payload and attestation are validly signed: policy, not signature, blocks it.
     with pytest.raises(AdmissionProviderError, match="PROVIDER_SIGNAL_IDENTITY_NOT_SUPPORTED"):
         _build(_packet(side=side))
+
+
+def test_signal_candidate_must_be_in_frozen_promoted_candidate_set():
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_SIGNAL_CANDIDATE_NOT_PROMOTED"):
+        _build(_packet(candidate_id=777))
+
+
+def test_signal_config_hash_must_match_frozen_promotion_manifest():
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_SIGNAL_CONFIG_HASH_MISMATCH"):
+        _build(_packet(config_hash="d" * 64, promotion_config_hashes={"12": "c" * 64}))
+
+
+def test_promotion_candidate_set_rejects_duplicate_candidate_ids():
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_PROMOTED_CANDIDATE_IDS_DUPLICATE"):
+        _build(_packet(promoted_candidate_ids=[12, 12]))
+
+
+def test_promotion_candidate_config_hash_map_must_cover_exact_candidate_set():
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_CANDIDATE_CONFIG_HASH_MAP_INVALID"):
+        _build(_packet(promoted_candidate_ids=[12, 13], promotion_config_hashes={"12": "c" * 64}))
 
 
 def test_risk_and_signal_identity_must_cross_link():
