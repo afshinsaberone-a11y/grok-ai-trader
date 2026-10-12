@@ -102,6 +102,7 @@ def _signed_request(**overrides):
         "source_default_demo_trading_allowed": False,
         "demo_grant_id": "demo-grant-20261012-001",
         "authorized_demo_candidate_id": 2,
+        "demo_grant_max_risk_fraction": 0.006,
         "live_trading_allowed": False,
         "real_data_only": True,
         "synthetic_data": False,
@@ -325,6 +326,18 @@ def test_demo_grant_candidate_must_be_from_signed_promotion_set(tmp_path: Path):
     request = _signed_request(promotion_evidence={"authorized_demo_candidate_id": 99})
     with pytest.raises(
         ControlPlaneError, match="CONTROL_PLANE_DEMO_GRANT_CANDIDATE_NOT_PROMOTED"
+    ):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_authorized_risk_cannot_exceed_signed_demo_grant_risk_cap(tmp_path: Path):
+    request = _signed_request(
+        promotion_evidence={"demo_grant_max_risk_fraction": 0.004},
+        authorization={"authorized_risk": 0.005, "reserved_risk": 0.003},
+    )
+    with pytest.raises(
+        ControlPlaneError, match="CONTROL_PLANE_AUTHORIZED_RISK_EXCEEDS_DEMO_GRANT_CAP"
     ):
         _run(tmp_path, request=request)
     assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
