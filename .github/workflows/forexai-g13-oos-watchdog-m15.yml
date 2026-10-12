@@ -25,6 +25,58 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
+      - name: Set up retryable GitHub CLI wrapper for transient API reads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bin_dir="$RUNNER_TEMP/g13-gh-retry-bin"
+          real_gh="$(command -v gh)"
+          mkdir -p "$bin_dir"
+          cat > "$bin_dir/gh" <<'WRAPPER'
+          #!/usr/bin/env bash
+          set -uo pipefail
+          real_gh="$G13_REAL_GH_PATH"
+          error_file="$RUNNER_TEMP/g13-gh-api-retry.stderr"
+          retryable=0
+          if [[ "$#" -gt 0 && "$1" == "api" ]]; then
+            retryable=1
+            for arg in "$@"; do
+              if [[ "$arg" == "--method" || "$arg" == "-X" ]]; then
+                retryable=0
+                break
+              fi
+            done
+          fi
+          if [[ "$retryable" != "1" ]]; then
+            exec "$real_gh" "$@"
+          fi
+          status=1
+          for attempt in 1 2 3 4 5; do
+            output=$("$real_gh" "$@" 2>"$error_file")
+            status=$?
+            if [[ "$status" -eq 0 ]]; then
+              printf '%s' "$output"
+              exit 0
+            fi
+            if ! grep -Eiq 'HTTP (429|500|502|503|504)|timed out|timeout|temporary failure|connection reset|unexpected EOF|EOF' "$error_file"; then
+              cat "$error_file" >&2
+              exit "$status"
+            fi
+            if [[ "$attempt" -lt 5 ]]; then
+              delay=$((attempt * 3))
+              echo "G13_GH_API_READ_RETRY attempt=$attempt/5 delay=$delay seconds" >&2
+              sleep "$delay"
+            fi
+          done
+          cat "$error_file" >&2
+          echo "G13_GH_API_READ_RETRY_EXHAUSTED attempts=5" >&2
+          exit "$status"
+          WRAPPER
+          chmod +x "$bin_dir/gh"
+          echo "G13_REAL_GH_PATH=$real_gh" >> "$GITHUB_ENV"
+          echo "$bin_dir" >> "$GITHUB_PATH"
+          echo "G13_RETRYABLE_GITHUB_CLI_READY=true"
       - name: Verify current main
         env:
           GH_TOKEN: ${{ github.token }}
