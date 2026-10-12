@@ -238,6 +238,19 @@ jobs:
           ]:
               assert token in watchdog, f"G13 watchdog explicit-dispatch token missing: {token}"
 
+          for token in [
+              "Set up retryable GitHub CLI wrapper for transient API reads",
+              "G13_GH_API_READ_RETRY",
+              "G13_GH_API_READ_RETRY_EXHAUSTED attempts=5",
+              "HTTP (429|500|502|503|504)",
+              'echo "$bin_dir" >> "$GITHUB_PATH"',
+          ]:
+              assert token in watchdog, f"transient GitHub API retry token missing: {token}"
+
+          assert watchdog.index("Set up retryable GitHub CLI wrapper for transient API reads") < watchdog.index("Verify current main"), (
+              "retry wrapper must be installed before watchdog GitHub API reads"
+          )
+
           validation_dispatch = watchdog.index('dispatch_workflow "forexai-g13-validation-m15.yml"')
           robustness_dispatch = watchdog.index('dispatch_workflow "forexai-g13-robustness-m15.yml"')
           oos_dispatch = watchdog.index("forexai-g13-oos-m15-current.yml/dispatches")
