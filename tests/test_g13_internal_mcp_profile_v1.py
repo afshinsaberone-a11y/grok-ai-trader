@@ -141,9 +141,12 @@ def test_compile_parity_workflow_disables_only_its_profile_mcp_before_launch():
         ROOT / ".github/workflows/forexai-g13-mt5-compile-parity.yml"
     ).read_text(encoding="utf-8")
 
+    step_start = workflow.index("- name: Run MQL5 real-data parity script")
+    step_end = workflow.index("      - name: Collect MT5 parity diagnostics", step_start)
+    launch_step = workflow[step_start:step_end]
     helper_call = "disable_mt5_internal_mcp_v1.py"
-    assert helper_call in workflow
-    assert workflow.index(helper_call) < workflow.index("$procInfo = @(")
+    assert helper_call in launch_step
+    assert launch_step.index(helper_call) < launch_step.index("$procInfo = @(")
     helper = (ROOT / "tools/disable_mt5_internal_mcp_v1.py").read_text(encoding="utf-8")
     assert "MCP.MetaTrader" in helper
     assert "MCP.MetaEditor" in helper
