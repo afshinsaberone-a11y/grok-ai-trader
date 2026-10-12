@@ -35,6 +35,12 @@ on:
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
+      - '.github/workflows/forexai-control-plane-v1.yml'
+      - '.github/workflows/forexai-control-plane-contract.yml'
+      - 'tools/forexai_control_plane_v1.py'
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_forexai_control_plane_v1.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
       - 'tests/test_capital_authorization_preflight_workflow_contract.py'
   pull_request:
     paths:
@@ -58,6 +64,12 @@ on:
       - 'tests/test_g13_demo_package_manifest_builder.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
+      - '.github/workflows/forexai-control-plane-v1.yml'
+      - '.github/workflows/forexai-control-plane-contract.yml'
+      - 'tools/forexai_control_plane_v1.py'
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_forexai_control_plane_v1.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
       - 'tests/test_capital_authorization_preflight_workflow_contract.py'
   workflow_dispatch:
 
@@ -106,11 +118,15 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
+          ./actionlint .github/workflows/forexai-control-plane-v1.yml
+          ./actionlint .github/workflows/forexai-control-plane-contract.yml
 
       - name: Compile all G13 Python gates
         run: |
           python -m py_compile \
             research/optimization/g13_mql5_generator_v2.py \
+            research/optimization/g13_control_plane_ea_gate_v1.py \
+            tools/forexai_control_plane_v1.py \
             research/optimization/g13_mql5_parity_harness_generator.py \
             research/optimization/g13_mql5_parity.py \
             research/optimization/g13_demo_readiness_gate_m15.py \
