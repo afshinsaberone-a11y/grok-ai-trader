@@ -30,10 +30,12 @@ from tools.runtime_authorization_auth_v1 import (
     DEFAULT_KEY_ID,
     build_authenticated_envelope,
     load_control_plane_secret,
+    verify_authenticated_envelope_current,
 )
 from tools.runtime_authorization_envelope_v1 import build_runtime_envelope
 from tools.runtime_authorization_record_v1 import (
     build_mql5_authorization_record,
+    parse_mql5_authorization_record,
     write_mql5_authorization_record,
 )
 from tools.trade_ledger_v1 import TradeLedger
@@ -590,6 +592,7 @@ def process_signal_intent(
     selected_candidate_id: int,
 ) -> dict[str, Any]:
     """Issue one current Demo authorization from one fresh real EA intent."""
+    injected_clock = now is not None
     now = (now or _utc_now()).astimezone(timezone.utc)
     if not common_files.is_dir():
         raise ControlPlaneError("MT5_COMMON_FILES_DIRECTORY_MISSING")
@@ -752,6 +755,36 @@ def process_signal_intent(
         _atomic_json(authenticated_envelope_path, authenticated)
         auth_path = common_files / f"ForexAI_Authorization_{130000 + candidate_id}_EURUSD.auth"
         write_mql5_authorization_record(auth_path, record)
+        try:
+            # Verify the durable artifacts from disk, not merely the in-memory
+            # objects used to build them. This closes partial-write and mismatch
+            # gaps before the authorization is exposed to the EA.
+            persisted_ledger = TradeLedger(ledger_path)
+            postwrite_now = now if injected_clock else _utc_now()
+            postwrite_utc = postwrite_now.isoformat()
+            authority_report = verify_authenticated_envelope_current(
+                CapitalFirewall(persisted_ledger),
+                authenticated,
+                secret=secret,
+                now_utc=postwrite_utc,
+                expected_trade_id=trade_id,
+            )
+            if authority_report.get("current_firewall_authority") != "PASS":
+                raise ControlPlaneError("CONTROL_PLANE_ENVELOPE_POSTWRITE_AUTHORITY_FAILED")
+            serialized_record = auth_path.read_text(encoding="utf-8")
+            parsed_record = parse_mql5_authorization_record(
+                serialized_record,
+                now_utc=postwrite_utc,
+                expected_trade_id=trade_id,
+            )
+            if parsed_record != dict(record):
+                raise ControlPlaneError("CONTROL_PLANE_AUTH_RECORD_POSTWRITE_MISMATCH")
+        except Exception as exc:
+            try:
+                auth_path.unlink(missing_ok=True)
+            except OSError as remove_exc:
+                raise ControlPlaneError("CONTROL_PLANE_POSTWRITE_AUTH_REMOVAL_FAILED") from remove_exc
+            raise ControlPlaneError("CONTROL_PLANE_POSTWRITE_VERIFICATION_FAILED") from exc
 
     # The EA retains the decision in memory; once the authorization record has
     # been atomically published the input must not be processed twice.
