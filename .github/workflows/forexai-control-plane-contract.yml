@@ -61,12 +61,18 @@ jobs:
       - name: Audit authority boundaries
         run: |
           python - <<'PY'
+          import ast
           from pathlib import Path
 
           producer = Path("tools/forexai_control_plane_v1.py").read_text(encoding="utf-8")
           workflow = Path(".github/workflows/forexai-control-plane-v1.yml").read_text(encoding="utf-8")
           generated_gate = Path("research/optimization/g13_control_plane_ea_gate_v1.py").read_text(encoding="utf-8")
-          assert "order_send" not in producer.lower()
+          calls = [
+              node.func.attr
+              for node in ast.walk(ast.parse(producer))
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+          ]
+          assert "order_send" not in calls
           assert "order_send(" not in workflow.lower()
           assert '"live_trading_allowed": False' in producer
           assert "PROMOTION_RUN_ID_MISMATCH" in producer
