@@ -614,10 +614,27 @@ def record_issuance(
     candidate = request["candidate"]
     if not isinstance(candidate, Mapping):
         raise AdmissionProviderError("PROVIDER_REGISTRY_CANDIDATE_INVALID")
+    candidate_id = candidate.get("candidate_id")
+    if isinstance(candidate_id, bool) or not isinstance(candidate_id, int) or candidate_id <= 0:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_CANDIDATE_ID_INVALID")
     signal_id = _safe_id(candidate.get("signal_id"), "PROVIDER_REGISTRY_SIGNAL_ID_INVALID")
     trade_id = _safe_id(candidate.get("trade_id"), "PROVIDER_REGISTRY_TRADE_ID_INVALID")
     if not trade_id.endswith("-S"):
         raise AdmissionProviderError("PROVIDER_REGISTRY_TRADE_ID_INVALID")
+    config_hash = candidate.get("config_hash")
+    if not isinstance(config_hash, str) or not SHA256.fullmatch(config_hash):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_CONFIG_HASH_INVALID")
+    promotion = request["promotion_evidence"]
+    if not isinstance(promotion, Mapping):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_PROMOTION_EVIDENCE_INVALID")
+    promoted_ids = promotion.get("promoted_candidate_ids")
+    config_hashes = promotion.get("candidate_config_hashes")
+    if not isinstance(promoted_ids, list) or candidate_id not in promoted_ids:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_CANDIDATE_NOT_PROMOTED")
+    if not isinstance(config_hashes, Mapping) or not hmac.compare_digest(
+        config_hash, str(config_hashes.get(str(candidate_id), ""))
+    ):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_CONFIG_HASH_MISMATCH")
     input_hash = candidate.get("input_hash")
     if not isinstance(input_hash, str) or not SHA256.fullmatch(input_hash):
         raise AdmissionProviderError("PROVIDER_REGISTRY_INPUT_HASH_INVALID")
@@ -627,6 +644,8 @@ def record_issuance(
     expected_hash = hashlib.sha256(canonical_json(signal_payload)).hexdigest()
     if not hmac.compare_digest(expected_hash, input_hash):
         raise AdmissionProviderError("PROVIDER_REGISTRY_INPUT_HASH_MISMATCH")
+    if signal_payload.get("candidate_id") != candidate_id or signal_payload.get("config_hash") != config_hash:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNAL_IDENTITY_MISMATCH")
     authorization = request["authorization"]
     if not isinstance(authorization, Mapping):
         raise AdmissionProviderError("PROVIDER_REGISTRY_AUTHORIZATION_INVALID")
