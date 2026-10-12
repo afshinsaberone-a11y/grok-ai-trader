@@ -89,6 +89,7 @@ def _packet(
     promotion_config_hashes: dict[str, str] | None = None,
     authorized_demo_candidate_id: int = 12,
     source_default_demo_allowed: bool = False,
+    demo_grant_max_risk_fraction: float = 0.006,
 ) -> dict:
     observed = (NOW_DT - timedelta(seconds=signal_age_seconds)).isoformat()
     promoted_ids = [12] if promoted_candidate_ids is None else promoted_candidate_ids
@@ -139,6 +140,7 @@ def _packet(
         "source_default_demo_trading_allowed": source_default_demo_allowed,
         "demo_grant_id": "demo-grant-20261012-001",
         "authorized_demo_candidate_id": authorized_demo_candidate_id,
+        "demo_grant_max_risk_fraction": demo_grant_max_risk_fraction,
         "live_trading_allowed": live_allowed,
         "real_data_only": True,
         "synthetic_data": False,
@@ -324,6 +326,11 @@ def test_source_default_demo_permission_must_remain_false():
         AdmissionProviderError, match="PROVIDER_SOURCE_DEFAULT_DEMO_PERMISSION_MUST_REMAIN_FALSE"
     ):
         _build(_packet(source_default_demo_allowed=True))
+
+
+def test_risk_decision_cannot_exceed_signed_demo_grant_cap():
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_RISK_EXCEEDS_DEMO_GRANT_CAP"):
+        _build(_packet(risk=0.005, demo_grant_max_risk_fraction=0.004))
 
 
 def test_risk_and_signal_identity_must_cross_link():
