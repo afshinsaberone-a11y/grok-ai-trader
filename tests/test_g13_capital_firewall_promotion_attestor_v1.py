@@ -135,6 +135,7 @@ def fixture_chain():
         "selection_used_2025": False,
         "oos_evaluated": False,
         "validation_qualified_count": 1,
+        "candidates": [{"candidate_id": 2, "validation_pass": True}],
     }
     robustness = {
         "schema": "forexai.g13.robustness_m15.v1",
@@ -145,6 +146,7 @@ def fixture_chain():
         "oos": {"status": "HELD_OUT", "evaluated": False, "optimization_allowed": False},
         "candidate_count": 1,
         "robustness_pass_count": 1,
+        "candidates": [{"candidate_id": 2, "robustness_pass": True}],
     }
     oos = {
         "schema_version": "forexai.g13.oos_m15.2026.v1",
