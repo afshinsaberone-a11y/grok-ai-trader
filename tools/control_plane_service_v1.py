@@ -164,16 +164,12 @@ def _secret_bytes(secret: str | bytes, code: str) -> bytes:
     return raw
 
 
-def admission_signature(
+def _calculate_expected_admission_tag(
     request: Mapping[str, Any],
     *,
     secret: str | bytes,
 ) -> str:
-    """Compute the provider tag for an admission request (used by the trusted signer).
-
-    Keep the signing key in the independent admission provider. The MT5 runner
-    receives it only for verification; do not expose this helper as a signing CLI.
-    """
+    """Internal HMAC verifier primitive. The production signer lives outside this repo."""
     body = {key: value for key, value in request.items() if key != "signature"}
     tag = hmac.new(
         _secret_bytes(secret, "CONTROL_PLANE_ADMISSION_SECRET_INVALID"),
@@ -204,7 +200,7 @@ def verify_admission_request(
     supplied_tag = signature["tag"]
     if not isinstance(supplied_tag, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied_tag):
         raise ControlPlaneError("CONTROL_PLANE_SIGNATURE_TAG_INVALID")
-    expected_tag = admission_signature(request, secret=admission_secret)
+    expected_tag = _calculate_expected_admission_tag(request, secret=admission_secret)
     if not hmac.compare_digest(supplied_tag, expected_tag):
         raise ControlPlaneError("CONTROL_PLANE_ADMISSION_SIGNATURE_INVALID")
 
