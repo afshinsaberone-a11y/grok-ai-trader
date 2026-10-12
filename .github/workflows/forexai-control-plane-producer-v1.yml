@@ -46,6 +46,19 @@ jobs:
       - name: Checkout exact revision
         uses: actions/checkout@v4
 
+      - name: Resolve exact MT5 owner profile and force kill switch DENY
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch |
+            ForEach-Object {
+              $line = [string]$_
+              if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
+              elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') { Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]' }
+              elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
+              else { Write-Output $line }
+            }
+
       - name: Require runner-local paths without disclosing them
         shell: powershell
         run: |
@@ -76,20 +89,6 @@ jobs:
           }
           Write-Output 'CONTROL_PLANE_RUNNER_PATHS=CONFIGURED'
           Write-Output 'CONTROL_PLANE_ADMISSION_REQUEST=EXISTS'
-
-      - name: Resolve exact MT5 owner profile and force kill switch DENY
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & (Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch |
-            ForEach-Object {
-              $line = [string]$_
-              if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
-              elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') { Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]' }
-              elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
-              else { Write-Output $line }
-            }
-          if ($LASTEXITCODE -ne 0) { throw 'CONTROL_PLANE_MT5_PROFILE_RESOLUTION_FAILED' }
 
       - name: Resolve Python runtime
         shell: powershell
