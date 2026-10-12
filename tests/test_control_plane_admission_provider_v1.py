@@ -87,6 +87,8 @@ def _packet(
     config_hash: str = "c" * 64,
     promoted_candidate_ids: list[int] | None = None,
     promotion_config_hashes: dict[str, str] | None = None,
+    authorized_demo_candidate_id: int = 12,
+    source_default_demo_allowed: bool = False,
 ) -> dict:
     observed = (NOW_DT - timedelta(seconds=signal_age_seconds)).isoformat()
     promoted_ids = [12] if promoted_candidate_ids is None else promoted_candidate_ids
@@ -134,6 +136,9 @@ def _packet(
         },
         "readiness_status": "READY_FOR_CONTROLLED_DEMO_AUDIT",
         "demo_trading_allowed": demo_allowed,
+        "source_default_demo_trading_allowed": source_default_demo_allowed,
+        "demo_grant_id": "demo-grant-20261012-001",
+        "authorized_demo_candidate_id": authorized_demo_candidate_id,
         "live_trading_allowed": live_allowed,
         "real_data_only": True,
         "synthetic_data": False,
@@ -293,6 +298,32 @@ def test_promotion_candidate_set_rejects_duplicate_candidate_ids():
 def test_promotion_candidate_config_hash_map_must_cover_exact_candidate_set():
     with pytest.raises(AdmissionProviderError, match="PROVIDER_CANDIDATE_CONFIG_HASH_MAP_INVALID"):
         _build(_packet(promoted_candidate_ids=[12, 13], promotion_config_hashes={"12": "c" * 64}))
+
+
+def test_signal_must_match_candidate_selected_by_signed_one_signal_grant():
+    with pytest.raises(
+        AdmissionProviderError, match="PROVIDER_SIGNAL_CANDIDATE_NOT_AUTHORIZED_BY_GRANT"
+    ):
+        _build(
+            _packet(
+                promoted_candidate_ids=[12, 13],
+                authorized_demo_candidate_id=13,
+            )
+        )
+
+
+def test_grant_candidate_must_be_inside_frozen_promotion_set():
+    with pytest.raises(
+        AdmissionProviderError, match="PROVIDER_DEMO_GRANT_CANDIDATE_NOT_PROMOTED"
+    ):
+        _build(_packet(authorized_demo_candidate_id=99))
+
+
+def test_source_default_demo_permission_must_remain_false():
+    with pytest.raises(
+        AdmissionProviderError, match="PROVIDER_SOURCE_DEFAULT_DEMO_PERMISSION_MUST_REMAIN_FALSE"
+    ):
+        _build(_packet(source_default_demo_allowed=True))
 
 
 def test_risk_and_signal_identity_must_cross_link():
