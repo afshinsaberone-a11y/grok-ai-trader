@@ -197,5 +197,5 @@ def test_interactive_launcher_is_limited_to_the_exact_portable_executable():
     assert "G13_PORTABLE_CONFIG_OUTSIDE_RUNTIME_ROOT" in launcher
     assert "$rootExe = [System.IO.Path]::GetFullPath($terminal)" in launcher
     assert "Stop-Process -Name terminal64.exe" not in launcher
-    assert "state,failed" in launcher
-    assert "state,success" in launcher
+    assert "Write-State 'failed'" in launcher
+    assert "Write-State 'success'" in launcher
