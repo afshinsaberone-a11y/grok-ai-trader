@@ -44,6 +44,26 @@ SIGNAL_INTENT_SCHEMA = "forexai.g13.runtime_signal_intent.m15.v1"
 PROMOTION_SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
 PROMOTION_ATTESTATION_SCHEMA = "forexai.g13.promotion_run_attestation.m15.v1"
 PROVENANCE_SCHEMA = "forexai.g13.promotion_evidence_provenance.m15.v1"
+EXPECTED_SOURCE_WORKFLOW_NAMES = {
+    "validation": "ForexAI G13 Validation M15",
+    "robustness": "ForexAI G13 Robustness M15",
+    "oos": "ForexAI G13 OOS M15 Current",
+}
+EXPECTED_SOURCE_WORKFLOW_IDS = {
+    "validation": 355468598,
+    "robustness": 355473409,
+    "oos": 356162316,
+}
+EXPECTED_SOURCE_JOB_NAMES = {
+    "validation": "g13-validation",
+    "robustness": "g13-robustness",
+    "oos": "G13 2026 OOS M15 Current",
+}
+EXPECTED_SOURCE_ARTIFACT_NAMES = {
+    "validation": "g13-validation-m15",
+    "robustness": "g13-robustness-m15",
+    "oos": "g13-oos-m15-2026-current",
+}
 REPOSITORY_DEFAULT = "afshinsaberone-a11y/grok-ai-trader"
 SYMBOL = "EURUSD"
 TIMEFRAME = "M15"
@@ -184,18 +204,32 @@ def validate_promotion_bundle(
         row = sources.get(key)
         if not isinstance(row, dict):
             raise ControlPlaneError(f"PROMOTION_SOURCE_MISSING:{key}")
+        if row.get("workflow_name") != EXPECTED_SOURCE_WORKFLOW_NAMES[key]:
+            raise ControlPlaneError(f"PROMOTION_SOURCE_WORKFLOW_NAME_MISMATCH:{key}")
+        if row.get("workflow_id") != EXPECTED_SOURCE_WORKFLOW_IDS[key]:
+            raise ControlPlaneError(f"PROMOTION_SOURCE_WORKFLOW_ID_MISMATCH:{key}")
         if row.get("head_branch") != "main" or row.get("head_sha") != expected_main_sha:
             raise ControlPlaneError(f"PROMOTION_SOURCE_SHA_MISMATCH:{key}")
         if row.get("conclusion") != "success":
             raise ControlPlaneError(f"PROMOTION_SOURCE_NOT_SUCCESSFUL:{key}")
         if not isinstance(row.get("run_id"), int) or row["run_id"] <= 0:
             raise ControlPlaneError(f"PROMOTION_SOURCE_RUN_ID_INVALID:{key}")
+        if not isinstance(row.get("job_id"), int) or row["job_id"] <= 0:
+            raise ControlPlaneError(f"PROMOTION_SOURCE_JOB_ID_INVALID:{key}")
+        if row.get("job_name") != EXPECTED_SOURCE_JOB_NAMES[key]:
+            raise ControlPlaneError(f"PROMOTION_SOURCE_JOB_NAME_MISMATCH:{key}")
         artifact = row.get("artifact")
         if not isinstance(artifact, dict):
             raise ControlPlaneError(f"PROMOTION_SOURCE_ARTIFACT_MISSING:{key}")
+        if not isinstance(artifact.get("artifact_id"), int) or artifact["artifact_id"] <= 0:
+            raise ControlPlaneError(f"PROMOTION_SOURCE_ARTIFACT_ID_INVALID:{key}")
+        if artifact.get("name") != EXPECTED_SOURCE_ARTIFACT_NAMES[key]:
+            raise ControlPlaneError(f"PROMOTION_SOURCE_ARTIFACT_NAME_MISMATCH:{key}")
         digest = artifact.get("digest")
         if not isinstance(digest, str) or not digest.startswith("sha256:") or len(digest) != 71:
             raise ControlPlaneError(f"PROMOTION_SOURCE_ARTIFACT_DIGEST_INVALID:{key}")
+        if row.get("local_zip_sha256") != digest.split(":", 1)[1]:
+            raise ControlPlaneError(f"PROMOTION_SOURCE_LOCAL_DIGEST_MISMATCH:{key}")
         if artifact.get("expired") is not False:
             raise ControlPlaneError(f"PROMOTION_SOURCE_ARTIFACT_EXPIRED:{key}")
 
