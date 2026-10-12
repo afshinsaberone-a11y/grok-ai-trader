@@ -48,6 +48,8 @@ The parity workflow now calls `tools/disable_mt5_internal_mcp_v1.py` before star
 
 The workflow preserves an already-running bare terminal owned by another Windows user and emits `MT5_EXTERNAL_BARE_TERMINAL_PRESERVED`; it does not try to kill the user's interactive process. A process using the current G13 config is rejected, and explicitly configured processes remain non-reclaimable. Only a bare `terminal64.exe` owned by `NT AUTHORITY\SYSTEM` (the runner service identity) may be reclaimed as a stale process. The workflow waits for those narrowly eligible service processes to exit before starting the harness.
 
+The startup configuration also sets `Symbol=EURUSD` and `Period=M15` explicitly. MT5's official startup-config contract states that without `Symbol`, it does not open an additional chart and the startup script will not run if the current profile has no charts. This became the next observed failure after MCP isolation: the service log had no "script ... loaded successfully" entry and all saved default chart frames failed to open. The explicit chart binding removes reliance on a user-session's saved chart profile; the script is still signal-parity-only and its own guards must report completion before downstream gates proceed.
+
 This is profile-scoped MCP isolation plus narrow stale-process cleanup, not a general MT5 process killer. The user's interactive profile is not rewritten and no trading permissions, order functions, or Kill Switch state are changed.
 
 ## Parity telemetry
