@@ -1,0 +1,80 @@
+name: ForexAI Control Plane Contract
+
+on:
+  pull_request:
+    paths:
+      - 'tools/forexai_control_plane_v1.py'
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'research/optimization/g13_mql5_generator_v2.py'
+      - 'tests/test_forexai_control_plane_v1.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_g13_mql5_generator_v2.py'
+      - '.github/workflows/forexai-control-plane-contract.yml'
+      - '.github/workflows/forexai-control-plane-v1.yml'
+  push:
+    paths:
+      - 'tools/forexai_control_plane_v1.py'
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'research/optimization/g13_mql5_generator_v2.py'
+      - 'tests/test_forexai_control_plane_v1.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_g13_mql5_generator_v2.py'
+      - '.github/workflows/forexai-control-plane-contract.yml'
+      - '.github/workflows/forexai-control-plane-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forexai-control-plane-contract
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONOPTIMIZE: '0'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+      - name: Compile producer and deterministic EA patch
+        run: |
+          python -m py_compile \
+            tools/forexai_control_plane_v1.py \
+            research/optimization/g13_control_plane_ea_gate_v1.py \
+            research/optimization/g13_mql5_generator_v2.py
+      - name: Run Control Plane and generated-EA contract tests
+        run: |
+          python -m pytest -q \
+            tests/test_forexai_control_plane_v1.py \
+            tests/test_g13_control_plane_ea_gate_v1.py \
+            tests/test_g13_mql5_generator_v2.py
+      - name: Audit authority boundaries
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          producer = Path("tools/forexai_control_plane_v1.py").read_text(encoding="utf-8")
+          workflow = Path(".github/workflows/forexai-control-plane-v1.yml").read_text(encoding="utf-8")
+          generated_gate = Path("research/optimization/g13_control_plane_ea_gate_v1.py").read_text(encoding="utf-8")
+          assert "order_send" not in producer.lower()
+          assert "order_send(" not in workflow.lower()
+          assert '"live_trading_allowed": False' in producer
+          assert "PROMOTION_RUN_ID_MISMATCH" in producer
+          assert "CONTROL_PLANE_INITIAL_DENY=VERIFIED" in workflow
+          assert "CONTROL_PLANE_FINAL_DENY=VERIFIED" in workflow
+          assert "ControlPlaneCurrentRiskWithinReservation" in generated_gate
+          assert "MarkRuntimeAuthorizationConsumed(trade_id)" in generated_gate
+          assert "live accounts are always rejected" in generated_gate.lower()
+          assert "FOREXAI_CONTROL_PLANE_HMAC_SECRET" in workflow
+          print("FOREXAI_CONTROL_PLANE_AUTHORITY_BOUNDARIES_OK")
+          PY
