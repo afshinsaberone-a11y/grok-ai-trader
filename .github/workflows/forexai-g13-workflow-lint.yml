@@ -206,6 +206,10 @@ jobs:
               assert token in workflow, f"missing workflow token: {token}"
           windows_compile = workflow.split("  compile-and-parity:", 1)[1]
           assert "$artifact." not in windows_compile, "Compile job must not reference an undefined Promotion artifact object"
+          checkout_step = windows_compile.split("- name: Checkout", 1)[1].split("- name:", 1)[0]
+          assert "persist-credentials: false" in checkout_step, (
+              "Windows MT5 checkout must not persist credentials or require credential cleanup in the post job"
+          )
           assert "DATA_CSV_RESOLVED=$(Join-Path $env:APPDATA" not in workflow, "Do not overwrite the manifest-bound real-data CSV with a legacy Common/Files path"
           for forbidden in ["gh api", "HttpClient", "Invoke-RestMethod", "Invoke-WebRequest"]:
               assert forbidden not in windows_compile, f"Windows Compile job must not use raw GitHub/network client: {forbidden}"
