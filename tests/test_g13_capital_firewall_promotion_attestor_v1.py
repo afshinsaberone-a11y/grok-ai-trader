@@ -107,7 +107,8 @@ def fixture_chain():
             "id": 51000 + run_ids[role],
             "name": spec.get("artifact_name", f"g13-mt5-compile-parity-{run_ids[role]}"),
         }
-        digests[role] = hashlib.sha256(f"artifact-{role}".encode()).hexdigest()
+        digests[role] = "sha256:" + hashlib.sha256(f"artifact-{role}".encode()).hexdigest()
+        artifacts[role]["digest"] = digests[role]
 
     source_artifacts = {}
     for role in ("validation", "robustness", "oos"):
