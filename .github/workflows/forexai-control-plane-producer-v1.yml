@@ -1,0 +1,174 @@
+name: ForexAI Control Plane Producer v1
+
+# Manual only: prepares an authenticated envelope and ledger lifecycle.
+# This workflow never submits orders and always enforces the Demo kill switch DENY.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type RUN_CONTROL_PLANE_PREFLIGHT to run the non-ordering Control Plane producer"
+        required: true
+        type: string
+      terminal_path:
+        description: "MT5 terminal executable on the self-hosted Windows runner"
+        required: true
+        default: 'C:\Program Files\MetaTrader 5\terminal64.exe'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forexai-control-plane-producer-v1
+  cancel-in-progress: false
+
+jobs:
+  produce-demo-authority:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 10
+    env:
+      PYTHONUNBUFFERED: "1"
+      TERMINAL_PATH: ${{ inputs.terminal_path }}
+    steps:
+      - name: Validate explicit workflow invocation
+        shell: powershell
+        run: |
+          if ($env:GITHUB_EVENT_NAME -ne 'workflow_dispatch') {
+            throw 'CONTROL_PLANE_MANUAL_DISPATCH_REQUIRED'
+          }
+          if ('${{ inputs.confirmation }}' -cne 'RUN_CONTROL_PLANE_PREFLIGHT') {
+            throw 'CONTROL_PLANE_OPERATOR_CONFIRMATION_INVALID'
+          }
+          Write-Output 'CONTROL_PLANE_EXPLICIT_INVOCATION=PASS'
+          Write-Output 'ORDER_SUBMISSION_ENABLED=false'
+          Write-Output 'LIVE_TRADING_ALLOWED=false'
+
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Require runner-local paths without disclosing them
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ledger = $env:FOREXAI_TRADE_LEDGER_PATH
+          $envelope = $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH
+          $request = $env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH
+          if ([string]::IsNullOrWhiteSpace($request)) {
+            throw 'CONTROL_PLANE_ADMISSION_REQUEST_PATH_NOT_CONFIGURED'
+          }
+          if ([string]::IsNullOrWhiteSpace($ledger)) {
+            throw 'CONTROL_PLANE_LEDGER_PATH_NOT_CONFIGURED'
+          }
+          if ([string]::IsNullOrWhiteSpace($envelope)) {
+            throw 'CONTROL_PLANE_ENVELOPE_PATH_NOT_CONFIGURED'
+          }
+          if (!(Test-Path -LiteralPath $request -PathType Leaf)) {
+            throw 'CONTROL_PLANE_ADMISSION_REQUEST_FILE_MISSING'
+          }
+          if ([System.IO.Path]::GetFullPath($request) -eq [System.IO.Path]::GetFullPath($ledger)) {
+            throw 'CONTROL_PLANE_ADMISSION_AND_LEDGER_PATH_COLLIDE'
+          }
+          if ([System.IO.Path]::GetFullPath($request) -eq [System.IO.Path]::GetFullPath($envelope)) {
+            throw 'CONTROL_PLANE_ADMISSION_AND_ENVELOPE_PATH_COLLIDE'
+          }
+          if ([System.IO.Path]::GetFullPath($ledger) -eq [System.IO.Path]::GetFullPath($envelope)) {
+            throw 'CONTROL_PLANE_LEDGER_AND_ENVELOPE_PATH_COLLIDE'
+          }
+          Write-Output 'CONTROL_PLANE_RUNNER_PATHS=CONFIGURED'
+          Write-Output 'CONTROL_PLANE_ADMISSION_REQUEST=EXISTS'
+
+      - name: Resolve exact MT5 owner profile and force kill switch DENY
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch |
+            ForEach-Object {
+              $line = [string]$_
+              if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
+              elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') { Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]' }
+              elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
+              else { Write-Output $line }
+            }
+          if ($LASTEXITCODE -ne 0) { throw 'CONTROL_PLANE_MT5_PROFILE_RESOLUTION_FAILED' }
+
+      - name: Resolve Python runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pythonExe = $null
+          $cmd = Get-Command python -ErrorAction SilentlyContinue
+          if ($cmd) { $pythonExe = $cmd.Source }
+          if (-not $pythonExe) {
+            foreach ($candidate in @(
+              'C:\Users\Star\AppData\Local\Programs\Python\Python312\python.exe',
+              'C:\Program Files\Python312\python.exe',
+              'C:\Program Files\Python311\python.exe'
+            )) {
+              if (Test-Path -LiteralPath $candidate -PathType Leaf) { $pythonExe = $candidate; break }
+            }
+          }
+          if (-not $pythonExe) { throw 'CONTROL_PLANE_PYTHON_NOT_FOUND' }
+          $version = (& $pythonExe -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>$null | Select-Object -Last 1).Trim()
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^3 (11|12|13)$') {
+            throw 'CONTROL_PLANE_PYTHON_VERSION_UNSUPPORTED'
+          }
+          "PYTHON_EXE=$pythonExe" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "CONTROL_PLANE_PYTHON_VERSION=$version"
+
+      - name: Run Control Plane contract tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location -LiteralPath $env:GITHUB_WORKSPACE
+          try {
+            & $env:PYTHON_EXE -m pytest -q tests/test_control_plane_service_v1.py
+            if ($LASTEXITCODE -ne 0) { throw 'CONTROL_PLANE_CONTRACT_TESTS_FAILED' }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Produce signed DEMO authority envelope (never sends orders)
+        shell: powershell
+        env:
+          FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET }}
+          FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET)) {
+            throw 'CONTROL_PLANE_ADMISSION_SECRET_NOT_CONFIGURED'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET)) {
+            throw 'CONTROL_PLANE_ENVELOPE_SECRET_NOT_CONFIGURED'
+          }
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:GITHUB_WORKSPACE 'artifacts/g13-control-plane') | Out-Null
+          $reportPath = Join-Path $env:GITHUB_WORKSPACE 'artifacts/g13-control-plane/producer-report.json'
+          $producerArgs = @(
+            '-m', 'tools.control_plane_service_v1',
+            '--admission-request', $env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH,
+            '--ledger', $env:FOREXAI_TRADE_LEDGER_PATH,
+            '--authenticated-envelope-output', $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH,
+            '--terminal-path', $env:TERMINAL_PATH
+          )
+          Push-Location -LiteralPath $env:GITHUB_WORKSPACE
+          try {
+            & $env:PYTHON_EXE @producerArgs | Tee-Object -FilePath $reportPath
+            $producerExit = $LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
+          if ($producerExit -ne 0) { throw 'CONTROL_PLANE_PRODUCER_FAILED_CLOSED' }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.status -ne 'PASS' -or $report.orders_submitted -ne $false -or $report.live_trading_allowed -ne $false) {
+            throw 'CONTROL_PLANE_PRODUCER_REPORT_ASSERTION_FAILED'
+          }
+          Write-Output 'CONTROL_PLANE_PRODUCER_STATUS=PASS'
+          Write-Output 'CONTROL_PLANE_ORDER_SUBMISSION=false'
+          Write-Output 'CONTROL_PLANE_LIVE_TRADING_ALLOWED=false'
+
+      - name: Upload redacted Control Plane report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-control-plane-producer-v1
+          path: artifacts/g13-control-plane/producer-report.json
+          if-no-files-found: ignore
