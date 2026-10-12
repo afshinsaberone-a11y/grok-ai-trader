@@ -76,6 +76,9 @@ class FakeMT5:
     def positions_get(self):
         return self.positions
 
+    def orders_get(self):
+        return ()
+
     def order_calc_profit(self, order_type, symbol, volume, price_open, price_close):
         assert order_type == self.ORDER_TYPE_SELL
         assert symbol == "EURUSD"
@@ -180,14 +183,14 @@ def _write_intent(root: Path, candidate: dict, *, now=NOW, side="SELL"):
     return path
 
 
-def _call(root: Path, *, mt5=None, now=NOW, side="SELL", risk_pct=0.005):
+def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005):
     common_files = root / "common"
     common_files.mkdir(exist_ok=True)
     (common_files / "g13_demo_kill_switch.txt").write_text("ALLOW\n", encoding="utf-8")
     manifest_path, attestation_path, provenance_path, candidate = _write_bundle(
         root, risk_pct=risk_pct
     )
-    intent_path = _write_intent(root, candidate, now=now, side=side)
+    intent_path = _write_intent(root, candidate, now=intent_time or now, side=side)
     ledger_path = root / "control-plane" / "trade-ledger.jsonl"
     envelope_path = root / "control-plane" / "authenticated-envelope.json"
     secret = "unit-test-only-control-plane-secret-32-bytes-minimum"
@@ -285,7 +288,7 @@ def test_non_short_signal_is_rejected(tmp_path):
 def test_stale_signal_is_rejected(tmp_path):
     stale_now = NOW.replace(second=25)
     with pytest.raises(ControlPlaneError, match="SIGNAL_INTENT_STALE_OR_FUTURE"):
-        _call(tmp_path, now=stale_now)
+        _call(tmp_path, now=stale_now, intent_time=NOW)
     assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
 
 
