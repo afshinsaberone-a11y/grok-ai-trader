@@ -221,6 +221,9 @@ def _validate_promotion(payload: Mapping[str, Any]) -> dict[str, Any]:
         "schema", "commit_sha", "gates", "readiness_status", "demo_trading_allowed",
         "live_trading_allowed", "real_data_only", "synthetic_data", "run_ids",
         "promoted_candidate_ids", "candidate_config_hashes",
+        "source_grant_id", "source_grant_candidate_id", "source_grant_signal_id",
+        "source_grant_trade_id", "source_grant_authorization_id",
+        "source_grant_reservation_id", "source_grant_sha256", "evidence_bundle_sha256",
     }
     _exact_fields(payload, expected, "PROVIDER_PROMOTION_FIELDS_INVALID")
     if payload["schema"] != "forexai.g13.promotion_evidence.v1":
@@ -255,6 +258,22 @@ def _validate_promotion(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise AdmissionProviderError("PROVIDER_CANDIDATE_CONFIG_HASH_MAP_INVALID")
     if any(not isinstance(value, str) or not SHA256.fullmatch(value) for value in hashes.values()):
         raise AdmissionProviderError("PROVIDER_CANDIDATE_CONFIG_HASH_MAP_INVALID")
+    grant_id = _safe_id(payload["source_grant_id"], "PROVIDER_SOURCE_GRANT_ID_INVALID")
+    grant_candidate = payload["source_grant_candidate_id"]
+    if isinstance(grant_candidate, bool) or not isinstance(grant_candidate, int) or grant_candidate <= 0:
+        raise AdmissionProviderError("PROVIDER_SOURCE_GRANT_CANDIDATE_INVALID")
+    if grant_candidate not in promoted_ids:
+        raise AdmissionProviderError("PROVIDER_SOURCE_GRANT_CANDIDATE_NOT_PROMOTED")
+    for field in (
+        "source_grant_signal_id", "source_grant_trade_id",
+        "source_grant_authorization_id", "source_grant_reservation_id",
+    ):
+        _safe_id(payload[field], f"PROVIDER_{field.upper()}_INVALID")
+    for field in ("source_grant_sha256", "evidence_bundle_sha256"):
+        if not isinstance(payload[field], str) or not SHA256.fullmatch(payload[field]):
+            raise AdmissionProviderError(f"PROVIDER_{field.upper()}_INVALID")
+    if not isinstance(grant_id, str):
+        raise AdmissionProviderError("PROVIDER_SOURCE_GRANT_ID_INVALID")
     return dict(payload)
 
 
@@ -426,6 +445,15 @@ def build_admission_request(
     )
     if any(left != right for left, right in cross_links):
         raise AdmissionProviderError("PROVIDER_SOURCE_IDENTITY_CROSS_LINK_MISMATCH")
+    grant_cross_links = (
+        (promotion["source_grant_candidate_id"], signal["candidate_id"]),
+        (promotion["source_grant_signal_id"], signal["signal_id"]),
+        (promotion["source_grant_trade_id"], signal["trade_id"]),
+        (promotion["source_grant_authorization_id"], risk["authorization_id"]),
+        (promotion["source_grant_reservation_id"], risk["reservation_id"]),
+    )
+    if any(left != right for left, right in grant_cross_links):
+        raise AdmissionProviderError("PROVIDER_CAPITAL_FIREWALL_GRANT_CROSS_LINK_MISMATCH")
     risk_expiry = _parse_utc(risk["expires_at_utc"], "PROVIDER_RISK_EXPIRY_INVALID")
     operator_expiry = _parse_utc(operator["valid_until_utc"], "PROVIDER_OPERATOR_APPROVAL_EXPIRY_INVALID")
     auth_expiry = min(risk_expiry, operator_expiry, now + timedelta(seconds=MAX_AUTHORIZATION_LIFETIME_SECONDS))
@@ -465,6 +493,14 @@ def build_admission_request(
         "run_ids": promotion["run_ids"],
         "promoted_candidate_ids": promotion["promoted_candidate_ids"],
         "candidate_config_hashes": promotion["candidate_config_hashes"],
+        "source_grant_id": promotion["source_grant_id"],
+        "source_grant_candidate_id": promotion["source_grant_candidate_id"],
+        "source_grant_signal_id": promotion["source_grant_signal_id"],
+        "source_grant_trade_id": promotion["source_grant_trade_id"],
+        "source_grant_authorization_id": promotion["source_grant_authorization_id"],
+        "source_grant_reservation_id": promotion["source_grant_reservation_id"],
+        "source_grant_sha256": promotion["source_grant_sha256"],
+        "evidence_bundle_sha256": promotion["evidence_bundle_sha256"],
     }
     authorization = {
         "authorization_id": risk["authorization_id"],
@@ -627,6 +663,13 @@ def record_issuance(
     promotion = request["promotion_evidence"]
     if not isinstance(promotion, Mapping):
         raise AdmissionProviderError("PROVIDER_REGISTRY_PROMOTION_EVIDENCE_INVALID")
+    grant_id = _safe_id(promotion.get("source_grant_id"), "PROVIDER_REGISTRY_GRANT_ID_INVALID")
+    if promotion.get("source_grant_candidate_id") != candidate_id:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_GRANT_CANDIDATE_MISMATCH")
+    if promotion.get("source_grant_signal_id") != signal_id:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_GRANT_SIGNAL_MISMATCH")
+    if promotion.get("source_grant_trade_id") != trade_id:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_GRANT_TRADE_MISMATCH")
     promoted_ids = promotion.get("promoted_candidate_ids")
     config_hashes = promotion.get("candidate_config_hashes")
     if not isinstance(promoted_ids, list) or candidate_id not in promoted_ids:
@@ -670,9 +713,17 @@ def record_issuance(
                     request_id TEXT NOT NULL UNIQUE,
                     trade_id TEXT NOT NULL,
                     input_hash TEXT NOT NULL,
-                    issued_at_utc TEXT NOT NULL
+                    issued_at_utc TEXT NOT NULL,
+                    grant_id TEXT
                 )
                 """
+            )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(issued_admissions)")}
+            if "grant_id" not in columns:
+                db.execute("ALTER TABLE issued_admissions ADD COLUMN grant_id TEXT")
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_issued_admissions_grant_id "
+                "ON issued_admissions(grant_id)"
             )
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -680,12 +731,13 @@ def record_issuance(
                     """
                     INSERT INTO issued_admissions
                         (signal_id, reservation_id, authorization_id, request_id,
-                         trade_id, input_hash, issued_at_utc)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                         trade_id, input_hash, issued_at_utc, grant_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         signal_id, reservation_id, authorization_id, request_id,
                         trade_id, input_hash, str(request["issued_at_utc"]),
+                        _safe_id(promotion.get("source_grant_id"), "PROVIDER_REGISTRY_GRANT_ID_INVALID"),
                     ),
                 )
                 db.commit()
