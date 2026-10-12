@@ -251,6 +251,24 @@ jobs:
               "retry wrapper must be installed before watchdog GitHub API reads"
           )
 
+          for token in [
+              "G13_COMPILE_PARITY_SETUP_ONLY_FAILURE_RETRY=true",
+              "G13_COMPILE_PARITY_SETUP_RETRY_REQUESTED=true",
+              "G13_COMPILE_PARITY_SETUP_RETRY_REQUEST_FAILED=true",
+              "rerun-failed-jobs",
+              "compile_setup_retry_used",
+              "compile_retry_from_attempt",
+              "len(failed)==1",
+              "len(failed[0].get(\"steps\") or [])==1",
+              "Set up job",
+              "for attempt in $(seq 1 80); do",
+          ]:
+              assert token in watchdog, f"G13 setup-only retry guard missing: {token}"
+
+          assert watchdog.index("G13_COMPILE_PARITY_SETUP_ONLY_FAILURE_RETRY=true") < watchdog.index("G13_COMPILE_PARITY_FAILED_FOR_SHA="), (
+              "setup-only retry must be classified before hard-failing compile/parity"
+          )
+
           validation_dispatch = watchdog.index('dispatch_workflow "forexai-g13-validation-m15.yml"')
           robustness_dispatch = watchdog.index('dispatch_workflow "forexai-g13-robustness-m15.yml"')
           oos_dispatch = watchdog.index("forexai-g13-oos-m15-current.yml/dispatches")
