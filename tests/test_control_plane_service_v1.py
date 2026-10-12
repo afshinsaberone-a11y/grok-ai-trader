@@ -1,0 +1,364 @@
+"""Contract/security tests for the G13 Control Plane producer."""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from tools.control_plane_service_v1 import (
+    ADMISSION_SCHEMA,
+    PROVIDER_KEY_ID,
+    ControlPlaneError,
+    produce_authority,
+    verify_admission_request,
+)
+from tools.runtime_authorization_auth_v1 import verify_authenticated_envelope_current
+from tools.capital_firewall_v1 import CapitalFirewall
+from tools.trade_ledger_v1 import TradeLedger
+
+
+NOW = "2026-10-12T12:00:00+00:00"
+PROVIDER_SECRET = "test-only-provider-secret-0123456789abcdef"
+ENVELOPE_SECRET = "test-only-envelope-secret-0123456789abcdef"
+
+
+def _canonical(value):
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+
+
+def _signed_request(**overrides):
+    now = datetime.fromisoformat(NOW)
+    signal_payload = {
+        "candidate_id": 2,
+        "symbol": "EURUSD",
+        "timeframe": "M15",
+        "side": "SELL",
+        "signal_id": "signal-001",
+        "observed_at_utc": NOW,
+        "close": 1.16325,
+        "feature_window_sha256": "a" * 64,
+    }
+    candidate = {
+        "candidate_id": 2,
+        "trade_id": "FOREXAI-G13-C2-S",
+        "symbol": "EURUSD",
+        "timeframe": "M15",
+        "side": "SELL",
+        "signal_id": "signal-001",
+        "signal_observed_at_utc": NOW,
+        "strategy_id": "g13-london-breakout",
+        "model_id": "frozen-m15-candidate-2",
+        "decision_id": "decision-001",
+        "snapshot_id": "snapshot-001",
+        "input_hash": hashlib.sha256(_canonical(signal_payload)).hexdigest(),
+        "execution_contract_version": "forexai.execution.v1",
+        "signal_payload": signal_payload,
+    }
+    promotion = {
+        "commit_sha": "a" * 40,
+        "validation_status": "PASS",
+        "robustness_status": "PASS",
+        "oos_status": "PASS",
+        "parity_status": "PASS",
+        "package_preflight_status": "PASS",
+        "safety_audit_status": "PASS",
+        "readiness_status": "READY_FOR_CONTROLLED_DEMO_AUDIT",
+        "demo_trading_allowed": True,
+        "live_trading_allowed": False,
+        "real_data_only": True,
+        "synthetic_data": False,
+        "run_ids": {
+            "promotion": 41001,
+            "validation": 41002,
+            "robustness": 41003,
+            "oos": 41004,
+            "parity": 41005,
+            "package_preflight": 41006,
+            "safety_audit": 41007,
+            "readiness": 41008,
+        },
+    }
+    authorization = {
+        "authorization_id": "auth-001",
+        "reservation_id": "reservation-001",
+        "authorized_risk": 0.003,
+        "reserved_risk": 0.002,
+        "expires_at_utc": (now + timedelta(minutes=5)).isoformat(),
+        "policy_version": "demo-risk-policy-v1",
+        "risk_decision_id": "risk-decision-001",
+        "operator_approval_ref": "operator-approval-001",
+    }
+    request = {
+        "schema": ADMISSION_SCHEMA,
+        "request_id": "request-001",
+        "provider_key_id": PROVIDER_KEY_ID,
+        "issued_at_utc": NOW,
+        "valid_until_utc": (now + timedelta(seconds=25)).isoformat(),
+        "candidate": candidate,
+        "promotion_evidence": promotion,
+        "authorization": authorization,
+    }
+    for key, value in overrides.items():
+        if key == "candidate":
+            request["candidate"].update(value)
+        elif key == "promotion_evidence":
+            request["promotion_evidence"].update(value)
+        elif key == "authorization":
+            request["authorization"].update(value)
+        else:
+            request[key] = value
+    body = _canonical(request)
+    request["signature"] = {
+        "algorithm": "HMAC-SHA256",
+        "key_id": PROVIDER_KEY_ID,
+        "tag": hmac.new(PROVIDER_SECRET.encode(), body, hashlib.sha256).hexdigest(),
+    }
+    return request
+
+
+class FakeMT5:
+    ACCOUNT_TRADE_MODE_DEMO = 0
+    SYMBOL_TRADE_MODE_DISABLED = 0
+    SYMBOL_TRADE_MODE_LONGONLY = 1
+    SYMBOL_TRADE_MODE_SHORTONLY = 2
+    SYMBOL_TRADE_MODE_CLOSEONLY = 3
+
+    def __init__(
+        self,
+        commondata_path: Path,
+        now_utc: str = NOW,
+        *,
+        trade_mode: int = 0,
+        connected: bool = True,
+        trade_allowed: bool = True,
+        trade_expert: bool = True,
+        symbol_trade_mode: int = 4,
+        tick_time: int | None = None,
+    ):
+        self.commondata_path = str(commondata_path)
+        (commondata_path / "Files").mkdir(parents=True, exist_ok=True)
+        (commondata_path / "Files" / "g13_demo_kill_switch.txt").write_text(
+            "DENY\n", encoding="utf-8"
+        )
+        now = datetime.fromisoformat(now_utc).timestamp()
+        self._tick_time = int(now) if tick_time is None else tick_time
+        self._account = SimpleNamespace(
+            login=123456,
+            server="Broker-Demo",
+            trade_mode=trade_mode,
+            trade_allowed=trade_allowed,
+            trade_expert=trade_expert,
+        )
+        self._terminal = SimpleNamespace(
+            connected=connected,
+            commondata_path=self.commondata_path,
+            build=5500,
+        )
+        self._symbol_info = SimpleNamespace(
+            visible=True,
+            trade_mode=symbol_trade_mode,
+        )
+        self._tick = SimpleNamespace(
+            bid=1.16320,
+            ask=1.16330,
+            time=self._tick_time,
+        )
+        self.order_send_calls = 0
+
+    def account_info(self):
+        return self._account
+
+    def terminal_info(self):
+        return self._terminal
+
+    def symbol_info(self, symbol):
+        return self._symbol_info if symbol == "EURUSD" else None
+
+    def symbol_info_tick(self, symbol):
+        return self._tick if symbol == "EURUSD" else None
+
+    def order_send(self, *_args, **_kwargs):
+        self.order_send_calls += 1
+        raise AssertionError("Control Plane must never submit orders")
+
+
+def _run(tmp_path: Path, request=None, mt5=None):
+    request = request or _signed_request()
+    mt5 = mt5 or FakeMT5(tmp_path / "mt5-common")
+    return produce_authority(
+        request,
+        ledger_path=tmp_path / "ledger" / "trade-ledger.jsonl",
+        authenticated_envelope_output=tmp_path / "runtime" / "authenticated-envelope.json",
+        mt5=mt5,
+        admission_secret=PROVIDER_SECRET,
+        envelope_secret=ENVELOPE_SECRET,
+        now_utc=NOW,
+    )
+
+
+def test_signed_demo_request_creates_ledger_and_authenticated_envelope(tmp_path: Path):
+    mt5 = FakeMT5(tmp_path / "mt5-common")
+    report = _run(tmp_path, mt5=mt5)
+    ledger = TradeLedger(tmp_path / "ledger" / "trade-ledger.jsonl")
+    authenticated = json.loads(
+        (tmp_path / "runtime" / "authenticated-envelope.json").read_text(encoding="utf-8")
+    )
+    current = verify_authenticated_envelope_current(
+        CapitalFirewall(ledger),
+        authenticated,
+        secret=ENVELOPE_SECRET,
+        now_utc=NOW,
+        expected_trade_id="FOREXAI-G13-C2-S",
+    )
+    assert report["status"] == "PASS"
+    assert report["account_mode"] == "DEMO"
+    assert report["kill_switch_changed"] is False
+    assert report["kill_switch_observed"] == "DENY"
+    assert report["orders_submitted"] is False
+    assert report["live_trading_allowed"] is False
+    assert current["current_firewall_authority"] == "PASS"
+    assert ledger.state_of("FOREXAI-G13-C2-S") == "AUTHORIZED"
+    assert len(ledger.events) == 6
+    assert mt5.order_send_calls == 0
+    assert (tmp_path / "mt5-common" / "Files" / "g13_demo_kill_switch.txt").read_text().strip() == "DENY"
+
+
+def test_missing_demo_permission_fails_before_ledger_mutation(tmp_path: Path):
+    request = _signed_request(promotion_evidence={"demo_trading_allowed": False})
+    ledger_path = tmp_path / "ledger" / "trade-ledger.jsonl"
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_DEMO_PERMISSION_NOT_GRANTED"):
+        _run(tmp_path, request=request)
+    assert not ledger_path.exists()
+
+
+def test_current_g13_readiness_without_demo_permission_is_not_enough(tmp_path: Path):
+    request = _signed_request(
+        promotion_evidence={
+            "readiness_status": "READY_FOR_CONTROLLED_DEMO_AUDIT",
+            "demo_trading_allowed": False,
+        }
+    )
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_DEMO_PERMISSION_NOT_GRANTED"):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_tampered_request_fails_signature_validation(tmp_path: Path):
+    request = _signed_request()
+    request["candidate"]["side"] = "BUY"
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_ADMISSION_SIGNATURE_INVALID"):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_stale_signal_fails_closed(tmp_path: Path):
+    request = _signed_request()
+    old = (datetime.fromisoformat(NOW) - timedelta(seconds=20)).isoformat()
+    request["candidate"]["signal_observed_at_utc"] = old
+    request["candidate"]["signal_payload"]["observed_at_utc"] = old
+    request["candidate"]["input_hash"] = hashlib.sha256(
+        _canonical(request["candidate"]["signal_payload"])
+    ).hexdigest()
+    body = {key: value for key, value in request.items() if key != "signature"}
+    request["signature"]["tag"] = hmac.new(
+        PROVIDER_SECRET.encode(), _canonical(body), hashlib.sha256
+    ).hexdigest()
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_SIGNAL_STALE"):
+        _run(tmp_path, request=request)
+
+
+def test_real_account_is_blocked_even_with_signed_request(tmp_path: Path):
+    mt5 = FakeMT5(tmp_path / "mt5-common", trade_mode=2)
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_REAL_ACCOUNT_BLOCKED"):
+        _run(tmp_path, mt5=mt5)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+    assert mt5.order_send_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"connected": False}, "CONTROL_PLANE_MT5_TERMINAL_NOT_CONNECTED"),
+        ({"trade_allowed": False}, "CONTROL_PLANE_MT5_ACCOUNT_TRADING_DISABLED"),
+        ({"trade_expert": False}, "CONTROL_PLANE_MT5_EXPERT_TRADING_DISABLED"),
+        ({"symbol_trade_mode": 1}, "CONTROL_PLANE_MT5_SELL_NOT_ALLOWED"),
+    ],
+)
+def test_demo_runtime_checks_fail_closed(tmp_path: Path, kwargs, expected):
+    mt5 = FakeMT5(tmp_path / "mt5-common", **kwargs)
+    with pytest.raises(ControlPlaneError, match=expected):
+        _run(tmp_path, mt5=mt5)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_allow_kill_switch_is_not_rewritten_or_overridden(tmp_path: Path):
+    mt5 = FakeMT5(tmp_path / "mt5-common")
+    path = Path(mt5.commondata_path) / "Files" / "g13_demo_kill_switch.txt"
+    path.write_text("ALLOW\n", encoding="utf-8")
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_KILL_SWITCH_MUST_REMAIN_DENY"):
+        _run(tmp_path, mt5=mt5)
+    assert path.read_text(encoding="utf-8").strip() == "ALLOW"
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_stale_market_tick_is_blocked(tmp_path: Path):
+    old_tick = int(datetime.fromisoformat(NOW).timestamp()) - 180
+    mt5 = FakeMT5(tmp_path / "mt5-common", tick_time=old_tick)
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_MT5_TICK_STALE"):
+        _run(tmp_path, mt5=mt5)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_authorization_cannot_exceed_cap_or_reservation(tmp_path: Path):
+    over_cap = _signed_request(authorization={"authorized_risk": 0.0061})
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_AUTHORIZED_RISK_INVALID"):
+        _run(tmp_path, request=over_cap)
+    bad_reservation = _signed_request(
+        authorization={"authorized_risk": 0.002, "reserved_risk": 0.003}
+    )
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_RESERVATION_EXCEEDS_AUTHORIZATION"):
+        _run(tmp_path, request=bad_reservation)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_wrong_provider_secret_and_long_lived_admission_are_rejected():
+    request = _signed_request()
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_ADMISSION_SIGNATURE_INVALID"):
+        verify_admission_request(
+            request,
+            admission_secret="wrong-provider-secret-0123456789abcdef",
+            now_utc=NOW,
+        )
+    request = _signed_request()
+    request["valid_until_utc"] = (
+        datetime.fromisoformat(NOW) + timedelta(minutes=10)
+    ).isoformat()
+    body = {key: value for key, value in request.items() if key != "signature"}
+    request["signature"]["tag"] = hmac.new(
+        PROVIDER_SECRET.encode(), _canonical(body), hashlib.sha256
+    ).hexdigest()
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_ADMISSION_WINDOW_TOO_LONG"):
+        verify_admission_request(request, admission_secret=PROVIDER_SECRET, now_utc=NOW)
+
+
+def test_live_permission_must_be_explicitly_false(tmp_path: Path):
+    request = _signed_request(promotion_evidence={"live_trading_allowed": True})
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_LIVE_PERMISSION_MUST_REMAIN_DISABLED"):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_current_data_must_be_real_and_non_synthetic(tmp_path: Path):
+    request = _signed_request(
+        promotion_evidence={"real_data_only": False, "synthetic_data": True}
+    )
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_REAL_DATA_POLICY_FAILED"):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
