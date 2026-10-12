@@ -296,7 +296,10 @@ def _validate_risk(payload: Mapping[str, Any]) -> dict[str, Any]:
     _exact_fields(payload, fields, "PROVIDER_RISK_FIELDS_INVALID")
     if payload["schema"] != "forexai.demo_risk_decision.v1":
         raise AdmissionProviderError("PROVIDER_RISK_SCHEMA_INVALID")
-    for field in ("authorization_id", "reservation_id", "policy_version", "risk_decision_id"):
+    candidate_id = payload["candidate_id"]
+    if isinstance(candidate_id, bool) or not isinstance(candidate_id, int) or candidate_id <= 0:
+        raise AdmissionProviderError("PROVIDER_RISK_CANDIDATE_ID_INVALID")
+    for field in ("signal_id", "trade_id", "authorization_id", "reservation_id", "policy_version", "risk_decision_id"):
         _safe_id(payload[field], f"PROVIDER_RISK_{field.upper()}_INVALID")
     authorized = _risk(payload["authorized_risk"], "PROVIDER_AUTHORIZED_RISK_INVALID")
     reserved = _risk(payload["reserved_risk"], "PROVIDER_RESERVED_RISK_INVALID")
@@ -316,6 +319,11 @@ def _validate_operator_approval(payload: Mapping[str, Any], now: datetime) -> di
     if payload["schema"] != "forexai.demo_operator_approval.v1":
         raise AdmissionProviderError("PROVIDER_OPERATOR_APPROVAL_SCHEMA_INVALID")
     _safe_id(payload["approval_id"], "PROVIDER_OPERATOR_APPROVAL_ID_INVALID")
+    candidate_id = payload["candidate_id"]
+    if isinstance(candidate_id, bool) or not isinstance(candidate_id, int) or candidate_id <= 0:
+        raise AdmissionProviderError("PROVIDER_OPERATOR_CANDIDATE_ID_INVALID")
+    for field in ("signal_id", "trade_id", "authorization_id", "reservation_id"):
+        _safe_id(payload[field], f"PROVIDER_OPERATOR_{field.upper()}_INVALID")
     if payload["scope"] != "ONE_SIGNAL_DEMO_ONLY":
         raise AdmissionProviderError("PROVIDER_OPERATOR_APPROVAL_SCOPE_INVALID")
     if payload["demo_trading_allowed"] is not True:
@@ -477,9 +485,13 @@ def write_request_new(path: str | Path, request: Mapping[str, Any]) -> None:
             os.chmod(temp_name, 0o600)
         except OSError:
             pass
-        if target.exists():
-            raise AdmissionProviderError("PROVIDER_OUTPUT_ALREADY_EXISTS")
-        os.replace(temp_name, target)
+        try:
+            # Atomic hard-link creation fails rather than replacing an existing
+            # target if concurrent issuer invocations race.
+            os.link(temp_name, target)
+        except FileExistsError as exc:
+            raise AdmissionProviderError("PROVIDER_OUTPUT_ALREADY_EXISTS") from exc
+        os.unlink(temp_name)
         temp_name = None
     except AdmissionProviderError:
         raise
