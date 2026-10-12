@@ -12,6 +12,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+import tools.g13_capital_firewall_promotion_attestor_v1 as attestor_module
 from tools.g13_capital_firewall_promotion_attestor_v1 import (
     ATTESTOR_KEY_ID,
     GRANT_KEY_ID,
@@ -386,3 +387,73 @@ def test_artifact_document_selection_rejects_traversal_and_duplicate_basenames()
         zf.writestr("b/g13-readiness.json", "{}")
     with pytest.raises(AttestorError, match="G13_ATTESTOR_ARTIFACT_DOCUMENT_CARDINALITY"):
         _artifact_documents(archive.getvalue(), {"g13-readiness.json"})
+
+
+def test_run_attestor_requires_exact_successful_source_job_and_artifact(monkeypatch):
+    role = "validation"
+    run_id = 41001
+    spec = REQUIRED_RUNS[role]
+    artifact_id = 51001
+    artifact_name = spec["artifact_name"]
+    artifact_digest = "sha256:" + hashlib.sha256(b"test-artifact").hexdigest()
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(spec["document"], json.dumps({"schema": "forexai.g13.validation_m15.v1"}))
+
+    api_payloads = {
+        f"actions/runs/{run_id}": {
+            "id": run_id,
+            "name": spec["name"],
+            "path": spec["path"],
+            "workflow_id": spec["workflow_id"],
+            "head_branch": "main",
+            "head_sha": SHA,
+            "status": "completed",
+            "conclusion": "success",
+            "repository": {"full_name": REPO},
+        },
+        f"actions/runs/{run_id}/jobs?per_page=100": {
+            "jobs": [{
+                "id": 62001,
+                "run_id": run_id,
+                "head_sha": SHA,
+                "name": spec["job_name"],
+                "status": "completed",
+                "conclusion": "success",
+            }]
+        },
+        f"actions/runs/{run_id}/artifacts?per_page=100": {
+            "artifacts": [{
+                "id": artifact_id,
+                "name": artifact_name,
+                "expired": False,
+                "digest": artifact_digest,
+            }]
+        },
+    }
+
+    def fake_api_json(repo, path, token):
+        assert repo == REPO
+        assert token == "read-only-test-token"
+        return api_payloads[path]
+
+    monkeypatch.setattr(attestor_module, "_api_json", fake_api_json)
+    monkeypatch.setattr(
+        attestor_module,
+        "_download_verified_artifact",
+        lambda repo, actual_run_id, artifact, token: (archive.getvalue(), artifact_digest),
+    )
+
+    run, artifact, docs, digest = attestor_module._fetch_run_and_artifact(
+        REPO, role, run_id, SHA, "read-only-test-token"
+    )
+    assert run["_attestor_success_job_id"] == 62001
+    assert artifact["id"] == artifact_id
+    assert docs[spec["document"]]["schema"] == "forexai.g13.validation_m15.v1"
+    assert digest == artifact_digest
+
+    api_payloads[f"actions/runs/{run_id}/jobs?per_page=100"]["jobs"][0]["conclusion"] = "failure"
+    with pytest.raises(AttestorError, match="G13_ATTESTOR_EXACT_SHA_JOB_NOT_SUCCESS:validation"):
+        attestor_module._fetch_run_and_artifact(
+            REPO, role, run_id, SHA, "read-only-test-token"
+        )
