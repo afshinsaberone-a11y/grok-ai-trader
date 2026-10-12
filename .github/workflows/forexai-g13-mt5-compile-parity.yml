@@ -846,10 +846,24 @@ jobs:
             }
             $statusReadyDeadline = (Get-Date).AddSeconds(20)
             $statusText = ''
+            $statusSuccess = $false
             while ((Get-Date) -lt $statusReadyDeadline) {
               if (Test-Path -LiteralPath $statusUser -PathType Leaf) {
                 $statusText = Get-Content -LiteralPath $statusUser -Raw
-                if ($statusText -match '(?m)^state,success\s*
+                if (Select-String -LiteralPath $statusUser -Pattern '^state,success$' -Quiet) {
+                  $statusSuccess = $true
+                  break
+                }
+                if (Select-String -LiteralPath $statusUser -Pattern '^state,failed$' -Quiet) {
+                  throw "G13_INTERACTIVE_MT5_LAUNCHER_FAILED $statusText"
+                }
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $statusSuccess) {
+              throw "G13_INTERACTIVE_MT5_LAUNCHER_NOT_SUCCESSFUL $statusText"
+            }
+            Write-Host "G13_INTERACTIVE_MT5_STATUS=$($statusText.Trim() -replace '\r?\n',';')"
           }
           finally {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
