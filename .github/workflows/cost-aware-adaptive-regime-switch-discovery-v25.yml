@@ -76,7 +76,7 @@ jobs:
           print('V25_FAIL_CLOSED_OK',requested,r['pre_oos_qualified_count'],r['validation_qualified_count'])
           PY
       - name: Run v25 gate diagnostics
-        run: python agents/v25_gate_diagnostics.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/v25-gate-diagnostics.json
+        run: python -m agents.v25_gate_diagnostics --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/v25-gate-diagnostics.json
       - name: Upload v25 gate diagnostics
         uses: actions/upload-artifact@v4
         with:
@@ -86,13 +86,13 @@ jobs:
       - name: Run Agent Research Mission
         run: |
           set +e
-          python agents/research_mission.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/research-mission-v25.json
+          python -m agents.research_mission --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/research-mission-v25.json
           rc=$?
           test "$rc" -eq 0 || test "$rc" -eq 2
       - name: Run Agent Validation Mission
         run: |
           set +e
-          python agents/validation_mission.py --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/validation-mission-v25.json
+          python -m agents.validation_mission --artifact artifacts/adaptive-regime-switch-v25.json --output artifacts/validation-mission-v25.json
           rc=$?
           test "$rc" -eq 0 || test "$rc" -eq 2
       - name: Build canonical Candidate Handoff v1
@@ -131,7 +131,7 @@ jobs:
             echo 'No canonical candidate handoff was produced; direct validation-artifact fallback is forbidden.'
             exit 0
           fi
-          python agents/robustness_mission.py --handoff artifacts/candidate-handoff-v1.json --output artifacts/robustness-mission-v25.json
+          python -m agents.robustness_mission --handoff artifacts/candidate-handoff-v1.json --output artifacts/robustness-mission-v25.json
       - name: Assert robustness consumed canonical handoff
         if: hashFiles('artifacts/robustness-mission-v25.json') != ''
         run: |
