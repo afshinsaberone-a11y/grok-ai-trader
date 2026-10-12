@@ -330,11 +330,12 @@ def patch_generated_source(source: str, candidate_id: int, config_hash: str) -> 
       double bid=quote.bid;
       double ask=quote.ask;
       if(bid<=0.0 || ask<=0.0 || ask<bid) return;
-      double sl=bid+risk;
-      double tp=bid-RR*risk;
+      double entry=bid;
+      double sl=entry+risk;
+      double tp=entry-RR*risk;
       long stops=(long)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
       if(stops<0 || risk<(double)stops*_Point || RR<=0.0) return;
-      double lots=LotSize(risk,bid);
+      double lots=LotSize(risk,entry);
       if(lots<=0.0) return;
       trade.Sell(lots,_Symbol,bid,sl,tp,"ForexAI-G13-@CID@");
       return;
