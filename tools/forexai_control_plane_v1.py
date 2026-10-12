@@ -344,7 +344,15 @@ def _validate_signal_intent(
     return intent
 
 
-def _demo_snapshot(mt5: Any, *, intent: Mapping[str, Any], gateway: MT5TerminalGateway, now: datetime) -> dict[str, Any]:
+def _demo_snapshot(
+    mt5: Any,
+    *,
+    intent: Mapping[str, Any],
+    gateway: MT5TerminalGateway,
+    now: datetime,
+    expected_demo_login: int,
+    expected_demo_server: str,
+) -> dict[str, Any]:
     account = mt5.account_info()
     terminal = mt5.terminal_info()
     symbol_info = mt5.symbol_info(SYMBOL)
@@ -358,6 +366,14 @@ def _demo_snapshot(mt5: Any, *, intent: Mapping[str, Any], gateway: MT5TerminalG
     demo_mode = int(getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", 0))
     if int(getattr(account, "trade_mode", -1)) != demo_mode:
         raise ControlPlaneError("MT5_REAL_ACCOUNT_BLOCKED")
+    if expected_demo_login <= 0 or not expected_demo_server.strip():
+        raise ControlPlaneError("MT5_EXPECTED_DEMO_IDENTITY_NOT_CONFIGURED")
+    actual_login = getattr(account, "login", None)
+    actual_server = getattr(account, "server", None)
+    if not isinstance(actual_login, int) or actual_login != expected_demo_login:
+        raise ControlPlaneError("MT5_DEMO_ACCOUNT_LOGIN_MISMATCH")
+    if not isinstance(actual_server, str) or actual_server.strip() != expected_demo_server.strip():
+        raise ControlPlaneError("MT5_DEMO_ACCOUNT_SERVER_MISMATCH")
     if not bool(getattr(account, "trade_allowed", False)):
         raise ControlPlaneError("MT5_ACCOUNT_TRADING_NOT_ALLOWED")
     if not bool(getattr(account, "trade_expert", False)):
@@ -590,6 +606,8 @@ def process_signal_intent(
     now: datetime | None = None,
     promotion_run_id: int | None = None,
     selected_candidate_id: int,
+    expected_demo_login: int,
+    expected_demo_server: str,
 ) -> dict[str, Any]:
     """Issue one current Demo authorization from one fresh real EA intent."""
     injected_clock = now is not None
@@ -613,7 +631,14 @@ def process_signal_intent(
         expected_promotion_run_id=promotion_run_id,
     )
     intent = _validate_signal_intent(intent_path, manifest=manifest, candidate=candidate, now=now)
-    snapshot = _demo_snapshot(mt5, intent=intent, gateway=gateway, now=now)
+    snapshot = _demo_snapshot(
+        mt5,
+        intent=intent,
+        gateway=gateway,
+        now=now,
+        expected_demo_login=expected_demo_login,
+        expected_demo_server=expected_demo_server,
+    )
     risk_cap = float(manifest["execution_contract"]["risk_pct"])
     risk_fraction = float(snapshot["risk_fraction"])
     if risk_fraction > risk_cap + 1e-9:
@@ -835,6 +860,8 @@ def watch(
     stop_event: Any | None = None,
     promotion_run_id: int | None = None,
     selected_candidate_id: int,
+    expected_demo_login: int,
+    expected_demo_server: str,
 ) -> int:
     if not secret or len(secret.encode("utf-8")) < 32:
         raise ControlPlaneError("CONTROL_PLANE_SECRET_NOT_CONFIGURED_OR_TOO_SHORT")
@@ -876,6 +903,8 @@ def watch(
                         secret=secret,
                         promotion_run_id=promotion_run_id,
                         selected_candidate_id=selected_candidate_id,
+                        expected_demo_login=expected_demo_login,
+                        expected_demo_server=expected_demo_server,
                     )
                     print(json.dumps(result, ensure_ascii=False, sort_keys=True), flush=True)
                     seen_errors = {item for item in seen_errors if item[0] != intent_path.name}
@@ -931,6 +960,8 @@ def main() -> int:
     parser.add_argument("--poll-seconds", type=float, default=POLL_SECONDS_DEFAULT)
     parser.add_argument("--promotion-run-id", type=int, default=os.environ.get("FOREXAI_G13_PROMOTION_RUN_ID"))
     parser.add_argument("--candidate-id", type=int, default=os.environ.get("FOREXAI_G13_CANDIDATE_ID"))
+    parser.add_argument("--expected-demo-login", type=int, default=os.environ.get("FOREXAI_EXPECTED_DEMO_ACCOUNT_LOGIN"))
+    parser.add_argument("--expected-demo-server", default=os.environ.get("FOREXAI_EXPECTED_DEMO_ACCOUNT_SERVER"))
     parser.add_argument("--secret-env", default="FOREXAI_CONTROL_PLANE_HMAC_SECRET")
     args = parser.parse_args()
 
@@ -953,6 +984,10 @@ def main() -> int:
         raise ControlPlaneError("PROMOTION_RUN_ID_NOT_CONFIGURED")
     if args.candidate_id is None or int(args.candidate_id) <= 0:
         raise ControlPlaneError("G13_CANDIDATE_ID_NOT_CONFIGURED")
+    if args.expected_demo_login is None or int(args.expected_demo_login) <= 0:
+        raise ControlPlaneError("EXPECTED_DEMO_ACCOUNT_LOGIN_NOT_CONFIGURED")
+    if not isinstance(args.expected_demo_server, str) or not args.expected_demo_server.strip():
+        raise ControlPlaneError("EXPECTED_DEMO_ACCOUNT_SERVER_NOT_CONFIGURED")
     current_sha = fetch_current_main_sha(args.repository, os.environ.get("GH_TOKEN"))
     # Pre-flight validates that the downloaded manifest and provenance are tied to
     # the exact current main SHA before starting the listener.
@@ -979,6 +1014,8 @@ def main() -> int:
         poll_seconds=args.poll_seconds,
         promotion_run_id=int(args.promotion_run_id),
         selected_candidate_id=int(args.candidate_id),
+        expected_demo_login=int(args.expected_demo_login),
+        expected_demo_server=str(args.expected_demo_server),
     )
 
 
