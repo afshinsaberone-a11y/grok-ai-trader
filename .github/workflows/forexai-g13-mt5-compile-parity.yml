@@ -677,23 +677,52 @@ jobs:
             Write-Host "MT5_PARITY_CONFIG_LINE=$($_)"
           }
 
-          # The runner service has its own Windows profile and MT5 data directory.
-          # Use that initialized profile rather than a fresh /portable copy: MT5's
-          # startup Script needs a usable terminal profile/chart context. This does
-          # not terminate the user's separate interactive Windows-session terminal.
-          $procInfo = Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
+          # MT5 can leave an unconfigured service-profile terminal behind when
+          # a prior startup script never starts. Starting a second instance then
+          # collides on the terminal's MCP/IPC listener and the script never runs.
+          # Only reclaim a bare terminal process owned by LocalSystem (the runner
+          # service account). Never terminate an interactive/non-service user's
+          # process or an instance launched with an explicit config/portable mode.
+          $procInfo = @(Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
             Where-Object {
               $_.ExecutablePath -and
               ([IO.Path]::GetFullPath($_.ExecutablePath).Equals([IO.Path]::GetFullPath($terminal),[StringComparison]::OrdinalIgnoreCase))
+            })
+          $staleServiceProcesses = @()
+          foreach ($p in $procInfo) {
+            $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction SilentlyContinue
+            $ownerName = if ($owner -and $owner.ReturnValue -eq 0) { "$($owner.Domain)\\$($owner.User)" } else { 'UNKNOWN' }
+            $command = ([string]$p.CommandLine).Trim()
+            $bareCommand = $command.Trim('"')
+            $isBareTerminal = $bareCommand.Equals([IO.Path]::GetFullPath($terminal),[StringComparison]::OrdinalIgnoreCase)
+            $isSystemOwner = $owner -and $owner.ReturnValue -eq 0 -and $owner.User -eq 'SYSTEM' -and $owner.Domain -eq 'NT AUTHORITY'
+            Write-Host "MT5_EXISTING_PROCESS id=$($p.ProcessId) owner=$ownerName bare=$isBareTerminal command=$command"
+            if ($command.Contains($config)) {
+              throw "A MetaTrader terminal instance is already running with the current G13 parity config."
             }
-          foreach ($p in @($procInfo)) {
-            Write-Host "MT5_EXISTING_PROCESS id=$($p.ProcessId) command=$($p.CommandLine)"
+            if (-not $isSystemOwner -or -not $isBareTerminal) {
+              throw "An existing MT5 process is not a reclaimable bare LocalSystem terminal (pid=$($p.ProcessId), owner=$ownerName); refusing to terminate it or start a conflicting instance."
+            }
+            $staleServiceProcesses += $p
           }
-
-          # Refuse only an existing instance launched with this exact G13 config.
-          $conflicting = @($procInfo | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($config) })
-          if ($conflicting.Count -gt 0) {
-            throw "A MetaTrader terminal instance is already running with the current G13 parity config."
+          foreach ($p in $staleServiceProcesses) {
+            Write-Host "MT5_STALE_SERVICE_TERMINAL_STOPPING=$($p.ProcessId)"
+            Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
+          }
+          $stopDeadline = (Get-Date).AddSeconds(30)
+          while ((Get-Date) -lt $stopDeadline) {
+            $remaining = @(Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $staleServiceProcesses.ProcessId -contains $_.ProcessId })
+            if ($remaining.Count -eq 0) { break }
+            Start-Sleep -Seconds 1
+          }
+          $remaining = @(Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $staleServiceProcesses.ProcessId -contains $_.ProcessId })
+          if ($remaining.Count -gt 0) {
+            throw "A stale LocalSystem MT5 process did not exit after cleanup: $($remaining.ProcessId -join ',')"
+          }
+          if ($staleServiceProcesses.Count -gt 0) {
+            Write-Host "MT5_STALE_SERVICE_TERMINAL_CLEANUP_OK=$($staleServiceProcesses.Count)"
           }
 
           $configArg = '/config:"' + $config + '"'
