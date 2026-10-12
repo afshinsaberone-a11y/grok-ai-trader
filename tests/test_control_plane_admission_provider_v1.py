@@ -263,8 +263,8 @@ def test_invalid_run_id_is_rejected():
     packet = _packet()
     payload = dict(packet["promotion"]["payload"])
     payload["run_ids"] = dict(payload["run_ids"])
-    payload["readiness"] = True
-    # Extra keys in run_ids are not accepted.
+    payload["run_ids"]["readiness"] = True
+    # A boolean is not a valid GitHub Actions run ID.
     packet["promotion"] = _attest("promotion", payload)
     with pytest.raises(AdmissionProviderError, match="PROVIDER_RUN_IDS_INVALID"):
         _build(packet)
