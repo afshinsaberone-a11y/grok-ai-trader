@@ -147,6 +147,10 @@ def test_compile_parity_workflow_disables_only_its_profile_mcp_before_launch():
     helper_call = "disable_mt5_internal_mcp_v1.py"
     assert helper_call in launch_step
     assert launch_step.index(helper_call) < launch_step.index("$procInfo = @(")
+    # MT5 startup scripts require a chart context; the runner profile may have no valid saved chart.
+    assert "Symbol=EURUSD" in launch_step
+    assert "Period=M15" in launch_step
+    assert launch_step.index("Symbol=EURUSD") < launch_step.index("Script=ForexAI_G13_Parity_Harness.ex5")
     helper = (ROOT / "tools/disable_mt5_internal_mcp_v1.py").read_text(encoding="utf-8")
     assert "MCP.MetaTrader" in helper
     assert "MCP.MetaEditor" in helper
