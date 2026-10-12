@@ -188,7 +188,7 @@ def _write_bundle(root: Path, *, main_sha: str = MAIN_SHA, risk_pct: float = 0.0
     return manifest_path, attestation_path, provenance_path, candidate
 
 
-def _write_intent(root: Path, candidate: dict, *, now=NOW, side="SELL"):
+def _write_intent(root: Path, candidate: dict, *, now=NOW, side="SELL", bar_epoch=1791785700):
     path = root / "ForexAI_G13_SignalIntent_2_EURUSD.json"
     intent = {
         "schema": "forexai.g13.runtime_signal_intent.m15.v1",
@@ -197,7 +197,7 @@ def _write_intent(root: Path, candidate: dict, *, now=NOW, side="SELL"):
         "timeframe": "M15",
         "side": side,
         "config_hash": candidate["config_hash"],
-        "signal_bar_epoch": 1791785700,
+        "signal_bar_epoch": bar_epoch,
         "created_at_utc": now.isoformat(timespec="seconds"),
         "entry_price": 1.10000,
         "stop_loss": 1.10100,
@@ -209,7 +209,7 @@ def _write_intent(root: Path, candidate: dict, *, now=NOW, side="SELL"):
     return path
 
 
-def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005):
+def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005, promotion_run_id=99123):
     common_files = root / "common"
     common_files.mkdir(exist_ok=True)
     (common_files / "g13_demo_kill_switch.txt").write_text("ALLOW\n", encoding="utf-8")
@@ -238,6 +238,7 @@ def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_
         gateway=FakeGateway(),
         secret=secret,
         now=now,
+        promotion_run_id=promotion_run_id,
     )
     return result, ledger_path, envelope_path, common_files, secret, mt5
 
@@ -348,6 +349,39 @@ def test_promotion_from_old_main_is_rejected(tmp_path):
             expected_main_sha="b" * 40,
         )
 
+
+
+def test_mismatched_promotion_run_id_is_rejected(tmp_path):
+    with pytest.raises(ControlPlaneError, match="PROMOTION_RUN_ID_MISMATCH"):
+        _call(tmp_path, promotion_run_id=77)
+    assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
+
+
+def test_second_candidate_intent_is_blocked_while_global_auth_slot_is_occupied(tmp_path):
+    _result, ledger_path, envelope_path, common_files, secret, mt5 = _call(tmp_path)
+    ledger_before = TradeLedger(ledger_path)
+    count_before = len(ledger_before.events)
+    _manifest, _attestation, _provenance, candidate = _write_bundle(tmp_path)
+    second_intent = _write_intent(
+        common_files, candidate, now=NOW, bar_epoch=1791786600
+    )
+    with pytest.raises(ControlPlaneError, match="G13_AUTHORIZATION_SLOT_OCCUPIED"):
+        process_signal_intent(
+            intent_path=second_intent,
+            manifest_path=tmp_path / "promotion.json",
+            attestation_path=tmp_path / "attestation.json",
+            provenance_path=tmp_path / "provenance.json",
+            current_main_sha=MAIN_SHA,
+            ledger_path=ledger_path,
+            authenticated_envelope_path=envelope_path,
+            common_files=common_files,
+            mt5=mt5,
+            gateway=FakeGateway(),
+            secret=secret,
+            now=NOW,
+            promotion_run_id=99123,
+        )
+    assert len(TradeLedger(ledger_path).events) == count_before
 
 def test_existing_g13_position_blocks_new_authority(tmp_path):
     position = SimpleNamespace(magic=130002)
