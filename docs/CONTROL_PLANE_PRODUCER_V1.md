@@ -8,9 +8,9 @@ It is deliberately not an order router. The service does not call order_check or
 
 ## Important activation boundary
 
-This implementation does not invent the upstream risk decision or provide a local signing shortcut. A separate trusted admission provider must sign the request using FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET and key ID forexai-demo-admission-provider-v1. Keep its signing function and operational process outside the MT5 execution repo/runner; this repository intentionally has no command that signs arbitrary admission requests.
+This implementation does not invent the upstream risk decision or provide a local signing shortcut. A separate trusted admission provider must sign the request with an Ed25519 private key held only by the independent provider; the runner verifies with FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY and key ID forexai-demo-admission-provider-v1. Keep its signing function and operational process outside the MT5 execution repo/runner; this repository intentionally has no command that signs arbitrary admission requests.
 
-The existing envelope key remains independent: FOREXAI_CONTROL_PLANE_HMAC_SECRET authenticates the resulting envelope. Never reuse the same secret for both purposes.
+The runner stores only the base64-encoded Ed25519 public verification key in the repository variable FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY; the private signing key never belongs on the MT5 runner or in this repository. The existing FOREXAI_CONTROL_PLANE_HMAC_SECRET remains a separate protected secret for the runtime envelope. These keys are not interchangeable.
 
 The current G13 Demo Readiness evidence reports demo_trading_allowed=false. That state is not sufficient for issuance. Until a trusted upstream policy decision grants one controlled Demo signal and supplies a valid signed request, this producer correctly exits with CONTROL_PLANE_DEMO_PERMISSION_NOT_GRANTED and writes no new Ledger event. It must not be modified to convert readiness-only evidence into trading permission.
 
@@ -24,9 +24,9 @@ Top-level fields:
 - candidate: positive candidate ID; EURUSD/M15/SELL identity; exact Trade ID ending in -S; fresh signal timestamp; strategy/model/decision/snapshot identifiers; forexai.execution.v1; signal payload and its canonical SHA-256.
 - promotion_evidence: exact source commit and successful run IDs for Promotion, Validation, Robustness, OOS, Compile/Parity, package preflight, safety audit and readiness. All required gates must be PASS, data must be real-only, and synthetic data must be false. Readiness must explicitly grant the controlled Demo signal. live_trading_allowed must be the boolean false.
 - authorization: unique authorization/reservation IDs, authorized and reserved risk fractions, short expiry (at most 15 minutes from runtime), policy version, risk-decision reference and operator-approval reference.
-- signature: an object containing algorithm=HMAC-SHA256, key_id=forexai-demo-admission-provider-v1, and a 64-hex-character tag. The tag covers the canonical JSON document excluding the signature field. Duplicate JSON keys, missing/extra fields, stale signals, incorrect identity/hash, wrong key ID and policy conflicts are rejected.
+- signature: an object containing algorithm=Ed25519, key_id=forexai-demo-admission-provider-v1, and a base64-encoded 64-byte Ed25519 signature over the canonical JSON document excluding the signature field. The verifier has only the public key and cannot mint admissions. Duplicate JSON keys, missing/extra fields, stale signals, incorrect identity/hash, wrong key ID and policy conflicts are rejected.
 
-The signer must source the promotion evidence from the exact successful G13 chain and the signal/risk/operator decision from the trusted upstreams; fields typed into a hand-written JSON file are not proof. The HMAC is an integrity/trust boundary only if the signer and its key are controlled separately from the caller that requests execution.
+The signer must source the promotion evidence from the exact successful G13 chain and the signal/risk/operator decision from the trusted upstreams; fields typed into a hand-written JSON file are not proof. Ed25519 separates authority from the verifier: the runner holds only the public key, while only the independent provider holds the private signing key.
 
 ## Runtime checks
 
@@ -35,7 +35,7 @@ Before mutating the ledger, the service requires:
 1. Valid provider signature, fresh one-signal admission and identity-bound payload hash.
 2. All G13 evidence gates passing; Demo permission explicitly true; Live permission explicitly false; real-only data.
 3. Connected MT5 terminal; actual account mode equals MT5 Demo; account and expert trading enabled; visible EURUSD symbol; SELL permitted; a fresh bid/ask tick.
-4. The Common Files kill-switch file already exists and says DENY. The service observes but never changes it.
+4. The current MT5 Demo account fingerprint must match the explicitly configured allowlist variable FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT; a Demo account on another login/server is rejected. The Common Files kill-switch file already exists and says DENY. The service observes but never changes it.
 5. Existing ledger has valid hash-chain integrity and no unresolved broker reconciliation; Capital Firewall global risk cap remains 0.6% (0.006) and reservation cannot exceed authorization.
 6. Envelope signing key is present; output is atomically replaced only after the current ledger authority and reservation can be verified.
 
@@ -43,11 +43,12 @@ An admission failure occurs before ledger mutation. A failure after lifecycle ap
 
 ## Runtime configuration
 
-The manual Actions workflow is .github/workflows/forexai-control-plane-producer-v1.yml. It first forces and verifies the Demo kill switch DENY, then requires runner-local machine variables FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH, FOREXAI_TRADE_LEDGER_PATH and FOREXAI_AUTHENTICATED_ENVELOPE_PATH. It reads the two protected values FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET and FOREXAI_CONTROL_PLANE_HMAC_SECRET from repository Actions secrets. Open Actions → ForexAI Control Plane Producer v1 → Run workflow and type RUN_CONTROL_PLANE_PREFLIGHT. A run is intentionally blocked until the paths, secrets, signed current request and explicit upstream Demo permission are actually provisioned. The workflow does not place trades.
+The manual Actions workflow is .github/workflows/forexai-control-plane-producer-v1.yml. It first forces and verifies the Demo kill switch DENY, then requires runner-local machine variables FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH, FOREXAI_TRADE_LEDGER_PATH and FOREXAI_AUTHENTICATED_ENVELOPE_PATH. Configure the repository variables FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY (base64 encoding of the 32-byte Ed25519 public key) and FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT (lowercase 16-hex-character SHA-256 prefix of login|server). Keep the Ed25519 private key only in the independent provider. It reads the public-key/account allowlist from repository Variables and the protected FOREXAI_CONTROL_PLANE_HMAC_SECRET from repository Actions secrets. Open Actions → ForexAI Control Plane Producer v1 → Run workflow and type RUN_CONTROL_PLANE_PREFLIGHT. A run is intentionally blocked until the paths, secrets, signed current request and explicit upstream Demo permission are actually provisioned. The workflow does not place trades.
 
 Run only on the designated Windows MT5 host after the independent provider and protected keys are provisioned. Example commands, with placeholders only:
 
-    $env:FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET = '<secret provisioned securely by the trusted admission provider>'
+    $env:FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY = '<base64 Ed25519 public key; not a secret>'
+    $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT = '<approved 16-character account fingerprint>'
     $env:FOREXAI_CONTROL_PLANE_HMAC_SECRET = '<existing protected envelope key>'
     python -m tools.control_plane_service_v1 --admission-request 'C:\ProgramData\ForexAI\admission\current-request.json' --ledger 'C:\ProgramData\ForexAI\ledger\trade-ledger.jsonl' --authenticated-envelope-output 'C:\ProgramData\ForexAI\runtime\authenticated-envelope.json' --terminal-path 'C:\Program Files\MetaTrader 5\terminal64.exe'
 
@@ -57,11 +58,11 @@ After successful publication, the existing Capital Firewall prerequisite diagnos
 
 ## Tests
 
-Run the full repository suite with pytest -q. The dedicated contract tests use a fake MT5 module and test-only secrets; they verify successful ledger/envelope publication and reject tampered/stale requests, missing Demo permission, real accounts, disabled expert trading, forbidden SELL mode, stale ticks, an ALLOW kill switch, risk-cap violations, and any Live permission. Tests do not connect to a broker or submit orders.
+Run the full repository suite with pytest -q. The dedicated contract tests use a fake MT5 module and ephemeral test-only Ed25519 keypairs and envelope secrets; they verify successful ledger/envelope publication and reject tampered/stale requests, missing Demo permission, real accounts, disabled expert trading, forbidden SELL mode, stale ticks, an ALLOW kill switch, risk-cap violations, and any Live permission. Tests do not connect to a broker or submit orders.
 
 ## Still required before operational rollout
 
-- Implement/deploy the independent admission provider/signer from the trusted G13 source runs, real signal feed, risk policy and explicit operator approval.
-- Provision the two distinct keys securely and the persistent Windows paths with the correct runner-service account permissions.
+- Implement/deploy the independent admission provider/signer using an Ed25519 private key, verifying exact G13 source runs, real signal feed, risk policy and explicit operator approval.
+- Provision the independent provider's Ed25519 private key outside the runner, publish only its public key, keep the separate envelope HMAC secret protected, pin the approved Demo account fingerprint, and configure persistent Windows paths with correct runner-service account permissions.
 - On current evidence, obtain a new policy/readiness result that explicitly permits exactly one controlled Demo signal. The current readiness-only result does not.
 - Run the Control Plane, then re-run ForexAI Capital Firewall Authorization Preflight. Do not relax a failed gate or submit an order during provisioning.

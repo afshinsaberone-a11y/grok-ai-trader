@@ -1,12 +1,12 @@
 name: ForexAI Control Plane Producer v1
 
-# Manual only: prepares an authenticated envelope and ledger lifecycle.
-# This workflow never submits orders and always enforces the Demo kill switch DENY.
+# Manual only. Observes/sets the safety switch to DENY before checking inputs.
+# This workflow prepares authority only; it never submits an order.
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: "Type RUN_CONTROL_PLANE_PREFLIGHT to run the non-ordering Control Plane producer"
+        description: "Type RUN_CONTROL_PLANE_PREFLIGHT for the non-ordering preflight"
         required: true
         type: string
       terminal_path:
@@ -29,14 +29,18 @@ jobs:
     env:
       PYTHONUNBUFFERED: "1"
       TERMINAL_PATH: ${{ inputs.terminal_path }}
+      FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY: ${{ vars.FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY }}
+      FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT: ${{ vars.FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT }}
+      OPERATOR_CONFIRMATION: ${{ inputs.confirmation }}
     steps:
       - name: Validate explicit workflow invocation
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Stop'
           if ($env:GITHUB_EVENT_NAME -ne 'workflow_dispatch') {
             throw 'CONTROL_PLANE_MANUAL_DISPATCH_REQUIRED'
           }
-          if ('${{ inputs.confirmation }}' -cne 'RUN_CONTROL_PLANE_PREFLIGHT') {
+          if ($env:OPERATOR_CONFIRMATION -cne 'RUN_CONTROL_PLANE_PREFLIGHT') {
             throw 'CONTROL_PLANE_OPERATOR_CONFIRMATION_INVALID'
           }
           Write-Output 'CONTROL_PLANE_EXPLICIT_INVOCATION=PASS'
@@ -46,26 +50,40 @@ jobs:
       - name: Checkout exact revision
         uses: actions/checkout@v4
 
-      - name: Resolve exact MT5 owner profile and force kill switch DENY
+      - name: Resolve MT5 Common Files and force the kill switch to DENY
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          & (Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch |
-            ForEach-Object {
-              $line = [string]$_
-              if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
-              elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') { Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]' }
-              elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
-              else { Write-Output $line }
-            }
+          $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
+          if (!(Test-Path -LiteralPath $resolver -PathType Leaf)) {
+            throw 'CONTROL_PLANE_MT5_PROFILE_RESOLVER_MISSING'
+          }
+          $resolverOutput = & $resolver -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch
+          $resolverExit = $LASTEXITCODE
+          $resolverOutput | ForEach-Object {
+            $line = [string]$_
+            if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
+            elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') { Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]' }
+            elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
+            else { Write-Output $line }
+          }
+          if ($resolverExit -ne 0) { throw 'CONTROL_PLANE_MT5_PROFILE_RESOLUTION_FAILED' }
 
-      - name: Require runner-local paths without disclosing them
+      - name: Require configured paths and trusted account binding
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $ledger = $env:FOREXAI_TRADE_LEDGER_PATH
           $envelope = $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH
           $request = $env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH
+          $providerPublicKey = $env:FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY
+          $expectedAccountFingerprint = $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT
+          if ([string]::IsNullOrWhiteSpace($providerPublicKey)) {
+            throw 'CONTROL_PLANE_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED'
+          }
+          if ([string]::IsNullOrWhiteSpace($expectedAccountFingerprint) -or $expectedAccountFingerprint -cnotmatch '^[0-9a-f]{16}$') {
+            throw 'CONTROL_PLANE_EXPECTED_DEMO_ACCOUNT_FINGERPRINT_NOT_CONFIGURED'
+          }
           if ([string]::IsNullOrWhiteSpace($request)) {
             throw 'CONTROL_PLANE_ADMISSION_REQUEST_PATH_NOT_CONFIGURED'
           }
@@ -78,14 +96,11 @@ jobs:
           if (!(Test-Path -LiteralPath $request -PathType Leaf)) {
             throw 'CONTROL_PLANE_ADMISSION_REQUEST_FILE_MISSING'
           }
-          if ([System.IO.Path]::GetFullPath($request) -eq [System.IO.Path]::GetFullPath($ledger)) {
-            throw 'CONTROL_PLANE_ADMISSION_AND_LEDGER_PATH_COLLIDE'
-          }
-          if ([System.IO.Path]::GetFullPath($request) -eq [System.IO.Path]::GetFullPath($envelope)) {
-            throw 'CONTROL_PLANE_ADMISSION_AND_ENVELOPE_PATH_COLLIDE'
-          }
-          if ([System.IO.Path]::GetFullPath($ledger) -eq [System.IO.Path]::GetFullPath($envelope)) {
-            throw 'CONTROL_PLANE_LEDGER_AND_ENVELOPE_PATH_COLLIDE'
+          $requestFull = [System.IO.Path]::GetFullPath($request)
+          $ledgerFull = [System.IO.Path]::GetFullPath($ledger)
+          $envelopeFull = [System.IO.Path]::GetFullPath($envelope)
+          if ($requestFull -eq $ledgerFull -or $requestFull -eq $envelopeFull -or $ledgerFull -eq $envelopeFull) {
+            throw 'CONTROL_PLANE_PATH_COLLISION'
           }
           Write-Output 'CONTROL_PLANE_RUNNER_PATHS=CONFIGURED'
           Write-Output 'CONTROL_PLANE_ADMISSION_REQUEST=EXISTS'
@@ -107,10 +122,10 @@ jobs:
             }
           }
           if (-not $pythonExe) { throw 'CONTROL_PLANE_PYTHON_NOT_FOUND' }
-          $version = (& $pythonExe -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>$null | Select-Object -Last 1).Trim()
-          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^3 (11|12|13)$') {
-            throw 'CONTROL_PLANE_PYTHON_VERSION_UNSUPPORTED'
-          }
+          $versionOutput = & $pythonExe -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'CONTROL_PLANE_PYTHON_VERSION_CHECK_FAILED' }
+          $version = ([string]($versionOutput | Select-Object -Last 1)).Trim()
+          if ($version -notmatch '^3 (11|12|13)$') { throw 'CONTROL_PLANE_PYTHON_VERSION_UNSUPPORTED' }
           "PYTHON_EXE=$pythonExe" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Output "CONTROL_PLANE_PYTHON_VERSION=$version"
 
@@ -129,12 +144,14 @@ jobs:
       - name: Produce signed DEMO authority envelope (never sends orders)
         shell: powershell
         env:
-          FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET }}
           FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET)) {
-            throw 'CONTROL_PLANE_ADMISSION_SECRET_NOT_CONFIGURED'
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY)) {
+            throw 'CONTROL_PLANE_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT) -or $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT -cnotmatch '^[0-9a-f]{16}$') {
+            throw 'CONTROL_PLANE_EXPECTED_DEMO_ACCOUNT_FINGERPRINT_NOT_CONFIGURED'
           }
           if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET)) {
             throw 'CONTROL_PLANE_ENVELOPE_SECRET_NOT_CONFIGURED'
