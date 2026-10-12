@@ -58,7 +58,7 @@ def test_g13_diagnostics_do_not_join_optional_portable_paths_when_unset():
     assert "service_mql5_logs" in step
 
 
-def test_g13_parity_reclaims_only_bare_local_system_terminal_processes():
+def test_g13_parity_uses_run_scoped_portable_terminal_in_interactive_session():
     workflow = (
         ROOT / ".github" / "workflows" / "forexai-g13-mt5-compile-parity.yml"
     ).read_text(encoding="utf-8")
@@ -66,14 +66,17 @@ def test_g13_parity_reclaims_only_bare_local_system_terminal_processes():
         "      - name: Collect MT5 parity diagnostics", 1
     )[0]
 
-    assert "Invoke-CimMethod -InputObject $p -MethodName GetOwner" in step
-    assert "$owner.User -eq 'SYSTEM' -and $owner.Domain -eq 'NT AUTHORITY'" in step
-    assert "$bareCommand.Equals([IO.Path]::GetFullPath($terminal)" in step
-    assert "if (-not $isSystemOwner -or -not $isBareTerminal)" in step
-    assert "refusing to terminate it or start a conflicting instance" in step
-    assert "Stop-Process -Id ([int]$p.ProcessId) -Force" in step
-    assert "MT5_STALE_SERVICE_TERMINAL_CLEANUP_OK=" in step
-    assert step.index("MT5_STALE_SERVICE_TERMINAL_CLEANUP_OK=") < step.index(
-        "$proc = Start-Process -FilePath $terminal"
-    )
-    assert "Stop-Process -Name terminal64.exe" not in step
+    assert "$portableRoot = Join-Path $env:RUNNER_TEMP" in step
+    assert "G13_INTERACTIVE_MT5_REQUIRED" in step
+    assert "$_.SessionId -gt 0" in step
+    assert "Invoke-CimMethod -InputObject $interactiveProcess -MethodName GetOwner" in step
+    assert "MQL5\\\\Profiles" in step
+    assert "MQL5\\\\Terminal" not in step
+    assert "New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive" in step
+    assert "--portable-root $portableRoot" in step
+    assert "AllowLiveTrading=0" in step
+    assert "Stop-Process -Name terminal64.exe" not in workflow
+
+    cleanup = workflow.split("      - name: Cleanup isolated MT5 portable runtime", 1)[1]
+    assert "$cloneExe = [System.IO.Path]::GetFullPath($cloneTerminal)" in cleanup
+    assert "Stop-Process -Id ([int]$process.ProcessId) -Force" in cleanup
