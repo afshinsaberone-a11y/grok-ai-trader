@@ -114,6 +114,14 @@ def _signed_request(**overrides):
             "safety_audit": 41007,
             "readiness": 41008,
         },
+        "source_grant_id": "capital-firewall-grant-001",
+        "source_grant_candidate_id": 2,
+        "source_grant_signal_id": "signal-001",
+        "source_grant_trade_id": "FOREXAI-G13-C2-S",
+        "source_grant_authorization_id": "auth-001",
+        "source_grant_reservation_id": "reservation-001",
+        "source_grant_sha256": "f" * 64,
+        "evidence_bundle_sha256": "e" * 64,
     }
     authorization = {
         "authorization_id": "auth-001",
