@@ -9,12 +9,6 @@ on:
         description: "Successful ForexAI G13 MT5 Compile + Signal Parity run containing the frozen EX5 package"
         required: true
         type: string
-  workflow_run:
-    workflows:
-      - "ForexAI G13 MT5 Compile + Signal Parity"
-    types: [completed]
-    branches:
-      - main
 
 permissions:
   contents: read
