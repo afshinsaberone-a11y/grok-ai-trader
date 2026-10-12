@@ -15,7 +15,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: g13-controlled-demo-package-preflight
+  group: g13-controlled-demo-package-preflight-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
