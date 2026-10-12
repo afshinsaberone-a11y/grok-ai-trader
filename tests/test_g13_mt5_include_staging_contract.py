@@ -74,7 +74,9 @@ def test_g13_parity_uses_run_scoped_portable_terminal_in_interactive_session():
     assert "New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive" in step
     assert "--portable-root $portableRoot" in step
     assert "AllowLiveTrading=0" in step
-    assert "if (Select-String -LiteralPath $statusUser -Pattern '^state,success
+    assert "if (Select-String -LiteralPath $statusUser -Pattern '^state,success$' -Quiet) {" in step
+    assert "$statusSuccess = $false" in step
+    assert "if (-not $statusSuccess)" in step
     assert "Stop-Process -Name terminal64.exe" not in workflow
 
     cleanup = workflow.split("      - name: Cleanup isolated MT5 portable runtime", 1)[1]
