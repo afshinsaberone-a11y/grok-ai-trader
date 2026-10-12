@@ -155,6 +155,7 @@ def fixture_chain():
         "selection_performed": False,
         "optimization_enabled": False,
         "parameters_frozen": True,
+        "candidate_count": 1,
         "oos": {
             "status": "EVALUATED",
             "evaluated": True,
