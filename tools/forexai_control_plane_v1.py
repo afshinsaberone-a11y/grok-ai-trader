@@ -137,6 +137,7 @@ def validate_promotion_bundle(
     provenance_path: Path,
     candidate_id: int | None,
     expected_main_sha: str,
+    expected_promotion_run_id: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Bind candidate eligibility to the exact, current G13 promotion artifact."""
     manifest = _read_object(manifest_path, "PROMOTION_MANIFEST_UNREADABLE")
@@ -169,6 +170,8 @@ def validate_promotion_bundle(
         raise ControlPlaneError("PROMOTION_PROVENANCE_ATTESTATION_HASH_MISMATCH")
     if not isinstance(attestation.get("workflow_run_id"), int) or attestation["workflow_run_id"] <= 0:
         raise ControlPlaneError("PROMOTION_RUN_ID_INVALID")
+    if expected_promotion_run_id is not None and attestation["workflow_run_id"] != expected_promotion_run_id:
+        raise ControlPlaneError("PROMOTION_RUN_ID_MISMATCH")
 
     if provenance.get("schema_version") != PROVENANCE_SCHEMA:
         raise ControlPlaneError("PROMOTION_PROVENANCE_SCHEMA_INVALID")
@@ -431,6 +434,9 @@ def _demo_snapshot(mt5: Any, *, intent: Mapping[str, Any], gateway: MT5TerminalG
     tick_time_msc = int(getattr(tick, "time_msc", 0) or 0)
     if tick_time_msc <= 0:
         raise ControlPlaneError("MT5_TICK_TIMESTAMP_INVALID")
+    tick_age_seconds = now.timestamp() - (tick_time_msc / 1000.0)
+    if tick_age_seconds < -1.0 or tick_age_seconds > 15.0:
+        raise ControlPlaneError("MT5_TICK_STALE_OR_FUTURE")
     return {
         "account_mode": "DEMO",
         "equity": equity,
@@ -546,6 +552,7 @@ def process_signal_intent(
     gateway: MT5TerminalGateway,
     secret: str,
     now: datetime | None = None,
+    promotion_run_id: int | None = None,
 ) -> dict[str, Any]:
     """Issue one current Demo authorization from one fresh real EA intent."""
     now = (now or _utc_now()).astimezone(timezone.utc)
@@ -563,6 +570,7 @@ def process_signal_intent(
         provenance_path=provenance_path,
         candidate_id=candidate_id,
         expected_main_sha=current_main_sha,
+        expected_promotion_run_id=promotion_run_id,
     )
     intent = _validate_signal_intent(intent_path, manifest=manifest, candidate=candidate, now=now)
     snapshot = _demo_snapshot(mt5, intent=intent, gateway=gateway, now=now)
@@ -747,6 +755,7 @@ def watch(
     secret: str,
     poll_seconds: float = POLL_SECONDS_DEFAULT,
     stop_event: Any | None = None,
+    promotion_run_id: int | None = None,
 ) -> int:
     if not secret or len(secret.encode("utf-8")) < 32:
         raise ControlPlaneError("CONTROL_PLANE_SECRET_NOT_CONFIGURED_OR_TOO_SHORT")
@@ -786,6 +795,7 @@ def watch(
                         mt5=gateway.mt5,
                         gateway=gateway,
                         secret=secret,
+                        promotion_run_id=promotion_run_id,
                     )
                     print(json.dumps(result, ensure_ascii=False, sort_keys=True), flush=True)
                     seen_errors = {item for item in seen_errors if item[0] != intent_path.name}
@@ -839,6 +849,7 @@ def main() -> int:
     parser.add_argument("--common-files", type=Path, default=os.environ.get("FOREXAI_MT5_COMMON_FILES"))
     parser.add_argument("--terminal-path", default=os.environ.get("FOREXAI_MT5_TERMINAL_PATH", r"C:\Program Files\MetaTrader 5\terminal64.exe"))
     parser.add_argument("--poll-seconds", type=float, default=POLL_SECONDS_DEFAULT)
+    parser.add_argument("--promotion-run-id", type=int, default=os.environ.get("FOREXAI_G13_PROMOTION_RUN_ID"))
     parser.add_argument("--secret-env", default="FOREXAI_CONTROL_PLANE_HMAC_SECRET")
     args = parser.parse_args()
 
@@ -857,6 +868,8 @@ def main() -> int:
         raise ControlPlaneError("MT5_COMMON_FILES_DIRECTORY_MISSING")
 
     secret = load_control_plane_secret(args.secret_env)
+    if args.promotion_run_id is None or int(args.promotion_run_id) <= 0:
+        raise ControlPlaneError("PROMOTION_RUN_ID_NOT_CONFIGURED")
     current_sha = fetch_current_main_sha(args.repository, os.environ.get("GH_TOKEN"))
     # Pre-flight validates that the downloaded manifest and provenance are tied to
     # the exact current main SHA before starting the listener.
@@ -866,6 +879,7 @@ def main() -> int:
         provenance_path=args.promotion_provenance,
         candidate_id=None,
         expected_main_sha=current_sha,
+        expected_promotion_run_id=int(args.promotion_run_id),
     )
     if not args.watch:
         parser.error("Pass --watch to start the long-running local service.")
@@ -880,6 +894,7 @@ def main() -> int:
         terminal_path=args.terminal_path,
         secret=secret,
         poll_seconds=args.poll_seconds,
+        promotion_run_id=int(args.promotion_run_id),
     )
 
 
