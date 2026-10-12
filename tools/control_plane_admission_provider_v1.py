@@ -219,6 +219,7 @@ def _verify_attestation(
 def _validate_promotion(payload: Mapping[str, Any]) -> dict[str, Any]:
     expected = {
         "schema", "commit_sha", "gates", "readiness_status", "demo_trading_allowed",
+        "source_default_demo_trading_allowed", "demo_grant_id", "authorized_demo_candidate_id",
         "live_trading_allowed", "real_data_only", "synthetic_data", "run_ids",
         "promoted_candidate_ids", "candidate_config_hashes",
     }
@@ -235,6 +236,12 @@ def _validate_promotion(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise AdmissionProviderError("PROVIDER_READINESS_STATUS_NOT_READY")
     if payload["demo_trading_allowed"] is not True:
         raise AdmissionProviderError("PROVIDER_DEMO_PERMISSION_NOT_GRANTED")
+    if payload["source_default_demo_trading_allowed"] is not False:
+        raise AdmissionProviderError("PROVIDER_SOURCE_DEFAULT_DEMO_PERMISSION_MUST_REMAIN_FALSE")
+    _safe_id(payload["demo_grant_id"], "PROVIDER_DEMO_GRANT_ID_INVALID")
+    grant_candidate_id = payload["authorized_demo_candidate_id"]
+    if isinstance(grant_candidate_id, bool) or not isinstance(grant_candidate_id, int) or grant_candidate_id <= 0:
+        raise AdmissionProviderError("PROVIDER_DEMO_GRANT_CANDIDATE_ID_INVALID")
     if payload["live_trading_allowed"] is not False:
         raise AdmissionProviderError("PROVIDER_LIVE_PERMISSION_MUST_REMAIN_DISABLED")
     if payload["real_data_only"] is not True or payload["synthetic_data"] is not False:
@@ -255,6 +262,8 @@ def _validate_promotion(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise AdmissionProviderError("PROVIDER_CANDIDATE_CONFIG_HASH_MAP_INVALID")
     if any(not isinstance(value, str) or not SHA256.fullmatch(value) for value in hashes.values()):
         raise AdmissionProviderError("PROVIDER_CANDIDATE_CONFIG_HASH_MAP_INVALID")
+    if grant_candidate_id not in promoted_ids:
+        raise AdmissionProviderError("PROVIDER_DEMO_GRANT_CANDIDATE_NOT_PROMOTED")
     return dict(payload)
 
 
@@ -406,6 +415,8 @@ def build_admission_request(
     signal = _validate_signal(attestations["signal"], now)
     if signal["candidate_id"] not in promotion["promoted_candidate_ids"]:
         raise AdmissionProviderError("PROVIDER_SIGNAL_CANDIDATE_NOT_PROMOTED")
+    if signal["candidate_id"] != promotion["authorized_demo_candidate_id"]:
+        raise AdmissionProviderError("PROVIDER_SIGNAL_CANDIDATE_NOT_AUTHORIZED_BY_GRANT")
     expected_config_hash = promotion["candidate_config_hashes"].get(str(signal["candidate_id"]))
     if expected_config_hash is None:
         raise AdmissionProviderError("PROVIDER_SIGNAL_CANDIDATE_NOT_PROMOTED")
@@ -459,6 +470,9 @@ def build_admission_request(
         "safety_audit_status": promotion["gates"]["safety_audit"],
         "readiness_status": promotion["readiness_status"],
         "demo_trading_allowed": promotion["demo_trading_allowed"],
+        "source_default_demo_trading_allowed": promotion["source_default_demo_trading_allowed"],
+        "demo_grant_id": promotion["demo_grant_id"],
+        "authorized_demo_candidate_id": promotion["authorized_demo_candidate_id"],
         "live_trading_allowed": promotion["live_trading_allowed"],
         "real_data_only": promotion["real_data_only"],
         "synthetic_data": promotion["synthetic_data"],
