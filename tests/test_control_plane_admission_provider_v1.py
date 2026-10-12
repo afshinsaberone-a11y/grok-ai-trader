@@ -412,6 +412,8 @@ def test_registry_prevents_reusing_reservation_or_authorization_for_new_signal(
         second["authorization"]["authorization_id"] = "auth-brand-new"
     else:
         second["authorization"]["reservation_id"] = "reservation-brand-new"
+    second["promotion_evidence"]["source_grant_authorization_id"] = second["authorization"]["authorization_id"]
+    second["promotion_evidence"]["source_grant_reservation_id"] = second["authorization"]["reservation_id"]
     unsigned = {key: value for key, value in second.items() if key != "signature"}
     second["signature"]["signature"] = base64.b64encode(
         PROVIDER_PRIVATE_KEY.sign(canonical_json(unsigned))
