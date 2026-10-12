@@ -37,6 +37,13 @@ SOURCE_PUBLIC_KEYS = {
     for kind, key in SOURCE_PRIVATE_KEYS.items()
 }
 PROVIDER_PRIVATE_KEY = Ed25519PrivateKey.generate()
+UNTRUSTED_PRIVATE_KEY = Ed25519PrivateKey.generate()
+UNTRUSTED_PUBLIC_KEY = base64.b64encode(
+    UNTRUSTED_PRIVATE_KEY.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+).decode("ascii")
 PROVIDER_PUBLIC_KEY = base64.b64encode(
     PROVIDER_PRIVATE_KEY.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -214,8 +221,22 @@ def test_tampered_source_attestation_is_rejected():
 
 def test_wrong_source_public_key_is_rejected():
     keys = dict(SOURCE_PUBLIC_KEYS)
-    keys["signal"] = SOURCE_PUBLIC_KEYS["risk"]
+    keys["signal"] = UNTRUSTED_PUBLIC_KEY
     with pytest.raises(AdmissionProviderError, match="PROVIDER_ATTESTATION_SIGNATURE_INVALID:signal"):
+        _build(keys=keys)
+
+
+def test_source_public_keys_must_be_distinct():
+    keys = dict(SOURCE_PUBLIC_KEYS)
+    keys["signal"] = keys["risk"]
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_SOURCE_KEYS_MUST_BE_DISTINCT"):
+        _build(keys=keys)
+
+
+def test_issuer_key_must_not_be_reused_for_a_source_role():
+    keys = dict(SOURCE_PUBLIC_KEYS)
+    keys["signal"] = PROVIDER_PUBLIC_KEY
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_ISSUER_KEY_MUST_BE_DISTINCT_FROM_SOURCES"):
         _build(keys=keys)
 
 
