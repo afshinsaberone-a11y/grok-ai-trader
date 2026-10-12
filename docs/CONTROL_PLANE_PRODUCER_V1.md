@@ -43,6 +43,8 @@ An admission failure occurs before ledger mutation. A failure after lifecycle ap
 
 ## Runtime configuration
 
+The manual Actions workflow is .github/workflows/forexai-control-plane-producer-v1.yml. It first forces and verifies the Demo kill switch DENY, then requires runner-local machine variables FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH, FOREXAI_TRADE_LEDGER_PATH and FOREXAI_AUTHENTICATED_ENVELOPE_PATH. It reads the two protected values FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET and FOREXAI_CONTROL_PLANE_HMAC_SECRET from repository Actions secrets. Open Actions → ForexAI Control Plane Producer v1 → Run workflow and type RUN_CONTROL_PLANE_PREFLIGHT. A run is intentionally blocked until the paths, secrets, signed current request and explicit upstream Demo permission are actually provisioned. The workflow does not place trades.
+
 Run only on the designated Windows MT5 host after the independent provider and protected keys are provisioned. Example commands, with placeholders only:
 
     $env:FOREXAI_CONTROL_PLANE_ADMISSION_HMAC_SECRET = '<secret provisioned securely by the trusted admission provider>'
