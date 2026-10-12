@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import base64
+import copy
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,6 +20,7 @@ from tools.control_plane_admission_provider_v1 import (
     build_admission_request,
     canonical_json,
     load_packet,
+    record_issuance,
     verify_provider_key_matches,
     write_request_new,
 )
@@ -305,6 +308,82 @@ def test_duplicate_json_keys_in_source_packet_are_rejected(tmp_path: Path):
     path.write_text('{"schema":"x","schema":"y"}', encoding="utf-8")
     with pytest.raises(AdmissionProviderError, match="PROVIDER_DUPLICATE_JSON_KEY"):
         load_packet(path)
+
+
+def _with_new_signal(request: dict, signal_id: str, *, request_id: str) -> dict:
+    changed = copy.deepcopy(request)
+    changed["request_id"] = request_id
+    changed["candidate"]["signal_id"] = signal_id
+    changed["candidate"]["signal_payload"]["signal_id"] = signal_id
+    changed["candidate"]["input_hash"] = hashlib.sha256(
+        canonical_json(changed["candidate"]["signal_payload"])
+    ).hexdigest()
+    unsigned = {key: value for key, value in changed.items() if key != "signature"}
+    changed["signature"]["signature"] = base64.b64encode(
+        PROVIDER_PRIVATE_KEY.sign(canonical_json(unsigned))
+    ).decode("ascii")
+    return changed
+
+
+def test_registry_rejects_replay_even_when_request_id_and_output_path_change(tmp_path: Path):
+    registry = tmp_path / "provider-state" / "issued.sqlite3"
+    first = _build()
+    record_issuance(first, registry)
+
+    replay = copy.deepcopy(first)
+    replay["request_id"] = "admission-replayed-with-new-id"
+    unsigned = {key: value for key, value in replay.items() if key != "signature"}
+    replay["signature"]["signature"] = base64.b64encode(
+        PROVIDER_PRIVATE_KEY.sign(canonical_json(unsigned))
+    ).decode("ascii")
+    with pytest.raises(
+        AdmissionProviderError, match="PROVIDER_SIGNAL_OR_AUTHORIZATION_ALREADY_ISSUED"
+    ):
+        record_issuance(replay, registry)
+
+
+@pytest.mark.parametrize("duplicate_field", ["reservation_id", "authorization_id"])
+def test_registry_prevents_reusing_reservation_or_authorization_for_new_signal(
+    tmp_path: Path, duplicate_field: str
+):
+    registry = tmp_path / f"{duplicate_field}.sqlite3"
+    first = _build()
+    record_issuance(first, registry)
+
+    second = _with_new_signal(
+        first,
+        f"signal-new-{duplicate_field}",
+        request_id=f"admission-new-{duplicate_field}",
+    )
+    if duplicate_field == "reservation_id":
+        second["authorization"]["authorization_id"] = "auth-brand-new"
+    else:
+        second["authorization"]["reservation_id"] = "reservation-brand-new"
+    unsigned = {key: value for key, value in second.items() if key != "signature"}
+    second["signature"]["signature"] = base64.b64encode(
+        PROVIDER_PRIVATE_KEY.sign(canonical_json(unsigned))
+    ).decode("ascii")
+
+    with pytest.raises(
+        AdmissionProviderError, match="PROVIDER_SIGNAL_OR_AUTHORIZATION_ALREADY_ISSUED"
+    ):
+        record_issuance(second, registry)
+
+
+def test_registry_record_is_not_released_after_output_failure(tmp_path: Path):
+    registry = tmp_path / "provider-state" / "issued.sqlite3"
+    request = _build()
+    record_issuance(request, registry)
+
+    target = tmp_path / "existing.json"
+    target.write_text("occupied", encoding="utf-8")
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_OUTPUT_ALREADY_EXISTS"):
+        write_request_new(target, request)
+    with pytest.raises(
+        AdmissionProviderError, match="PROVIDER_SIGNAL_OR_AUTHORIZATION_ALREADY_ISSUED"
+    ):
+        record_issuance(request, registry)
+    assert target.read_text(encoding="utf-8") == "occupied"
 
 
 def test_output_never_overwrites_an_existing_admission_request(tmp_path: Path):
