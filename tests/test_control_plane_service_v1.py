@@ -333,7 +333,7 @@ def test_wrong_provider_secret_and_long_lived_admission_are_rejected():
     with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_ADMISSION_SIGNATURE_INVALID"):
         verify_admission_request(
             request,
-            admission_secret="wrong-secret-0123456789abcdef",
+            admission_secret="wrong-provider-secret-0123456789abcdef",
             now_utc=NOW,
         )
     request = _signed_request()
