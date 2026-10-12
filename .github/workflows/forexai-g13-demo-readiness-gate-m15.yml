@@ -38,7 +38,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: g13-demo-readiness-gate-m15
+  group: g13-demo-readiness-gate-m15-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
