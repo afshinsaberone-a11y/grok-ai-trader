@@ -52,183 +52,14 @@ jobs:
           if (-not (Test-Path -LiteralPath $commonFiles -PathType Container)) { throw 'CONTROL_PLANE_MT5_COMMON_FILES_MISSING' }
           $switch = Join-Path $commonFiles 'g13_demo_kill_switch.txt'
           if ((Get-Content -LiteralPath $switch -Raw) -ne 'DENY') { throw 'CONTROL_PLANE_INITIAL_DENY_UNVERIFIED' }
+          # Confirm DENY before checking secrets, so a configuration error never
+          # leaves the terminal in an enabled state.
           if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET) -or
               [System.Text.Encoding]::UTF8.GetByteCount($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET) -lt 32) {
             throw 'CONTROL_PLANE_HMAC_SECRET_MISSING_OR_TOO_SHORT'
           }
           if ([string]::IsNullOrWhiteSpace($env:FOREXAI_EXPECTED_DEMO_ACCOUNT_LOGIN) -or
-              $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_LOGIN -notmatch '^\d+          "FOREXAI_MT5_COMMON_FILES=$commonFiles" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "FOREXAI_CONTROL_PLANE_BUNDLE=$(Join-Path $env:ProgramData 'ForexAI\ControlPlane\promotion-bundle')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          New-Item -ItemType Directory -Force -Path (Join-Path $env:ProgramData 'ForexAI\ControlPlane') | Out-Null
-          $root = Join-Path $env:ProgramData 'ForexAI\ControlPlane'
-          $aclArgs = @($root, '/inheritance:r', '/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '/T', '/C')
-          & icacls.exe @aclArgs | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'CONTROL_PLANE_STORAGE_ACL_SETUP_FAILED' }
-          Write-Output 'CONTROL_PLANE_INITIAL_DENY=VERIFIED'
-          Write-Output 'CONTROL_PLANE_MT5_PROFILE=RESOLVED'
-          Write-Output 'CONTROL_PLANE_STORAGE_ACL=RESTRICTED'
-
-      - name: Resolve Python runtime and MetaTrader5 dependency
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $candidates = @(
-            (Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
-            'C:\Users\Star\AppData\Local\Programs\Python\Python312\python.exe',
-            'C:\Users\Star\AppData\Local\Programs\Python\Python311\python.exe',
-            'C:\Program Files\Python312\python.exe',
-            'C:\Program Files\Python311\python.exe'
-          ) | Where-Object { $_ }
-          $pythonExe = $null
-          foreach ($candidate in $candidates) {
-            if (!(Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
-            try {
-              $version = (& $candidate -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>$null | Select-Object -Last 1).Trim()
-              if ($LASTEXITCODE -eq 0 -and $version -match '^3 (11|12|13)$') { $pythonExe = $candidate; break }
-            } catch { }
-          }
-          if (-not $pythonExe) { throw 'CONTROL_PLANE_PYTHON_311_PLUS_NOT_FOUND' }
-          "PYTHON_EXE=$pythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          & $pythonExe -m pip install --disable-pip-version-check 'MetaTrader5>=5.0.45,<6'
-          if ($LASTEXITCODE -ne 0) { throw 'CONTROL_PLANE_METATRADER5_INSTALL_FAILED' }
-          & $pythonExe -c "import MetaTrader5; print('CONTROL_PLANE_METATRADER5_IMPORT=PASS')"
-          if ($LASTEXITCODE -ne 0) { throw 'CONTROL_PLANE_METATRADER5_IMPORT_FAILED' }
-
-      - name: Resolve successful Promotion artifact for exact current main SHA
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $head = (& git rev-parse HEAD).Trim()
-          if ($head -ne $env:GITHUB_SHA) { throw 'CONTROL_PLANE_CHECKOUT_SHA_MISMATCH' }
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = 'application/vnd.github+json'
-            'X-GitHub-Api-Version' = '2022-11-28'
-            'User-Agent' = 'ForexAI-Capital-Control-Plane-v1'
-          }
-          $promotionRun = $null
-          for ($attempt = 1; $attempt -le 90; $attempt++) {
-            $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&per_page=100"
-            $runs = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
-            $matches = @($runs.workflow_runs | Where-Object {
-              $_.name -eq 'ForexAI G13 Final Promotion M15' -and
-              $_.head_branch -eq 'main' -and $_.head_sha -eq $env:GITHUB_SHA
-            } | Sort-Object id -Descending)
-            if ($matches.Count -gt 0) {
-              $latest = $matches[0]
-              if ($latest.status -eq 'completed' -and $latest.conclusion -eq 'success') {
-                $promotionRun = $latest
-                break
-              }
-              if ($latest.status -eq 'completed') { throw 'CONTROL_PLANE_EXACT_SHA_PROMOTION_FAILED' }
-            }
-            Write-Output "CONTROL_PLANE_WAITING_FOR_EXACT_SHA_PROMOTION attempt=$attempt"
-            Start-Sleep -Seconds 15
-          }
-          if ($null -eq $promotionRun) { throw 'CONTROL_PLANE_EXACT_SHA_PROMOTION_NOT_FOUND' }
-          $artUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$($promotionRun.id)/artifacts?per_page=100"
-          $artifacts = Invoke-RestMethod -Method Get -Uri $artUri -Headers $headers
-          $matchingArtifacts = @($artifacts.artifacts | Where-Object { $_.name -eq 'g13-promotion-manifest-m15' -and -not $_.expired })
-          if ($matchingArtifacts.Count -ne 1) { throw 'CONTROL_PLANE_PROMOTION_ARTIFACT_MISSING_OR_AMBIGUOUS' }
-          $artifact = $matchingArtifacts[0]
-          if ($artifact.digest -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw 'CONTROL_PLANE_PROMOTION_ARTIFACT_DIGEST_INVALID' }
-          $bundleDir = $env:FOREXAI_CONTROL_PLANE_BUNDLE
-          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
-          Get-ChildItem -LiteralPath $bundleDir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
-          $zip = Join-Path $bundleDir 'promotion-artifact.zip'
-          $zipUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($artifact.id)/zip"
-          Invoke-WebRequest -UseBasicParsing -Method Get -Uri $zipUri -Headers $headers -OutFile $zip
-          $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
-          if ($actualDigest -ne $artifact.digest.ToLowerInvariant()) { throw 'CONTROL_PLANE_PROMOTION_ARTIFACT_DIGEST_MISMATCH' }
-          $extractDir = Join-Path $bundleDir 'extracted'
-          New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
-          Expand-Archive -LiteralPath $zip -DestinationPath $extractDir -Force
-          $manifestFiles = @(Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter 'g13-promotion-manifest-m15.json')
-          $attestationFiles = @(Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter 'promotion-run-attestation.json')
-          $provenanceFiles = @(Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter 'source-provenance.json')
-          if ($manifestFiles.Count -ne 1 -or $attestationFiles.Count -ne 1 -or $provenanceFiles.Count -ne 1) {
-            throw 'CONTROL_PLANE_PROMOTION_BUNDLE_FILES_MISSING_OR_AMBIGUOUS'
-          }
-          $manifest = Join-Path $bundleDir 'g13-promotion-manifest-m15.json'
-          $attestation = Join-Path $bundleDir 'promotion-run-attestation.json'
-          $provenance = Join-Path $bundleDir 'source-provenance.json'
-          Copy-Item -LiteralPath $manifestFiles[0].FullName -Destination $manifest -Force
-          Copy-Item -LiteralPath $attestationFiles[0].FullName -Destination $attestation -Force
-          Copy-Item -LiteralPath $provenanceFiles[0].FullName -Destination $provenance -Force
-          "FOREXAI_G13_PROMOTION_MANIFEST_PATH=$manifest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "FOREXAI_G13_PROMOTION_ATTESTATION_PATH=$attestation" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "FOREXAI_G13_PROMOTION_PROVENANCE_PATH=$provenance" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "FOREXAI_G13_PROMOTION_RUN_ID=$($promotionRun.id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Output "CONTROL_PLANE_PROMOTION_RUN_ID=$($promotionRun.id)"
-          Write-Output "CONTROL_PLANE_PROMOTION_SHA_MATCH=true"
-          Write-Output "CONTROL_PLANE_PROMOTION_ARCHIVE_DIGEST_VERIFIED=true"
-
-      - name: Start fail-closed one-shot authorization producer
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $root = Join-Path $env:ProgramData 'ForexAI\ControlPlane'
-          $ledger = Join-Path $root 'trade-ledger.jsonl'
-          $envelope = Join-Path $root 'authenticated-envelope.json'
-          Push-Location -LiteralPath $env:GITHUB_WORKSPACE
-          try {
-            $cpArgs = @(
-              '--watch',
-              '--repository', $env:GITHUB_REPOSITORY,
-              '--promotion-run-id', $env:FOREXAI_G13_PROMOTION_RUN_ID,
-              '--candidate-id', $env:CANDIDATE_ID,
-              '--expected-demo-login', $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_LOGIN,
-              '--expected-demo-server', $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_SERVER,
-              '--promotion-manifest', $env:FOREXAI_G13_PROMOTION_MANIFEST_PATH,
-              '--promotion-attestation', $env:FOREXAI_G13_PROMOTION_ATTESTATION_PATH,
-              '--promotion-provenance', $env:FOREXAI_G13_PROMOTION_PROVENANCE_PATH,
-              '--ledger', $ledger,
-              '--authenticated-envelope-output', $envelope,
-              '--common-files', $env:FOREXAI_MT5_COMMON_FILES,
-              '--terminal-path', $env:TERMINAL_PATH,
-              '--poll-seconds', '0.25'
-            )
-            & $env:PYTHON_EXE -m tools.forexai_control_plane_v1 @cpArgs
-            if ($LASTEXITCODE -ne 0) { throw "CONTROL_PLANE_SERVICE_EXIT:$LASTEXITCODE" }
-          } finally {
-            Pop-Location
-          }
-
-      - name: Final safety cleanup - DENY and remove unused one-shot tokens
-        if: always()
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $commonFiles = $env:FOREXAI_MT5_COMMON_FILES
-          $switchVerified = $false
-          if (-not [string]::IsNullOrWhiteSpace($commonFiles) -and
-              (Test-Path -LiteralPath $commonFiles -PathType Container)) {
-            $switchPath = Join-Path $commonFiles 'g13_demo_kill_switch.txt'
-            try {
-              Set-Content -LiteralPath $switchPath -Value 'DENY' -NoNewline -Encoding ascii
-              $switchVerified = (Get-Content -LiteralPath $switchPath -Raw) -eq 'DENY'
-            } catch {
-              $switchVerified = $false
-            }
-            Get-ChildItem -LiteralPath $commonFiles -File -ErrorAction SilentlyContinue |
-              Where-Object {
-                $_.Name -like 'ForexAI_Authorization_*_EURUSD.auth' -or
-                $_.Name -like 'ForexAI_G13_SignalIntent_*_EURUSD.json' -or
-                $_.Name -like 'ForexAI_G13_SignalIntent_*_EURUSD.json.tmp'
-              } |
-              Remove-Item -Force -ErrorAction SilentlyContinue
-          }
-          if (-not $switchVerified) {
-            Write-Output 'CONTROL_PLANE_FINAL_DENY=UNVERIFIED'
-            throw 'CONTROL_PLANE_CLEANUP_DENY_VERIFICATION_FAILED'
-          }
-          Write-Output 'CONTROL_PLANE_FINAL_DENY=VERIFIED'
-          Write-Output 'CONTROL_PLANE_UNUSED_AUTHORIZATION_FILES=REMOVED'
-          Write-Output 'CONTROL_PLANE_ORDER_SUBMISSION_BY_SERVICE=false'
-          Write-Output 'CONTROL_PLANE_LIVE_TRADING_ALLOWED=false'
- -or
+              $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_LOGIN -notmatch '^[0-9]+$' -or
               [long]$env:FOREXAI_EXPECTED_DEMO_ACCOUNT_LOGIN -le 0) {
             throw 'CONTROL_PLANE_EXPECTED_DEMO_LOGIN_MISSING_OR_INVALID'
           }
@@ -357,6 +188,10 @@ jobs:
               '--repository', $env:GITHUB_REPOSITORY,
               '--promotion-run-id', $env:FOREXAI_G13_PROMOTION_RUN_ID,
               '--candidate-id', $env:CANDIDATE_ID,
+              '--expected-demo-login', $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_LOGIN,
+              '--expected-demo-server', $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_SERVER,
+              '--expected-demo-login', $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_LOGIN,
+              '--expected-demo-server', $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_SERVER,
               '--promotion-manifest', $env:FOREXAI_G13_PROMOTION_MANIFEST_PATH,
               '--promotion-attestation', $env:FOREXAI_G13_PROMOTION_ATTESTATION_PATH,
               '--promotion-provenance', $env:FOREXAI_G13_PROMOTION_PROVENANCE_PATH,
