@@ -36,10 +36,6 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET) -or
-              [System.Text.Encoding]::UTF8.GetByteCount($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET) -lt 32) {
-            throw 'CONTROL_PLANE_HMAC_SECRET_MISSING_OR_TOO_SHORT'
-          }
           $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
           $resolved = @(& $resolver -TerminalPath $env:TERMINAL_PATH -SetDenyKillSwitch)
           $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
@@ -48,6 +44,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $commonFiles -PathType Container)) { throw 'CONTROL_PLANE_MT5_COMMON_FILES_MISSING' }
           $switch = Join-Path $commonFiles 'g13_demo_kill_switch.txt'
           if ((Get-Content -LiteralPath $switch -Raw) -ne 'DENY') { throw 'CONTROL_PLANE_INITIAL_DENY_UNVERIFIED' }
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET) -or
+              [System.Text.Encoding]::UTF8.GetByteCount($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET) -lt 32) {
+            throw 'CONTROL_PLANE_HMAC_SECRET_MISSING_OR_TOO_SHORT'
+          }
           "FOREXAI_MT5_COMMON_FILES=$commonFiles" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "FOREXAI_CONTROL_PLANE_BUNDLE=$(Join-Path $env:ProgramData 'ForexAI\ControlPlane\promotion-bundle')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           New-Item -ItemType Directory -Force -Path (Join-Path $env:ProgramData 'ForexAI\ControlPlane') | Out-Null
@@ -130,7 +130,7 @@ jobs:
           Get-ChildItem -LiteralPath $bundleDir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
           $zip = Join-Path $bundleDir 'promotion-artifact.zip'
           $zipUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($artifact.id)/zip"
-          Invoke-WebRequest -Method Get -Uri $zipUri -Headers $headers -OutFile $zip
+          Invoke-WebRequest -UseBasicParsing -Method Get -Uri $zipUri -Headers $headers -OutFile $zip
           $actualDigest = 'sha256:' + (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
           if ($actualDigest -ne $artifact.digest.ToLowerInvariant()) { throw 'CONTROL_PLANE_PROMOTION_ARTIFACT_DIGEST_MISMATCH' }
           $extractDir = Join-Path $bundleDir 'extracted'
@@ -165,7 +165,7 @@ jobs:
           $envelope = Join-Path $root 'authenticated-envelope.json'
           Push-Location -LiteralPath $env:GITHUB_WORKSPACE
           try {
-            $args = @(
+            $cpArgs = @(
               '--watch',
               '--repository', $env:GITHUB_REPOSITORY,
               '--promotion-run-id', $env:FOREXAI_G13_PROMOTION_RUN_ID,
@@ -178,7 +178,7 @@ jobs:
               '--terminal-path', $env:TERMINAL_PATH,
               '--poll-seconds', '0.25'
             )
-            & $env:PYTHON_EXE -m tools.forexai_control_plane_v1 @args
+            & $env:PYTHON_EXE -m tools.forexai_control_plane_v1 @cpArgs
             if ($LASTEXITCODE -ne 0) { throw "CONTROL_PLANE_SERVICE_EXIT:$LASTEXITCODE" }
           } finally {
             Pop-Location
