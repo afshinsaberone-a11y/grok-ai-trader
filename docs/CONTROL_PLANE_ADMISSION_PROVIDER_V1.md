@@ -42,6 +42,8 @@ Source type and required key ID are pinned in code:
 
 Each public key is base64-encoded raw 32-byte Ed25519. Do not reuse the same key across source roles. The private keys corresponding to these source keys remain controlled by their respective source systems; the provider receives only their public keys.
 
+The provider environment must also set FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY to the same base64 raw public key configured as the repository variable consumed by the MT5 verifier. The CLI derives the public key from its private signing key and blocks with PROVIDER_ADMISSION_KEYPAIR_MISMATCH if they differ. This prevents a silent provider/consumer key mismatch; the private key still stays exclusively in the external provider.
+
 ### Required signed payloads
 
 - **Promotion:** schema forexai.g13.promotion_evidence.v1; exact 40-character commit SHA; gates validation, robustness, oos, parity, package_preflight, safety_audit all PASS; readiness status READY_FOR_CONTROLLED_DEMO_AUDIT; demo_trading_allowed=true; live_trading_allowed=false; real_data_only=true; synthetic_data=false; positive integer run IDs for promotion, validation, robustness, OOS, parity, package preflight, safety audit, and readiness. The promotion attestor must independently check the successful run metadata and actual artifacts, not rely only on fields supplied in the packet.
