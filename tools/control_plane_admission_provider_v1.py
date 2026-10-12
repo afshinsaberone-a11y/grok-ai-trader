@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from contextlib import closing
 import binascii
 import hashlib
 import hmac
@@ -16,6 +17,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import sys
 import tempfile
 import uuid
@@ -539,6 +541,148 @@ def write_request_new(path: str | Path, request: Mapping[str, Any]) -> None:
                 pass
 
 
+def record_issuance(
+    request: Mapping[str, Any],
+    registry_path: str | Path,
+    issuer_public_key: Ed25519PublicKey,
+) -> None:
+    """Verify and durably claim one signed request, never permitting replay.
+
+    The registry lives only on the independent provider host. Its committed
+    record intentionally survives a later output failure: operators must
+    reconcile that failure rather than silently re-issue authority.
+    """
+    if not isinstance(registry_path, (str, Path)) or not str(registry_path).strip():
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_NOT_CONFIGURED")
+    if not isinstance(issuer_public_key, Ed25519PublicKey):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_VERIFICATION_KEY_INVALID")
+    _exact_fields(
+        request,
+        {"schema", "request_id", "provider_key_id", "issued_at_utc", "valid_until_utc",
+         "candidate", "promotion_evidence", "authorization", "signature"},
+        "PROVIDER_REGISTRY_REQUEST_FIELDS_INVALID",
+    )
+    if request["schema"] != ADMISSION_SCHEMA or request["provider_key_id"] != PROVIDER_KEY_ID:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_REQUEST_SCHEMA_INVALID")
+    signature = _exact_fields(
+        request["signature"], SIGNATURE_FIELDS, "PROVIDER_REGISTRY_SIGNATURE_FIELDS_INVALID"
+    )
+    if signature["algorithm"] != "Ed25519" or signature["key_id"] != PROVIDER_KEY_ID:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNATURE_METADATA_INVALID")
+    encoded_signature = signature["signature"]
+    if not isinstance(encoded_signature, str):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNATURE_INVALID")
+    try:
+        decoded_signature = base64.b64decode(encoded_signature, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNATURE_INVALID") from exc
+    if len(decoded_signature) != 64:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNATURE_INVALID")
+    unsigned_request = {key: value for key, value in request.items() if key != "signature"}
+    try:
+        issuer_public_key.verify(decoded_signature, canonical_json(unsigned_request))
+    except InvalidSignature as exc:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_ADMISSION_SIGNATURE_INVALID") from exc
+    request_id = _safe_id(request["request_id"], "PROVIDER_REGISTRY_REQUEST_ID_INVALID")
+    _parse_utc(request["issued_at_utc"], "PROVIDER_REGISTRY_ISSUED_AT_INVALID")
+    candidate = request["candidate"]
+    if not isinstance(candidate, Mapping):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_CANDIDATE_INVALID")
+    signal_id = _safe_id(candidate.get("signal_id"), "PROVIDER_REGISTRY_SIGNAL_ID_INVALID")
+    trade_id = _safe_id(candidate.get("trade_id"), "PROVIDER_REGISTRY_TRADE_ID_INVALID")
+    if not trade_id.endswith("-S"):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_TRADE_ID_INVALID")
+    input_hash = candidate.get("input_hash")
+    if not isinstance(input_hash, str) or not SHA256.fullmatch(input_hash):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_INPUT_HASH_INVALID")
+    signal_payload = candidate.get("signal_payload")
+    if not isinstance(signal_payload, Mapping):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNAL_PAYLOAD_INVALID")
+    expected_hash = hashlib.sha256(canonical_json(signal_payload)).hexdigest()
+    if not hmac.compare_digest(expected_hash, input_hash):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_INPUT_HASH_MISMATCH")
+    authorization = request["authorization"]
+    if not isinstance(authorization, Mapping):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_AUTHORIZATION_INVALID")
+    reservation_id = _safe_id(
+        authorization.get("reservation_id"), "PROVIDER_REGISTRY_RESERVATION_ID_INVALID"
+    )
+    authorization_id = _safe_id(
+        authorization.get("authorization_id"), "PROVIDER_REGISTRY_AUTHORIZATION_ID_INVALID"
+    )
+
+    target = Path(registry_path).expanduser().resolve(strict=False)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(str(target), timeout=10.0, isolation_level=None)) as db:
+            db.execute("PRAGMA busy_timeout = 10000")
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS issued_admissions (
+                    signal_id TEXT PRIMARY KEY,
+                    reservation_id TEXT NOT NULL UNIQUE,
+                    authorization_id TEXT NOT NULL UNIQUE,
+                    request_id TEXT NOT NULL UNIQUE,
+                    trade_id TEXT NOT NULL,
+                    input_hash TEXT NOT NULL,
+                    issued_at_utc TEXT NOT NULL
+                )
+                """
+            )
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute(
+                    """
+                    INSERT INTO issued_admissions
+                        (signal_id, reservation_id, authorization_id, request_id,
+                         trade_id, input_hash, issued_at_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        signal_id, reservation_id, authorization_id, request_id,
+                        trade_id, input_hash, str(request["issued_at_utc"]),
+                    ),
+                )
+                db.commit()
+            except sqlite3.IntegrityError as exc:
+                db.rollback()
+                raise AdmissionProviderError(
+                    "PROVIDER_SIGNAL_OR_AUTHORIZATION_ALREADY_ISSUED"
+                ) from exc
+            except sqlite3.Error as exc:
+                db.rollback()
+                raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_FAILED") from exc
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            # Windows ACLs are managed by deployment; do not fail after a
+            # successful reservation because POSIX chmod is unavailable.
+            pass
+    except AdmissionProviderError:
+        raise
+    except sqlite3.Error as exc:
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_FAILED") from exc
+    except OSError as exc:
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_UNAVAILABLE") from exc
+
+
+def _validate_cli_paths(packet_path: str, output_path: str, private_key_path: str,
+                        registry_path: str) -> None:
+    paths = {
+        "packet": Path(packet_path).expanduser().resolve(strict=False),
+        "output": Path(output_path).expanduser().resolve(strict=False),
+        "private_key": Path(private_key_path).expanduser().resolve(strict=False),
+        "registry": Path(registry_path).expanduser().resolve(strict=False),
+    }
+    values = list(paths.items())
+    for index, (name_a, path_a) in enumerate(values):
+        for name_b, path_b in values[index + 1:]:
+            if path_a == path_b:
+                raise AdmissionProviderError(
+                    f"PROVIDER_PATH_COLLISION:{name_a.upper()}:{name_b.upper()}"
+                )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packet", required=True, help="Path to the four-source attestation packet")
@@ -546,6 +690,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--provider-private-key", required=True, help="External Ed25519 PKCS#8 PEM path")
     args = parser.parse_args(argv)
     try:
+        registry_path = os.environ.get("FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH", "")
+        if not registry_path.strip():
+            raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_NOT_CONFIGURED")
+        _validate_cli_paths(args.packet, args.output, args.provider_private_key, registry_path)
+        if Path(args.output).expanduser().exists():
+            raise AdmissionProviderError("PROVIDER_OUTPUT_ALREADY_EXISTS")
         public_keys: dict[str, str] = {}
         for source_type, env_name in SOURCE_KEY_ENVS.items():
             value = os.environ.get(env_name, "")
@@ -562,6 +712,9 @@ def main(argv: list[str] | None = None) -> int:
             os.environ.get("FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY", ""),
         )
         request = build_admission_request(packet, source_public_keys=public_keys, provider_private_key=private_key)
+        # Reserve the signal and authorization first. If output delivery later
+        # fails, fail closed: never silently issue a second permit for this signal.
+        record_issuance(request, registry_path, private_key.public_key())
         write_request_new(args.output, request)
     except AdmissionProviderError as exc:
         print(json.dumps({

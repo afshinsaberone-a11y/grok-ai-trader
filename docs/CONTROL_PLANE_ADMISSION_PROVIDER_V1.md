@@ -44,6 +44,14 @@ Each public key is base64-encoded raw 32-byte Ed25519. The issuer enforces that 
 
 The provider environment must also set FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY to the same base64 raw public key configured as the repository variable consumed by the MT5 verifier. The CLI derives the public key from its private signing key and blocks with PROVIDER_ADMISSION_KEYPAIR_MISMATCH if they differ. This prevents a silent provider/consumer key mismatch; the private key still stays exclusively in the external provider.
 
+## Durable one-shot issuance registry
+
+Before writing a signed request to its output file, the provider must commit a uniqueness claim into a persistent SQLite registry selected by the required environment variable FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH. The provider CLI refuses to run if this variable is missing and checks that packet, output, private-key, and registry paths are not the same path.
+
+Before it claims any identifier, the registry function verifies the admission's Ed25519 signature against the issuer public key and checks the canonical signal-payload hash. The table enforces unique values for signal_id, reservation_id, authorization_id, and request_id under a transaction started with BEGIN IMMEDIATE, so concurrent provider processes cannot issue multiple permits for the same signal or risk reservation. A duplicate returns PROVIDER_SIGNAL_OR_AUTHORIZATION_ALREADY_ISSUED. Keep the database on durable storage protected by the provider service account's filesystem ACLs; the code also applies restrictive POSIX permissions where available. This database is operational security state, not an ephemeral cache: do not delete, reset, restore from an old backup, or redirect it to a fresh path to bypass one-shot enforcement. Back it up and retain it according to the provider's secure audit-retention policy.
+
+The registry claim is deliberately committed before output publication. If writing or delivering the output then fails, that signal/reservation/authorization remains consumed. Reconcile the failed delivery by inspecting the provider host and its controlled output channel; do not mint another permit by changing output filename. This is fail-closed behavior and may require manual reconciliation. The MT5 verifier still independently enforces the short expiry, ledger state, account fingerprint, and runtime checks.
+
 ### Required signed payloads
 
 - **Promotion:** schema forexai.g13.promotion_evidence.v1; exact 40-character commit SHA; gates validation, robustness, oos, parity, package_preflight, safety_audit all PASS; readiness status READY_FOR_CONTROLLED_DEMO_AUDIT; demo_trading_allowed=true; live_trading_allowed=false; real_data_only=true; synthetic_data=false; positive integer run IDs for promotion, validation, robustness, OOS, parity, package preflight, safety audit, and readiness. The promotion attestor must independently check the successful run metadata and actual artifacts, not rely only on fields supplied in the packet.
@@ -64,6 +72,8 @@ $env:FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY = '<base64 raw Ed25519 public key>'
 $env:FOREXAI_PROVIDER_SIGNAL_PUBLIC_KEY = '<base64 raw Ed25519 public key>'
 $env:FOREXAI_PROVIDER_RISK_PUBLIC_KEY = '<base64 raw Ed25519 public key>'
 $env:FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY = '<base64 raw Ed25519 public key>'
+$env:FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY = '<same public key configured for the MT5 verifier>'
+$env:FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH = 'C:\ProgramData\ForexAI\provider-state\issued-admissions.sqlite3'
 python -m tools.control_plane_admission_provider_v1 --packet 'C:\ProgramData\ForexAI\provider\current-source-packet.json' --provider-private-key 'C:\ProgramData\ForexAI\keys\admission-provider-ed25519.pem' --output 'C:\ProgramData\ForexAI\outbox\admission-request.json'
 ~~~
 
@@ -79,7 +89,7 @@ Run:
 pytest -q tests/test_control_plane_admission_provider_v1.py tests/test_control_plane_service_v1.py
 ~~~
 
-Tests use ephemeral test-only Ed25519 keys and a fixed test clock. They cover request compatibility with the existing verifier and rejection of false Demo permission, Live permission, tampered/wrong-key attestations, stale signals, mismatched source identities, invalid risk, non-PASS promotion gates, malformed source contracts, duplicate JSON keys, and output overwrite. They do not use a broker or submit any orders.
+Tests use ephemeral test-only Ed25519 keys and a fixed test clock. They cover request compatibility with the existing verifier and rejection of false Demo permission, Live permission, tampered/wrong-key attestations, stale signals, mismatched source identities, invalid risk, non-PASS promotion gates, malformed source contracts, duplicate JSON keys, output overwrite, replayed signals, reused reservations/authorizations, and retry after output failure. They do not use a broker or submit any orders.
 
 ## Operational dependencies still outside this repository
 
