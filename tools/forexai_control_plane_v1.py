@@ -656,6 +656,13 @@ def process_signal_intent(
 
     lock_path = ledger_path.with_suffix(ledger_path.suffix + ".control-plane.lock")
     with _exclusive_lock(lock_path):
+        # Single authorization slot across every promoted G13 candidate. The
+        # MQL5 terminal consumes/deletes this file before its one broker call;
+        # until then no second candidate may receive authority, even if its
+        # individual risk would fit under the aggregate cap.
+        existing_records = list(common_files.glob("ForexAI_Authorization_*_EURUSD.auth"))
+        if existing_records:
+            raise ControlPlaneError("G13_AUTHORIZATION_SLOT_OCCUPIED")
         ledger_path.parent.mkdir(parents=True, exist_ok=True)
         ledger = TradeLedger(ledger_path)
         if ledger.state_of(trade_id) is not None:
