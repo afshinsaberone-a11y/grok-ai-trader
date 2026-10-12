@@ -273,7 +273,7 @@ def patch_generated_source(source: str, candidate_id: int, config_hash: str) -> 
         raise ValueError("CONTROL_PLANE_AUTH_IDENTITY_CHECK_NOT_FOUND")
     patched = patched.replace(
         old_identity,
-        old_identity + '\n   if(parts[15]!=expected_decision_id) return false;',
+        old_identity + '\n   if(parts[14]!=expected_decision_id) return false;',
         1,
     )
     old_trade_id = '''string BuildTraceTradeId(const datetime signal_bar_time)
