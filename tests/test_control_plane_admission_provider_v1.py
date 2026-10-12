@@ -325,10 +325,21 @@ def _with_new_signal(request: dict, signal_id: str, *, request_id: str) -> dict:
     return changed
 
 
+def test_registry_rejects_tampered_request_before_creating_its_database(tmp_path: Path):
+    registry = tmp_path / "provider-state" / "issued.sqlite3"
+    tampered = _build()
+    tampered["authorization"]["reservation_id"] = "reservation-tampered"
+    with pytest.raises(
+        AdmissionProviderError, match="PROVIDER_REGISTRY_ADMISSION_SIGNATURE_INVALID"
+    ):
+        record_issuance(tampered, registry, PROVIDER_PRIVATE_KEY.public_key())
+    assert not registry.exists()
+
+
 def test_registry_rejects_replay_even_when_request_id_and_output_path_change(tmp_path: Path):
     registry = tmp_path / "provider-state" / "issued.sqlite3"
     first = _build()
-    record_issuance(first, registry)
+    record_issuance(first, registry, PROVIDER_PRIVATE_KEY.public_key())
 
     replay = copy.deepcopy(first)
     replay["request_id"] = "admission-replayed-with-new-id"
@@ -339,7 +350,7 @@ def test_registry_rejects_replay_even_when_request_id_and_output_path_change(tmp
     with pytest.raises(
         AdmissionProviderError, match="PROVIDER_SIGNAL_OR_AUTHORIZATION_ALREADY_ISSUED"
     ):
-        record_issuance(replay, registry)
+        record_issuance(replay, registry, PROVIDER_PRIVATE_KEY.public_key())
 
 
 @pytest.mark.parametrize("duplicate_field", ["reservation_id", "authorization_id"])
@@ -367,13 +378,13 @@ def test_registry_prevents_reusing_reservation_or_authorization_for_new_signal(
     with pytest.raises(
         AdmissionProviderError, match="PROVIDER_SIGNAL_OR_AUTHORIZATION_ALREADY_ISSUED"
     ):
-        record_issuance(second, registry)
+        record_issuance(second, registry, PROVIDER_PRIVATE_KEY.public_key())
 
 
 def test_registry_record_is_not_released_after_output_failure(tmp_path: Path):
     registry = tmp_path / "provider-state" / "issued.sqlite3"
     request = _build()
-    record_issuance(request, registry)
+    record_issuance(request, registry, PROVIDER_PRIVATE_KEY.public_key())
 
     target = tmp_path / "existing.json"
     target.write_text("occupied", encoding="utf-8")
