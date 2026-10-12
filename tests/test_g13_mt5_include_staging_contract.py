@@ -56,3 +56,24 @@ def test_g13_diagnostics_do_not_join_optional_portable_paths_when_unset():
     assert step.index("if ($portableRoot) {") < step.index("(Join-Path $portableRoot 'logs')")
     assert "service_terminal_logs" in step
     assert "service_mql5_logs" in step
+
+
+def test_g13_parity_reclaims_only_bare_local_system_terminal_processes():
+    workflow = (
+        ROOT / ".github" / "workflows" / "forexai-g13-mt5-compile-parity.yml"
+    ).read_text(encoding="utf-8")
+    step = workflow.split("      - name: Run MQL5 real-data parity script", 1)[1].split(
+        "      - name: Collect MT5 parity diagnostics", 1
+    )[0]
+
+    assert "Invoke-CimMethod -InputObject $p -MethodName GetOwner" in step
+    assert "$owner.User -eq 'SYSTEM' -and $owner.Domain -eq 'NT AUTHORITY'" in step
+    assert "$bareCommand.Equals([IO.Path]::GetFullPath($terminal)" in step
+    assert "if (-not $isSystemOwner -or -not $isBareTerminal)" in step
+    assert "refusing to terminate it or start a conflicting instance" in step
+    assert "Stop-Process -Id ([int]$p.ProcessId) -Force" in step
+    assert "MT5_STALE_SERVICE_TERMINAL_CLEANUP_OK=" in step
+    assert step.index("MT5_STALE_SERVICE_TERMINAL_CLEANUP_OK=") < step.index(
+        "$proc = Start-Process -FilePath $terminal"
+    )
+    assert "Stop-Process -Name terminal64.exe" not in step
