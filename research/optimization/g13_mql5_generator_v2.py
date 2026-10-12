@@ -14,6 +14,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from research.optimization.g13_control_plane_ea_gate_v1 import patch_generated_source
+
 SCHEMA = "forexai.g13.promotion_manifest.m15.v1"
 HANDOFF_SCHEMA = "forexai.g13.candidate_handoff.frozen.v1"
 
@@ -834,7 +836,10 @@ def generate(manifest_path: Path, handoff_path: Path, out_dir: Path) -> list[Pat
         assert manifest_candidate['config_hash']==canonical_hash(manifest_candidate['params'])
         c=handoff_candidate
         path=out_dir/f'ForexAI_G13_Candidate_{cid:02d}.mq5'
-        path.write_text(render(c),encoding='utf-8')
+        path.write_text(
+            patch_generated_source(render(c), cid, manifest_candidate['config_hash']),
+            encoding='utf-8',
+        )
         paths.append(path)
     assert len(paths)==len(ids)
     return paths
