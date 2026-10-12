@@ -222,6 +222,18 @@ jobs:
           ]:
               assert token in promotion, f"promotion provenance token missing: {token}"
 
+          # The Watchdog owns the official chain and explicitly dispatches each gate in order.
+          # Prevent main pushes from racing that chain with duplicate Validation/Robustness/Promotion runs.
+          for orchestrated_gate in [
+              ".github/workflows/forexai-g13-validation-m15.yml",
+              ".github/workflows/forexai-g13-robustness-m15.yml",
+              ".github/workflows/forexai-g13-promotion-m15.yml",
+          ]:
+              gate_workflow = Path(orchestrated_gate).read_text(encoding="utf-8")
+              trigger_prefix = gate_workflow.split("\nconcurrency:", 1)[0].split("\npermissions:", 1)[0]
+              assert "workflow_dispatch:" in trigger_prefix, f"manual dispatch missing from orchestrated gate: {orchestrated_gate}"
+              assert "\n  push:" not in trigger_prefix, f"orchestrated gate must not have a duplicate push trigger: {orchestrated_gate}"
+
           watchdog = Path(".github/workflows/forexai-g13-oos-watchdog-m15.yml").read_text(encoding="utf-8")
           for token in [
               "actions: write",
