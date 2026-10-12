@@ -494,6 +494,11 @@ def _validate_evidence(
     validation_count = validation.get("validation_qualified_count")
     _require(isinstance(validation_count, int) and not isinstance(validation_count, bool) and validation_count > 0,
              "G13_ATTESTOR_VALIDATION_QUALIFIED_COUNT_INVALID")
+    validation_ids = _id_set(validation.get("candidates"), "candidate_id", "validation_pass")
+    _require(len(validation_ids) == len(set(validation_ids)),
+             "G13_ATTESTOR_VALIDATION_CANDIDATE_IDS_DUPLICATE")
+    _require(len(validation_ids) == validation_count,
+             "G13_ATTESTOR_VALIDATION_CANDIDATE_COVERAGE_INVALID")
 
     robustness = docs["robustness"]
     _require(robustness.get("schema") == "forexai.g13.robustness_m15.v1", "G13_ATTESTOR_ROBUSTNESS_SCHEMA_INVALID")
@@ -503,6 +508,14 @@ def _validate_evidence(
              "G13_ATTESTOR_ROBUSTNESS_SELECTION_OR_OPTIMIZATION_DETECTED")
     _require(robustness.get("oos") == {"status": "HELD_OUT", "evaluated": False, "optimization_allowed": False},
              "G13_ATTESTOR_ROBUSTNESS_OOS_POLICY_FAILED")
+    robustness_ids = _id_set(robustness.get("candidates"), "candidate_id")
+    robustness_pass_ids = _id_set(robustness.get("candidates"), "candidate_id", "robustness_pass")
+    _require(len(robustness_ids) == len(set(robustness_ids))
+             and sorted(robustness_ids) == sorted(validation_ids),
+             "G13_ATTESTOR_ROBUSTNESS_CANDIDATE_IDENTITY_MISMATCH")
+    _require(len(robustness_pass_ids) == len(robustness_ids)
+             and all(row.get("robustness_pass") is True for row in robustness["candidates"]),
+             "G13_ATTESTOR_ROBUSTNESS_CANDIDATE_PASS_FLAGS_INVALID")
     _require(robustness.get("candidate_count") == validation_count, "G13_ATTESTOR_ROBUSTNESS_CANDIDATE_COUNT_MISMATCH")
     _require(robustness.get("robustness_pass_count") == validation_count, "G13_ATTESTOR_ROBUSTNESS_NOT_ALL_CANDIDATES_PASS")
 
@@ -517,7 +530,15 @@ def _validate_evidence(
              and oos.get("oos", {}).get("optimization_allowed") is False
              and oos.get("oos", {}).get("selection_allowed") is False,
              "G13_ATTESTOR_OOS_POLICY_FAILED")
-    oos_ids = sorted(_id_set(oos.get("candidates"), "candidate_id", "oos_pass"))
+    oos_all_ids = _id_set(oos.get("candidates"), "candidate_id")
+    oos_ids = _id_set(oos.get("candidates"), "candidate_id", "oos_pass")
+    _require(len(oos_all_ids) == len(set(oos_all_ids))
+             and sorted(oos_all_ids) == sorted(validation_ids),
+             "G13_ATTESTOR_OOS_CANDIDATE_COVERAGE_MISMATCH")
+    _require(len(oos_ids) == len(set(oos_ids)),
+             "G13_ATTESTOR_OOS_CANDIDATE_IDS_DUPLICATE")
+    _require(oos.get("candidate_count") == len(oos_all_ids),
+             "G13_ATTESTOR_OOS_CANDIDATE_COUNT_INVALID")
     _require(oos.get("oos_pass_count") == len(oos_ids) and len(oos_ids) > 0,
              "G13_ATTESTOR_OOS_PASS_COUNT_INVALID")
 
@@ -620,7 +641,11 @@ def _validate_evidence(
              and preflight.get("compile_parity_artifact_digest") == digests["parity"]
              and preflight.get("downloaded_zip_sha256") == digests["parity"][7:],
              "G13_ATTESTOR_PREFLIGHT_PARITY_ARTIFACT_MISMATCH")
-    _require(preflight.get("candidate_ids") == promoted_ids and preflight.get("candidate_count") == len(promoted_ids),
+    preflight_ids = preflight.get("candidate_ids")
+    _require(isinstance(preflight_ids, list)
+             and len(preflight_ids) == len(set(preflight_ids))
+             and sorted(preflight_ids) == sorted(promoted_ids)
+             and preflight.get("candidate_count") == len(promoted_ids),
              "G13_ATTESTOR_PREFLIGHT_CANDIDATES_MISMATCH")
     _require(preflight.get("source_hashes_verified") == len(promoted_ids)
              and preflight.get("binary_hashes_verified") == len(promoted_ids)
@@ -640,7 +665,9 @@ def _validate_evidence(
              and safety_policy.get("demo_trading_default_authorized") is False,
              "G13_ATTESTOR_SAFETY_PERMISSION_POLICY_INVALID")
     source_results = safety.get("sources")
-    _require(isinstance(source_results, list) and len(source_results) == len(promoted_ids)
+    safety_source_ids = _id_set(source_results, "candidate_id")
+    _require(isinstance(source_results, list) and len(safety_source_ids) == len(set(safety_source_ids))
+             and sorted(safety_source_ids) == sorted(promoted_ids)
              and all(row.get("pass") is True for row in source_results),
              "G13_ATTESTOR_SAFETY_SOURCE_COVERAGE_INVALID")
     matrix = safety.get("matrix")
