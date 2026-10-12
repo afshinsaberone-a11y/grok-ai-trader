@@ -364,6 +364,8 @@ def _verify_grant(
         raise AttestorError("G13_ATTESTOR_GRANT_CONFIG_HASH_INVALID")
     run_ids = _exact(grant["run_ids"], RUN_ID_FIELDS, "G13_ATTESTOR_GRANT_RUN_IDS_INVALID")
     normalized_ids = {key: _positive_run_id(value) for key, value in run_ids.items()}
+    if len(set(normalized_ids.values())) != len(normalized_ids):
+        raise AttestorError("G13_ATTESTOR_GRANT_RUN_IDS_NOT_UNIQUE")
     issued = _utc(grant["issued_at_utc"], "G13_ATTESTOR_GRANT_ISSUED_AT_INVALID")
     until = _utc(grant["valid_until_utc"], "G13_ATTESTOR_GRANT_EXPIRY_INVALID")
     if issued > now + timedelta(seconds=MAX_CLOCK_SKEW_SECONDS):
