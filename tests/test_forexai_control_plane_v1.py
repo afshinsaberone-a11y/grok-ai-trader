@@ -211,7 +211,7 @@ def _write_intent(root: Path, candidate: dict, *, now=NOW, side="SELL", bar_epoc
     return path
 
 
-def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005, promotion_run_id=99123, selected_candidate_id=2, expected_demo_login=12345678):
+def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005, promotion_run_id=99123, selected_candidate_id=2, expected_demo_login=12345678, expected_demo_server="Broker-Demo"):
     common_files = root / "common"
     common_files.mkdir(exist_ok=True)
     (common_files / "g13_demo_kill_switch.txt").write_text("ALLOW\n", encoding="utf-8")
@@ -243,7 +243,7 @@ def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_
         promotion_run_id=promotion_run_id,
         selected_candidate_id=selected_candidate_id,
         expected_demo_login=expected_demo_login,
-        expected_demo_server="Broker-Demo",
+        expected_demo_server=expected_demo_server,
     )
     return result, ledger_path, envelope_path, common_files, secret, mt5
 
@@ -282,6 +282,12 @@ def test_real_demo_intent_creates_hash_chained_authority_without_order_send(tmp_
 def test_wrong_demo_account_identity_is_rejected_before_ledger_mutation(tmp_path):
     with pytest.raises(ControlPlaneError, match="MT5_DEMO_ACCOUNT_LOGIN_MISMATCH"):
         _call(tmp_path, expected_demo_login=87654321)
+    assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
+
+
+def test_wrong_demo_server_is_rejected_before_ledger_mutation(tmp_path):
+    with pytest.raises(ControlPlaneError, match="MT5_DEMO_ACCOUNT_SERVER_MISMATCH"):
+        _call(tmp_path, expected_demo_server="Different-Demo-Server")
     assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
 
 
@@ -402,6 +408,8 @@ def test_second_candidate_intent_is_blocked_while_global_auth_slot_is_occupied(t
             now=NOW,
             promotion_run_id=99123,
             selected_candidate_id=2,
+            expected_demo_login=12345678,
+            expected_demo_server="Broker-Demo",
         )
     assert len(TradeLedger(ledger_path).events) == count_before
 
