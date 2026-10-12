@@ -101,19 +101,3 @@ def test_g13_compile_artifacts_do_not_modify_the_user_mt5_experts_directory():
     assert "$env:MT5_DATA_ROOT" not in parity
     assert "$experts = Join-Path $portableRoot 'MQL5\\Experts'" in parity
     assert "Copy-Item -LiteralPath $candidate.FullName -Destination $experts" in parity
-def test_g13_compile_artifacts_do_not_modify_the_user_mt5_experts_directory():
-    workflow = (
-        ROOT / ".github" / "workflows" / "forexai-g13-mt5-compile-parity.yml"
-    ).read_text(encoding="utf-8")
-    verify = workflow.split(
-        "      - name: Verify fresh EAs for isolated portable runtime", 1
-    )[1].split("      - name: Resolve REAL EURUSD M15 dataset", 1)[0]
-    parity = workflow.split(
-        "      - name: Run MQL5 real-data parity script", 1
-    )[1].split("      - name: Collect MT5 parity diagnostics", 1)[0]
-
-    assert "$env:MT5_DATA_ROOT" not in verify
-    assert "MT5_USER_EXPERTS_DIRECTORY_NOT_MODIFIED=true" in verify
-    assert "$env:MT5_DATA_ROOT" not in parity
-    assert "$experts = Join-Path $portableRoot 'MQL5\\Experts'" in parity
-    assert "Copy-Item -LiteralPath $candidate.FullName -Destination $experts" in parity
