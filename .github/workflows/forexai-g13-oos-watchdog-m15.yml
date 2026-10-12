@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Set up retryable GitHub CLI wrapper for transient API reads
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           bin_dir="$RUNNER_TEMP/g13-gh-retry-bin"
