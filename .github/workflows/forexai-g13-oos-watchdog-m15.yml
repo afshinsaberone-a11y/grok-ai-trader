@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: g13-oos-watchdog-m15
+  group: g13-oos-watchdog-m15-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:

@@ -235,6 +235,16 @@ jobs:
               assert "\n  push:" not in trigger_prefix, f"orchestrated gate must not have a duplicate push trigger: {orchestrated_gate}"
 
           watchdog = Path(".github/workflows/forexai-g13-oos-watchdog-m15.yml").read_text(encoding="utf-8")
+          assert "group: g13-oos-watchdog-m15-" in watchdog and "github.sha }}" in watchdog, (
+              "G13 Watchdog concurrency must be scoped to its exact SHA"
+          )
+          preflight_dispatcher = Path(".github/workflows/forexai-g13-preflight-dispatcher-m15.yml").read_text(encoding="utf-8")
+          assert "group: g13-preflight-dispatcher-m15-" in preflight_dispatcher, (
+              "Preflight Dispatcher concurrency must be SHA scoped"
+          )
+          assert 'github.event.workflow_run.head_sha || github.sha }}' in preflight_dispatcher, (
+              "Preflight Dispatcher concurrency expression must use the triggering Compile/Parity SHA"
+          )
           for token in [
               "actions: write",
               'dispatch_workflow "forexai-g13-validation-m15.yml"',
