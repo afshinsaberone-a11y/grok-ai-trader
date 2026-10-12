@@ -135,9 +135,9 @@ def validate_promotion_bundle(
     manifest_path: Path,
     attestation_path: Path,
     provenance_path: Path,
-    candidate_id: int,
+    candidate_id: int | None,
     expected_main_sha: str,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Bind candidate eligibility to the exact, current G13 promotion artifact."""
     manifest = _read_object(manifest_path, "PROMOTION_MANIFEST_UNREADABLE")
     attestation = _read_object(attestation_path, "PROMOTION_ATTESTATION_UNREADABLE")
@@ -200,10 +200,18 @@ def validate_promotion_bundle(
     candidates = manifest.get("candidates")
     if (
         not isinstance(promoted_ids, list)
+        or not promoted_ids
         or not isinstance(candidates, list)
-        or candidate_id not in promoted_ids
         or len(promoted_ids) != len(set(promoted_ids))
+        or any(not isinstance(cid, int) or cid <= 0 for cid in promoted_ids)
     ):
+        raise ControlPlaneError("PROMOTION_CANDIDATE_SET_INVALID")
+    if candidate_id is None:
+        # Startup validates the entire signed bundle without assuming that a
+        # particular candidate is still promoted. Candidate binding is repeated
+        # against the exact intent each time a signal is consumed.
+        return manifest, None
+    if candidate_id not in promoted_ids:
         raise ControlPlaneError("CANDIDATE_NOT_PROMOTED")
     matches = [
         row for row in candidates
@@ -337,9 +345,9 @@ def _demo_snapshot(mt5: Any, *, intent: Mapping[str, Any], gateway: MT5TerminalG
     order_mode = int(getattr(symbol_info, "order_mode", 0))
     if not (order_mode & int(getattr(mt5, "SYMBOL_ORDER_MARKET", 1))):
         raise ControlPlaneError("MT5_MARKET_ORDERS_NOT_ALLOWED")
-    if not (order_mode & int(getattr(mt5, "SYMBOL_ORDER_SL", 2))):
+    if not (order_mode & int(getattr(mt5, "SYMBOL_ORDER_SL", 16))):
         raise ControlPlaneError("MT5_STOP_LOSS_NOT_ALLOWED")
-    if not (order_mode & int(getattr(mt5, "SYMBOL_ORDER_TP", 4))):
+    if not (order_mode & int(getattr(mt5, "SYMBOL_ORDER_TP", 32))):
         raise ControlPlaneError("MT5_TAKE_PROFIT_NOT_ALLOWED")
 
     positions = mt5.positions_get()
@@ -349,6 +357,16 @@ def _demo_snapshot(mt5: Any, *, intent: Mapping[str, Any], gateway: MT5TerminalG
         magic = int(getattr(position, "magic", 0) or 0)
         if 130002 <= magic <= 130048:
             raise ControlPlaneError("G13_POSITION_ALREADY_OPEN")
+    orders_get = getattr(mt5, "orders_get", None)
+    if not callable(orders_get):
+        raise ControlPlaneError("MT5_PENDING_ORDER_SNAPSHOT_UNAVAILABLE")
+    pending_orders = orders_get()
+    if pending_orders is None:
+        raise ControlPlaneError("MT5_PENDING_ORDER_SNAPSHOT_UNAVAILABLE")
+    for order in pending_orders:
+        magic = int(getattr(order, "magic", 0) or 0)
+        if 130002 <= magic <= 130048:
+            raise ControlPlaneError("G13_PENDING_ORDER_ALREADY_EXISTS")
 
     entry = float(intent["entry_price"])
     if abs(bid - entry) > MAX_PRICE_DRIFT_POINTS * point:
@@ -845,7 +863,7 @@ def main() -> int:
         manifest_path=args.promotion_manifest,
         attestation_path=args.promotion_attestation,
         provenance_path=args.promotion_provenance,
-        candidate_id=2,  # candidate existence/eligibility is rechecked per intent
+        candidate_id=None,
         expected_main_sha=current_sha,
     )
     if not args.watch:
