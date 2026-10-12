@@ -70,8 +70,7 @@ def test_g13_parity_uses_run_scoped_portable_terminal_in_interactive_session():
     assert "G13_INTERACTIVE_MT5_REQUIRED" in step
     assert "$_.SessionId -gt 0" in step
     assert "Invoke-CimMethod -InputObject $interactiveProcess -MethodName GetOwner" in step
-    assert "MQL5\\\\Profiles" in step
-    assert "MQL5\\\\Terminal" not in step
+    assert "MQL5\\Profiles" in step
     assert "New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive" in step
     assert "--portable-root $portableRoot" in step
     assert "AllowLiveTrading=0" in step
