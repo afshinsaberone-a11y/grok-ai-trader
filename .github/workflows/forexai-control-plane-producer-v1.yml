@@ -73,7 +73,9 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($providerPublicKey)) {
             throw 'CONTROL_PLANE_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED'
           }
-          if ([string]::IsNullOrWhiteSpace($expectedAccountFingerprint) -or $expectedAccountFingerprint -cnotmatch '^[0-9a-f]{16}
+          if ([string]::IsNullOrWhiteSpace($expectedAccountFingerprint) -or $expectedAccountFingerprint -cnotmatch '^[0-9a-f]{16}$') {
+            throw 'CONTROL_PLANE_EXPECTED_DEMO_ACCOUNT_FINGERPRINT_NOT_CONFIGURED'
+          }
           if ([string]::IsNullOrWhiteSpace($ledger)) {
             throw 'CONTROL_PLANE_LEDGER_PATH_NOT_CONFIGURED'
           }
@@ -142,7 +144,10 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY)) {
             throw 'CONTROL_PLANE_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED'
           }
-          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT) -or $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT -cnotmatch '^[0-9a-f]{16}
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT) -or $env:FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT -cnotmatch '^[0-9a-f]{16}$') {
+            throw 'CONTROL_PLANE_EXPECTED_DEMO_ACCOUNT_FINGERPRINT_NOT_CONFIGURED'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET)) {
             throw 'CONTROL_PLANE_ENVELOPE_SECRET_NOT_CONFIGURED'
           }
           New-Item -ItemType Directory -Force -Path (Join-Path $env:GITHUB_WORKSPACE 'artifacts/g13-control-plane') | Out-Null
