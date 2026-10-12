@@ -68,7 +68,8 @@ _CANDIDATE_FIELDS = {
 _PROMOTION_FIELDS = {
     "commit_sha", "validation_status", "robustness_status", "oos_status",
     "parity_status", "package_preflight_status", "safety_audit_status",
-    "readiness_status", "demo_trading_allowed", "live_trading_allowed",
+    "readiness_status", "demo_trading_allowed", "source_default_demo_trading_allowed",
+    "demo_grant_id", "authorized_demo_candidate_id", "live_trading_allowed",
     "real_data_only", "synthetic_data", "run_ids", "promoted_candidate_ids", "candidate_config_hashes",
 }
 _AUTHORIZATION_FIELDS = {
@@ -314,6 +315,12 @@ def verify_admission_request(
         raise ControlPlaneError("CONTROL_PLANE_READINESS_STATUS_NOT_READY")
     if promotion["demo_trading_allowed"] is not True:
         raise ControlPlaneError("CONTROL_PLANE_DEMO_PERMISSION_NOT_GRANTED")
+    if promotion["source_default_demo_trading_allowed"] is not False:
+        raise ControlPlaneError("CONTROL_PLANE_SOURCE_DEFAULT_DEMO_PERMISSION_MUST_REMAIN_FALSE")
+    _safe_id(promotion["demo_grant_id"], "CONTROL_PLANE_DEMO_GRANT_ID_INVALID")
+    grant_candidate_id = promotion["authorized_demo_candidate_id"]
+    if isinstance(grant_candidate_id, bool) or not isinstance(grant_candidate_id, int) or grant_candidate_id <= 0:
+        raise ControlPlaneError("CONTROL_PLANE_DEMO_GRANT_CANDIDATE_ID_INVALID")
     if promotion["live_trading_allowed"] is not False:
         raise ControlPlaneError("CONTROL_PLANE_LIVE_PERMISSION_MUST_REMAIN_DISABLED")
     if promotion["real_data_only"] is not True or promotion["synthetic_data"] is not False:
@@ -327,6 +334,10 @@ def verify_admission_request(
         raise ControlPlaneError("CONTROL_PLANE_PROMOTED_CANDIDATE_IDS_DUPLICATE")
     if candidate_id not in promoted_ids:
         raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_NOT_PROMOTED")
+    if grant_candidate_id not in promoted_ids:
+        raise ControlPlaneError("CONTROL_PLANE_DEMO_GRANT_CANDIDATE_NOT_PROMOTED")
+    if candidate_id != grant_candidate_id:
+        raise ControlPlaneError("CONTROL_PLANE_DEMO_GRANT_CANDIDATE_MISMATCH")
     config_hashes = promotion["candidate_config_hashes"]
     if not isinstance(config_hashes, Mapping) or set(config_hashes) != {str(value) for value in promoted_ids}:
         raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_CONFIG_HASH_MAP_INVALID")
