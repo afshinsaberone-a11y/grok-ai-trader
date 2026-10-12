@@ -79,3 +79,20 @@ def test_g13_parity_uses_run_scoped_portable_terminal_in_interactive_session():
     cleanup = workflow.split("      - name: Cleanup isolated MT5 portable runtime", 1)[1]
     assert "$cloneExe = [System.IO.Path]::GetFullPath($cloneTerminal)" in cleanup
     assert "Stop-Process -Id ([int]$process.ProcessId) -Force" in cleanup
+
+
+def test_g13_compile_artifacts_do_not_modify_the_user_mt5_experts_directory():
+    workflow = (
+        ROOT / ".github" / "workflows" / "forexai-g13-mt5-compile-parity.yml"
+    ).read_text(encoding="utf-8")
+    verify = workflow.split(
+        "      - name: Verify fresh EAs for isolated portable runtime", 1
+    )[1].split("      - name: Resolve REAL EURUSD M15 dataset", 1)[0]
+    parity = workflow.split(
+        "      - name: Run MQL5 real-data parity script", 1
+    )[1].split("      - name: Collect MT5 parity diagnostics", 1)[0]
+
+    assert "$env:MT5_DATA_ROOT" not in verify
+    assert "MT5_USER_EXPERTS_DIRECTORY_NOT_MODIFIED=true" in verify
+    assert "Copy-Item -LiteralPath $candidate.FullName -Destination $experts" not in parity
+    assert "$experts = Join-Path $portableRoot 'MQL5\\Experts'" in parity
