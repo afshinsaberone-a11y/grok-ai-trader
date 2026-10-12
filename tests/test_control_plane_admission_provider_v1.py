@@ -18,6 +18,7 @@ from tools.control_plane_admission_provider_v1 import (
     build_admission_request,
     canonical_json,
     load_packet,
+    verify_provider_key_matches,
     write_request_new,
 )
 from tools.control_plane_service_v1 import PROVIDER_KEY_ID, verify_admission_request
@@ -169,6 +170,14 @@ def _build(packet=None, *, keys=None):
         provider_private_key=PROVIDER_PRIVATE_KEY,
         now_utc=NOW,
     )
+
+
+def test_provider_private_key_must_match_the_mt5_verifiers_configured_public_key():
+    verify_provider_key_matches(PROVIDER_PRIVATE_KEY, PROVIDER_PUBLIC_KEY)
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_ADMISSION_KEYPAIR_MISMATCH"):
+        verify_provider_key_matches(PROVIDER_PRIVATE_KEY, SOURCE_PUBLIC_KEYS["signal"])
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED"):
+        verify_provider_key_matches(PROVIDER_PRIVATE_KEY, "")
 
 
 def test_valid_four_source_packet_produces_service_verifiable_short_lived_request():
