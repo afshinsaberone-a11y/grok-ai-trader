@@ -144,8 +144,9 @@ def test_compile_parity_workflow_disables_only_its_profile_mcp_before_launch():
     helper_call = "disable_mt5_internal_mcp_v1.py"
     assert helper_call in workflow
     assert workflow.index(helper_call) < workflow.index("$procInfo = @(")
-    assert "MCP.MetaTrader" in workflow
-    assert "MCP.MetaEditor" in workflow
+    helper = (ROOT / "tools/disable_mt5_internal_mcp_v1.py").read_text(encoding="utf-8")
+    assert "MCP.MetaTrader" in helper
+    assert "MCP.MetaEditor" in helper
     assert "if (-not $isSystemOwner -and $isBareTerminal)" in workflow
     assert "MT5_EXTERNAL_BARE_TERMINAL_PRESERVED" in workflow
     assert "A MetaTrader terminal instance is already running with the current G13 parity config." in workflow
