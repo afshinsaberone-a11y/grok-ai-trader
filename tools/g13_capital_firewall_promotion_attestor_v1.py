@@ -712,6 +712,7 @@ def _validate_evidence(
         "source_grant_sha256": grant_sha256,
         "evidence_bundle_sha256": evidence_bundle_sha256,
         "artifact_receipts": digest_payload["artifacts"],
+        "evidence_bundle": digest_payload,
         "demo_trading_allowed": True,
         "live_trading_allowed": False,
         "orders_submitted": False,
@@ -746,43 +747,76 @@ def build_signed_attestation(
     return attestation
 
 
-def _write_new(path: Path, value: Mapping[str, Any]) -> None:
-    target = path.expanduser().resolve(strict=False)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    raw = json.dumps(dict(value), ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False).encode("utf-8") + b"\n"
-    temp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+def _write_pair_new(
+    first_path: Path, first_value: Mapping[str, Any],
+    second_path: Path, second_value: Mapping[str, Any],
+) -> None:
+    """Atomically publish a new attestation and matching audit receipt as a pair."""
+    pairs = [
+        (first_path.expanduser().resolve(strict=False), first_value),
+        (second_path.expanduser().resolve(strict=False), second_value),
+    ]
+    if pairs[0][0] == pairs[1][0]:
+        raise AttestorError("G13_ATTESTOR_OUTPUT_RECEIPT_PATH_COLLISION")
+    staged: list[tuple[Path, Path]] = []
+    published: list[Path] = []
     try:
-        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(raw)
-            handle.flush()
-            os.fsync(handle.fileno())
-        try:
-            os.link(temp, target)
-        except FileExistsError as exc:
-            raise AttestorError("G13_ATTESTOR_OUTPUT_ALREADY_EXISTS") from exc
-        except OSError as exc:
+        for target, value in pairs:
+            target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
+                raise AttestorError("G13_ATTESTOR_OUTPUT_ALREADY_EXISTS")
+            raw = json.dumps(
+                dict(value), ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False
+            ).encode("utf-8") + b"\n"
+            temp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+            staged.append((temp, target))
+        for temp, target in staged:
+            try:
+                os.link(temp, target)
+            except FileExistsError as exc:
                 raise AttestorError("G13_ATTESTOR_OUTPUT_ALREADY_EXISTS") from exc
-            raise AttestorError("G13_ATTESTOR_OUTPUT_ATOMIC_PUBLISH_FAILED") from exc
+            except OSError as exc:
+                if target.exists():
+                    raise AttestorError("G13_ATTESTOR_OUTPUT_ALREADY_EXISTS") from exc
+                raise AttestorError("G13_ATTESTOR_OUTPUT_ATOMIC_PUBLISH_FAILED") from exc
+            published.append(target)
     except AttestorError:
+        for target in published:
+            try:
+                target.unlink()
+            except OSError:
+                pass
         raise
     except OSError as exc:
+        for target in published:
+            try:
+                target.unlink()
+            except OSError:
+                pass
         raise AttestorError("G13_ATTESTOR_OUTPUT_WRITE_FAILED") from exc
     finally:
-        try:
-            temp.unlink()
-        except OSError:
-            pass
+        for temp, _target in staged:
+            try:
+                temp.unlink()
+            except OSError:
+                pass
 
 
-def _validate_paths(grant_path: str, key_path: str, output_path: str, repo: str) -> None:
+def _validate_paths(
+    grant_path: str, key_path: str, output_path: str, receipt_path: str, repo: str,
+) -> None:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise AttestorError("G13_ATTESTOR_REPOSITORY_NAME_INVALID")
     paths = {
         "grant": Path(grant_path).expanduser().resolve(strict=False),
         "key": Path(key_path).expanduser().resolve(strict=False),
         "output": Path(output_path).expanduser().resolve(strict=False),
+        "receipt": Path(receipt_path).expanduser().resolve(strict=False),
     }
     vals = list(paths.items())
     for i, (name_a, path_a) in enumerate(vals):
@@ -799,12 +833,13 @@ def run_attestor(
     grant_path: str,
     private_key_path: str,
     output_path: str,
+    receipt_path: str,
     token: str,
     grant_public_key: str,
     expected_attestor_public_key: str,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    _validate_paths(grant_path, private_key_path, output_path, repo)
+    _validate_paths(grant_path, private_key_path, output_path, receipt_path, repo)
     now_utc = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     grant_raw = Path(grant_path).read_bytes()
     grant_doc = parse_json_bytes(grant_raw)
@@ -854,9 +889,11 @@ def run_attestor(
         payload, private_key=key, now=now_utc, grant_expiry=grant["_until"],
     )
     output = Path(output_path).expanduser().resolve(strict=False)
-    _write_new(output, attestation)
+    receipt = Path(receipt_path).expanduser().resolve(strict=False)
     audit["attestation_sha256"] = hashlib.sha256(canonical_json(attestation)).hexdigest()
     audit["attestation_path"] = str(output)
+    audit["receipt_path"] = str(receipt)
+    _write_pair_new(output, attestation, receipt, audit)
     return audit
 
 
@@ -866,6 +903,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--grant", required=True, help="Signed one-signal Capital Firewall grant JSON")
     parser.add_argument("--attestor-private-key", required=True, help="External Ed25519 PKCS#8 PEM path")
     parser.add_argument("--output", required=True, help="New signed promotion source attestation path")
+    parser.add_argument("--receipt-output", required=True, help="New artifact-digest and grant audit receipt path")
     args = parser.parse_args(argv)
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
     grant_public_key = os.environ.get("FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY", "")
@@ -874,7 +912,7 @@ def main(argv: list[str] | None = None) -> int:
         audit = run_attestor(
             repo=args.repo, grant_path=args.grant,
             private_key_path=args.attestor_private_key, output_path=args.output,
-            token=token, grant_public_key=grant_public_key,
+            receipt_path=args.receipt_output, token=token, grant_public_key=grant_public_key,
             expected_attestor_public_key=attestor_public_key,
         )
     except AttestorError as exc:
@@ -899,6 +937,7 @@ def main(argv: list[str] | None = None) -> int:
         "signal_id": audit["signal_id"], "trade_id": audit["trade_id"],
         "evidence_bundle_sha256": audit["evidence_bundle_sha256"],
         "attestation_sha256": audit["attestation_sha256"],
+        "receipt_path": audit["receipt_path"],
         "signed_attestation_created": True, "orders_submitted": False,
         "live_trading_allowed": False,
     }, sort_keys=True))
