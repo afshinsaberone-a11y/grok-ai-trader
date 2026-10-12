@@ -112,6 +112,10 @@ void ControlPlaneProcessDemoTick(const bool new_bar)
 {
    if(_Symbol!="EURUSD" || _Period!=PERIOD_M15) return;
    if((bool)MQLInfoInteger(MQL_TESTER)) return;
+   if(_Symbol!="EURUSD" || _Period!=PERIOD_M15) return;
+   // Preserve the strategy's existing expiry management even while new entries
+   // are blocked by DENY, missing authorization, or another candidate position.
+   if(new_bar) ManageExpiry();
 
    datetime now_utc=TimeGMT();
    if(cp_pending_signal)
