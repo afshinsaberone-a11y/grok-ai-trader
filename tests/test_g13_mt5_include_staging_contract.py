@@ -94,5 +94,6 @@ def test_g13_compile_artifacts_do_not_modify_the_user_mt5_experts_directory():
 
     assert "$env:MT5_DATA_ROOT" not in verify
     assert "MT5_USER_EXPERTS_DIRECTORY_NOT_MODIFIED=true" in verify
-    assert "Copy-Item -LiteralPath $candidate.FullName -Destination $experts" not in parity
+    assert "$env:MT5_DATA_ROOT" not in parity
     assert "$experts = Join-Path $portableRoot 'MQL5\\Experts'" in parity
+    assert "Copy-Item -LiteralPath $candidate.FullName -Destination $experts" in parity
