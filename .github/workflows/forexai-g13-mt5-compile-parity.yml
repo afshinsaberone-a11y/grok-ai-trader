@@ -492,25 +492,23 @@ jobs:
           Copy-Item $ex5 (Join-Path $scripts ([System.IO.Path]::GetFileName($ex5))) -Force
           Write-Host "PARITY_HARNESS_DEPLOY_OK=$scripts\\ForexAI_G13_Parity_Harness.ex5"
 
-      - name: Deploy fresh EAs to MT5 Experts
+      - name: Verify fresh EAs for isolated portable runtime
         run: |
           $ErrorActionPreference = 'Stop'
-          $experts = Join-Path $env:MT5_DATA_ROOT 'MQL5\\Experts'
-          if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
-          $files = @(Get-ChildItem 'artifacts/g13/mql5/ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
-          if ($files.Count -ne [int]$env:G13_CANDIDATE_COUNT) { throw "Expected $env:G13_CANDIDATE_COUNT candidate mq5 files before deploy, found $($files.Count)" }
-          foreach ($f in $files) {
-            $ex5 = [System.IO.Path]::ChangeExtension($f.FullName, '.ex5')
-            $dstMq5 = Join-Path $experts $f.Name
-            $dstEx5 = Join-Path $experts ([System.IO.Path]::GetFileName($ex5))
-            Copy-Item $f.FullName $dstMq5 -Force
-            Copy-Item $ex5 $dstEx5 -Force
-            $srcHash = (Get-FileHash $ex5 -Algorithm SHA256).Hash
-            $dstHash = (Get-FileHash $dstEx5 -Algorithm SHA256).Hash
-            if ($srcHash -ne $dstHash) { throw "EX5 deploy hash mismatch for $($f.Name)" }
-            Write-Host "DEPLOYED=$($f.Name) EX5_SHA256=$dstHash"
+          $candidates = @(Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\mql5') -Filter 'ForexAI_G13_Candidate_*.mq5' -File | Sort-Object Name)
+          if ($candidates.Count -ne [int]$env:G13_CANDIDATE_COUNT) {
+            throw "Expected $env:G13_CANDIDATE_COUNT compiled candidate sources, found $($candidates.Count)"
           }
-          Write-Host "MT5_EXPERTS_DEPLOY_OK=$env:G13_CANDIDATE_COUNT"
+          foreach ($candidate in $candidates) {
+            $binary = [System.IO.Path]::ChangeExtension($candidate.FullName, '.ex5')
+            if (!(Test-Path -LiteralPath $binary -PathType Leaf)) {
+              throw "Compiled candidate EX5 is missing: $($candidate.Name)"
+            }
+            $hash = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash
+            Write-Host "CANDIDATE_COMPILE_ARTIFACT_READY=$($candidate.Name) EX5_SHA256=$hash"
+          }
+          Write-Host "MT5_CANDIDATE_COMPILE_ARTIFACTS_READY=$($candidates.Count)"
+          Write-Host 'MT5_USER_EXPERTS_DIRECTORY_NOT_MODIFIED=true'
 
       - name: Resolve REAL EURUSD M15 dataset
         run: |
