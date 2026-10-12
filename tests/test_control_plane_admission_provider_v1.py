@@ -266,7 +266,7 @@ def test_invalid_run_id_is_rejected():
     payload["run_ids"]["readiness"] = True
     # A boolean is not a valid GitHub Actions run ID.
     packet["promotion"] = _attest("promotion", payload)
-    with pytest.raises(AdmissionProviderError, match="PROVIDER_RUN_IDS_INVALID"):
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_RUN_ID_INVALID"):
         _build(packet)
 
 
