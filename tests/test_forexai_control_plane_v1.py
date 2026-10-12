@@ -126,23 +126,49 @@ def _write_bundle(root: Path, *, main_sha: str = MAIN_SHA, risk_pct: float = 0.0
         "candidates": [candidate],
         "execution_contract": {"risk_pct": risk_pct},
     }
+    expected_sources = {
+        "validation": {
+            "workflow_name": "ForexAI G13 Validation M15",
+            "workflow_id": 355468598,
+            "job_name": "g13-validation",
+            "artifact_name": "g13-validation-m15",
+        },
+        "robustness": {
+            "workflow_name": "ForexAI G13 Robustness M15",
+            "workflow_id": 355473409,
+            "job_name": "g13-robustness",
+            "artifact_name": "g13-robustness-m15",
+        },
+        "oos": {
+            "workflow_name": "ForexAI G13 OOS M15 Current",
+            "workflow_id": 356162316,
+            "job_name": "G13 2026 OOS M15 Current",
+            "artifact_name": "g13-oos-m15-2026-current",
+        },
+    }
+    provenance_sources = {}
+    for i, name in enumerate(("validation", "robustness", "oos"), start=1):
+        expected = expected_sources[name]
+        digest = str(i) * 64
+        provenance_sources[name] = {
+            **expected,
+            "head_branch": "main",
+            "head_sha": main_sha,
+            "conclusion": "success",
+            "run_id": i,
+            "job_id": 2000 + i,
+            "local_zip_sha256": digest,
+            "artifact": {
+                "artifact_id": 1000 + i,
+                "name": expected["artifact_name"],
+                "digest": "sha256:" + digest,
+                "expired": False,
+            },
+        }
     provenance = {
         "schema_version": "forexai.g13.promotion_evidence_provenance.m15.v1",
         "target_sha": main_sha,
-        "sources": {
-            name: {
-                "head_branch": "main",
-                "head_sha": main_sha,
-                "conclusion": "success",
-                "run_id": i,
-                "artifact": {
-                    "artifact_id": 1000 + i,
-                    "digest": "sha256:" + str(i) * 64,
-                    "expired": False,
-                },
-            }
-            for i, name in enumerate(("validation", "robustness", "oos"), start=1)
-        },
+        "sources": provenance_sources,
     }
     manifest_path = root / "promotion.json"
     provenance_path = root / "provenance.json"
