@@ -1070,9 +1070,10 @@ jobs:
               Write-Host 'MT5_PORTABLE_CLEANUP_SKIPPED=root_outside_runner_temp'
               exit 0
             }
-            if ($leaf -notmatch '^g13-mt5-parity-portable-\d+
-
-) {
+            $portablePrefix = 'g13-mt5-parity-portable-'
+            $portableRunId = 0L
+            if (-not $leaf.StartsWith($portablePrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+                -not [Int64]::TryParse($leaf.Substring($portablePrefix.Length), [ref]$portableRunId)) {
               Write-Host 'MT5_PORTABLE_CLEANUP_SKIPPED=unexpected_directory_name'
               exit 0
             }
