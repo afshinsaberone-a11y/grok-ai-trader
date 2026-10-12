@@ -296,8 +296,11 @@ def test_grant_must_bind_current_commit_and_full_evidence_chain():
     grant = make_grant(commit_sha="a" * 40)
     with pytest.raises(AttestorError, match="G13_ATTESTOR_GRANT_REPOSITORY_OR_SHA_MISMATCH"):
         _verify_grant(grant, repo=REPO, target_sha=SHA, now=NOW, public_key_encoded=raw_public(GRANT_KEY))
-    grant = make_grant(run_ids={key: 1 for key in RUN_ID_FIELDS})
-    assert _verify_grant(grant, repo=REPO, target_sha=SHA, now=NOW, public_key_encoded=raw_public(GRANT_KEY))["run_ids"]["readiness"] == 1
+    duplicate_ids = make_grant(run_ids={key: 1 for key in RUN_ID_FIELDS})
+    with pytest.raises(AttestorError, match="G13_ATTESTOR_GRANT_RUN_IDS_NOT_UNIQUE"):
+        _verify_grant(duplicate_ids, repo=REPO, target_sha=SHA, now=NOW, public_key_encoded=raw_public(GRANT_KEY))
+    distinct_ids = make_grant(run_ids={key: 42000 + i for i, key in enumerate(RUN_ID_FIELDS)})
+    assert _verify_grant(distinct_ids, repo=REPO, target_sha=SHA, now=NOW, public_key_encoded=raw_public(GRANT_KEY))["run_ids"]["readiness"] > 0
 
 
 def test_successful_research_chain_still_requires_explicit_source_grant_and_is_candidate_scoped():
