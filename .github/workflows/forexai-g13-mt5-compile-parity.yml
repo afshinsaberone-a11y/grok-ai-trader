@@ -864,6 +864,7 @@ jobs:
               throw "G13_INTERACTIVE_MT5_LAUNCHER_NOT_SUCCESSFUL $statusText"
             }
             Write-Host "G13_INTERACTIVE_MT5_STATUS=$($statusText.Trim() -replace '\r?\n',';')"
+          }
           finally {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
           }
