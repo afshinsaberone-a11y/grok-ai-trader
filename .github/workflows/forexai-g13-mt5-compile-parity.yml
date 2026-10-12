@@ -689,13 +689,13 @@ jobs:
           } catch {
             throw "G13_INTERACTIVE_MT5_SID_UNRESOLVED account=$account"
           }
-          $profile = Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
+          $interactiveUserProfile = Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
             Where-Object { $_.SID -eq $sid.Value -and $_.LocalPath } |
             Select-Object -First 1
-          if (!$profile -or !(Test-Path -LiteralPath $profile.LocalPath -PathType Container)) {
+          if (!$interactiveUserProfile -or !(Test-Path -LiteralPath $interactiveUserProfile.LocalPath -PathType Container)) {
             throw "G13_INTERACTIVE_USER_PROFILE_UNAVAILABLE account=$account"
           }
-          $userCommon = Join-Path $profile.LocalPath 'AppData\Roaming\MetaQuotes\Terminal\Common\Files'
+          $userCommon = Join-Path $interactiveUserProfile.LocalPath 'AppData\Roaming\MetaQuotes\Terminal\Common\Files'
           New-Item -ItemType Directory -Path $userCommon -Force | Out-Null
 
           New-Item -ItemType Directory -Path $portableRoot -Force | Out-Null
