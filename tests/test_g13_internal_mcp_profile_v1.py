@@ -146,18 +146,56 @@ def test_compile_parity_workflow_disables_only_its_profile_mcp_before_launch():
     launch_step = workflow[step_start:step_end]
     helper_call = "disable_mt5_internal_mcp_v1.py"
     assert helper_call in launch_step
-    assert launch_step.index(helper_call) < launch_step.index("$procInfo = @(")
-    # MT5 startup scripts require a chart context; the runner profile may have no valid saved chart.
+    assert launch_step.index(helper_call) < launch_step.index("New-ScheduledTaskPrincipal")
+    # Start a dedicated portable copy in the logged-on user's desktop session.
+    assert "New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive" in launch_step
+    assert "G13_INTERACTIVE_MT5_REQUIRED" in launch_step
+    assert "G13_PORTABLE_RUNTIME_PATH_REJECTED" in launch_step
+    assert "G13_PARITY_TASK_NAME=$taskName" in launch_step
+    assert "MT5_EXTERNAL_BARE_TERMINAL_PRESERVED" in launch_step
     assert "Symbol=EURUSD" in launch_step
     assert "Period=M15" in launch_step
     assert launch_step.index("Symbol=EURUSD") < launch_step.index("Script=ForexAI_G13_Parity_Harness.ex5")
+    assert "-portable-root $portableRoot" in launch_step
     helper = (ROOT / "tools/disable_mt5_internal_mcp_v1.py").read_text(encoding="utf-8")
     assert "MCP.MetaTrader" in helper
     assert "MCP.MetaEditor" in helper
-    assert "if (-not $isSystemOwner -and $isBareTerminal)" in workflow
-    assert "MT5_EXTERNAL_BARE_TERMINAL_PRESERVED" in workflow
-    assert "A MetaTrader terminal instance is already running with the current G13 parity config." in workflow
-    assert "Stop-Process -Id ([int]$p.ProcessId) -Force" in workflow
     assert "Stop-Process -Name terminal64.exe" not in workflow
-    assert "AllowLiveTrading=0" in workflow
-    assert "SetDenyKillSwitch" not in workflow  # This workflow is compile/parity-only and never changes the switch.
+    assert "Stop-Process -Name terminal64.exe" not in (ROOT / "tools/run_g13_mt5_parity_interactive_v1.ps1").read_text(encoding="utf-8")
+    assert "AllowLiveTrading=0" in launch_step
+    assert "SetDenyKillSwitch" not in workflow  # Compile/parity never changes the switch.
+
+
+def test_portable_root_mcp_isolation_is_idempotent_and_scoped(tmp_path: Path):
+    from disable_mt5_internal_mcp_v1 import disable_internal_mcp
+
+    root = tmp_path / "g13-mt5-parity-portable-12345"
+    root.mkdir()
+    config = disable_internal_mcp(root, portable_root=True)
+    first = config.read_bytes()
+    second = disable_internal_mcp(root, portable_root=True).read_bytes()
+
+    assert first == second
+    text = config.read_text(encoding="utf-8")
+    assert section_enable_values(text, "MCP.MetaTrader") == ["0"]
+    assert section_enable_values(text, "MCP.MetaEditor") == ["0"]
+
+
+def test_portable_root_mcp_isolation_refuses_non_run_scoped_directory(tmp_path: Path):
+    from disable_mt5_internal_mcp_v1 import disable_internal_mcp
+
+    root = tmp_path / "MetaTrader 5"
+    root.mkdir()
+    with pytest.raises(ValueError, match="g13-mt5-parity-portable"):
+        disable_internal_mcp(root, portable_root=True)
+    assert not (root / "Config").exists()
+
+
+def test_interactive_launcher_is_limited_to_the_exact_portable_executable():
+    launcher = (ROOT / "tools/run_g13_mt5_parity_interactive_v1.ps1").read_text(encoding="utf-8")
+    assert "G13_PORTABLE_ROOT_NAME_REJECTED" in launcher
+    assert "G13_PORTABLE_CONFIG_OUTSIDE_RUNTIME_ROOT" in launcher
+    assert "$rootExe = [System.IO.Path]::GetFullPath($terminal)" in launcher
+    assert "Stop-Process -Name terminal64.exe" not in launcher
+    assert "Write-State 'failed'" in launcher
+    assert "Write-State 'success'" in launcher
