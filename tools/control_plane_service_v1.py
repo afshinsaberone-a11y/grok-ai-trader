@@ -470,6 +470,7 @@ def produce_authority(
     This function prepares authority only. It must not be called to turn a research
     candidate into permission when the signed admission request is absent or blocked.
     """
+    _secret_bytes(envelope_secret, "CONTROL_PLANE_ENVELOPE_SECRET_INVALID")
     verified = verify_admission_request(
         request, admission_secret=admission_secret, now_utc=now_utc
     )
