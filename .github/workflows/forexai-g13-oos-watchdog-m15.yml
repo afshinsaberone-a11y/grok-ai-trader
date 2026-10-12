@@ -292,7 +292,10 @@ jobs:
         run: |
           set -euo pipefail
           compile_run_id=""
-          for attempt in $(seq 1 40); do
+          compile_setup_retry_used="0"
+          compile_retry_run_id=""
+          compile_retry_from_attempt="0"
+          for attempt in $(seq 1 80); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-compile-parity.yml/runs?branch=main&per_page=50")"
             state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("name")=="ForexAI G13 MT5 Compile + Signal Parity" and r.get("head_branch")=="main" and r.get("head_sha")==target]; ok=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(ok,key=lambda x:x["id"])["id"])) if ok else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
             case "$state" in
@@ -302,7 +305,38 @@ jobs:
                 break
                 ;;
               FAILED\|*)
-                echo "G13_COMPILE_PARITY_FAILED_FOR_SHA=$GITHUB_SHA RUN=${state#FAILED|}"
+                failed_run_id="${state#FAILED|}"
+                if [[ "$compile_setup_retry_used" == "1" && "$failed_run_id" == "$compile_retry_run_id" ]]; then
+                  retry_run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$failed_run_id")"
+                  retry_observed_attempt="$(printf '%s' "$retry_run_json" | python -c 'import json,sys; print(int(json.load(sys.stdin).get("run_attempt",0)))')"
+                  retry_observed_status="$(printf '%s' "$retry_run_json" | python -c 'import json,sys; print(json.load(sys.stdin).get("status","unknown"))')"
+                  if [[ "$retry_observed_status" != "completed" || "$retry_observed_attempt" -le "$compile_retry_from_attempt" ]]; then
+                    echo "G13_COMPILE_PARITY_RETRY_START_PENDING=true RUN=$failed_run_id OBSERVED_ATTEMPT=$retry_observed_attempt"
+                    sleep 15
+                    continue
+                  fi
+                fi
+                if [[ "$compile_setup_retry_used" == "0" ]]; then
+                  failed_run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$failed_run_id")"
+                  failed_attempt="$(printf '%s' "$failed_run_json" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; p=json.load(sys.stdin); target=os.environ["TARGET_SHA"]; assert p.get("name")=="ForexAI G13 MT5 Compile + Signal Parity",p.get("name"); assert p.get("head_branch")=="main",p.get("head_branch"); assert p.get("head_sha")==target,(p.get("head_sha"),target); assert p.get("status")=="completed",p.get("status"); assert p.get("conclusion")=="failure",p.get("conclusion"); print(int(p.get("run_attempt",0)))')"
+                  failed_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$failed_run_id/attempts/$failed_attempt/jobs?per_page=100")"
+                  setup_only_failure="$(printf '%s' "$failed_jobs" | python -c 'import json,sys; jobs=json.load(sys.stdin).get("jobs", []); failed=[job for job in jobs if job.get("conclusion") not in (None,"success","skipped")]; safe=(len(failed)==1 and failed[0].get("name")=="compile-and-parity" and failed[0].get("conclusion")=="failure" and len(failed[0].get("steps") or [])==1 and (failed[0].get("steps") or [])[0].get("name")=="Set up job" and (failed[0].get("steps") or [])[0].get("conclusion")=="failure"); print("true" if safe else "false")')"
+                  if [[ "$setup_only_failure" == "true" ]]; then
+                    if gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$failed_run_id/rerun-failed-jobs" >/dev/null; then
+                      compile_setup_retry_used="1"
+                      compile_retry_run_id="$failed_run_id"
+                      compile_retry_from_attempt="$failed_attempt"
+                      echo "G13_COMPILE_PARITY_SETUP_ONLY_FAILURE_RETRY=true RUN=$failed_run_id FAILED_ATTEMPT=$failed_attempt"
+                      echo "G13_COMPILE_PARITY_SETUP_RETRY_REQUESTED=true RUN=$failed_run_id"
+                      sleep 15
+                      continue
+                    else
+                      echo "G13_COMPILE_PARITY_SETUP_RETRY_REQUEST_FAILED=true RUN=$failed_run_id"
+                      exit 1
+                    fi
+                  fi
+                fi
+                echo "G13_COMPILE_PARITY_FAILED_FOR_SHA=$GITHUB_SHA RUN=$failed_run_id"
                 exit 1
                 ;;
               PENDING\|*|NOT_STARTED\|*)
