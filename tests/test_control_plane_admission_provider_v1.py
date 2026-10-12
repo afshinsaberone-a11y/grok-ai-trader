@@ -359,7 +359,7 @@ def test_registry_prevents_reusing_reservation_or_authorization_for_new_signal(
 ):
     registry = tmp_path / f"{duplicate_field}.sqlite3"
     first = _build()
-    record_issuance(first, registry)
+    record_issuance(first, registry, PROVIDER_PRIVATE_KEY.public_key())
 
     second = _with_new_signal(
         first,
@@ -393,7 +393,7 @@ def test_registry_record_is_not_released_after_output_failure(tmp_path: Path):
     with pytest.raises(
         AdmissionProviderError, match="PROVIDER_SIGNAL_OR_AUTHORIZATION_ALREADY_ISSUED"
     ):
-        record_issuance(request, registry)
+        record_issuance(request, registry, PROVIDER_PRIVATE_KEY.public_key())
     assert target.read_text(encoding="utf-8") == "occupied"
 
 
