@@ -69,7 +69,7 @@ _PROMOTION_FIELDS = {
     "commit_sha", "validation_status", "robustness_status", "oos_status",
     "parity_status", "package_preflight_status", "safety_audit_status",
     "readiness_status", "demo_trading_allowed", "source_default_demo_trading_allowed",
-    "demo_grant_id", "authorized_demo_candidate_id", "live_trading_allowed",
+    "demo_grant_id", "authorized_demo_candidate_id", "demo_grant_max_risk_fraction", "live_trading_allowed",
     "real_data_only", "synthetic_data", "run_ids", "promoted_candidate_ids", "candidate_config_hashes",
 }
 _AUTHORIZATION_FIELDS = {
@@ -321,6 +321,9 @@ def verify_admission_request(
     grant_candidate_id = promotion["authorized_demo_candidate_id"]
     if isinstance(grant_candidate_id, bool) or not isinstance(grant_candidate_id, int) or grant_candidate_id <= 0:
         raise ControlPlaneError("CONTROL_PLANE_DEMO_GRANT_CANDIDATE_ID_INVALID")
+    demo_grant_risk_cap = _risk(
+        promotion["demo_grant_max_risk_fraction"], "CONTROL_PLANE_DEMO_GRANT_RISK_CAP_INVALID"
+    )
     if promotion["live_trading_allowed"] is not False:
         raise ControlPlaneError("CONTROL_PLANE_LIVE_PERMISSION_MUST_REMAIN_DISABLED")
     if promotion["real_data_only"] is not True or promotion["synthetic_data"] is not False:
@@ -367,6 +370,8 @@ def verify_admission_request(
     _safe_id(authorization["operator_approval_ref"], "CONTROL_PLANE_OPERATOR_APPROVAL_MISSING")
     authorized_risk = _risk(authorization["authorized_risk"], "CONTROL_PLANE_AUTHORIZED_RISK_INVALID")
     reserved_risk = _risk(authorization["reserved_risk"], "CONTROL_PLANE_RESERVED_RISK_INVALID")
+    if authorized_risk > demo_grant_risk_cap:
+        raise ControlPlaneError("CONTROL_PLANE_AUTHORIZED_RISK_EXCEEDS_DEMO_GRANT_CAP")
     if reserved_risk > authorized_risk:
         raise ControlPlaneError("CONTROL_PLANE_RESERVATION_EXCEEDS_AUTHORIZATION")
     expires = _parse_utc(
