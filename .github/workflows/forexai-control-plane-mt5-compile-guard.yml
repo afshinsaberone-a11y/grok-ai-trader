@@ -1,0 +1,196 @@
+name: ForexAI Control Plane MT5 Compile Guard
+
+on:
+  pull_request:
+    paths:
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'research/optimization/g13_mql5_generator_v2.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_g13_mql5_generator_v2.py'
+      - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Branch or commit SHA to compile"
+        required: true
+        default: 'feat/authoritative-capital-control-plane-v1'
+        type: string
+      mt5_root:
+        description: "Installed MT5 root folder"
+        required: true
+        default: 'C:\Program Files\MetaTrader 5'
+        type: string
+      terminal_path:
+        description: "MT5 terminal executable for resolving Common Files"
+        required: true
+        default: 'C:\Program Files\MetaTrader 5\terminal64.exe'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forexai-control-plane-mt5-compile-guard
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 35
+    env:
+      PYTHONUNBUFFERED: "1"
+      SOURCE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha) }}
+      MT5_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
+      TERMINAL_PATH: ${{ github.event_name == 'workflow_dispatch' && inputs.terminal_path || 'C:\\Program Files\\MetaTrader 5\\terminal64.exe' }}
+    steps:
+      - name: Checkout trusted main for MT5 safety resolver
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Force Demo kill switch to DENY before compile
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
+          $resolved = @(& $resolver -TerminalPath $env:TERMINAL_PATH -SetDenyKillSwitch)
+          $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
+          if (-not $commonLine) { throw 'MT5_COMPILE_GUARD_COMMON_FILES_UNRESOLVED' }
+          $commonFiles = ([string]$commonLine).Substring('G13_MT5_COMMON_FILES='.Length)
+          if (-not (Test-Path -LiteralPath $commonFiles -PathType Container)) { throw 'MT5_COMPILE_GUARD_COMMON_FILES_MISSING' }
+          $switch = Join-Path $commonFiles 'g13_demo_kill_switch.txt'
+          if ((Get-Content -LiteralPath $switch -Raw) -ne 'DENY') { throw 'MT5_COMPILE_GUARD_INITIAL_DENY_UNVERIFIED' }
+          "FOREXAI_MT5_COMMON_FILES=$commonFiles" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'MT5_COMPILE_GUARD_INITIAL_DENY=VERIFIED'
+          Write-Output 'MT5_COMPILE_GUARD_NO_TRADING_ACTIONS=true'
+
+      - name: Resolve Python runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            (Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+            'C:\Users\Star\AppData\Local\Programs\Python\Python312\python.exe',
+            'C:\Users\Star\AppData\Local\Programs\Python\Python311\python.exe',
+            'C:\Program Files\Python312\python.exe',
+            'C:\Program Files\Python311\python.exe'
+          ) | Where-Object { $_ }
+          $pythonExe = $null
+          foreach ($candidate in $candidates) {
+            if (!(Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            try {
+              $version = (& $candidate -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>$null | Select-Object -Last 1).Trim()
+              if ($LASTEXITCODE -eq 0 -and $version -match '^3 (11|12|13)$') { $pythonExe = $candidate; break }
+            } catch { }
+          }
+          if (-not $pythonExe) { throw 'MT5_COMPILE_GUARD_PYTHON_NOT_FOUND' }
+          "PYTHON_EXE=$pythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $pythonExe -c "import pytest; print('MT5_COMPILE_GUARD_PYTEST=PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_PYTEST_NOT_INSTALLED' }
+
+      - name: Checkout candidate source to isolated workspace
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha) }}
+          path: control-plane-source
+
+      - name: Run generation contracts and generate candidate EAs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
+          Push-Location -LiteralPath $source
+          try {
+            & $env:PYTHON_EXE -m pytest -q tests/test_g13_control_plane_ea_gate_v1.py tests/test_g13_mql5_generator_v2.py
+            if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_GENERATOR_TESTS_FAILED' }
+            $outDir = Join-Path $source 'artifacts\g13\mql5'
+            Remove-Item -LiteralPath $outDir -Recurse -Force -ErrorAction SilentlyContinue
+            & $env:PYTHON_EXE -m research.optimization.g13_mql5_generator_v2 --manifest artifacts/g13/g13-promotion-manifest-m15.json --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json --output-dir artifacts/g13/mql5
+            if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_GENERATION_FAILED' }
+            $files = @(Get-ChildItem -LiteralPath $outDir -File -Filter 'ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
+            if ($files.Count -ne 15) { throw "MT5_COMPILE_GUARD_EXPECTED_15_EAS_FOUND_$($files.Count)" }
+            "MT5_COMPILE_GUARD_GENERATED_COUNT=$($files.Count)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          } finally {
+            Pop-Location
+          }
+
+      - name: Compile generated EAs with MetaEditor without running any EA
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
+          $generated = Join-Path $source 'artifacts\g13\mql5'
+          $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
+          if (-not (Test-Path -LiteralPath $meta -PathType Leaf)) { throw 'MT5_COMPILE_GUARD_METAEDITOR_NOT_FOUND' }
+          $buildDir = Join-Path $generated '_control-plane-compile'
+          New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+          $files = @(Get-ChildItem -LiteralPath $generated -File -Filter 'ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
+          if ($files.Count -ne 15) { throw "MT5_COMPILE_GUARD_EXPECTED_15_EAS_FOUND_$($files.Count)" }
+          $results = @()
+          foreach ($file in $files) {
+            $src = Join-Path $buildDir $file.Name
+            $ex5 = [System.IO.Path]::ChangeExtension($src, '.ex5')
+            $log = [System.IO.Path]::ChangeExtension($src, '.log')
+            Copy-Item -LiteralPath $file.FullName -Destination $src -Force
+            Remove-Item -LiteralPath $ex5,$log -Force -ErrorAction SilentlyContinue
+            $proc = Start-Process -FilePath $meta -WorkingDirectory $buildDir -ArgumentList @("/compile:$src", '/log') -Wait -PassThru
+            if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "MT5_COMPILE_GUARD_COMPILE_LOG_MISSING_$($file.Name)" }
+            $logText = Get-Content -LiteralPath $log -Raw
+            $match = [regex]::Match($logText, 'Result:\s*(\d+)\s+errors,\s*(\d+)\s+warnings')
+            if (-not $match.Success) { throw "MT5_COMPILE_GUARD_RESULT_UNPARSEABLE_$($file.Name)" }
+            $errors = [int]$match.Groups[1].Value
+            $warnings = [int]$match.Groups[2].Value
+            $results += [pscustomobject]@{ file=$file.Name; errors=$errors; warnings=$warnings; metaeditor_exit=$proc.ExitCode; ex5_exists=(Test-Path -LiteralPath $ex5 -PathType Leaf) }
+            Write-Output "MT5_COMPILE_GUARD_RESULT file=$($file.Name) errors=$errors warnings=$warnings exit=$($proc.ExitCode)"
+            if ($errors -ne 0 -or $warnings -ne 0) { throw "MT5_COMPILE_GUARD_NONZERO_DIAGNOSTICS_$($file.Name)" }
+            if (-not (Test-Path -LiteralPath $ex5 -PathType Leaf)) { throw "MT5_COMPILE_GUARD_EX5_MISSING_$($file.Name)" }
+          }
+          $report = Join-Path $generated 'control-plane-compile-report.json'
+          $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $report -Encoding utf8
+          "MT5_COMPILE_GUARD_RESULT=PASS count=$($results.Count)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      - name: Upload compile logs and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-control-plane-mt5-compile-${{ github.run_id }}
+          path: |
+            control-plane-source/artifacts/g13/mql5/_control-plane-compile/*
+            control-plane-source/artifacts/g13/mql5/control-plane-compile-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Final safety cleanup - keep DENY and remove one-shot tokens
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $commonFiles = $env:FOREXAI_MT5_COMMON_FILES
+          if ([string]::IsNullOrWhiteSpace($commonFiles) -or -not (Test-Path -LiteralPath $commonFiles -PathType Container)) {
+            $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
+            try {
+              $resolved = @(& $resolver -TerminalPath $env:TERMINAL_PATH -SetDenyKillSwitch)
+              $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
+              if ($commonLine) { $commonFiles = ([string]$commonLine).Substring('G13_MT5_COMMON_FILES='.Length) }
+            } catch { }
+          }
+          $verified = $false
+          if (-not [string]::IsNullOrWhiteSpace($commonFiles) -and (Test-Path -LiteralPath $commonFiles -PathType Container)) {
+            $switch = Join-Path $commonFiles 'g13_demo_kill_switch.txt'
+            try {
+              Set-Content -LiteralPath $switch -Value 'DENY' -NoNewline -Encoding ascii
+              $verified = (Get-Content -LiteralPath $switch -Raw) -eq 'DENY'
+            } catch { $verified = $false }
+            Get-ChildItem -LiteralPath $commonFiles -File -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.Name -like 'ForexAI_Authorization_*_EURUSD.auth' -or
+                $_.Name -like 'ForexAI_G13_SignalIntent_*_EURUSD.json' -or
+                $_.Name -like 'ForexAI_G13_SignalIntent_*_EURUSD.json.tmp'
+              } | Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+          if (-not $verified) {
+            Write-Output 'MT5_COMPILE_GUARD_FINAL_DENY=UNVERIFIED'
+            throw 'MT5_COMPILE_GUARD_CLEANUP_DENY_VERIFICATION_FAILED'
+          }
+          Write-Output 'MT5_COMPILE_GUARD_FINAL_DENY=VERIFIED'
