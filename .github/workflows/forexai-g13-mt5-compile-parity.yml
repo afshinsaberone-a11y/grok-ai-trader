@@ -30,7 +30,7 @@ on:
   # Compile/Parity is intentionally dispatch-only.
   # G13 Watchdog dispatches this workflow only after exact-SHA OOS + Promotion succeed.
 concurrency:
-  group: g13-mt5-compile-parity
+  group: g13-mt5-compile-parity-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:

@@ -245,6 +245,37 @@ jobs:
           assert 'github.event.workflow_run.head_sha || github.sha }}' in preflight_dispatcher, (
               "Preflight Dispatcher concurrency expression must use the triggering Compile/Parity SHA"
           )
+
+          # Prevent older G13 runs from cancelling evidence for a newer commit.
+          # Check expression fragments separately so Actions does not parse a
+          # literal expression opener inside this Python assertion block.
+          sha_scoped_dispatch_gates = [
+              (".github/workflows/forexai-g13-validation-m15.yml", "g13-validation-m15"),
+              (".github/workflows/forexai-g13-robustness-m15.yml", "g13-robustness-m15"),
+              (".github/workflows/forexai-g13-oos-m15-current.yml", "g13-oos-m15-current"),
+              (".github/workflows/forexai-g13-mt5-compile-parity.yml", "g13-mt5-compile-parity"),
+              (".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml", "g13-controlled-demo-package-preflight"),
+          ]
+          for workflow_path, group_prefix in sha_scoped_dispatch_gates:
+              workflow_text = Path(workflow_path).read_text(encoding="utf-8")
+              assert f"group: {group_prefix}-" in workflow_text, (
+                  f"G13 concurrency group must be SHA-scoped: {workflow_path}"
+              )
+              assert "github.sha }}" in workflow_text, (
+                  f"G13 concurrency group must use the dispatched commit SHA: {workflow_path}"
+              )
+
+          for workflow_path, group_prefix in [
+              (".github/workflows/forexai-g13-demo-readiness-gate-m15.yml", "g13-demo-readiness-gate-m15"),
+              (".github/workflows/forexai-g13-execution-safety-audit-m15.yml", "g13-execution-safety-audit-m15"),
+          ]:
+              workflow_text = Path(workflow_path).read_text(encoding="utf-8")
+              assert f"group: {group_prefix}-" in workflow_text, (
+                  f"G13 workflow_run concurrency group must be SHA-scoped: {workflow_path}"
+              )
+              assert "github.event.workflow_run.head_sha || github.sha }}" in workflow_text, (
+                  f"G13 workflow_run concurrency must bind to the event's source SHA: {workflow_path}"
+              )
           for token in [
               "actions: write",
               'dispatch_workflow "forexai-g13-validation-m15.yml"',

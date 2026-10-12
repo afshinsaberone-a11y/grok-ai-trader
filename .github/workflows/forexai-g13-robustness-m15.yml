@@ -12,7 +12,7 @@ name: ForexAI G13 Robustness M15
 on:
   workflow_dispatch:
 concurrency:
-  group: g13-robustness-m15
+  group: g13-robustness-m15-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
