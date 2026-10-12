@@ -8,6 +8,11 @@ on:
         required: true
         default: 'C:\Program Files\MetaTrader 5\terminal64.exe'
         type: string
+      candidate_id:
+        description: "Exact G13 candidate authorized for this Demo window"
+        required: true
+        default: '2'
+        type: string
 
 permissions:
   contents: read
@@ -26,6 +31,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TERMINAL_PATH: ${{ inputs.terminal_path }}
       FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
+      CANDIDATE_ID: ${{ inputs.candidate_id }}
     steps:
       - name: Checkout exact main source
         uses: actions/checkout@v4
@@ -169,6 +175,7 @@ jobs:
               '--watch',
               '--repository', $env:GITHUB_REPOSITORY,
               '--promotion-run-id', $env:FOREXAI_G13_PROMOTION_RUN_ID,
+              '--candidate-id', $env:CANDIDATE_ID,
               '--promotion-manifest', $env:FOREXAI_G13_PROMOTION_MANIFEST_PATH,
               '--promotion-attestation', $env:FOREXAI_G13_PROMOTION_ATTESTATION_PATH,
               '--promotion-provenance', $env:FOREXAI_G13_PROMOTION_PROVENANCE_PATH,
