@@ -42,11 +42,13 @@ This prevents a stale binary from masking a compile failure.
 
 ## Runner terminal isolation
 
-The parity workflow checks for an already-running `terminal64.exe` at the configured MT5 installation. A prior run can leave a bare, unconfigured terminal under the GitHub runner's LocalSystem profile when the startup script never starts; launching another instance can then collide on MT5's MCP/IPC listener (observed as Windows socket error 10048 on `127.0.0.1:22346`).
+MT5 builds with the built-in MCP services can bind the default terminal endpoint to `127.0.0.1:22346`. If an interactive terminal already owns that port, an additional terminal may log Windows socket error 10048 and fail to initialize the parity script.
 
-Before launching the parity instance, the workflow may stop only an existing process that meets **both** conditions: (1) Windows reports its owner as `NT AUTHORITY\SYSTEM`, the runner service identity; and (2) its entire command line is only the configured `terminal64.exe` path, with no explicit `/config` or `/portable` arguments. Processes owned by an interactive user, processes with any launch arguments, and a process using the current G13 config are not terminated; the job fails with the process ID/owner instead. The workflow waits for reclaimed service processes to exit before starting the harness.
+The parity workflow now calls `tools/disable_mt5_internal_mcp_v1.py` before starting the automation-owned MT5 profile. The helper edits only that profile's `Config/assistant.ini`, setting `Enable=0` in `[MCP.MetaTrader]` and `[MCP.MetaEditor]`. It preserves unrelated INI settings, validates the resulting file after an atomic write, rejects unsupported encodings and symbolic-link paths, and never reads or prints the file's credential values. The parity harness does not need these built-in MCP endpoints; disabling them in the runner profile does not disable MQL5 scripts or Expert Advisors.
 
-This is narrow stale-process cleanup, not a general MT5 process killer. Do not broaden it to all terminal processes: preserving the user's interactive terminal and avoiding interference with separately configured instances is a safety requirement.
+The workflow preserves an already-running bare terminal owned by another Windows user and emits `MT5_EXTERNAL_BARE_TERMINAL_PRESERVED`; it does not try to kill the user's interactive process. A process using the current G13 config is rejected, and explicitly configured processes remain non-reclaimable. Only a bare `terminal64.exe` owned by `NT AUTHORITY\SYSTEM` (the runner service identity) may be reclaimed as a stale process. The workflow waits for those narrowly eligible service processes to exit before starting the harness.
+
+This is profile-scoped MCP isolation plus narrow stale-process cleanup, not a general MT5 process killer. The user's interactive profile is not rewritten and no trading permissions, order functions, or Kill Switch state are changed.
 
 ## Parity telemetry
 
