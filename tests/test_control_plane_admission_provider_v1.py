@@ -472,7 +472,7 @@ def test_grant_id_is_one_shot_even_if_signal_and_request_ids_change(tmp_path: Pa
     record_issuance(first, registry, PROVIDER_PRIVATE_KEY.public_key())
 
     second = _with_new_signal(first, "signal-new-grant-replay", request_id="admission-new-grant-replay")
-    second["candidate"]["trade_id"] = "FOREXAI-G13-C12-S-REPLAY"
+    second["candidate"]["trade_id"] = "FOREXAI-G13-C12-REPLAY-S"
     second["promotion_evidence"]["source_grant_trade_id"] = second["candidate"]["trade_id"]
     second["authorization"]["authorization_id"] = "auth-new-for-replay"
     second["authorization"]["reservation_id"] = "reservation-new-for-replay"
