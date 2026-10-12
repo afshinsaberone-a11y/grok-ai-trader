@@ -436,6 +436,8 @@ def _fetch_run_and_artifact(
     successful_jobs = [
         job for job in job_list.get("jobs", [])
         if job.get("name") == expected_job_name
+        and job.get("run_id") == run_id
+        and job.get("head_sha") == target_sha
         and job.get("status") == "completed"
         and job.get("conclusion") == "success"
     ]
