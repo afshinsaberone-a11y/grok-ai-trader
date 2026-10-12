@@ -27,6 +27,8 @@ ENABLE_VALUE = re.compile(r"^\s*Enable\s*=\s*([^;#\s]+)", re.IGNORECASE)
 
 def _decode_config(raw: bytes) -> tuple[str, bytes, str]:
     """Decode supported INI encodings without losing an existing BOM."""
+    if raw.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        raise ValueError("assistant.ini encoding is unsupported; refusing to rewrite it")
     if raw.startswith(b"\xef\xbb\xbf"):
         bom, encoding = b"\xef\xbb\xbf", "utf-8"
     elif raw.startswith(b"\xff\xfe"):
