@@ -270,6 +270,27 @@ jobs:
               "setup-only retry must be classified before hard-failing compile/parity"
           )
 
+          preflight = Path(".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
+          preflight_dispatcher = Path(".github/workflows/forexai-g13-preflight-dispatcher-m15.yml").read_text(encoding="utf-8")
+          assert "workflow_dispatch:" in preflight and "compile_parity_run_id:" in preflight, (
+              "package preflight must remain manually dispatchable with an exact Compile/Parity run ID"
+          )
+          assert "workflow_run:" not in preflight, (
+              "package preflight must not dispatch itself on Compile/Parity completion; the dispatcher is the single automatic owner"
+          )
+          assert "forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches" not in watchdog, (
+              "watchdog must not create a duplicate package preflight run"
+          )
+          assert "G13_PREFLIGHT_DISPATCH_DELEGATED_TO_SINGLE_DISPATCHER=true" in watchdog, (
+              "watchdog must explicitly hand off preflight dispatch responsibility"
+          )
+          assert 'forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches' in preflight_dispatcher, (
+              "single preflight dispatcher must own exact Compile/Parity to Preflight dispatch"
+          )
+          assert "COMPILE_PARITY_TRIGGER_RUN_VERIFIED" in preflight_dispatcher and "SOURCE=push-fallback" in preflight_dispatcher, (
+              "dispatcher must preserve exact-run authoritative and push-recovery paths"
+          )
+
           validation_dispatch = watchdog.index('dispatch_workflow "forexai-g13-validation-m15.yml"')
           robustness_dispatch = watchdog.index('dispatch_workflow "forexai-g13-robustness-m15.yml"')
           oos_dispatch = watchdog.index("forexai-g13-oos-m15-current.yml/dispatches")
