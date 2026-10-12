@@ -20,6 +20,7 @@ from typing import Iterable
 
 MCP_SECTIONS = ("MCP.MetaTrader", "MCP.MetaEditor")
 PROFILE_HASH = re.compile(r"^[0-9A-Fa-f]{32}$")
+PORTABLE_ROOT = re.compile(r"^g13-mt5-parity-portable-\d+$")
 SECTION_HEADER = re.compile(r"^\s*\[([^\]]+)\]\s*$")
 ENABLE_KEY = re.compile(r"^\s*Enable\s*=.*$", re.IGNORECASE)
 ENABLE_VALUE = re.compile(r"^\s*Enable\s*=\s*([^;#\s]+)", re.IGNORECASE)
@@ -112,12 +113,20 @@ def _assert_disabled(lines: list[str]) -> None:
                 raise ValueError(f"{section} Enable=0 could not be verified")
 
 
-def disable_internal_mcp(profile_root: Path) -> Path:
-    """Disable only MT5's internal terminal/editor MCP listeners for a profile."""
+def disable_internal_mcp(profile_root: Path, *, portable_root: bool = False) -> Path:
+    """Disable MT5's internal terminal/editor MCP listeners for a data root.
+
+    Normal mode targets the 32-hex MetaQuotes profile directory. Portable mode
+    is restricted to a run-scoped G13 directory so arbitrary user/install paths
+    cannot be targeted accidentally.
+    """
     root = Path(profile_root)
     if root.is_symlink():
         raise ValueError("MT5 profile root must not be a symlink")
-    if not PROFILE_HASH.fullmatch(root.name):
+    if portable_root:
+        if not PORTABLE_ROOT.fullmatch(root.name):
+            raise ValueError("portable root must be named g13-mt5-parity-portable-<run-id>")
+    elif not PROFILE_HASH.fullmatch(root.name):
         raise ValueError("profile root must be an MT5 32-character hexadecimal data-folder hash")
     if not root.is_dir():
         raise ValueError("MT5 profile root does not exist or is not a directory")
@@ -175,10 +184,15 @@ def disable_internal_mcp(profile_root: Path) -> Path:
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile-root", required=True, help="MT5 data folder (the 32-hex terminal hash directory)")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--profile-root", help="MT5 data folder (the 32-hex terminal hash directory)")
+    group.add_argument("--portable-root", help="Run-scoped G13 portable installation directory")
     args = parser.parse_args(argv)
     try:
-        path = disable_internal_mcp(Path(args.profile_root))
+        path = disable_internal_mcp(
+            Path(args.profile_root or args.portable_root),
+            portable_root=args.portable_root is not None,
+        )
     except (OSError, ValueError) as exc:
         # Do not print the INI contents: assistant.ini may contain credentials.
         print(f"MT5_INTERNAL_MCP_PROFILE_FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)
