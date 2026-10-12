@@ -541,8 +541,12 @@ def write_request_new(path: str | Path, request: Mapping[str, Any]) -> None:
                 pass
 
 
-def record_issuance(request: Mapping[str, Any], registry_path: str | Path) -> None:
-    """Durably claim the signal, reservation, and authorization exactly once.
+def record_issuance(
+    request: Mapping[str, Any],
+    registry_path: str | Path,
+    issuer_public_key: Ed25519PublicKey,
+) -> None:
+    """Verify and durably claim one signed request, never permitting replay.
 
     The registry lives only on the independent provider host. Its committed
     record intentionally survives a later output failure: operators must
@@ -550,6 +554,8 @@ def record_issuance(request: Mapping[str, Any], registry_path: str | Path) -> No
     """
     if not isinstance(registry_path, (str, Path)) or not str(registry_path).strip():
         raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_NOT_CONFIGURED")
+    if not isinstance(issuer_public_key, Ed25519PublicKey):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_VERIFICATION_KEY_INVALID")
     _exact_fields(
         request,
         {"schema", "request_id", "provider_key_id", "issued_at_utc", "valid_until_utc",
@@ -558,6 +564,25 @@ def record_issuance(request: Mapping[str, Any], registry_path: str | Path) -> No
     )
     if request["schema"] != ADMISSION_SCHEMA or request["provider_key_id"] != PROVIDER_KEY_ID:
         raise AdmissionProviderError("PROVIDER_REGISTRY_REQUEST_SCHEMA_INVALID")
+    signature = _exact_fields(
+        request["signature"], SIGNATURE_FIELDS, "PROVIDER_REGISTRY_SIGNATURE_FIELDS_INVALID"
+    )
+    if signature["algorithm"] != "Ed25519" or signature["key_id"] != PROVIDER_KEY_ID:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNATURE_METADATA_INVALID")
+    encoded_signature = signature["signature"]
+    if not isinstance(encoded_signature, str):
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNATURE_INVALID")
+    try:
+        decoded_signature = base64.b64decode(encoded_signature, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNATURE_INVALID") from exc
+    if len(decoded_signature) != 64:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_SIGNATURE_INVALID")
+    unsigned_request = {key: value for key, value in request.items() if key != "signature"}
+    try:
+        issuer_public_key.verify(decoded_signature, canonical_json(unsigned_request))
+    except InvalidSignature as exc:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_ADMISSION_SIGNATURE_INVALID") from exc
     request_id = _safe_id(request["request_id"], "PROVIDER_REGISTRY_REQUEST_ID_INVALID")
     _parse_utc(request["issued_at_utc"], "PROVIDER_REGISTRY_ISSUED_AT_INVALID")
     candidate = request["candidate"]
@@ -689,7 +714,7 @@ def main(argv: list[str] | None = None) -> int:
         request = build_admission_request(packet, source_public_keys=public_keys, provider_private_key=private_key)
         # Reserve the signal and authorization first. If output delivery later
         # fails, fail closed: never silently issue a second permit for this signal.
-        record_issuance(request, registry_path)
+        record_issuance(request, registry_path, private_key.public_key())
         write_request_new(args.output, request)
     except AdmissionProviderError as exc:
         print(json.dumps({
