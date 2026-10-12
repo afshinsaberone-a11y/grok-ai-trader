@@ -23,6 +23,7 @@ PROMOTION_FILE = "artifacts/g13/g13-promotion-manifest-m15.json"
 HANDOFF_FILE = "artifacts/g13/frozen/g13-candidate-handoff-m15.json"
 PARITY_CODE_FILES = [
     GENERATOR_FILE,
+    "research/optimization/g13_control_plane_ea_gate_v1.py",
     PROMOTION_FILE,
     HANDOFF_FILE,
     "research/optimization/g13_mql5_parity.py",
@@ -31,6 +32,7 @@ PARITY_CODE_FILES = [
 ]
 SAFETY_CODE_FILES = [
     GENERATOR_FILE,
+    "research/optimization/g13_control_plane_ea_gate_v1.py",
     PROMOTION_FILE,
     HANDOFF_FILE,
     "research/optimization/g13_execution_safety_audit_m15.py",
