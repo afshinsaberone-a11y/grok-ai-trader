@@ -40,7 +40,7 @@ Source type and required key ID are pinned in code:
 | Risk engine | forexai-demo-risk-engine-v1 | FOREXAI_PROVIDER_RISK_PUBLIC_KEY |
 | Human approval | forexai-demo-operator-approval-v1 | FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY |
 
-Each public key is base64-encoded raw 32-byte Ed25519. Do not reuse the same key across source roles. The private keys corresponding to these source keys remain controlled by their respective source systems; the provider receives only their public keys.
+Each public key is base64-encoded raw 32-byte Ed25519. The issuer enforces that all four source public keys are different and that none reuses the admission issuer key. The private keys corresponding to these source keys remain controlled by their respective source systems; the provider receives only their public keys.
 
 The provider environment must also set FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY to the same base64 raw public key configured as the repository variable consumed by the MT5 verifier. The CLI derives the public key from its private signing key and blocks with PROVIDER_ADMISSION_KEYPAIR_MISMATCH if they differ. This prevents a silent provider/consumer key mismatch; the private key still stays exclusively in the external provider.
 
