@@ -665,6 +665,22 @@ jobs:
           ShutdownTerminal=1
           "@ | Set-Content -LiteralPath $config -Encoding ascii
 
+          $profileRoot = [System.IO.Path]::GetFullPath($env:MT5_DATA_ROOT)
+          $profileHash = Split-Path -Leaf $profileRoot
+          if ($profileHash.Length -ne 32 -or $profileHash -notmatch '^[0-9A-Fa-f]+$') {
+            throw 'MT5_INTERNAL_MCP_PROFILE_HASH_INVALID'
+          }
+          $serviceData = Join-Path (Join-Path $env:APPDATA 'MetaQuotes\\Terminal') $profileHash
+          $mcpHelper = Join-Path $env:GITHUB_WORKSPACE 'tools\\disable_mt5_internal_mcp_v1.py'
+          if (!(Test-Path -LiteralPath $mcpHelper -PathType Leaf)) {
+            throw 'MT5_INTERNAL_MCP_ISOLATION_HELPER_MISSING'
+          }
+          & $env:PYTHON_EXE $mcpHelper --profile-root $serviceData
+          if ($LASTEXITCODE -ne 0) {
+            throw 'MT5_INTERNAL_MCP_PROFILE_ISOLATION_FAILED'
+          }
+          Write-Host 'MT5_INTERNAL_MCP_ISOLATION_VERIFIED=true'
+
           $serviceCommon = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
           $parity = Join-Path $serviceCommon $env:PARITY_OUTPUT_FILE
           $done = Join-Path $serviceCommon $env:PARITY_DONE_FILE
@@ -696,9 +712,15 @@ jobs:
             $bareCommand = $command.Trim('"')
             $isBareTerminal = $bareCommand.Equals([IO.Path]::GetFullPath($terminal),[StringComparison]::OrdinalIgnoreCase)
             $isSystemOwner = $owner -and $owner.ReturnValue -eq 0 -and $owner.User -eq 'SYSTEM' -and $owner.Domain -eq 'NT AUTHORITY'
-            Write-Host "MT5_EXISTING_PROCESS id=$($p.ProcessId) owner=$ownerName bare=$isBareTerminal command=$command"
+            Write-Host "MT5_EXISTING_PROCESS id=$($p.ProcessId) owner=$ownerName bare=$isBareTerminal"
             if ($command.Contains($config)) {
               throw "A MetaTrader terminal instance is already running with the current G13 parity config."
+            }
+            if (-not $isSystemOwner -and $isBareTerminal) {
+              # A bare interactive-user terminal may own MT5’s default MCP port.
+              # The runner profile MCP endpoints were disabled above; preserve this process.
+              Write-Host "MT5_EXTERNAL_BARE_TERMINAL_PRESERVED owner=$ownerName"
+              continue
             }
             if (-not $isSystemOwner -or -not $isBareTerminal) {
               throw "An existing MT5 process is not a reclaimable bare LocalSystem terminal (pid=$($p.ProcessId), owner=$ownerName); refusing to terminate it or start a conflicting instance."
