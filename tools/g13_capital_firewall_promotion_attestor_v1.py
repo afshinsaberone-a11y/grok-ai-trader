@@ -56,6 +56,7 @@ REQUIRED_RUNS = {
         "name": "ForexAI G13 Validation M15",
         "path": ".github/workflows/forexai-g13-validation-m15.yml",
         "workflow_id": 355468598,
+        "job_name": "g13-validation",
         "artifact_name": "g13-validation-m15",
         "document": "g13-validation-m15.json",
     },
@@ -63,6 +64,7 @@ REQUIRED_RUNS = {
         "name": "ForexAI G13 Robustness M15",
         "path": ".github/workflows/forexai-g13-robustness-m15.yml",
         "workflow_id": 355473409,
+        "job_name": "g13-robustness",
         "artifact_name": "g13-robustness-m15",
         "document": "g13-robustness-m15.json",
     },
@@ -70,6 +72,7 @@ REQUIRED_RUNS = {
         "name": "ForexAI G13 OOS M15 Current",
         "path": ".github/workflows/forexai-g13-oos-m15-current.yml",
         "workflow_id": 356162316,
+        "job_name": "G13 2026 OOS M15 Current",
         "artifact_name": "g13-oos-m15-2026-current",
         "document": "g13-oos-m15-2026.json",
     },
@@ -77,6 +80,7 @@ REQUIRED_RUNS = {
         "name": "ForexAI G13 Final Promotion M15",
         "path": ".github/workflows/forexai-g13-promotion-m15.yml",
         "workflow_id": 356366824,
+        "job_name": "promotion",
         "artifact_name": "g13-promotion-manifest-m15",
         "document": "g13-promotion-manifest-m15.json",
     },
@@ -84,6 +88,7 @@ REQUIRED_RUNS = {
         "name": "ForexAI G13 MT5 Compile + Signal Parity",
         "path": ".github/workflows/forexai-g13-mt5-compile-parity.yml",
         "workflow_id": 356474778,
+        "job_name": "compile-and-parity",
         "artifact_name_prefix": "g13-mt5-compile-parity-",
         "document": "g13-mql5-signal-parity.json",
         "package_document": "g13-demo-package-manifest-m15.json",
@@ -92,6 +97,7 @@ REQUIRED_RUNS = {
         "name": "ForexAI G13 Controlled Demo Package Preflight M15",
         "path": ".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml",
         "workflow_id": 368483289,
+        "job_name": "preflight",
         "artifact_name": "g13-controlled-demo-package-preflight-m15",
         "document": "g13-demo-package-preflight-m15.json",
     },
@@ -99,6 +105,7 @@ REQUIRED_RUNS = {
         "name": "ForexAI G13 Execution Safety Audit M15",
         "path": ".github/workflows/forexai-g13-execution-safety-audit-m15.yml",
         "workflow_id": 368434934,
+        "job_name": "audit",
         "artifact_name": "g13-execution-safety-audit-m15",
         "document": "g13-execution-safety-audit-m15.json",
     },
@@ -106,6 +113,7 @@ REQUIRED_RUNS = {
         "name": "ForexAI G13 Demo Readiness Gate M15",
         "path": ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml",
         "workflow_id": 368449689,
+        "job_name": "readiness",
         "artifact_name": "g13-demo-readiness-gate-m15",
         "document": "g13-demo-readiness-gate-m15.json",
     },
@@ -423,6 +431,22 @@ def _fetch_run_and_artifact(
         or run.get("repository", {}).get("full_name") != repo
     ):
         raise AttestorError(f"G13_ATTESTOR_EXACT_SHA_RUN_NOT_SUCCESS:{role}")
+    job_list = _api_json(repo, f"actions/runs/{run_id}/jobs?per_page=100", token)
+    expected_job_name = str(spec["job_name"])
+    successful_jobs = [
+        job for job in job_list.get("jobs", [])
+        if job.get("name") == expected_job_name
+        and job.get("status") == "completed"
+        and job.get("conclusion") == "success"
+    ]
+    if len(successful_jobs) != 1:
+        raise AttestorError(f"G13_ATTESTOR_EXACT_SHA_JOB_NOT_SUCCESS:{role}")
+    job_id = successful_jobs[0].get("id")
+    if isinstance(job_id, bool) or not isinstance(job_id, int) or job_id <= 0:
+        raise AttestorError(f"G13_ATTESTOR_SUCCESS_JOB_ID_INVALID:{role}")
+    run = dict(run)
+    run["_attestor_success_job_id"] = job_id
+
     artifact_list = _api_json(repo, f"actions/runs/{run_id}/artifacts?per_page=100", token)
     expected_name = _expected_artifact_name(role, run_id)
     found = [item for item in artifact_list.get("artifacts", []) if item.get("name") == expected_name]
@@ -552,6 +576,12 @@ def _validate_evidence(
         _require(source.get("artifact_digest") == digests[role], f"G13_ATTESTOR_PROMOTION_SOURCE_DIGEST_MISMATCH:{role}")
         _require(source.get("run_head_sha") == target_sha and source.get("head_branch") == "main",
                  f"G13_ATTESTOR_PROMOTION_SOURCE_SHA_MISMATCH:{role}")
+        _require(source.get("workflow_id") == runs[role]["workflow_id"]
+                 and source.get("workflow_name") == runs[role]["name"],
+                 f"G13_ATTESTOR_PROMOTION_SOURCE_WORKFLOW_MISMATCH:{role}")
+        _require(source.get("job_name") == REQUIRED_RUNS[role]["job_name"]
+                 and source.get("job_id") == runs[role]["_attestor_success_job_id"],
+                 f"G13_ATTESTOR_PROMOTION_SOURCE_JOB_MISMATCH:{role}")
 
     parity = docs["parity"]
     _require(parity.get("schema_version") == "forexai.g13.mql5_signal_parity.v2", "G13_ATTESTOR_PARITY_SCHEMA_INVALID")
@@ -586,6 +616,10 @@ def _validate_evidence(
     _require(preflight.get("ea_source_commit") == target_sha and preflight.get("compile_parity_head_sha") == target_sha,
              "G13_ATTESTOR_PREFLIGHT_SOURCE_SHA_MISMATCH")
     _require(preflight.get("compile_parity_run_id") == runs["parity"]["id"], "G13_ATTESTOR_PREFLIGHT_PARITY_RUN_MISMATCH")
+    _require(preflight.get("compile_parity_artifact_id") == artifacts["parity"]["id"]
+             and preflight.get("compile_parity_artifact_digest") == digests["parity"]
+             and preflight.get("downloaded_zip_sha256") == digests["parity"][7:],
+             "G13_ATTESTOR_PREFLIGHT_PARITY_ARTIFACT_MISMATCH")
     _require(preflight.get("candidate_ids") == promoted_ids and preflight.get("candidate_count") == len(promoted_ids),
              "G13_ATTESTOR_PREFLIGHT_CANDIDATES_MISMATCH")
     _require(preflight.get("source_hashes_verified") == len(promoted_ids)
