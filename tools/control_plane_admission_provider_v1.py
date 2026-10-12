@@ -357,6 +357,21 @@ def build_admission_request(
         raise AdmissionProviderError("PROVIDER_SOURCE_KEY_SET_INVALID")
     if not isinstance(provider_private_key, Ed25519PrivateKey):
         raise AdmissionProviderError("PROVIDER_SIGNING_KEY_INVALID")
+    source_key_bytes = {
+        source_type: _decode_public_key(source_public_keys[source_type], source_type).public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        for source_type in SOURCE_KEY_IDS
+    }
+    if len(set(source_key_bytes.values())) != len(source_key_bytes):
+        raise AdmissionProviderError("PROVIDER_SOURCE_KEYS_MUST_BE_DISTINCT")
+    issuer_key_bytes = provider_private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    if issuer_key_bytes in set(source_key_bytes.values()):
+        raise AdmissionProviderError("PROVIDER_ISSUER_KEY_MUST_BE_DISTINCT_FROM_SOURCES")
     now = (
         now_utc.astimezone(timezone.utc) if isinstance(now_utc, datetime)
         else _parse_utc(now_utc, "PROVIDER_NOW_INVALID") if now_utc is not None
