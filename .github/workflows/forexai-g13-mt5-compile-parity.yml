@@ -665,6 +665,349 @@ jobs:
           ShutdownTerminal=1
           "@ | Set-Content -LiteralPath $config -Encoding ascii
 
+          $profileHash = Split-Path -Leaf $env:MT5_DATA_ROOT
+          if ($profileHash -notmatch '^[0-9A-Fa-f]{32}
+          $done = Join-Path $serviceCommon $env:PARITY_DONE_FILE
+          $started = Join-Path $serviceCommon $env:PARITY_STARTED_FILE
+          Remove-Item $parity,$done,$started -Force -ErrorAction SilentlyContinue
+
+          Write-Host "Launching MT5 parity script with the runner's configured terminal profile"
+          Write-Host "MT5_PARITY_TERMINAL=$terminal"
+          Get-Content -LiteralPath $config | ForEach-Object {
+            Write-Host "MT5_PARITY_CONFIG_LINE=$($_)"
+          }
+
+          # MT5 can leave an unconfigured service-profile terminal behind when
+          # a prior startup script never starts. Starting a second instance then
+          # collides on the terminal's MCP/IPC listener and the script never runs.
+          # Only reclaim a bare terminal process owned by LocalSystem (the runner
+          # service account). Never terminate an interactive/non-service user's
+          # process or an instance launched with an explicit config/portable mode.
+          $procInfo = @(Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.ExecutablePath -and
+              ([IO.Path]::GetFullPath($_.ExecutablePath).Equals([IO.Path]::GetFullPath($terminal),[StringComparison]::OrdinalIgnoreCase))
+            })
+          $staleServiceProcesses = @()
+          foreach ($p in $procInfo) {
+            $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction SilentlyContinue
+            $ownerName = if ($owner -and $owner.ReturnValue -eq 0) { "$($owner.Domain)\\$($owner.User)" } else { 'UNKNOWN' }
+            $command = ([string]$p.CommandLine).Trim()
+            $bareCommand = $command.Trim('"')
+            $isBareTerminal = $bareCommand.Equals([IO.Path]::GetFullPath($terminal),[StringComparison]::OrdinalIgnoreCase)
+            $isSystemOwner = $owner -and $owner.ReturnValue -eq 0 -and $owner.User -eq 'SYSTEM' -and $owner.Domain -eq 'NT AUTHORITY'
+            Write-Host "MT5_EXISTING_PROCESS id=$($p.ProcessId) owner=$ownerName bare=$isBareTerminal"
+            if ($command.Contains($config)) {
+              throw "A MetaTrader terminal instance is already running with the current G13 parity config."
+            }
+            if (-not $isSystemOwner -and $isBareTerminal) {
+              # A bare interactive-user terminal can own MT5's default MCP port.
+              # The runner profile's internal MCP listeners were disabled above,
+              # so preserve that process and use the separate service profile.
+              Write-Host "MT5_EXTERNAL_BARE_TERMINAL_PRESERVED owner=$ownerName"
+              continue
+            }
+            if (-not $isSystemOwner -or -not $isBareTerminal) {
+              throw "An existing MT5 process is not a reclaimable bare LocalSystem terminal (pid=$($p.ProcessId), owner=$ownerName); refusing to terminate it or start a conflicting instance."
+            }
+            $staleServiceProcesses += $p
+          }
+          foreach ($p in $staleServiceProcesses) {
+            Write-Host "MT5_STALE_SERVICE_TERMINAL_STOPPING=$($p.ProcessId)"
+            Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
+          }
+          $stopDeadline = (Get-Date).AddSeconds(30)
+          while ((Get-Date) -lt $stopDeadline) {
+            $remaining = @(Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $staleServiceProcesses.ProcessId -contains $_.ProcessId })
+            if ($remaining.Count -eq 0) { break }
+            Start-Sleep -Seconds 1
+          }
+          $remaining = @(Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $staleServiceProcesses.ProcessId -contains $_.ProcessId })
+          if ($remaining.Count -gt 0) {
+            throw "A stale LocalSystem MT5 process did not exit after cleanup: $($remaining.ProcessId -join ',')"
+          }
+          if ($staleServiceProcesses.Count -gt 0) {
+            Write-Host "MT5_STALE_SERVICE_TERMINAL_CLEANUP_OK=$($staleServiceProcesses.Count)"
+          }
+
+          $configArg = '/config:"' + $config + '"'
+          $proc = Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @($configArg,'/skipupdate') -PassThru
+          Write-Host "MT5_PARITY_PROCESS_ID=$($proc.Id)"
+
+          $deadline = (Get-Date).AddSeconds(180)
+          $startedSeen = $false
+          while ((Get-Date) -lt $deadline) {
+            # Check the marker before process state: ShutdownTerminal=1 can exit
+            # MT5 immediately after the script writes the marker.
+            if (Test-Path -LiteralPath $started -PathType Leaf) {
+              $startedSeen = $true
+              Write-Host "MQL5_PARITY_SCRIPT_STARTED"
+              Get-Content -LiteralPath $started -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.Trim()) { Write-Host "MQL5_PARITY_STARTED_MARKER=$($_.Trim())" }
+              }
+              break
+            }
+            if ($proc.HasExited) { break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $startedSeen) {
+            if ($proc.HasExited) {
+              Write-Host "MT5_PARITY_TERMINAL_EXITED_BEFORE_SCRIPT_START exit_code=$($proc.ExitCode)"
+            } else {
+              Write-Host "MT5_PARITY_TERMINAL_STILL_RUNNING_BEFORE_SCRIPT_START"
+              try { $proc.Kill() } catch {}
+              try { $proc.WaitForExit(10000) | Out-Null } catch {}
+            }
+            throw "G13 parity script did not start within 180 seconds; inspect MT5 diagnostics artifact"
+          }
+
+          $deadline = (Get-Date).AddSeconds(600)
+          $completed = $false
+          while ((Get-Date) -lt $deadline) {
+            if (Test-Path -LiteralPath $done -PathType Leaf) {
+              Write-Host "MQL5_PARITY_DONE_MARKER_DETECTED"
+              $completed = $true
+              break
+            }
+            if ($proc.HasExited) { break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $completed -and -not $proc.HasExited) {
+            try { $proc.Kill() } catch {}
+            try { $proc.WaitForExit(10000) | Out-Null } catch {}
+            throw "MT5 parity script timed out after 600 seconds without completion marker"
+          }
+          if ($completed -and -not $proc.HasExited) {
+            Start-Sleep -Seconds 2
+            try { $proc.Kill() } catch {}
+            try { $proc.WaitForExit(10000) | Out-Null } catch {}
+          }
+          Write-Host "MT5_PARITY_TERMINAL_EXIT_CODE=$($proc.ExitCode)"
+          if (!(Test-Path -LiteralPath $parity -PathType Leaf)) {
+            throw "MQL5 parity output was not generated: $parity"
+          }
+          if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
+            throw "MQL5 parity completion marker was not generated: $done"
+          }
+          if (!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)) {
+            throw "MQL5 parity harness did not report PASS"
+          }
+          if (!(Select-String -LiteralPath $done -Pattern '^real_data_only,true$' -Quiet)) {
+            throw "MQL5 parity harness did not confirm real_data_only=true"
+          }
+          if (!(Select-String -LiteralPath $done -Pattern '^synthetic_data,false$' -Quiet)) {
+            throw "MQL5 parity harness did not confirm synthetic_data=false"
+          }
+          if (!(Select-String -LiteralPath $done -Pattern "^candidate_count,$env:G13_CANDIDATE_COUNT$" -Quiet)) {
+            throw "MQL5 parity harness did not process exactly $env:G13_CANDIDATE_COUNT candidates"
+          }
+
+          $stageDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\ci_inputs'
+          New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+          Copy-Item $parity (Join-Path $stageDir 'g13_mql5_parity.csv') -Force
+          Copy-Item $done (Join-Path $stageDir 'g13_mql5_parity.done.txt') -Force
+          "PARITY_CSV_RESOLVED=$(Join-Path $stageDir 'g13_mql5_parity.csv')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Copy-Item $env:DATA_MANIFEST_RESOLVED (Join-Path $stageDir 'g13_real_eurusd_m15.manifest.json') -Force
+          "DATA_MANIFEST_CI=$(Join-Path $stageDir 'g13_real_eurusd_m15.manifest.json')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # Keep DATA_CSV_RESOLVED bound to the exact validated real-data CSV from the resolver.
+          # The run-specific Common\\Files copy above is only the MQL5 harness input.
+          Write-Host "MQL5_REAL_DATA_PARITY_OK"
+
+      - name: Collect MT5 parity diagnostics
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\diagnostics'
+          New-Item -ItemType Directory -Path $diag -Force | Out-Null
+
+          $serviceData = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075'
+          $commonFiles = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
+          $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
+          $portableRoot = $env:G13_PORTABLE_MT5_ROOT
+          $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\mql5\\g13_parity_harness.ini'
+
+          if (Test-Path $terminal) {
+            (Get-Item $terminal).VersionInfo | Out-File (Join-Path $diag 'terminal_version.txt') -Encoding utf8
+          }
+          if ($portableRoot -and (Test-Path -LiteralPath $portableRoot -PathType Container)) {
+            @(
+              "G13_PORTABLE_MT5_ROOT=$portableRoot"
+              "G13_PORTABLE_MT5_TERMINAL=$(Join-Path $portableRoot 'terminal64.exe')"
+              "G13_PORTABLE_MT5_MODE=true"
+              "MT5_SHARED_USER_TERMINAL_LEFT_RUNNING=true"
+            ) | Out-File (Join-Path $diag 'portable_runtime.txt') -Encoding utf8
+            $portableTerminal = Join-Path $portableRoot 'terminal64.exe'
+            if (Test-Path -LiteralPath $portableTerminal) {
+              (Get-Item $portableTerminal).VersionInfo | Out-File (Join-Path $diag 'portable_terminal_version.txt') -Encoding utf8
+            }
+          }
+          Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" |
+            Select-Object ProcessId,ExecutablePath,CommandLine,CreationDate |
+            Format-List * |
+            Out-File (Join-Path $diag 'terminal_processes.txt') -Encoding utf8
+          if (Test-Path $config) { Copy-Item $config (Join-Path $diag 'g13_parity_harness.ini') -Force }
+
+          $logSources = @()
+          if ($portableRoot) {
+            $logSources += @(
+              @{ Name = 'portable_terminal_logs'; Path = (Join-Path $portableRoot 'logs') },
+              @{ Name = 'portable_mql5_logs'; Path = (Join-Path $portableRoot 'MQL5\\Logs') }
+            )
+          }
+          $logSources += @(
+            @{ Name = 'service_terminal_logs'; Path = (Join-Path $serviceData 'logs') },
+            @{ Name = 'service_mql5_logs'; Path = (Join-Path $serviceData 'MQL5\\Logs') }
+          )
+          foreach ($source in $logSources) {
+            if ($source.Path -and (Test-Path -LiteralPath $source.Path -PathType Container)) {
+              $out = Join-Path $diag $source.Name
+              New-Item -ItemType Directory -Path $out -Force | Out-Null
+              Get-ChildItem -LiteralPath $source.Path -File |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 10 |
+                ForEach-Object { Copy-Item $_.FullName (Join-Path $out $_.Name) -Force }
+            }
+          }
+
+          if (Test-Path $commonFiles) {
+            Get-ChildItem $commonFiles -File |
+              Where-Object { $_.Name -like 'g13_mql5_parity*' -or $_.Name -like 'g13_real_eurusd_m15*.csv' } |
+              Select-Object Name,Length,LastWriteTime |
+              Format-Table -AutoSize |
+              Out-File (Join-Path $diag 'common_files_inventory.txt') -Encoding utf8
+          }
+          Write-Host "MT5_DIAGNOSTICS_COLLECTED=$diag"
+
+
+      - name: Verify generated parity input
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!(Test-Path -LiteralPath $env:PARITY_CSV_RESOLVED -PathType Leaf)) {
+            throw "Generated MQL5 parity CSV missing: $env:PARITY_CSV_RESOLVED"
+          }
+          Write-Host "PARITY_INPUT_OK"
+          
+      - name: Run fail-closed Python vs MQL5 signal parity
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:PYTHON_EXE -m research.optimization.g13_mql5_parity `
+            --data "$env:DATA_CSV_RESOLVED" `
+            --data-manifest "$env:DATA_MANIFEST_RESOLVED" `
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json `
+            --manifest "$env:PROMOTION_MANIFEST" `
+            --mt5 "$env:PARITY_CSV_RESOLVED" `
+            --output artifacts/g13-mql5-signal-parity.json
+
+      - name: Build immutable Demo package manifest
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:PYTHON_EXE -m research.optimization.g13_demo_package_manifest_builder_m15 `
+            --promotion "$env:PROMOTION_MANIFEST" `
+            --parity artifacts/g13-mql5-signal-parity.json `
+            --package-root artifacts/g13/mql5 `
+            --output artifacts/g13/g13-demo-package-manifest-m15.json `
+            --source-commit "$env:TARGET_SHA" `
+            --compile-parity-run-id ([int64]$env:GITHUB_RUN_ID)
+      - name: Print MT5 parity diagnostics
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\diagnostics'
+          if (Test-Path $diag) {
+            Write-Host "MT5_DIAGNOSTICS_DIR=$diag"
+            Get-ChildItem $diag -Recurse -File |
+              Sort-Object FullName |
+              Select-Object FullName,Length,LastWriteTime |
+              Format-Table -AutoSize |
+              Out-String |
+              Write-Host
+            foreach ($file in @(Get-ChildItem $diag -Recurse -File | Where-Object { $_.Extension -in @('.txt','.log') } | Sort-Object LastWriteTime -Descending | Select-Object -First 5)) {
+              Write-Host "===== MT5_DIAGNOSTIC_FILE=$($file.FullName) ====="
+              Get-Content -LiteralPath $file.FullName -ErrorAction Continue |
+                Select-Object -Last 80 |
+                ForEach-Object { if ($_.Trim()) { Write-Host $_ } }
+            }
+          } else {
+            Write-Host 'MT5_DIAGNOSTICS_DIR_MISSING'
+          }
+
+          $parityJson = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13-mql5-signal-parity.json'
+          if (Test-Path $parityJson) {
+            Write-Host "===== G13_SIGNAL_PARITY_JSON ====="
+            Get-Content -LiteralPath $parityJson -Raw | Write-Host
+          }
+
+      - name: Upload MT5 parity diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-mt5-parity-diagnostics-${{ github.run_id }}
+          path: artifacts/g13/diagnostics/**
+          if-no-files-found: warn
+
+      - name: Upload compile + parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-mt5-compile-parity-${{ github.run_id }}
+          path: |
+            artifacts/g13/mql5/*.mq5
+            artifacts/g13/mql5/*.ex5
+            artifacts/g13/mql5/g13_parity_harness.ini
+            artifacts/g13/g13-demo-package-manifest-m15.json
+            artifacts/g13-mql5-signal-parity.json
+            artifacts/g13/ci_inputs/*
+          if-no-files-found: warn
+
+      - name: Cleanup isolated MT5 portable runtime
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $portableRoot = $env:G13_PORTABLE_MT5_ROOT
+          if (-not $portableRoot) {
+            Write-Host 'MT5_PORTABLE_CLEANUP_SKIPPED=no_runtime_root'
+            exit 0
+          }
+          try {
+            $tempRoot = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+            $portableFull = [System.IO.Path]::GetFullPath($portableRoot)
+            $leaf = Split-Path -Leaf $portableFull
+            if (-not $portableFull.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+              Write-Host 'MT5_PORTABLE_CLEANUP_SKIPPED=root_outside_runner_temp'
+              exit 0
+            }
+            if (-not $leaf.StartsWith('g13-mt5-parity-portable-', [System.StringComparison]::OrdinalIgnoreCase)) {
+              Write-Host 'MT5_PORTABLE_CLEANUP_SKIPPED=unexpected_directory_name'
+              exit 0
+            }
+            if (Test-Path -LiteralPath $portableFull) {
+              Remove-Item -LiteralPath $portableFull -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            if (Test-Path -LiteralPath $portableFull) {
+              Write-Host 'MT5_PORTABLE_CLEANUP_RESULT=directory_remains'
+            } else {
+              Write-Host 'MT5_PORTABLE_CLEANUP_RESULT=removed'
+            }
+          } catch {
+            Write-Host "MT5_PORTABLE_CLEANUP_ERROR=$($_.Exception.GetType().Name)"
+          }
+
+) {
+            throw 'MT5_INTERNAL_MCP_PROFILE_HASH_INVALID'
+          }
+          $serviceData = Join-Path (Join-Path $env:APPDATA 'MetaQuotes\\Terminal') $profileHash
+          $mcpHelper = Join-Path $env:GITHUB_WORKSPACE 'tools\\disable_mt5_internal_mcp_v1.py'
+          if (!(Test-Path -LiteralPath $mcpHelper -PathType Leaf)) {
+            throw 'MT5_INTERNAL_MCP_ISOLATION_HELPER_MISSING'
+          }
+          & $env:PYTHON_EXE $mcpHelper --profile-root $serviceData
+          if ($LASTEXITCODE -ne 0) {
+            throw 'MT5_INTERNAL_MCP_PROFILE_ISOLATION_FAILED'
+          }
+          Write-Host 'MT5_INTERNAL_MCP_ISOLATION_VERIFIED=true'
+
           $serviceCommon = Join-Path $env:APPDATA 'MetaQuotes\\Terminal\\Common\\Files'
           $parity = Join-Path $serviceCommon $env:PARITY_OUTPUT_FILE
           $done = Join-Path $serviceCommon $env:PARITY_DONE_FILE
