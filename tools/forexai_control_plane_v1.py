@@ -769,16 +769,17 @@ def watch(
                 except ControlPlaneError:
                     continue
                 try:
-                    current_mono = time.monotonic()
-                    if not cached_sha or current_mono - last_sha_check >= 30:
-                        cached_sha = fetch_current_main_sha(repository, os.environ.get("GH_TOKEN"))
-                        last_sha_check = current_mono
+                    # Refresh current main for each intent; never authorize from a
+                    # SHA cached before the current signal was observed.
+                    current_sha = fetch_current_main_sha(repository, os.environ.get("GH_TOKEN"))
+                    cached_sha = current_sha
+                    last_sha_check = time.monotonic()
                     result = process_signal_intent(
                         intent_path=intent_path,
                         manifest_path=manifest_path,
                         attestation_path=attestation_path,
                         provenance_path=provenance_path,
-                        current_main_sha=cached_sha,
+                        current_main_sha=current_sha,
                         ledger_path=ledger_path,
                         authenticated_envelope_path=authenticated_envelope_path,
                         common_files=common_files,
