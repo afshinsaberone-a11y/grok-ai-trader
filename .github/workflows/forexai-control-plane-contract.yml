@@ -11,6 +11,7 @@ on:
       - 'tests/test_g13_mql5_generator_v2.py'
       - '.github/workflows/forexai-control-plane-contract.yml'
       - '.github/workflows/forexai-control-plane-v1.yml'
+      - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
   push:
     paths:
       - 'tools/forexai_control_plane_v1.py'
@@ -21,6 +22,7 @@ on:
       - 'tests/test_g13_mql5_generator_v2.py'
       - '.github/workflows/forexai-control-plane-contract.yml'
       - '.github/workflows/forexai-control-plane-v1.yml'
+      - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
   workflow_dispatch:
 
 permissions:
