@@ -99,6 +99,9 @@ def _signed_request(**overrides):
         "safety_audit_status": "PASS",
         "readiness_status": "READY_FOR_CONTROLLED_DEMO_AUDIT",
         "demo_trading_allowed": True,
+        "source_default_demo_trading_allowed": False,
+        "demo_grant_id": "demo-grant-20261012-001",
+        "authorized_demo_candidate_id": 2,
         "live_trading_allowed": False,
         "real_data_only": True,
         "synthetic_data": False,
@@ -286,6 +289,42 @@ def test_candidate_config_hash_must_match_signed_promoted_manifest(tmp_path: Pat
     _resign(request)
     with pytest.raises(
         ControlPlaneError, match="CONTROL_PLANE_CANDIDATE_CONFIG_HASH_MISMATCH"
+    ):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_demo_grant_cannot_override_source_default_permission(tmp_path: Path):
+    request = _signed_request(
+        promotion_evidence={"source_default_demo_trading_allowed": True}
+    )
+    with pytest.raises(
+        ControlPlaneError,
+        match="CONTROL_PLANE_SOURCE_DEFAULT_DEMO_PERMISSION_MUST_REMAIN_FALSE",
+    ):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_demo_grant_must_name_the_same_candidate_as_signal(tmp_path: Path):
+    request = _signed_request(
+        promotion_evidence={
+            "promoted_candidate_ids": [2, 3],
+            "candidate_config_hashes": {"2": "c" * 64, "3": "d" * 64},
+            "authorized_demo_candidate_id": 3,
+        }
+    )
+    with pytest.raises(
+        ControlPlaneError, match="CONTROL_PLANE_DEMO_GRANT_CANDIDATE_MISMATCH"
+    ):
+        _run(tmp_path, request=request)
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_demo_grant_candidate_must_be_from_signed_promotion_set(tmp_path: Path):
+    request = _signed_request(promotion_evidence={"authorized_demo_candidate_id": 99})
+    with pytest.raises(
+        ControlPlaneError, match="CONTROL_PLANE_DEMO_GRANT_CANDIDATE_NOT_PROMOTED"
     ):
         _run(tmp_path, request=request)
     assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
