@@ -101,16 +101,6 @@ def test_g13_compile_artifacts_do_not_modify_the_user_mt5_experts_directory():
     assert "$env:MT5_DATA_ROOT" not in parity
     assert "$experts = Join-Path $portableRoot 'MQL5\\Experts'" in parity
     assert "Copy-Item -LiteralPath $candidate.FullName -Destination $experts" in parity
- -Quiet) {" in step
-    assert "$statusSuccess = $false" in step
-    assert "if (-not $statusSuccess)" in step
-    assert "Stop-Process -Name terminal64.exe" not in workflow
-
-    cleanup = workflow.split("      - name: Cleanup isolated MT5 portable runtime", 1)[1]
-    assert "$cloneExe = [System.IO.Path]::GetFullPath($cloneTerminal)" in cleanup
-    assert "Stop-Process -Id ([int]$process.ProcessId) -Force" in cleanup
-
-
 def test_g13_compile_artifacts_do_not_modify_the_user_mt5_experts_directory():
     workflow = (
         ROOT / ".github" / "workflows" / "forexai-g13-mt5-compile-parity.yml"
