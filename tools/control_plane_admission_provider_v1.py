@@ -11,6 +11,7 @@ import argparse
 import base64
 import binascii
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -451,6 +452,24 @@ def build_admission_request(
     return request
 
 
+def verify_provider_key_matches(
+    private_key: Ed25519PrivateKey, expected_public_key: str
+) -> None:
+    """Ensure the signing key matches the public trust anchor configured for the MT5 verifier."""
+    if not isinstance(expected_public_key, str) or not expected_public_key:
+        raise AdmissionProviderError("PROVIDER_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED")
+    try:
+        expected_raw = base64.b64decode(expected_public_key, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise AdmissionProviderError("PROVIDER_ADMISSION_PUBLIC_KEY_INVALID") from exc
+    actual_raw = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    if len(expected_raw) != 32 or not hmac.compare_digest(actual_raw, expected_raw):
+        raise AdmissionProviderError("PROVIDER_ADMISSION_KEYPAIR_MISMATCH")
+
+
 def load_provider_private_key(path: str | Path, passphrase: str | None = None) -> Ed25519PrivateKey:
     try:
         key = serialization.load_pem_private_key(
@@ -522,6 +541,10 @@ def main(argv: list[str] | None = None) -> int:
         private_key = load_provider_private_key(
             args.provider_private_key,
             os.environ.get("FOREXAI_PROVIDER_SIGNING_KEY_PASSPHRASE"),
+        )
+        verify_provider_key_matches(
+            private_key,
+            os.environ.get("FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY", ""),
         )
         request = build_admission_request(packet, source_public_keys=public_keys, provider_private_key=private_key)
         write_request_new(args.output, request)
