@@ -258,7 +258,7 @@ jobs:
               "rerun-failed-jobs",
               "compile_setup_retry_used",
               "compile_retry_from_attempt",
-              'job.get("name")=="compile-and-parity"',
+              'failed[0].get("name")=="compile-and-parity"',
               "len(failed)==1",
               "len(failed[0].get(\"steps\") or [])==1",
               "Set up job",
