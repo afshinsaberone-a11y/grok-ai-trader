@@ -37,6 +37,7 @@ on:
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
       - '.github/workflows/forexai-control-plane-v1.yml'
       - '.github/workflows/forexai-control-plane-contract.yml'
+      - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
       - 'tools/forexai_control_plane_v1.py'
       - 'research/optimization/g13_control_plane_ea_gate_v1.py'
       - 'tests/test_forexai_control_plane_v1.py'
@@ -66,6 +67,7 @@ on:
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
       - '.github/workflows/forexai-control-plane-v1.yml'
       - '.github/workflows/forexai-control-plane-contract.yml'
+      - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
       - 'tools/forexai_control_plane_v1.py'
       - 'research/optimization/g13_control_plane_ea_gate_v1.py'
       - 'tests/test_forexai_control_plane_v1.py'
@@ -120,6 +122,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
           ./actionlint .github/workflows/forexai-control-plane-v1.yml
           ./actionlint .github/workflows/forexai-control-plane-contract.yml
+          ./actionlint .github/workflows/forexai-control-plane-mt5-compile-guard.yml
 
       - name: Compile all G13 Python gates
         run: |
