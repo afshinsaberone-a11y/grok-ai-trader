@@ -276,6 +276,7 @@ def test_signed_demo_request_creates_ledger_and_authenticated_envelope(tmp_path:
 def test_candidate_must_be_in_signed_promoted_candidate_set(tmp_path: Path):
     request = _signed_request(candidate={"candidate_id": 3})
     request["candidate"]["signal_payload"]["candidate_id"] = 3
+    request["promotion_evidence"]["source_grant_candidate_id"] = 3
     request["candidate"]["input_hash"] = hashlib.sha256(
         _canonical(request["candidate"]["signal_payload"])
     ).hexdigest()
