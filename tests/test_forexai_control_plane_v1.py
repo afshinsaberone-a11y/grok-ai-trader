@@ -209,7 +209,7 @@ def _write_intent(root: Path, candidate: dict, *, now=NOW, side="SELL", bar_epoc
     return path
 
 
-def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005, promotion_run_id=99123):
+def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005, promotion_run_id=99123, selected_candidate_id=2):
     common_files = root / "common"
     common_files.mkdir(exist_ok=True)
     (common_files / "g13_demo_kill_switch.txt").write_text("ALLOW\n", encoding="utf-8")
@@ -239,6 +239,7 @@ def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_
         secret=secret,
         now=now,
         promotion_run_id=promotion_run_id,
+        selected_candidate_id=selected_candidate_id,
     )
     return result, ledger_path, envelope_path, common_files, secret, mt5
 
@@ -302,6 +303,8 @@ def test_deny_kill_switch_does_not_issue_authority(tmp_path):
             gateway=FakeGateway(),
             secret="unit-test-only-control-plane-secret-32-bytes-minimum",
             now=NOW,
+            promotion_run_id=99123,
+            selected_candidate_id=2,
         )
     assert not ledger.exists()
 
@@ -351,6 +354,12 @@ def test_promotion_from_old_main_is_rejected(tmp_path):
 
 
 
+
+def test_unselected_promoted_candidate_is_rejected(tmp_path):
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_CANDIDATE_NOT_SELECTED"):
+        _call(tmp_path, selected_candidate_id=6)
+    assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
+
 def test_mismatched_promotion_run_id_is_rejected(tmp_path):
     with pytest.raises(ControlPlaneError, match="PROMOTION_RUN_ID_MISMATCH"):
         _call(tmp_path, promotion_run_id=77)
@@ -380,6 +389,7 @@ def test_second_candidate_intent_is_blocked_while_global_auth_slot_is_occupied(t
             secret=secret,
             now=NOW,
             promotion_run_id=99123,
+            selected_candidate_id=2,
         )
     assert len(TradeLedger(ledger_path).events) == count_before
 
