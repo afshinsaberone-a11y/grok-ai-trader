@@ -587,6 +587,7 @@ def process_signal_intent(
     secret: str,
     now: datetime | None = None,
     promotion_run_id: int | None = None,
+    selected_candidate_id: int,
 ) -> dict[str, Any]:
     """Issue one current Demo authorization from one fresh real EA intent."""
     now = (now or _utc_now()).astimezone(timezone.utc)
@@ -598,6 +599,8 @@ def process_signal_intent(
         candidate_id = int(preliminary.get("candidate_id", 0))
     except (TypeError, ValueError, OverflowError) as exc:
         raise ControlPlaneError("SIGNAL_CANDIDATE_ID_INVALID") from exc
+    if candidate_id != selected_candidate_id:
+        raise ControlPlaneError("CONTROL_PLANE_CANDIDATE_NOT_SELECTED")
     manifest, candidate = validate_promotion_bundle(
         manifest_path=manifest_path,
         attestation_path=attestation_path,
@@ -779,8 +782,9 @@ def process_signal_intent(
     }
 
 
-def _signal_intents(common_files: Path) -> list[Path]:
-    return sorted(common_files.glob("ForexAI_G13_SignalIntent_*_EURUSD.json"))
+def _signal_intents(common_files: Path, selected_candidate_id: int) -> list[Path]:
+    candidate_path = common_files / f"ForexAI_G13_SignalIntent_{selected_candidate_id}_EURUSD.json"
+    return [candidate_path] if candidate_path.is_file() else []
 
 
 def watch(
@@ -797,6 +801,7 @@ def watch(
     poll_seconds: float = POLL_SECONDS_DEFAULT,
     stop_event: Any | None = None,
     promotion_run_id: int | None = None,
+    selected_candidate_id: int,
 ) -> int:
     if not secret or len(secret.encode("utf-8")) < 32:
         raise ControlPlaneError("CONTROL_PLANE_SECRET_NOT_CONFIGURED_OR_TOO_SHORT")
@@ -811,7 +816,7 @@ def watch(
     last_sha_check = 0.0
     try:
         while stop_event is None or not stop_event.is_set():
-            for intent_path in _signal_intents(common_files):
+            for intent_path in _signal_intents(common_files, selected_candidate_id):
                 # Kill switch is an operator boundary. DENY means no authorization
                 # is emitted; this service never changes it.
                 try:
@@ -837,6 +842,7 @@ def watch(
                         gateway=gateway,
                         secret=secret,
                         promotion_run_id=promotion_run_id,
+                        selected_candidate_id=selected_candidate_id,
                     )
                     print(json.dumps(result, ensure_ascii=False, sort_keys=True), flush=True)
                     seen_errors = {item for item in seen_errors if item[0] != intent_path.name}
@@ -891,6 +897,7 @@ def main() -> int:
     parser.add_argument("--terminal-path", default=os.environ.get("FOREXAI_MT5_TERMINAL_PATH", r"C:\Program Files\MetaTrader 5\terminal64.exe"))
     parser.add_argument("--poll-seconds", type=float, default=POLL_SECONDS_DEFAULT)
     parser.add_argument("--promotion-run-id", type=int, default=os.environ.get("FOREXAI_G13_PROMOTION_RUN_ID"))
+    parser.add_argument("--candidate-id", type=int, default=os.environ.get("FOREXAI_G13_CANDIDATE_ID"))
     parser.add_argument("--secret-env", default="FOREXAI_CONTROL_PLANE_HMAC_SECRET")
     args = parser.parse_args()
 
@@ -911,6 +918,8 @@ def main() -> int:
     secret = load_control_plane_secret(args.secret_env)
     if args.promotion_run_id is None or int(args.promotion_run_id) <= 0:
         raise ControlPlaneError("PROMOTION_RUN_ID_NOT_CONFIGURED")
+    if args.candidate_id is None or int(args.candidate_id) <= 0:
+        raise ControlPlaneError("G13_CANDIDATE_ID_NOT_CONFIGURED")
     current_sha = fetch_current_main_sha(args.repository, os.environ.get("GH_TOKEN"))
     # Pre-flight validates that the downloaded manifest and provenance are tied to
     # the exact current main SHA before starting the listener.
@@ -918,7 +927,7 @@ def main() -> int:
         manifest_path=args.promotion_manifest,
         attestation_path=args.promotion_attestation,
         provenance_path=args.promotion_provenance,
-        candidate_id=None,
+        candidate_id=int(args.candidate_id),
         expected_main_sha=current_sha,
         expected_promotion_run_id=int(args.promotion_run_id),
     )
@@ -936,6 +945,7 @@ def main() -> int:
         secret=secret,
         poll_seconds=args.poll_seconds,
         promotion_run_id=int(args.promotion_run_id),
+        selected_candidate_id=int(args.candidate_id),
     )
 
 
