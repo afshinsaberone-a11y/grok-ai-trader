@@ -16,7 +16,7 @@ name: ForexAI G13 OOS M15 Current
 on:
   workflow_dispatch:
 concurrency:
-  group: g13-oos-m15-current
+  group: g13-oos-m15-current-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
