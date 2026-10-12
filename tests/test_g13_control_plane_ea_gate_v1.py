@@ -42,7 +42,7 @@ def test_generated_ea_has_control_plane_intent_and_one_shot_gate():
 def test_generated_ea_uses_current_decision_id_and_hash_before_order():
     c = candidate()
     source = patch_generated_source(render(c), c["candidate_id"], c["config_hash"])
-    assert 'if(parts[15]!=expected_decision_id) return false;' in source
+    assert 'if(parts[14]!=expected_decision_id) return false;' in source
     assert 'G13-%I64d-%I64d-SELL' in source
     assert 'G13-%I64d-%I64d-S' in source
     assert 'ControlPlaneCurrentRiskWithinReservation(cp_pending_lots,bid,cp_pending_sl)' in source
