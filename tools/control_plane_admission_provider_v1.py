@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from contextlib import closing
 import binascii
 import hashlib
 import hmac
@@ -588,7 +589,7 @@ def record_issuance(request: Mapping[str, Any], registry_path: str | Path) -> No
     target = Path(registry_path).expanduser().resolve(strict=False)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(str(target), timeout=10.0, isolation_level=None) as db:
+        with closing(sqlite3.connect(str(target), timeout=10.0, isolation_level=None)) as db:
             db.execute("PRAGMA busy_timeout = 10000")
             db.execute(
                 """
