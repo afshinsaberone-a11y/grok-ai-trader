@@ -39,43 +39,147 @@ def prep(raw):
     d['day']=d.index.date;d['hour']=d.index.hour
     return d
 
-def metrics(rs):
-    n=len(rs);gp=sum(x for x in rs if x>0);gl=abs(sum(x for x in rs if x<=0));pf=gp/gl if gl else (3.0 if gp>0 else 0.0);eq=peak=10000.;dd=0.
-    for r in rs:eq*=1+RISK*r;peak=max(peak,eq);dd=max(dd,(peak-eq)/peak)
-    return {'trades':n,'win_rate_pct':round(100*sum(x>0 for x in rs)/n,2) if n else 0.,'total_R':round(float(sum(rs)),2),'expectancy_R':round(float(sum(rs))/n,4) if n else 0.,'profit_factor':round(float(pf),3),'max_dd_pct':round(100*dd,2),'final_equity':round(eq,2),'entries_equal_exits':True,'next_bar_open_entry':True,'actual_entry_price_for_stops':True,'adverse_exit_cost_applied':True,'same_bar_sl_first':True,'one_position_at_a_time':True,'round_trip_cost_pips':1.4}
+def metrics(rs, entries, exits):
+    n = len(rs)
+    gross_profit = sum(value for value in rs if value > 0)
+    gross_loss = abs(sum(value for value in rs if value < 0))
+    profit_factor = gross_profit / gross_loss if gross_loss else (3.0 if gross_profit > 0 else 0.0)
+    equity = peak = 10000.0
+    max_dd = 0.0
+    for value in rs:
+        equity *= 1 + RISK * value
+        peak = max(peak, equity)
+        max_dd = max(max_dd, (peak - equity) / peak)
+    return {
+        "trades": n,
+        "entries": int(entries),
+        "exits": int(exits),
+        "entries_equal_exits": entries == exits,
+        "win_rate_pct": round(100 * sum(value > 0 for value in rs) / n, 2) if n else 0.0,
+        "total_R": round(float(sum(rs)), 2),
+        "expectancy_R": round(float(sum(rs)) / n, 4) if n else 0.0,
+        "profit_factor": round(float(profit_factor), 3),
+        "max_dd_pct": round(100 * max_dd, 2),
+        "final_equity": round(equity, 2),
+        "next_bar_open_entry": True,
+        "actual_entry_price_for_stops": True,
+        "adverse_exit_cost_applied": True,
+        "same_bar_sl_first": True,
+        "one_position_at_a_time": True,
+    }
 
-def bt(d,p,spread=.5,slippage=.2):
-    cfg=ExecutionConfig(spread_pips=spread,slippage_pips=slippage)
-    rs=[]
-    for day,g in d.groupby('day',sort=True):
-        g=g.reset_index();n=len(g);pos=0;entry=stop=tp=0.;entry_i=-1
-        for i in range(60,n-1):
-            a=float(g.loc[i,'ATR']);adx=float(g.loc[i,'ADX']);rsi=float(g.loc[i,'RSI']);ema20=float(g.loc[i,'EMA20']);ema50=float(g.loc[i,'EMA50']);c=float(g.loc[i,'Close'])
-            if not np.isfinite(a+adx+rsi+ema20+ema50) or a<=0: continue
-            if pos==0:
-                trend=adx>=p['adx_threshold']; side=0
-                if trend and c>ema20>ema50 and c>g.loc[i-p['lookback']:i-1,'High'].max(): side=1
-                elif trend and c<ema20<ema50 and c<g.loc[i-p['lookback']:i-1,'Low'].min(): side=-1
-                elif p['mode']=='adaptive' and not trend:
-                    if rsi<=p['rsi_low'] and c<ema20: side=1
-                    elif rsi>=p['rsi_high'] and c>ema20: side=-1
-                if side:
-                    pos=side;entry_i=i+1;entry=apply_entry_cost(float(g.loc[entry_i,'Open']),pos,cfg);risk=p['atr_stop']*a;stop=entry-pos*risk
-                    tp=(entry+pos*p['rr']*risk) if trend else ema20
-                    if (tp-entry)*pos<=0: pos=0;continue
+
+def bt(d, p, spread=0.5, slippage=0.2):
+    cfg = ExecutionConfig(spread_pips=spread, slippage_pips=slippage)
+    rs = []
+    entries = 0
+    exits = 0
+
+    for _, group in d.groupby("day", sort=True):
+        g = group.reset_index()
+        n = len(g)
+        pos = 0
+        entry = stop = target = 0.0
+        entry_i = -1
+
+        for i in range(60, n - 1):
+            atr = float(g.loc[i, "ATR"])
+            adx = float(g.loc[i, "ADX"])
+            rsi = float(g.loc[i, "RSI"])
+            ema20 = float(g.loc[i, "EMA20"])
+            ema50 = float(g.loc[i, "EMA50"])
+            close = float(g.loc[i, "Close"])
+            if not np.isfinite(atr + adx + rsi + ema20 + ema50) or atr <= 0:
+                continue
+
+            if pos == 0:
+                trending = adx >= p["adx_threshold"]
+                side = 0
+                if trending and close > ema20 > ema50 and close > g.loc[i-p["lookback"]:i-1, "High"].max():
+                    side = 1
+                elif trending and close < ema20 < ema50 and close < g.loc[i-p["lookback"]:i-1, "Low"].min():
+                    side = -1
+                elif p["mode"] == "adaptive" and not trending:
+                    if rsi <= p["rsi_low"] and close < ema20:
+                        side = 1
+                    elif rsi >= p["rsi_high"] and close > ema20:
+                        side = -1
+
+                if not side:
                     continue
+
+                # Signal is evaluated on the closed bar i and filled at bar i+1 open.
+                entry_i = i + 1
+                entry = apply_entry_cost(float(g.loc[entry_i, "Open"]), side, cfg)
+                risk_distance = p["atr_stop"] * atr
+                stop = entry - side * risk_distance
+                target = entry + side * p["rr"] * risk_distance if trending else ema20
+                if (target - entry) * side <= 0:
+                    entry_i = -1
+                    continue
+
+                pos = side
+                entries += 1
+                continue
+
+            age = i - entry_i + 1
+            low = float(g.loc[i, "Low"])
+            high = float(g.loc[i, "High"])
+            hit_sl = low <= stop if pos == 1 else high >= stop
+            hit_tp = high >= target if pos == 1 else low <= target
+            risk_unit = p["atr_stop"] * float(g.loc[entry_i - 1, "ATR"])
+            if not np.isfinite(risk_unit) or risk_unit <= 0:
+                raise RuntimeError(f"V25_INVALID_OPEN_TRADE_RISK_UNIT:entry_index={entry_i}")
+
+            result_r = None
+            if hit_sl:
+                # Conservative fill convention when SL and TP are both touched.
+                result_r = pos * (apply_exit_cost(stop, pos, cfg) - entry) / risk_unit
+            elif hit_tp:
+                result_r = pos * (apply_exit_cost(target, pos, cfg) - entry) / risk_unit
+            elif age >= MAX_HOLD:
+                # i is at most n-2, therefore i+1 is an actual in-group bar.
+                result_r = pos * (apply_exit_cost(float(g.loc[i + 1, "Open"]), pos, cfg) - entry) / risk_unit
+            elif (
+                (pos == 1 and rsi >= 50 and p["mode"] == "adaptive" and adx < p["adx_threshold"])
+                or (pos == -1 and rsi <= 50 and p["mode"] == "adaptive" and adx < p["adx_threshold"])
+            ):
+                result_r = pos * (apply_exit_cost(float(g.loc[i + 1, "Open"]), pos, cfg) - entry) / risk_unit
+
+            if result_r is not None:
+                rs.append(float(result_r))
+                exits += 1
+                pos = 0
+                entry_i = -1
+
+        # The day boundary is an explicit flat-by-close boundary: realize any
+        # remaining trade at the final bar close rather than silently dropping it.
+        if pos:
+            final_index = n - 1
+            final_low = float(g.loc[final_index, "Low"])
+            final_high = float(g.loc[final_index, "High"])
+            risk_unit = p["atr_stop"] * float(g.loc[entry_i - 1, "ATR"])
+            if not np.isfinite(risk_unit) or risk_unit <= 0:
+                raise RuntimeError(f"V25_INVALID_OPEN_TRADE_RISK_UNIT:entry_index={entry_i}")
+
+            hit_sl = final_low <= stop if pos == 1 else final_high >= stop
+            hit_tp = final_high >= target if pos == 1 else final_low <= target
+            if hit_sl:
+                raw_exit = stop
+            elif hit_tp:
+                raw_exit = target
             else:
-                age=i-entry_i+1;hit_sl=(float(g.loc[i,'Low'])<=stop) if pos==1 else (float(g.loc[i,'High'])>=stop);hit_tp=(float(g.loc[i,'High'])>=tp) if pos==1 else (float(g.loc[i,'Low'])<=tp)
-                unit=p['atr_stop']*float(g.loc[entry_i-1,'ATR']);r=None
-                if not np.isfinite(unit) or unit<=0: continue
-                if hit_sl: r=pos*(apply_exit_cost(stop,pos,cfg)-entry)/unit
-                elif hit_tp: r=pos*(apply_exit_cost(tp,pos,cfg)-entry)/unit
-                elif age>=MAX_HOLD: r=pos*(apply_exit_cost(float(g.loc[min(i+1,n-1),'Open']),pos,cfg)-entry)/unit
-                elif (pos==1 and rsi>=50 and p['mode']=='adaptive' and adx<p['adx_threshold']) or (pos==-1 and rsi<=50 and p['mode']=='adaptive' and adx<p['adx_threshold']):
-                    ex=float(g.loc[i+1,'Open']);r=pos*(apply_exit_cost(ex,pos,cfg)-entry)/unit
-                if r is not None:
-                    rs.append(float(r));pos=0
-    return metrics(rs)
+                raw_exit = float(g.loc[final_index, "Close"])
+            rs.append(float(pos * (apply_exit_cost(raw_exit, pos, cfg) - entry) / risk_unit))
+            exits += 1
+            pos = 0
+            entry_i = -1
+
+    if entries != exits:
+        raise RuntimeError(f"V25_EXECUTION_INVARIANT_FAIL:entries={entries}:exits={exits}")
+    result = metrics(rs, entries, exits)
+    result["round_trip_cost_pips"] = cfg.round_trip_cost_pips
+    return result
 
 def pf(m): return 3.0 if m.get('profit_factor')=='inf' else float(m.get('profit_factor',0))
 def gate(pre):
