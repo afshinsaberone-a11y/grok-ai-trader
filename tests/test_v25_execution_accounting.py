@@ -59,3 +59,18 @@ def test_final_bar_both_sl_and_tp_touched_resolves_sl_first() -> None:
     assert result["entries_equal_exits"] is True
     # Long stop is 0.99907; exit cost moves the stop fill to 0.99900.
     assert result["total_R"] == -1.07
+
+
+def test_stop_loss_is_checked_even_when_current_bar_indicator_is_missing() -> None:
+    data = _daily_bars()
+    data.iloc[61, data.columns.get_loc("Low")] = 0.998
+    data.iloc[61, data.columns.get_loc("ADX")] = np.nan
+    data.loc[data.index[62:], "RSI"] = 50.0
+
+    result = bt(data, PARAMS)
+
+    assert result["entries"] == 1
+    assert result["exits"] == 1
+    assert result["entries_equal_exits"] is True
+    # The SL touched on the NaN-ADX bar; the exit path must not skip that bar.
+    assert result["total_R"] == -1.07
