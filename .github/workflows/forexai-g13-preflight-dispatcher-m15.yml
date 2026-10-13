@@ -1,48 +1,26 @@
 name: ForexAI G13 Preflight Dispatcher M15
 
-# Separate orchestration workflow.
-# Watches G13-related pushes as a fallback because workflow_run delivery can race
-# or be missed on a newly installed dispatcher. It waits for the COMPLETE exact-main
-# Compile + Signal Parity workflow to succeed, then dispatches the existing read-only
-# Controlled Demo Package Preflight with the exact successful Compile/Parity run ID.
+# Manual recovery path only. The primary G13 Watchdog dispatches Preflight directly
+# with the exact Compile/Parity run ID and correlates the newly dispatched run.
+# This workflow remains available for operator-triggered recovery.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'research/optimization/g13_*.py'
-      - 'research/real_data/*.py'
-      - 'research/optimization/g13_mql5_parity_harness.mq5'
-      - 'artifacts/g13/g13-promotion-manifest-m15.json'
-      - 'artifacts/g13/frozen/g13-candidate-handoff-m15.json'
-      - '.github/workflows/forexai-g13-*.yml'
-      - '.github/actions/g13-artifact-upload/**'
-  workflow_run:
-    workflows:
-      - "ForexAI G13 MT5 Compile + Signal Parity"
-    types: [completed]
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
   actions: write
 
 concurrency:
-  group: g13-preflight-dispatcher-m15-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  group: g13-preflight-dispatcher-m15-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
   dispatch-preflight:
-    if: >-
-      ${{ github.event_name == 'push' ||
-          (github.event.workflow_run.conclusion == 'success' &&
-           github.event.workflow_run.name == 'ForexAI G13 MT5 Compile + Signal Parity') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      TARGET_SHA: ${{ github.sha }}
     steps:
       - name: Resolve COMPLETE successful Compile/Parity run
         shell: bash
@@ -74,7 +52,7 @@ jobs:
               SUCCESS\|*)
                 compile_run_id="${state#SUCCESS|}"
                 echo "COMPILE_PARITY_RUN_ID=$compile_run_id" >> "$GITHUB_ENV"
-                echo "COMPILE_PARITY_RUN_RESOLVED=true RUN=$compile_run_id SHA=$TARGET_SHA SOURCE=push-fallback"
+                echo "COMPILE_PARITY_RUN_RESOLVED=true RUN=$compile_run_id SHA=$TARGET_SHA SOURCE=manual-recovery"
                 break
                 ;;
               PENDING\|*|NOT_STARTED\|*)

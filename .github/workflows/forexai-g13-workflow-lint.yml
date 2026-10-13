@@ -103,6 +103,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml
+          ./actionlint .github/workflows/forexai-g13-preflight-dispatcher-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
@@ -243,11 +244,15 @@ jobs:
               "G13 Watchdog concurrency must be scoped to its exact SHA"
           )
           preflight_dispatcher = Path(".github/workflows/forexai-g13-preflight-dispatcher-m15.yml").read_text(encoding="utf-8")
-          assert "group: g13-preflight-dispatcher-m15-" in preflight_dispatcher, (
-              "Preflight Dispatcher concurrency must be SHA scoped"
+          dispatcher_triggers = preflight_dispatcher.split("\npermissions:", 1)[0]
+          assert "workflow_dispatch:" in dispatcher_triggers, (
+              "Preflight Dispatcher must remain manually recoverable"
           )
-          assert 'github.event.workflow_run.head_sha || github.sha }}' in preflight_dispatcher, (
-              "Preflight Dispatcher concurrency expression must use the triggering Compile/Parity SHA"
+          assert "\n  push:" not in dispatcher_triggers and "\n  workflow_run:" not in dispatcher_triggers, (
+              "Preflight Dispatcher must not race/cancel the primary Watchdog dispatch"
+          )
+          assert "group: g13-preflight-dispatcher-m15-" in preflight_dispatcher and "github.sha }}" in preflight_dispatcher, (
+              "Manual Preflight Dispatcher concurrency must be SHA scoped"
           )
 
           # Prevent older G13 runs from cancelling evidence for a newer commit.
@@ -335,17 +340,20 @@ jobs:
           assert "workflow_run:" not in preflight, (
               "package preflight must not dispatch itself on Compile/Parity completion; the dispatcher is the single automatic owner"
           )
-          assert "forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches" not in watchdog, (
-              "watchdog must not create a duplicate package preflight run"
+          assert 'forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches' in watchdog, (
+              "watchdog must dispatch package Preflight itself after exact Compile/Parity succeeds"
           )
-          assert "G13_PREFLIGHT_DISPATCH_DELEGATED_TO_SINGLE_DISPATCHER=true" in watchdog, (
-              "watchdog must explicitly hand off preflight dispatch responsibility"
+          assert "G13_PREFLIGHT_DISPATCHED=true" in watchdog and "G13_PREFLIGHT_BASELINE_ID" in watchdog, (
+              "watchdog must record a baseline and correlate only a newly dispatched Preflight run"
+          )
+          assert "COMPILE_PARITY_RUN_ID" in watchdog and '"compile_parity_run_id"' in watchdog, (
+              "watchdog must pass the exact successful Compile/Parity run ID to Preflight"
           )
           assert 'forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches' in preflight_dispatcher, (
-              "single preflight dispatcher must own exact Compile/Parity to Preflight dispatch"
+              "manual recovery dispatcher must retain an explicit Preflight dispatch path"
           )
-          assert "COMPILE_PARITY_TRIGGER_RUN_VERIFIED" in preflight_dispatcher and "SOURCE=push-fallback" in preflight_dispatcher, (
-              "dispatcher must preserve exact-run authoritative and push-recovery paths"
+          assert "SOURCE=manual-recovery" in preflight_dispatcher and "workflow_dispatch:" in dispatcher_triggers, (
+              "dispatcher must be a manual recovery path, not a competing automatic owner"
           )
 
           validation_dispatch = watchdog.index('dispatch_workflow "forexai-g13-validation-m15.yml"')
