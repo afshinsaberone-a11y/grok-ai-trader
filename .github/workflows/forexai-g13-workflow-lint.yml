@@ -36,6 +36,8 @@ on:
       - 'tests/test_g13_promotion_gate_provenance.py'
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
       - 'tests/test_capital_authorization_preflight_workflow_contract.py'
+      - 'research/optimization/cost_aware_adaptive_regime_switch_v25.py'
+      - 'tests/test_v25_execution_accounting.py'
   pull_request:
     paths:
       - '.github/workflows/forexai-g13-*.yml'
@@ -59,6 +61,8 @@ on:
       - 'tests/test_g13_promotion_gate_provenance.py'
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
       - 'tests/test_capital_authorization_preflight_workflow_contract.py'
+      - 'research/optimization/cost_aware_adaptive_regime_switch_v25.py'
+      - 'tests/test_v25_execution_accounting.py'
   workflow_dispatch:
 
 concurrency:
