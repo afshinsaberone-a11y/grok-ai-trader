@@ -89,10 +89,11 @@ def bt(d, p, spread=0.5, slippage=0.2):
             ema20 = float(g.loc[i, "EMA20"])
             ema50 = float(g.loc[i, "EMA50"])
             close = float(g.loc[i, "Close"])
-            if not np.isfinite(atr + adx + rsi + ema20 + ema50) or atr <= 0:
-                continue
-
             if pos == 0:
+                # Entry signals require a complete indicator set. Existing positions
+                # must still be checked for SL/TP/expiry if an indicator is missing.
+                if not np.isfinite(atr + adx + rsi + ema20 + ema50) or atr <= 0:
+                    continue
                 trending = adx >= p["adx_threshold"]
                 side = 0
                 if trending and close > ema20 > ema50 and close > g.loc[i-p["lookback"]:i-1, "High"].max():
