@@ -358,7 +358,7 @@ jobs:
           printf '%s' "$compile_json" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; p=json.load(sys.stdin); target=os.environ["TARGET_SHA"]; assert p["name"]=="ForexAI G13 MT5 Compile + Signal Parity",p["name"]; assert p["head_branch"]=="main",p["head_branch"]; assert p["status"]=="completed",p["status"]; assert p["conclusion"]=="success",p["conclusion"]; assert p["head_sha"]==target,(p["head_sha"],target); print("G13_EXACT_COMPILE_PARITY_BOUND",p["id"],target)'
           echo "COMPILE_PARITY_RUN_ID=$compile_run_id" >> "$GITHUB_ENV"
 
-      - name: Delegate package preflight to the single dispatcher
+      - name: Dispatch exact Controlled Demo Package Preflight
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -368,7 +368,29 @@ jobs:
             echo "G13_WATCHDOG_MAIN_MOVED_BEFORE_PREFLIGHT=true CURRENT_MAIN=$main_sha TARGET_SHA=$GITHUB_SHA"
             exit 1
           }
-          echo "G13_PREFLIGHT_DISPATCH_DELEGATED_TO_SINGLE_DISPATCHER=true COMPILE_PARITY_RUN_ID=$COMPILE_PARITY_RUN_ID SHA=$GITHUB_SHA"
+
+          # Snapshot run IDs before dispatch. Only a fresh Preflight run for this SHA
+          # can satisfy this invocation of the official G13 chain.
+          preflight_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml/runs?branch=main&per_page=50")"
+          preflight_baseline_id="$(printf '%s' "$preflight_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
+          echo "G13_PREFLIGHT_BASELINE_ID=$preflight_baseline_id"
+          echo "G13_PREFLIGHT_BASELINE_ID=$preflight_baseline_id" >> "$GITHUB_ENV"
+
+          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"compile_parity_run_id":sys.argv[1]}}))' "$COMPILE_PARITY_RUN_ID")"
+          status="$(curl -sS --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors --retry-delay 2 \
+            -o /tmp/g13-preflight-dispatch-response.txt -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches" \
+            --data "$payload")"
+          if [[ "$status" != "204" ]]; then
+            echo "G13_PREFLIGHT_DISPATCH_FAILED_HTTP=$status"
+            cat /tmp/g13-preflight-dispatch-response.txt
+            exit 1
+          fi
+          echo "G13_PREFLIGHT_DISPATCHED=true RUN_INPUT_COMPILE_PARITY_ID=$COMPILE_PARITY_RUN_ID SHA=$GITHUB_SHA"
 
       - name: Resolve exact successful Controlled Demo Package Preflight
         env:
@@ -378,7 +400,7 @@ jobs:
           preflight_run_id=""
           for attempt in $(seq 1 40); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml/runs?branch=main&per_page=50")"
-            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("name")=="ForexAI G13 Controlled Demo Package Preflight M15" and r.get("head_branch")=="main" and r.get("head_sha")==target]; ok=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(ok,key=lambda x:x["id"])["id"])) if ok else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
+            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" BASELINE_ID="$G13_PREFLIGHT_BASELINE_ID" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; baseline=int(os.environ["BASELINE_ID"]); rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if int(r.get("id",0))>baseline and r.get("event")=="workflow_dispatch" and r.get("name")=="ForexAI G13 Controlled Demo Package Preflight M15" and r.get("head_branch")=="main" and r.get("head_sha")==target]; ok=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(ok,key=lambda x:x["id"])["id"])) if ok else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
             case "$state" in
               SUCCESS\|*)
                 preflight_run_id="${state#SUCCESS|}"
