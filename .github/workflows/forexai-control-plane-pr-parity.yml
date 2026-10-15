@@ -13,12 +13,22 @@ on:
       - 'research/optimization/g13_mql5_generator_v2.py'
       - 'research/optimization/g13_mql5_parity.py'
       - 'research/optimization/g13_mql5_parity_harness_generator.py'
+      - 'research/optimization/g13_demo_readiness_gate_m15.py'
+      - 'research/optimization/g13_execution_safety_audit_m15.py'
+      - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
+      - '.github/workflows/forexai-g13-mql5-generation.yml'
+      - '.github/workflows/forexai-g13-workflow-lint.yml'
       - '.github/workflows/forexai-control-plane-pr-parity.yml'
       - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
 
 permissions:
   contents: read
   actions: read
+
+# Newer source pushes supersede stale queued parity runs for this feature branch.
+concurrency:
+  group: forexai-control-plane-pr-real-data-parity
+  cancel-in-progress: true
 
 jobs:
   resolve-main:
