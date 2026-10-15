@@ -3,6 +3,22 @@ name: ForexAI G13 MT5 Compile + Signal Parity
 # actions/download-artifact REST lookup (repository + run-id + token), while retaining digest binding.
 
 on:
+  # Reusable entry point for candidate-source parity. Promotion evidence remains
+  # bound to the explicit main SHA; candidate code is checked out separately.
+  workflow_call:
+    inputs:
+      candidate_source_ref:
+        description: "Exact trusted same-repository candidate source SHA to generate and compile"
+        required: true
+        type: string
+      promotion_target_sha:
+        description: "Exact main SHA whose successful Promotion artifact must be used"
+        required: true
+        type: string
+      promotion_run_id:
+        description: "Optional exact Promotion run ID; normally resolved by the workflow"
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       promotion_run_id:
@@ -53,7 +69,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       MANUAL_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
-      TARGET_SHA: ${{ github.sha }}
+      TARGET_SHA: ${{ inputs.promotion_target_sha || github.sha }}
     steps:
       - name: Resolve exact Promotion run
         id: resolve
@@ -99,6 +115,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PROMOTION_RUN_ID: ${{ steps.resolve.outputs.promotion_run_id }}
+          TARGET_SHA: ${{ steps.resolve.outputs.target_sha }}
         run: |
           set -euo pipefail
           stage_dir="artifacts/g13/promotion-source-handoff"
@@ -132,13 +149,15 @@ jobs:
 
   compile-and-parity:
     needs: resolve-promotion
-    if: needs.resolve-promotion.result == 'success'
+    # Do not run candidate-controlled workflow code from fork PRs on the MT5 host.
+    if: needs.resolve-promotion.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 240
     env:
       PYTHONOPTIMIZE: '0'
       PROMOTION_RUN_ID: ${{ needs.resolve-promotion.outputs.promotion_run_id }}
       TARGET_SHA: ${{ needs.resolve-promotion.outputs.target_sha }}
+      SOURCE_SHA: ${{ inputs.candidate_source_ref || github.sha }}
       PROMOTION_ARTIFACT_ID: ${{ needs.resolve-promotion.outputs.promotion_artifact_id }}
       PROMOTION_ARTIFACT_DIGEST: ${{ needs.resolve-promotion.outputs.promotion_artifact_digest }}
       PARITY_INPUT_FILE: g13_real_eurusd_m15_${{ github.run_id }}.csv
@@ -152,7 +171,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ inputs.candidate_source_ref || (github.event_name == 'workflow_run' && github.event.workflow_run.head_sha) || github.sha }}
 
       - name: Verify local Python runtime
         run: |
@@ -872,7 +891,7 @@ jobs:
             --parity artifacts/g13-mql5-signal-parity.json `
             --package-root artifacts/g13/mql5 `
             --output artifacts/g13/g13-demo-package-manifest-m15.json `
-            --source-commit "$env:TARGET_SHA" `
+            --source-commit "$env:SOURCE_SHA" `
             --compile-parity-run-id ([int64]$env:GITHUB_RUN_ID)
       - name: Print MT5 parity diagnostics
         if: always()
