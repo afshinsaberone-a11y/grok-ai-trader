@@ -91,5 +91,15 @@ jobs:
           assert "MarkRuntimeAuthorizationConsumed(trade_id)" in generated_gate
           assert "live accounts are always rejected" in generated_gate.lower()
           assert "FOREXAI_CONTROL_PLANE_HMAC_SECRET" in workflow
+
+          # The direct Demo issuer must remain subordinate to the independent
+          # signed one-signal admission contract. Do not let local readiness,
+          # Promotion, or a manual ALLOW switch become a signing shortcut.
+          assert "_verify_external_demo_admission(" in producer
+          assert "verify_admission_request(" in producer
+          assert "EXTERNAL_DEMO_ADMISSION_DEMO_PERMISSION_MISSING" in producer
+          assert "FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY" in workflow
+          assert "FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH" in workflow
+          assert "admission_request_path=args.admission_request" in producer
           print("FOREXAI_CONTROL_PLANE_AUTHORITY_BOUNDARIES_OK")
           PY
