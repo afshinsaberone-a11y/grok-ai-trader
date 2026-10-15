@@ -75,3 +75,4 @@ def test_control_plane_generated_ea_passes_execution_safety_audit(tmp_path):
     assert report["order_after_guard"] is True
     assert report["tester_order_sites"] == 1
     assert report["controlled_demo_order_sites"] == 1
+    assert report["parity_signal_contract_preserved"] is True
