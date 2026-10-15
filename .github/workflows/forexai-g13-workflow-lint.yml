@@ -34,16 +34,22 @@ on:
       - 'tests/test_g13_real_data_provenance.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
-      - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
+      - 'tools/control_plane_provider_host_preflight_v1.py'
+      - 'tests/test_control_plane_provider_host_preflight_v1.py'
+      - 'docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md'
       - '.github/workflows/forexai-control-plane-v1.yml'
       - '.github/workflows/forexai-control-plane-contract.yml'
       - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
+      - '.github/workflows/forexai-control-plane-pr-parity.yml'
       - 'tools/forexai_resolve_exact_promotion_manifest_v1.ps1'
       - 'tools/forexai_control_plane_v1.py'
       - 'research/optimization/g13_control_plane_ea_gate_v1.py'
       - 'tests/test_forexai_control_plane_v1.py'
       - 'tests/test_g13_control_plane_ea_gate_v1.py'
+      - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
       - 'tests/test_capital_authorization_preflight_workflow_contract.py'
+      - 'research/optimization/cost_aware_adaptive_regime_switch_v25.py'
+      - 'tests/test_v25_execution_accounting.py'
   pull_request:
     paths:
       - '.github/workflows/forexai-g13-*.yml'
@@ -65,16 +71,22 @@ on:
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_demo_package_manifest_builder.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
-      - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
+      - 'tools/control_plane_provider_host_preflight_v1.py'
+      - 'tests/test_control_plane_provider_host_preflight_v1.py'
+      - 'docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md'
       - '.github/workflows/forexai-control-plane-v1.yml'
       - '.github/workflows/forexai-control-plane-contract.yml'
       - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
+      - '.github/workflows/forexai-control-plane-pr-parity.yml'
       - 'tools/forexai_resolve_exact_promotion_manifest_v1.ps1'
       - 'tools/forexai_control_plane_v1.py'
       - 'research/optimization/g13_control_plane_ea_gate_v1.py'
       - 'tests/test_forexai_control_plane_v1.py'
       - 'tests/test_g13_control_plane_ea_gate_v1.py'
+      - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
       - 'tests/test_capital_authorization_preflight_workflow_contract.py'
+      - 'research/optimization/cost_aware_adaptive_regime_switch_v25.py'
+      - 'tests/test_v25_execution_accounting.py'
   workflow_dispatch:
 
 concurrency:
@@ -119,6 +131,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml
+          ./actionlint .github/workflows/forexai-g13-preflight-dispatcher-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
@@ -227,6 +240,10 @@ jobs:
               assert token in workflow, f"missing workflow token: {token}"
           windows_compile = workflow.split("  compile-and-parity:", 1)[1]
           assert "$artifact." not in windows_compile, "Compile job must not reference an undefined Promotion artifact object"
+          checkout_step = windows_compile.split("- name: Checkout", 1)[1].split("- name:", 1)[0]
+          assert "persist-credentials: false" in checkout_step, (
+              "Windows MT5 checkout must not persist credentials or require credential cleanup in the post job"
+          )
           assert "DATA_CSV_RESOLVED=$(Join-Path $env:APPDATA" not in workflow, "Do not overwrite the manifest-bound real-data CSV with a legacy Common/Files path"
           for forbidden in ["gh api", "HttpClient", "Invoke-RestMethod", "Invoke-WebRequest"]:
               assert forbidden not in windows_compile, f"Windows Compile job must not use raw GitHub/network client: {forbidden}"
@@ -243,7 +260,64 @@ jobs:
           ]:
               assert token in promotion, f"promotion provenance token missing: {token}"
 
+          # The Watchdog owns the official chain and explicitly dispatches each gate in order.
+          # Prevent main pushes from racing that chain with duplicate Validation/Robustness/Promotion runs.
+          for orchestrated_gate in [
+              ".github/workflows/forexai-g13-validation-m15.yml",
+              ".github/workflows/forexai-g13-robustness-m15.yml",
+              ".github/workflows/forexai-g13-promotion-m15.yml",
+          ]:
+              gate_workflow = Path(orchestrated_gate).read_text(encoding="utf-8")
+              trigger_prefix = gate_workflow.split("\nconcurrency:", 1)[0].split("\npermissions:", 1)[0]
+              assert "workflow_dispatch:" in trigger_prefix, f"manual dispatch missing from orchestrated gate: {orchestrated_gate}"
+              assert "\n  push:" not in trigger_prefix, f"orchestrated gate must not have a duplicate push trigger: {orchestrated_gate}"
+
           watchdog = Path(".github/workflows/forexai-g13-oos-watchdog-m15.yml").read_text(encoding="utf-8")
+          assert "group: g13-oos-watchdog-m15-" in watchdog and "github.sha }}" in watchdog, (
+              "G13 Watchdog concurrency must be scoped to its exact SHA"
+          )
+          preflight_dispatcher = Path(".github/workflows/forexai-g13-preflight-dispatcher-m15.yml").read_text(encoding="utf-8")
+          dispatcher_triggers = preflight_dispatcher.split("\npermissions:", 1)[0]
+          assert "workflow_dispatch:" in dispatcher_triggers, (
+              "Preflight Dispatcher must remain manually recoverable"
+          )
+          assert "\n  push:" not in dispatcher_triggers and "\n  workflow_run:" not in dispatcher_triggers, (
+              "Preflight Dispatcher must not race/cancel the primary Watchdog dispatch"
+          )
+          assert "group: g13-preflight-dispatcher-m15-" in preflight_dispatcher and "github.sha }}" in preflight_dispatcher, (
+              "Manual Preflight Dispatcher concurrency must be SHA scoped"
+          )
+
+          # Prevent older G13 runs from cancelling evidence for a newer commit.
+          # Check expression fragments separately so Actions does not parse a
+          # literal expression opener inside this Python assertion block.
+          sha_scoped_dispatch_gates = [
+              (".github/workflows/forexai-g13-validation-m15.yml", "g13-validation-m15"),
+              (".github/workflows/forexai-g13-robustness-m15.yml", "g13-robustness-m15"),
+              (".github/workflows/forexai-g13-oos-m15-current.yml", "g13-oos-m15-current"),
+              (".github/workflows/forexai-g13-mt5-compile-parity.yml", "g13-mt5-compile-parity"),
+              (".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml", "g13-controlled-demo-package-preflight"),
+          ]
+          for workflow_path, group_prefix in sha_scoped_dispatch_gates:
+              workflow_text = Path(workflow_path).read_text(encoding="utf-8")
+              assert f"group: {group_prefix}-" in workflow_text, (
+                  f"G13 concurrency group must be SHA-scoped: {workflow_path}"
+              )
+              assert "github.sha }}" in workflow_text, (
+                  f"G13 concurrency group must use the dispatched commit SHA: {workflow_path}"
+              )
+
+          for workflow_path, group_prefix in [
+              (".github/workflows/forexai-g13-demo-readiness-gate-m15.yml", "g13-demo-readiness-gate-m15"),
+              (".github/workflows/forexai-g13-execution-safety-audit-m15.yml", "g13-execution-safety-audit-m15"),
+          ]:
+              workflow_text = Path(workflow_path).read_text(encoding="utf-8")
+              assert f"group: {group_prefix}-" in workflow_text, (
+                  f"G13 workflow_run concurrency group must be SHA-scoped: {workflow_path}"
+              )
+              assert "github.event.workflow_run.head_sha || github.sha }}" in workflow_text, (
+                  f"G13 workflow_run concurrency must bind to the event's source SHA: {workflow_path}"
+              )
           for token in [
               "actions: write",
               'dispatch_workflow "forexai-g13-validation-m15.yml"',
@@ -258,6 +332,62 @@ jobs:
               "G13_WATCHDOG_MAIN_MOVED_DURING_OOS=true",
           ]:
               assert token in watchdog, f"G13 watchdog explicit-dispatch token missing: {token}"
+
+          for token in [
+              "Set up retryable GitHub CLI wrapper for transient API reads",
+              "G13_GH_API_READ_RETRY",
+              "G13_GH_API_READ_RETRY_EXHAUSTED attempts=5",
+              "HTTP (429|500|502|503|504)",
+              'echo "$bin_dir" >> "$GITHUB_PATH"',
+          ]:
+              assert token in watchdog, f"transient GitHub API retry token missing: {token}"
+
+          assert watchdog.index("Set up retryable GitHub CLI wrapper for transient API reads") < watchdog.index("Verify current main"), (
+              "retry wrapper must be installed before watchdog GitHub API reads"
+          )
+
+          for token in [
+              "G13_COMPILE_PARITY_SETUP_ONLY_FAILURE_RETRY=true",
+              "G13_COMPILE_PARITY_SETUP_RETRY_REQUESTED=true",
+              "G13_COMPILE_PARITY_SETUP_RETRY_REQUEST_FAILED=true",
+              "rerun-failed-jobs",
+              "compile_setup_retry_used",
+              "compile_retry_from_attempt",
+              'failed[0].get("name")=="compile-and-parity"',
+              "len(failed)==1",
+              "len(failed[0].get(\"steps\") or [])==1",
+              "Set up job",
+              "for attempt in $(seq 1 80); do",
+          ]:
+              assert token in watchdog, f"G13 setup-only retry guard missing: {token}"
+
+          assert watchdog.index("G13_COMPILE_PARITY_SETUP_ONLY_FAILURE_RETRY=true") < watchdog.index("G13_COMPILE_PARITY_FAILED_FOR_SHA="), (
+              "setup-only retry must be classified before hard-failing compile/parity"
+          )
+
+          preflight = Path(".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml").read_text(encoding="utf-8")
+          preflight_dispatcher = Path(".github/workflows/forexai-g13-preflight-dispatcher-m15.yml").read_text(encoding="utf-8")
+          assert "workflow_dispatch:" in preflight and "compile_parity_run_id:" in preflight, (
+              "package preflight must remain manually dispatchable with an exact Compile/Parity run ID"
+          )
+          assert "workflow_run:" not in preflight, (
+              "package preflight must not dispatch itself on Compile/Parity completion; the dispatcher is the single automatic owner"
+          )
+          assert 'forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches' in watchdog, (
+              "watchdog must dispatch package Preflight itself after exact Compile/Parity succeeds"
+          )
+          assert "G13_PREFLIGHT_DISPATCHED=true" in watchdog and "G13_PREFLIGHT_BASELINE_ID" in watchdog, (
+              "watchdog must record a baseline and correlate only a newly dispatched Preflight run"
+          )
+          assert "COMPILE_PARITY_RUN_ID" in watchdog and '"compile_parity_run_id"' in watchdog, (
+              "watchdog must pass the exact successful Compile/Parity run ID to Preflight"
+          )
+          assert 'forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches' in preflight_dispatcher, (
+              "manual recovery dispatcher must retain an explicit Preflight dispatch path"
+          )
+          assert "SOURCE=manual-recovery" in preflight_dispatcher and "workflow_dispatch:" in dispatcher_triggers, (
+              "dispatcher must be a manual recovery path, not a competing automatic owner"
+          )
 
           validation_dispatch = watchdog.index('dispatch_workflow "forexai-g13-validation-m15.yml"')
           robustness_dispatch = watchdog.index('dispatch_workflow "forexai-g13-robustness-m15.yml"')
