@@ -25,6 +25,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall
+from tools.control_plane_service_v1 import (
+    ControlPlaneError as AdmissionControlPlaneError,
+    load_admission_request,
+    verify_admission_request,
+)
 from tools.mt5_terminal_gateway_v1 import MT5GatewayConfig, MT5GatewayError, MT5TerminalGateway
 from tools.runtime_authorization_auth_v1 import (
     DEFAULT_KEY_ID,
@@ -590,6 +595,166 @@ def _exclusive_lock(lock_path: Path):
     return Lock()
 
 
+
+def _verify_external_demo_admission(
+    *,
+    admission_request_path: Path,
+    admission_public_key: str,
+    intent: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    attestation_path: Path,
+    provenance_path: Path,
+    current_main_sha: str,
+    promotion_run_id: int | None,
+    candidate_id: int,
+    decision_id: str,
+    trade_id: str,
+    risk_fraction: float,
+    now: datetime,
+) -> dict[str, Any]:
+    """Require an independent, signed one-signal Demo grant before any mutation."""
+    if not admission_public_key:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED")
+    try:
+        request = load_admission_request(admission_request_path)
+        verified = verify_admission_request(
+            request,
+            admission_public_key=admission_public_key,
+            now_utc=_utc_text(now),
+        )
+    except AdmissionControlPlaneError as exc:
+        code = str(exc).split(":", 1)[0]
+        raise ControlPlaneError(f"EXTERNAL_DEMO_ADMISSION_REJECTED:{code}") from exc
+    except (OSError, ValueError, TypeError) as exc:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_UNREADABLE") from exc
+
+    parsed = verified.get("_parsed")
+    signed_candidate = verified.get("candidate")
+    signed_promotion = verified.get("promotion_evidence")
+    signed_authorization = verified.get("authorization")
+    if not all(isinstance(value, dict) for value in (parsed, signed_candidate, signed_promotion, signed_authorization)):
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_VERIFIED_SHAPE_INVALID")
+
+    signal_bar_epoch = int(intent["signal_bar_epoch"])
+    expected_identity = {
+        "candidate_id": candidate_id,
+        "trade_id": trade_id,
+        "symbol": SYMBOL,
+        "timeframe": TIMEFRAME,
+        "side": "SELL",
+        "decision_id": decision_id,
+        "config_hash": str(intent["config_hash"]),
+        "strategy_id": "forexai.g13.rsi_divergence.m15",
+        "model_id": f"g13-candidate-{candidate_id}-{str(intent['config_hash'])[:16]}",
+        "execution_contract_version": "forexai.execution.v1",
+    }
+    for field, expected in expected_identity.items():
+        if signed_candidate.get(field) != expected:
+            raise ControlPlaneError(f"EXTERNAL_DEMO_ADMISSION_SIGNAL_BINDING_MISMATCH:{field}")
+
+    if _parse_utc(
+        signed_candidate.get("signal_observed_at_utc"),
+        "EXTERNAL_DEMO_ADMISSION_SIGNAL_TIMESTAMP_INVALID",
+    ) != _parse_utc(intent.get("created_at_utc"), "SIGNAL_TIMESTAMP_INVALID"):
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_SIGNAL_TIMESTAMP_MISMATCH")
+    if parsed.get("trade_id") != trade_id or parsed.get("candidate_id") != candidate_id:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_TRADE_BINDING_MISMATCH")
+
+    payload = signed_candidate.get("signal_payload")
+    if not isinstance(payload, Mapping):
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_SIGNAL_PAYLOAD_INVALID")
+    expected_payload = {
+        "candidate_id": candidate_id,
+        "symbol": SYMBOL,
+        "timeframe": TIMEFRAME,
+        "side": "SELL",
+        "observed_at_utc": intent["created_at_utc"],
+        "config_hash": intent["config_hash"],
+        "signal_bar_epoch": signal_bar_epoch,
+    }
+    for field, expected in expected_payload.items():
+        actual = payload.get(field)
+        if field == "observed_at_utc":
+            if _parse_utc(actual, "EXTERNAL_DEMO_ADMISSION_SIGNAL_TIMESTAMP_INVALID") != _parse_utc(expected, "SIGNAL_TIMESTAMP_INVALID"):
+                raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_SIGNAL_PAYLOAD_MISMATCH:observed_at_utc")
+        elif actual != expected:
+            raise ControlPlaneError(f"EXTERNAL_DEMO_ADMISSION_SIGNAL_PAYLOAD_MISMATCH:{field}")
+    for field in ("entry_price", "stop_loss", "take_profit", "volume"):
+        signed_value = payload.get(field)
+        if isinstance(signed_value, bool) or not isinstance(signed_value, (int, float)):
+            raise ControlPlaneError(f"EXTERNAL_DEMO_ADMISSION_SIGNAL_PAYLOAD_MISMATCH:{field}")
+        if not math.isclose(float(signed_value), float(intent[field]), rel_tol=0.0, abs_tol=1e-12):
+            raise ControlPlaneError(f"EXTERNAL_DEMO_ADMISSION_SIGNAL_PAYLOAD_MISMATCH:{field}")
+
+    if signed_promotion.get("commit_sha") != current_main_sha:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_MAIN_SHA_MISMATCH")
+    if signed_promotion.get("demo_trading_allowed") is not True:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_DEMO_PERMISSION_MISSING")
+    if signed_promotion.get("live_trading_allowed") is not False:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_LIVE_PERMISSION_INVALID")
+
+    promoted_ids = manifest.get("promoted_candidate_ids")
+    if not isinstance(promoted_ids, list) or candidate_id not in promoted_ids:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_PROMOTION_CANDIDATES_INVALID")
+    signed_ids = signed_promotion.get("promoted_candidate_ids")
+    if not isinstance(signed_ids, list) or sorted(signed_ids) != sorted(promoted_ids):
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_PROMOTED_SET_MISMATCH")
+    promoted_config_hashes: dict[str, str] = {}
+    manifest_candidates = manifest.get("candidates")
+    if not isinstance(manifest_candidates, list):
+        raise ControlPlaneError("PROMOTION_CANDIDATES_INVALID")
+    for promoted_id in promoted_ids:
+        matches = [
+            row for row in manifest_candidates
+            if isinstance(row, Mapping) and row.get("candidate_id") == promoted_id
+        ]
+        if len(matches) != 1 or not isinstance(matches[0].get("config_hash"), str):
+            raise ControlPlaneError("PROMOTION_CANDIDATE_CONFIG_MAP_INVALID")
+        promoted_config_hashes[str(promoted_id)] = matches[0]["config_hash"]
+    if signed_promotion.get("candidate_config_hashes") != promoted_config_hashes:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_CONFIG_MAP_MISMATCH")
+
+    attestation = _read_object(attestation_path, "PROMOTION_ATTESTATION_UNREADABLE")
+    provenance = _read_object(provenance_path, "PROMOTION_PROVENANCE_UNREADABLE")
+    expected_run_ids = {"promotion": attestation.get("workflow_run_id")}
+    if promotion_run_id is not None and expected_run_ids["promotion"] != promotion_run_id:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_PROMOTION_RUN_MISMATCH")
+    sources = provenance.get("sources")
+    if not isinstance(sources, Mapping):
+        raise ControlPlaneError("PROMOTION_PROVENANCE_SOURCES_MISSING")
+    for source in ("validation", "robustness", "oos"):
+        row = sources.get(source)
+        if not isinstance(row, Mapping):
+            raise ControlPlaneError(f"PROMOTION_SOURCE_MISSING:{source}")
+        expected_run_ids[source] = row.get("run_id")
+    signed_run_ids = signed_promotion.get("run_ids")
+    if not isinstance(signed_run_ids, Mapping):
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_RUN_IDS_MISSING")
+    for source, expected_run_id in expected_run_ids.items():
+        if signed_run_ids.get(source) != expected_run_id:
+            raise ControlPlaneError(f"EXTERNAL_DEMO_ADMISSION_EVIDENCE_RUN_MISMATCH:{source}")
+
+    reserved_risk = float(parsed["reserved_risk"])
+    authorized_risk = float(parsed["authorized_risk"])
+    if risk_fraction > reserved_risk + 1e-9 or reserved_risk > authorized_risk + 1e-9:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_RISK_BUDGET_INSUFFICIENT")
+    valid_until = parsed.get("valid_until")
+    if not isinstance(valid_until, datetime) or (valid_until - now).total_seconds() < 5:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_WINDOW_TOO_SHORT")
+    auth_expiry = parsed.get("authorization_expires")
+    if not isinstance(auth_expiry, datetime) or auth_expiry <= now:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_AUTHORIZATION_EXPIRED")
+
+    return {
+        "request_id": parsed["request_id"],
+        "request_sha256": parsed["request_sha256"],
+        "candidate": signed_candidate,
+        "promotion": signed_promotion,
+        "authorization": signed_authorization,
+        "parsed": parsed,
+    }
+
+
 def process_signal_intent(
     *,
     intent_path: Path,
@@ -608,8 +773,10 @@ def process_signal_intent(
     selected_candidate_id: int,
     expected_demo_login: int,
     expected_demo_server: str,
+    admission_request_path: Path,
+    admission_public_key: str,
 ) -> dict[str, Any]:
-    """Issue one current Demo authorization from one fresh real EA intent."""
+    """Issue Demo authority only after independent signed one-signal admission."""
     injected_clock = now is not None
     now = (now or _utc_now()).astimezone(timezone.utc)
     if not common_files.is_dir():
@@ -647,8 +814,6 @@ def process_signal_intent(
     signal_bar_epoch = int(intent["signal_bar_epoch"])
     decision_id = f"G13-{candidate_id}-{signal_bar_epoch}-SELL"
     trade_id = f"G13-{candidate_id}-{signal_bar_epoch}-S"
-    authorization_id = f"AUTH-{_fingerprint(trade_id)}"
-    reservation_id = f"RSV-{_fingerprint(trade_id)}"
     input_hash = canonical_hash({
         "intent": intent,
         "promotion_head_sha": current_main_sha,
@@ -680,9 +845,37 @@ def process_signal_intent(
         "input_hash": input_hash,
         "execution_contract_version": "forexai.execution.v1",
     }
-    expires_dt = now + timedelta(seconds=AUTHORIZATION_TTL_SECONDS)
+    external_admission = _verify_external_demo_admission(
+        admission_request_path=admission_request_path,
+        admission_public_key=admission_public_key,
+        intent=intent,
+        manifest=manifest,
+        attestation_path=attestation_path,
+        provenance_path=provenance_path,
+        current_main_sha=current_main_sha,
+        promotion_run_id=promotion_run_id,
+        candidate_id=candidate_id,
+        decision_id=decision_id,
+        trade_id=trade_id,
+        risk_fraction=risk_fraction,
+        now=now,
+    )
+    signed_authorization = external_admission["authorization"]
+    signed_parsed = external_admission["parsed"]
+    authorization_id = str(signed_authorization["authorization_id"])
+    reservation_id = str(signed_authorization["reservation_id"])
+    authorized_risk = float(signed_parsed["authorized_risk"])
+    reserved_risk = float(signed_parsed["reserved_risk"])
+    expires_dt = min(
+        now + timedelta(seconds=AUTHORIZATION_TTL_SECONDS),
+        signed_parsed["valid_until"],
+        signed_parsed["authorization_expires"],
+    )
+    if expires_dt <= now:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_EXPIRED_BEFORE_PUBLICATION")
     issued_at = _utc_text(now)
     expires_at = _utc_text(expires_dt)
+    proof["risk_authorization_id"] = authorization_id
     proof["authorization_expiry"] = expires_at
 
     lock_path = ledger_path.with_suffix(ledger_path.suffix + ".control-plane.lock")
@@ -698,8 +891,20 @@ def process_signal_intent(
         ledger = TradeLedger(ledger_path)
         if ledger.state_of(trade_id) is not None:
             raise ControlPlaneError("SIGNAL_TRADE_ALREADY_PROCESSED")
+        if any(
+            isinstance(event.payload, Mapping)
+            and event.payload.get("admission_request_id") == external_admission["request_id"]
+            for event in ledger.events
+        ):
+            raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_REQUEST_REPLAYED")
         ledger.assert_no_unresolved_reconciliation()
         audit_payload = {
+            "admission_request_id": external_admission["request_id"],
+            "admission_request_sha256": external_admission["request_sha256"],
+            "source_signal_id": external_admission["candidate"]["signal_id"],
+            "source_snapshot_id": external_admission["candidate"]["snapshot_id"],
+            "risk_decision_id": signed_authorization["risk_decision_id"],
+            "operator_approval_ref": signed_authorization["operator_approval_ref"],
             "candidate_id": candidate_id,
             "decision_id": decision_id,
             "config_hash": candidate["config_hash"],
@@ -733,7 +938,7 @@ def process_signal_intent(
         firewall.issue_authorization(
             trade_id=trade_id,
             authorization_id=authorization_id,
-            authorized_risk=risk_fraction,
+            authorized_risk=authorized_risk,
             issued_at_utc=issued_at,
             expires_at_utc=expires_at,
             proof=proof,
@@ -827,6 +1032,8 @@ def process_signal_intent(
         "side": "SELL",
         "account_mode": "DEMO",
         "risk_fraction": risk_fraction,
+        "admission_request_id": external_admission["request_id"],
+        "admission_request_sha256": external_admission["request_sha256"],
         "promotion_run_id": int(_read_object(attestation_path, "PROMOTION_ATTESTATION_UNREADABLE")["workflow_run_id"]),
         "promotion_head_sha": current_main_sha,
         "trade_id_fingerprint": _fingerprint(trade_id),
@@ -862,6 +1069,8 @@ def watch(
     selected_candidate_id: int,
     expected_demo_login: int,
     expected_demo_server: str,
+    admission_request_path: Path,
+    admission_public_key: str,
 ) -> int:
     if not secret or len(secret.encode("utf-8")) < 32:
         raise ControlPlaneError("CONTROL_PLANE_SECRET_NOT_CONFIGURED_OR_TOO_SHORT")
@@ -905,6 +1114,8 @@ def watch(
                         selected_candidate_id=selected_candidate_id,
                         expected_demo_login=expected_demo_login,
                         expected_demo_server=expected_demo_server,
+                        admission_request_path=admission_request_path,
+                        admission_public_key=admission_public_key,
                     )
                     print(json.dumps(result, ensure_ascii=False, sort_keys=True), flush=True)
                     seen_errors = {item for item in seen_errors if item[0] != intent_path.name}
@@ -963,6 +1174,17 @@ def main() -> int:
     parser.add_argument("--expected-demo-login", type=int, default=os.environ.get("FOREXAI_EXPECTED_DEMO_ACCOUNT_LOGIN"))
     parser.add_argument("--expected-demo-server", default=os.environ.get("FOREXAI_EXPECTED_DEMO_ACCOUNT_SERVER"))
     parser.add_argument("--secret-env", default="FOREXAI_CONTROL_PLANE_HMAC_SECRET")
+    parser.add_argument(
+        "--admission-request",
+        type=Path,
+        default=os.environ.get("FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH"),
+        help="Current one-signal request signed by the independent Demo admission provider.",
+    )
+    parser.add_argument(
+        "--admission-public-key-env",
+        default="FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY",
+        help="Environment variable containing the base64 Ed25519 provider public key.",
+    )
     args = parser.parse_args()
 
     required = {
@@ -972,12 +1194,21 @@ def main() -> int:
         "--ledger": args.ledger,
         "--authenticated-envelope-output": args.authenticated_envelope_output,
         "--common-files": args.common_files,
+        "--admission-request": args.admission_request,
     }
     missing = [name for name, value in required.items() if value is None]
     if missing:
         raise ControlPlaneError("CONTROL_PLANE_PATHS_NOT_CONFIGURED:" + ",".join(missing))
     if not args.common_files.is_dir():
         raise ControlPlaneError("MT5_COMMON_FILES_DIRECTORY_MISSING")
+    admission_public_key = os.environ.get(args.admission_public_key_env, "")
+    if not admission_public_key:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED")
+    if args.admission_request.resolve() in {
+        args.ledger.resolve(),
+        args.authenticated_envelope_output.resolve(),
+    }:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_PATH_COLLISION")
 
     secret = load_control_plane_secret(args.secret_env)
     if args.promotion_run_id is None or int(args.promotion_run_id) <= 0:
@@ -1016,6 +1247,8 @@ def main() -> int:
         selected_candidate_id=int(args.candidate_id),
         expected_demo_login=int(args.expected_demo_login),
         expected_demo_server=str(args.expected_demo_server),
+        admission_request_path=args.admission_request,
+        admission_public_key=admission_public_key,
     )
 
 
