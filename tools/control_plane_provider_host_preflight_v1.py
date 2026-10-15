@@ -46,6 +46,7 @@ def _probe_sqlite_parent(parent: Path) -> str:
     """Exercise disposable SQLite create/commit/reopen/read/delete in parent."""
     probe_path: str | None = None
     connection: sqlite3.Connection | None = None
+    result = "FAILED"
     cleanup_ok = True
     try:
         descriptor, probe_path = tempfile.mkstemp(
@@ -73,13 +74,9 @@ def _probe_sqlite_parent(parent: Path) -> str:
             "SELECT value FROM preflight_probe WHERE probe_id = ?",
             ("preflight-only",),
         ).fetchone()
-        connection.close()
-        connection = None
-        if row != ("ok",):
-            return "READBACK_FAILED"
-        return "PASS"
+        result = "PASS" if row == ("ok",) else "READBACK_FAILED"
     except (OSError, sqlite3.Error, ValueError):
-        return "FAILED"
+        result = "FAILED"
     finally:
         if connection is not None:
             connection.close()
@@ -89,10 +86,9 @@ def _probe_sqlite_parent(parent: Path) -> str:
                     Path(probe_path + suffix).unlink(missing_ok=True)
                 except OSError:
                     cleanup_ok = False
-            # The caller reports cleanup separately by looking for this marker.
-            if not cleanup_ok:
-                pass
-
+    if not cleanup_ok:
+        return "CLEANUP_FAILED"
+    return result
 
 def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, object]:
     env = os.environ if environ is None else environ
