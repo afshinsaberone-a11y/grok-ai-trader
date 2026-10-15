@@ -35,6 +35,8 @@ concurrency:
 
 jobs:
   compile:
+    # Never run fork-controlled code on the privileged self-hosted MT5 runner.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 35
     env:
@@ -49,7 +51,7 @@ jobs:
           ref: main
 
       - name: Force Demo kill switch to DENY before compile
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
@@ -65,7 +67,7 @@ jobs:
           Write-Output 'MT5_COMPILE_GUARD_NO_TRADING_ACTIONS=true'
 
       - name: Resolve Python runtime
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $candidates = @(
@@ -96,7 +98,7 @@ jobs:
           path: control-plane-source
 
       - name: Run generation contracts and generate candidate EAs
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
@@ -116,7 +118,7 @@ jobs:
           }
 
       - name: Compile generated EAs with MetaEditor without running any EA
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
@@ -163,7 +165,7 @@ jobs:
 
       - name: Final safety cleanup - keep DENY and remove one-shot tokens
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $commonFiles = $env:FOREXAI_MT5_COMMON_FILES
