@@ -12,6 +12,7 @@ on:
       - '.github/workflows/forexai-control-plane-contract.yml'
       - '.github/workflows/forexai-control-plane-v1.yml'
       - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
+      - 'tools/forexai_resolve_exact_promotion_manifest_v1.ps1'
   push:
     paths:
       - 'tools/forexai_control_plane_v1.py'
@@ -23,6 +24,7 @@ on:
       - '.github/workflows/forexai-control-plane-contract.yml'
       - '.github/workflows/forexai-control-plane-v1.yml'
       - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
+      - 'tools/forexai_resolve_exact_promotion_manifest_v1.ps1'
   workflow_dispatch:
 
 permissions:
