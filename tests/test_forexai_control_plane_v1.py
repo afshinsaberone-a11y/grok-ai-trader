@@ -593,6 +593,8 @@ def test_second_candidate_intent_is_blocked_while_global_auth_slot_is_occupied(t
             selected_candidate_id=2,
             expected_demo_login=12345678,
             expected_demo_server="Broker-Demo",
+            admission_request_path=tmp_path / "signed-demo-admission.json",
+            admission_public_key=ADMISSION_PUBLIC_KEY,
         )
     assert len(TradeLedger(ledger_path).events) == count_before
 
