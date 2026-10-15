@@ -1,15 +1,19 @@
 """Contract tests for the authoritative G13 Control Plane producer."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from tools.control_plane_service_v1 import ADMISSION_SCHEMA, PROVIDER_KEY_ID
 from tools.capital_firewall_v1 import CapitalFirewall
 from tools.forexai_control_plane_v1 import (
     ControlPlaneError,
@@ -24,6 +28,29 @@ from tools.trade_ledger_v1 import TradeLedger
 
 MAIN_SHA = "a" * 40
 NOW = datetime(2026, 10, 12, 8, 0, 0, tzinfo=timezone.utc)
+ADMISSION_PRIVATE_KEY = Ed25519PrivateKey.generate()
+ADMISSION_PUBLIC_KEY = base64.b64encode(
+    ADMISSION_PRIVATE_KEY.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+).decode("ascii")
+
+
+def _admission_canonical(value):
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+
+
+def _resign_admission(request):
+    body = {key: value for key, value in request.items() if key != "signature"}
+    request["signature"] = {
+        "algorithm": "Ed25519",
+        "key_id": PROVIDER_KEY_ID,
+        "signature": base64.b64encode(ADMISSION_PRIVATE_KEY.sign(_admission_canonical(body))).decode("ascii"),
+    }
+    return request
 
 
 class FakeMT5:
@@ -211,7 +238,124 @@ def _write_intent(root: Path, candidate: dict, *, now=NOW, side="SELL", bar_epoc
     return path
 
 
-def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005, promotion_run_id=99123, selected_candidate_id=2, expected_demo_login=12345678, expected_demo_server="Broker-Demo"):
+
+def _write_signed_admission(
+    root: Path,
+    *,
+    intent_path: Path,
+    manifest_path: Path,
+    attestation_path: Path,
+    provenance_path: Path,
+    issued_at: datetime,
+    demo_permission: bool = True,
+) -> Path:
+    intent = json.loads(intent_path.read_text(encoding="utf-8"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    cid = int(intent["candidate_id"])
+    epoch = int(intent["signal_bar_epoch"])
+    signal_id = f"g13-signal-{cid}-{epoch}"
+    trade_id = f"G13-{cid}-{epoch}-S"
+    decision_id = f"G13-{cid}-{epoch}-SELL"
+    observed = intent["created_at_utc"]
+    payload = {
+        "candidate_id": cid,
+        "symbol": intent["symbol"],
+        "timeframe": intent["timeframe"],
+        "side": intent["side"],
+        "signal_id": signal_id,
+        "observed_at_utc": observed,
+        "config_hash": intent["config_hash"],
+        "signal_bar_epoch": epoch,
+        "entry_price": intent["entry_price"],
+        "stop_loss": intent["stop_loss"],
+        "take_profit": intent["take_profit"],
+        "volume": intent["volume"],
+    }
+    config_hashes = {
+        str(row["candidate_id"]): row["config_hash"]
+        for row in manifest["candidates"]
+        if int(row["candidate_id"]) in manifest["promoted_candidate_ids"]
+    }
+    sources = provenance["sources"]
+    auth_id = f"auth-g13-{cid}-{epoch}"
+    reserve_id = f"reserve-g13-{cid}-{epoch}"
+    promotion_evidence = {
+        "commit_sha": MAIN_SHA,
+        "validation_status": "PASS",
+        "robustness_status": "PASS",
+        "oos_status": "PASS",
+        "parity_status": "PASS",
+        "package_preflight_status": "PASS",
+        "safety_audit_status": "PASS",
+        "readiness_status": "READY_FOR_CONTROLLED_DEMO_AUDIT",
+        "demo_trading_allowed": demo_permission,
+        "live_trading_allowed": False,
+        "real_data_only": True,
+        "synthetic_data": False,
+        "run_ids": {
+            "promotion": int(attestation["workflow_run_id"]),
+            "validation": int(sources["validation"]["run_id"]),
+            "robustness": int(sources["robustness"]["run_id"]),
+            "oos": int(sources["oos"]["run_id"]),
+            "parity": 20004,
+            "package_preflight": 20005,
+            "safety_audit": 20006,
+            "readiness": 20007,
+        },
+        "promoted_candidate_ids": list(manifest["promoted_candidate_ids"]),
+        "candidate_config_hashes": config_hashes,
+        "source_grant_id": f"g13-grant-{cid}-{epoch}",
+        "source_grant_candidate_id": cid,
+        "source_grant_signal_id": signal_id,
+        "source_grant_trade_id": trade_id,
+        "source_grant_authorization_id": auth_id,
+        "source_grant_reservation_id": reserve_id,
+        "source_grant_sha256": "f" * 64,
+        "evidence_bundle_sha256": "e" * 64,
+    }
+    request = {
+        "schema": ADMISSION_SCHEMA,
+        "request_id": f"g13-request-{cid}-{epoch}",
+        "provider_key_id": PROVIDER_KEY_ID,
+        "issued_at_utc": issued_at.isoformat(timespec="seconds"),
+        "valid_until_utc": (issued_at + timedelta(seconds=25)).isoformat(timespec="seconds"),
+        "candidate": {
+            "candidate_id": cid,
+            "trade_id": trade_id,
+            "symbol": intent["symbol"],
+            "timeframe": intent["timeframe"],
+            "side": intent["side"],
+            "signal_id": signal_id,
+            "signal_observed_at_utc": observed,
+            "strategy_id": "forexai.g13.rsi_divergence.m15",
+            "model_id": f"g13-candidate-{cid}-{intent['config_hash'][:16]}",
+            "config_hash": intent["config_hash"],
+            "decision_id": decision_id,
+            "snapshot_id": f"source-snapshot-{cid}-{epoch}",
+            "input_hash": hashlib.sha256(_admission_canonical(payload)).hexdigest(),
+            "execution_contract_version": "forexai.execution.v1",
+            "signal_payload": payload,
+        },
+        "promotion_evidence": promotion_evidence,
+        "authorization": {
+            "authorization_id": auth_id,
+            "reservation_id": reserve_id,
+            "authorized_risk": 0.006,
+            "reserved_risk": 0.005,
+            "expires_at_utc": (issued_at + timedelta(minutes=5)).isoformat(timespec="seconds"),
+            "policy_version": "demo-risk-policy-v1",
+            "risk_decision_id": f"risk-g13-{cid}-{epoch}",
+            "operator_approval_ref": f"operator-g13-{cid}-{epoch}",
+        },
+    }
+    path = root / "signed-demo-admission.json"
+    path.write_text(json.dumps(_resign_admission(request), sort_keys=True), encoding="utf-8")
+    return path
+
+
+def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005, promotion_run_id=99123, selected_candidate_id=2, expected_demo_login=12345678, expected_demo_server="Broker-Demo", signed_demo_permission=True, tamper_admission=False):
     common_files = root / "common"
     common_files.mkdir(exist_ok=True)
     (common_files / "g13_demo_kill_switch.txt").write_text("ALLOW\n", encoding="utf-8")
@@ -219,6 +363,19 @@ def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_
         root, risk_pct=risk_pct
     )
     intent_path = _write_intent(root, candidate, now=intent_time or now, side=side)
+    admission_path = _write_signed_admission(
+        root,
+        intent_path=intent_path,
+        manifest_path=manifest_path,
+        attestation_path=attestation_path,
+        provenance_path=provenance_path,
+        issued_at=now,
+        demo_permission=signed_demo_permission,
+    )
+    if tamper_admission:
+        tampered = json.loads(admission_path.read_text(encoding="utf-8"))
+        tampered["candidate"]["trade_id"] = "tampered-trade-S"
+        admission_path.write_text(json.dumps(tampered, sort_keys=True), encoding="utf-8")
     ledger_path = root / "control-plane" / "trade-ledger.jsonl"
     envelope_path = root / "control-plane" / "authenticated-envelope.json"
     secret = "unit-test-only-control-plane-secret-32-bytes-minimum"
@@ -244,6 +401,8 @@ def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_
         selected_candidate_id=selected_candidate_id,
         expected_demo_login=expected_demo_login,
         expected_demo_server=expected_demo_server,
+        admission_request_path=admission_path,
+        admission_public_key=ADMISSION_PUBLIC_KEY,
     )
     return result, ledger_path, envelope_path, common_files, secret, mt5
 
@@ -277,6 +436,28 @@ def test_real_demo_intent_creates_hash_chained_authority_without_order_send(tmp_
         expected_trade_id="G13-2-1791785700-S",
     )
     assert report["current_firewall_authority"] == "PASS"
+
+
+
+def test_missing_upstream_demo_permission_fails_before_ledger_mutation(tmp_path):
+    with pytest.raises(
+        ControlPlaneError,
+        match="EXTERNAL_DEMO_ADMISSION_REJECTED:CONTROL_PLANE_DEMO_PERMISSION_NOT_GRANTED",
+    ):
+        _call(tmp_path, signed_demo_permission=False)
+    assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
+    assert not (tmp_path / "control-plane" / "authenticated-envelope.json").exists()
+    assert not list((tmp_path / "common").glob("ForexAI_Authorization_*_EURUSD.auth"))
+
+
+def test_tampered_upstream_admission_fails_before_ledger_mutation(tmp_path):
+    with pytest.raises(
+        ControlPlaneError,
+        match="EXTERNAL_DEMO_ADMISSION_REJECTED:CONTROL_PLANE_ADMISSION_SIGNATURE_INVALID",
+    ):
+        _call(tmp_path, tamper_admission=True)
+    assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
+    assert not (tmp_path / "control-plane" / "authenticated-envelope.json").exists()
 
 
 def test_wrong_demo_account_identity_is_rejected_before_ledger_mutation(tmp_path):
@@ -323,6 +504,8 @@ def test_deny_kill_switch_does_not_issue_authority(tmp_path):
             selected_candidate_id=2,
             expected_demo_login=12345678,
             expected_demo_server="Broker-Demo",
+            admission_request_path=tmp_path / "unused-because-denied.json",
+            admission_public_key=ADMISSION_PUBLIC_KEY,
         )
     assert not ledger.exists()
 
