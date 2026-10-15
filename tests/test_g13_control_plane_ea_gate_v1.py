@@ -5,6 +5,7 @@ import pytest
 
 from research.optimization.g13_control_plane_ea_gate_v1 import patch_generated_source
 from research.optimization.g13_mql5_generator_v2 import render
+from research.optimization.g13_execution_safety_audit_m15 import audit_source
 
 
 def candidate():
@@ -58,3 +59,19 @@ def test_generated_ea_patch_fails_closed_when_generator_shape_changes():
 def test_gate_rejects_candidate_magic_range_outside_promoted_set(candidate_id):
     with pytest.raises(ValueError, match="CONTROL_PLANE_CANDIDATE_ID_OUT_OF_RANGE"):
         patch_generated_source("void OnTick() {}", candidate_id, "a" * 64)
+
+
+def test_control_plane_generated_ea_passes_execution_safety_audit(tmp_path):
+    c = candidate()
+    source = patch_generated_source(render(c), c["candidate_id"], c["config_hash"])
+    path = tmp_path / f'ForexAI_G13_Candidate_{c["candidate_id"]:02d}.mq5'
+    path.write_text(source, encoding="utf-8")
+
+    report = audit_source(path, c["candidate_id"])
+
+    assert report["pass"] is True
+    assert report["control_plane_gate_present"] is True
+    assert report["default_demo_authorized"] is True
+    assert report["order_after_guard"] is True
+    assert report["tester_order_sites"] == 1
+    assert report["controlled_demo_order_sites"] == 1
