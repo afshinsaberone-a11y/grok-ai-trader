@@ -159,6 +159,22 @@ def audit_source(path: Path, candidate_id: int) -> dict[str, Any]:
         parity_body = tick_body[parity_start:tester_start]
         assert "ParityLogSignal(" in parity_body
         assert "trade.Sell(" not in parity_body, f"{path.name}: parity branch must not submit orders"
+        parity_contract = (
+            "if(!BearishDivergence()) return;",
+            "double atr=ATRAtShift(1);",
+            "if(atr==EMPTY_VALUE || atr<=0.0) return;",
+            "double risk=ATRMult*atr;",
+            "double entry=iOpen(_Symbol,PERIOD_M15,0);",
+            "if(entry<=0.0) return;",
+            "double sl=entry+risk;",
+            "double tp=entry-RR*risk;",
+            "ParityLogSignal(entry,sl,tp,atr);",
+            "return;",
+        )
+        parity_positions = [parity_body.index(token) for token in parity_contract]
+        assert parity_positions == sorted(parity_positions), (
+            f"{path.name}: deterministic signal-parity computation order changed"
+        )
         tester_order = tick_body.index("trade.Sell(", tester_start)
         demo_path = tick_body.index("ControlPlaneProcessDemoTick(newBar)", tester_start)
         assert tester_order < demo_path, f"{path.name}: Tester order site must be confined before Demo runtime path"
@@ -177,6 +193,7 @@ def audit_source(path: Path, candidate_id: int) -> dict[str, Any]:
         "order_after_guard": order > guard,
         "live_blocked_by_demo_only_gate": "!=ACCOUNT_TRADE_MODE_DEMO" in source,
         "control_plane_gate_present": control_plane_gate,
+        "parity_signal_contract_preserved": control_plane_gate,
         "tester_order_sites": tester_order_sites,
         "controlled_demo_order_sites": controlled_demo_order_sites,
         "pass": True,
