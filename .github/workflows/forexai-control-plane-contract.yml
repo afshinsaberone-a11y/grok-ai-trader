@@ -33,7 +33,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: forexai-control-plane-contract
+  # Keep push and pull_request evidence independent; a push run must not cancel
+  # the PR-required contract result for the same commit.
+  group: forexai-control-plane-contract-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
