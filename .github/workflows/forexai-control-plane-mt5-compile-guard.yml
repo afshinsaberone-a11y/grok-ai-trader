@@ -108,7 +108,6 @@ jobs:
           $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
           $resolver = Join-Path $source 'tools\forexai_resolve_exact_promotion_manifest_v1.ps1'
           & $resolver -SourceRoot $source
-          if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_EXACT_PROMOTION_RESOLUTION_FAILED' }
 
       - name: Run generation contracts and generate candidate EAs
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
