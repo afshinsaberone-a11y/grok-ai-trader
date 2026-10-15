@@ -1,6 +1,7 @@
 name: ForexAI Control Plane PR Real-Data Parity
 
 # This runs the existing real EURUSD M15 Python/MQL5 parity harness against
+# Trigger is intentionally path-bound so main-sync merges refresh evidence for the exact resulting source tree.
 # EAs generated from this exact same-repository candidate SHA. The Promotion
 # artifact remains sourced from an independently successful main SHA.
 # The MQL5 script is signal-only; it does not attach/run generated EAs or trade.
