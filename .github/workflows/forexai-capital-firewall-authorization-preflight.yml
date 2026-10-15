@@ -138,8 +138,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           # Paths and the optional Trade ID are runner-local environment variables,
           # not workflow inputs, so their values are never echoed into public logs.
+          $controlPlaneRoot = Join-Path $env:ProgramData 'ForexAI\ControlPlane'
           $ledger = $env:FOREXAI_TRADE_LEDGER_PATH
+          if ([string]::IsNullOrWhiteSpace($ledger)) {
+            $ledger = Join-Path $controlPlaneRoot 'trade-ledger.jsonl'
+          }
           $authenticatedEnvelope = $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH
+          if ([string]::IsNullOrWhiteSpace($authenticatedEnvelope)) {
+            $authenticatedEnvelope = Join-Path $controlPlaneRoot 'authenticated-envelope.json'
+          }
           $expectedTradeId = $env:FOREXAI_EXPECTED_TRADE_ID
 
           New-Item -ItemType Directory -Force -Path 'artifacts/g13-capital-authorization-preflight' | Out-Null

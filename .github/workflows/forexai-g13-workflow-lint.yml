@@ -37,6 +37,15 @@ on:
       - 'tools/control_plane_provider_host_preflight_v1.py'
       - 'tests/test_control_plane_provider_host_preflight_v1.py'
       - 'docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md'
+      - '.github/workflows/forexai-control-plane-v1.yml'
+      - '.github/workflows/forexai-control-plane-contract.yml'
+      - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
+      - '.github/workflows/forexai-control-plane-pr-parity.yml'
+      - 'tools/forexai_resolve_exact_promotion_manifest_v1.ps1'
+      - 'tools/forexai_control_plane_v1.py'
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_forexai_control_plane_v1.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
       - 'tests/test_capital_authorization_preflight_workflow_contract.py'
       - 'research/optimization/cost_aware_adaptive_regime_switch_v25.py'
@@ -65,6 +74,15 @@ on:
       - 'tools/control_plane_provider_host_preflight_v1.py'
       - 'tests/test_control_plane_provider_host_preflight_v1.py'
       - 'docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md'
+      - '.github/workflows/forexai-control-plane-v1.yml'
+      - '.github/workflows/forexai-control-plane-contract.yml'
+      - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
+      - '.github/workflows/forexai-control-plane-pr-parity.yml'
+      - 'tools/forexai_resolve_exact_promotion_manifest_v1.ps1'
+      - 'tools/forexai_control_plane_v1.py'
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_forexai_control_plane_v1.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
       - 'tests/test_capital_authorization_preflight_workflow_contract.py'
       - 'research/optimization/cost_aware_adaptive_regime_switch_v25.py'
@@ -117,11 +135,16 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
+          ./actionlint .github/workflows/forexai-control-plane-v1.yml
+          ./actionlint .github/workflows/forexai-control-plane-contract.yml
+          ./actionlint .github/workflows/forexai-control-plane-mt5-compile-guard.yml
 
       - name: Compile all G13 Python gates
         run: |
           python -m py_compile \
             research/optimization/g13_mql5_generator_v2.py \
+            research/optimization/g13_control_plane_ea_gate_v1.py \
+            tools/forexai_control_plane_v1.py \
             research/optimization/g13_mql5_parity_harness_generator.py \
             research/optimization/g13_mql5_parity.py \
             research/optimization/g13_demo_readiness_gate_m15.py \

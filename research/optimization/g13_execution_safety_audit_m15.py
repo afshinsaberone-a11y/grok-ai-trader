@@ -28,7 +28,7 @@ REQUIRED_TOKENS = (
     'if(!DemoKillSwitchAllowed()) return false;',
     'HasOtherG13Position()',
     'if(HasOtherG13Position()) return false;',
-    'if(!DemoTradingExecutionAllowed()) return;',
+    'bool DemoTradingExecutionAllowed()',
     'trade.SetExpertMagicNumber(MagicNumber);',
     'ExecutionAuditFile',
     'ExecutionAuditLog(',
@@ -104,6 +104,19 @@ def runtime_contract(
     return True
 
 def find_order_guard_bounds(source: str) -> tuple[int, int]:
+    # The control-plane EA deliberately has two order sites: a Strategy Tester
+    # research branch and a separate Demo-only site guarded by authorization,
+    # reserved risk, and persistent one-shot consumption.
+    if "void ControlPlaneProcessDemoTick(" in source:
+        start = source.index("void ControlPlaneProcessDemoTick(")
+        end = source.index("\nvoid OnTick()\n{", start)
+        body = source[start:end]
+        guard = body.rfind("if(!ControlPlaneGlobalExecutionPreconditions()) return;")
+        order = body.index("bool accepted=trade.Sell(")
+        if guard < 0 or order <= guard:
+            raise AssertionError("Control Plane Demo order appears before execution preconditions")
+        return start + guard, start + order
+
     guard = source.index("if(!DemoTradingExecutionAllowed()) return;")
     order = source.index("trade.Sell(")
     if order <= guard:
@@ -117,8 +130,60 @@ def audit_source(path: Path, candidate_id: int) -> dict[str, Any]:
     for token in FORBIDDEN_TOKENS:
         assert token not in source, f"{path.name}: forbidden token {token}"
     assert f"MagicNumber = 130000 + {candidate_id};" in source
+    control_plane_gate = "void ControlPlaneProcessDemoTick(" in source
     guard, order = find_order_guard_bounds(source)
-    assert source.count("trade.Sell(") == 1, f"{path.name}: unexpected multiple order sites"
+    tester_order_sites = 0
+    controlled_demo_order_sites = 1 if control_plane_gate else 0
+
+    if control_plane_gate:
+        assert source.count("trade.Sell(") == 2, f"{path.name}: expected one Tester and one controlled Demo order site"
+        body_start = source.index("void ControlPlaneProcessDemoTick(")
+        body_end = source.index("\nvoid OnTick()\n{", body_start)
+        demo_body = source[body_start:body_end]
+        assert demo_body.count("trade.Sell(") == 1, f"{path.name}: unexpected Demo order sites"
+        demo_guard = demo_body.rfind("if(!ControlPlaneGlobalExecutionPreconditions()) return;")
+        auth_check = demo_body.index("if(!VerifyRuntimeAuthorization(trade_id,false,decision_id)) return;")
+        risk_check = demo_body.index("if(!ControlPlaneCurrentRiskWithinReservation(cp_pending_lots,bid,cp_pending_sl))")
+        attempt_lock = demo_body.index("if(!BeginRuntimeAuthorizationAttempt(trade_id))")
+        consume_lock = demo_body.index("if(!MarkRuntimeAuthorizationConsumed(trade_id))")
+        demo_order = demo_body.index("bool accepted=trade.Sell(")
+        assert demo_guard < auth_check < risk_check < attempt_lock < consume_lock < demo_order, (
+            f"{path.name}: Demo order must follow current preconditions, auth, risk, attempt lock, and consumption"
+        )
+        assert "if((bool)MQLInfoInteger(MQL_TESTER)) return false;" in source
+        assert "if(!DemoTradingExecutionAllowed()) return false;" in source
+        tick_start = source.index("\nvoid OnTick()\n{")
+        tick_body = source[tick_start:]
+        parity_start = tick_body.index("if(ParityMode)")
+        tester_start = tick_body.index("if((bool)MQLInfoInteger(MQL_TESTER))", parity_start)
+        parity_body = tick_body[parity_start:tester_start]
+        assert "ParityLogSignal(" in parity_body
+        assert "trade.Sell(" not in parity_body, f"{path.name}: parity branch must not submit orders"
+        parity_contract = (
+            "if(!BearishDivergence()) return;",
+            "double atr=ATRAtShift(1);",
+            "if(atr==EMPTY_VALUE || atr<=0.0) return;",
+            "double risk=ATRMult*atr;",
+            "double entry=iOpen(_Symbol,PERIOD_M15,0);",
+            "if(entry<=0.0) return;",
+            "double sl=entry+risk;",
+            "double tp=entry-RR*risk;",
+            "ParityLogSignal(entry,sl,tp,atr);",
+        )
+        parity_positions = [parity_body.index(token) for token in parity_contract]
+        final_parity_return = parity_body.index(
+            "return;", parity_body.index("ParityLogSignal(entry,sl,tp,atr);") + len("ParityLogSignal(entry,sl,tp,atr);")
+        )
+        assert parity_positions == sorted(parity_positions) and final_parity_return > parity_positions[-1], (
+            f"{path.name}: deterministic signal-parity computation order changed"
+        )
+        tester_order = tick_body.index("trade.Sell(", tester_start)
+        demo_path = tick_body.index("ControlPlaneProcessDemoTick(newBar)", tester_start)
+        assert tester_order < demo_path, f"{path.name}: Tester order site must be confined before Demo runtime path"
+        tester_order_sites = 1
+    else:
+        assert source.count("trade.Sell(") == 1, f"{path.name}: unexpected multiple order sites"
+
     return {
         "candidate_id": candidate_id,
         "file": path.name,
@@ -129,6 +194,10 @@ def audit_source(path: Path, candidate_id: int) -> dict[str, Any]:
         "single_position_guard_required": "HasOtherG13Position()" in source,
         "order_after_guard": order > guard,
         "live_blocked_by_demo_only_gate": "!=ACCOUNT_TRADE_MODE_DEMO" in source,
+        "control_plane_gate_present": control_plane_gate,
+        "parity_signal_contract_preserved": control_plane_gate,
+        "tester_order_sites": tester_order_sites,
+        "controlled_demo_order_sites": controlled_demo_order_sites,
         "pass": True,
     }
 
