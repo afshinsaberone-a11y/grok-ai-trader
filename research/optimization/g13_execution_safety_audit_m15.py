@@ -169,10 +169,12 @@ def audit_source(path: Path, candidate_id: int) -> dict[str, Any]:
             "double sl=entry+risk;",
             "double tp=entry-RR*risk;",
             "ParityLogSignal(entry,sl,tp,atr);",
-            "return;",
         )
         parity_positions = [parity_body.index(token) for token in parity_contract]
-        assert parity_positions == sorted(parity_positions), (
+        final_parity_return = parity_body.index(
+            "return;", parity_body.index("ParityLogSignal(entry,sl,tp,atr);") + len("ParityLogSignal(entry,sl,tp,atr);")
+        )
+        assert parity_positions == sorted(parity_positions) and final_parity_return > parity_positions[-1], (
             f"{path.name}: deterministic signal-parity computation order changed"
         )
         tester_order = tick_body.index("trade.Sell(", tester_start)
