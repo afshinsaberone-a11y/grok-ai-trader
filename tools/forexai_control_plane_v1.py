@@ -840,7 +840,7 @@ def process_signal_intent(
         "strategy_id": "forexai.g13.rsi_divergence.m15",
         "model_id": f"g13-candidate-{candidate_id}-{candidate['config_hash'][:16]}",
         "policy_version": "forexai.capital-policy.v1",
-        "risk_authorization_id": authorization_id,
+        "risk_authorization_id": "",
         "authorization_expiry": "",
         "input_hash": input_hash,
         "execution_contract_version": "forexai.execution.v1",
@@ -876,6 +876,7 @@ def process_signal_intent(
     issued_at = _utc_text(now)
     expires_at = _utc_text(expires_dt)
     proof["risk_authorization_id"] = authorization_id
+    proof["policy_version"] = str(signed_authorization["policy_version"])
     proof["authorization_expiry"] = expires_at
 
     lock_path = ledger_path.with_suffix(ledger_path.suffix + ".control-plane.lock")
