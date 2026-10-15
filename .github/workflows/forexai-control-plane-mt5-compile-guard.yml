@@ -132,6 +132,35 @@ jobs:
             Pop-Location
           }
 
+      - name: Run independent source-level execution safety audit on Control Plane EAs
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
+          Push-Location -LiteralPath $source
+          try {
+            $reportPath = 'artifacts/g13/g13-execution-safety-audit-m15.json'
+            & $env:PYTHON_EXE -m research.optimization.g13_execution_safety_audit_m15 --generator research/optimization/g13_mql5_generator_v2.py --manifest artifacts/g13/g13-promotion-manifest-m15.json --output-dir artifacts/g13/mql5 --report $reportPath
+            if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_EXECUTION_SAFETY_AUDIT_FAILED' }
+            $audit = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+            $expectedCount = [int]$env:EXPECTED_G13_CANDIDATE_COUNT
+            $testerAllowed = @($audit.matrix | Where-Object { $_.is_tester -and $_.actual_allowed }).Count
+            $nonTesterAllowed = @($audit.matrix | Where-Object { -not $_.is_tester -and $_.actual_allowed }).Count
+            $sourceFailures = @($audit.sources | Where-Object { -not $_.pass }).Count
+            if ($audit.status -ne 'PASS' -or [int]$audit.scope.candidate_count -ne $expectedCount) {
+              throw 'MT5_COMPILE_GUARD_EXECUTION_SAFETY_AUDIT_STATUS_OR_COUNT_FAILED'
+            }
+            if ($audit.policy.live_trading_allowed -ne $false -or $audit.policy.demo_trading_default_authorized -ne $false) {
+              throw 'MT5_COMPILE_GUARD_EXECUTION_SAFETY_POLICY_FAILED'
+            }
+            if ($audit.matrix.Count -ne 1536 -or $testerAllowed -ne 768 -or $nonTesterAllowed -ne 1 -or $sourceFailures -ne 0) {
+              throw 'MT5_COMPILE_GUARD_EXECUTION_SAFETY_MATRIX_FAILED'
+            }
+            "MT5_CONTROL_PLANE_EXECUTION_SAFETY=PASS candidates=$expectedCount matrix=1536 tester_allowed=$testerAllowed non_tester_allowed=$nonTesterAllowed" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          } finally {
+            Pop-Location
+          }
+
       - name: Compile generated EAs with MetaEditor without running any EA
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
@@ -178,6 +207,7 @@ jobs:
           path: |
             control-plane-source/artifacts/g13/mql5/_control-plane-compile/*
             control-plane-source/artifacts/g13/mql5/control-plane-compile-report.json
+            control-plane-source/artifacts/g13/g13-execution-safety-audit-m15.json
           if-no-files-found: warn
           retention-days: 14
 
