@@ -7,6 +7,7 @@ on:
       - 'research/optimization/g13_mql5_generator_v2.py'
       - 'tests/test_g13_control_plane_ea_gate_v1.py'
       - 'tests/test_g13_mql5_generator_v2.py'
+      - 'tools/forexai_resolve_exact_promotion_manifest_v1.ps1'
       - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
   workflow_dispatch:
     inputs:
@@ -28,6 +29,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: forexai-control-plane-mt5-compile-guard
@@ -97,6 +99,17 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha) }}
           path: control-plane-source
 
+      - name: Resolve exact current-main Promotion artifact
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
+          $resolver = Join-Path $source 'tools\forexai_resolve_exact_promotion_manifest_v1.ps1'
+          & $resolver -SourceRoot $source
+          if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_EXACT_PROMOTION_RESOLUTION_FAILED' }
+
       - name: Run generation contracts and generate candidate EAs
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
@@ -111,7 +124,10 @@ jobs:
             & $env:PYTHON_EXE -m research.optimization.g13_mql5_generator_v2 --manifest artifacts/g13/g13-promotion-manifest-m15.json --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json --output-dir artifacts/g13/mql5
             if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_GENERATION_FAILED' }
             $files = @(Get-ChildItem -LiteralPath $outDir -File -Filter 'ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
-            if ($files.Count -ne 15) { throw "MT5_COMPILE_GUARD_EXPECTED_15_EAS_FOUND_$($files.Count)" }
+            $expectedCount = [int]$env:EXPECTED_G13_CANDIDATE_COUNT
+            if ($expectedCount -lt 1 -or $files.Count -ne $expectedCount) {
+              throw "MT5_COMPILE_GUARD_CANDIDATE_COUNT_MISMATCH:expected=$expectedCount actual=$($files.Count)"
+            }
             "MT5_COMPILE_GUARD_GENERATED_COUNT=$($files.Count)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           } finally {
             Pop-Location
@@ -128,7 +144,10 @@ jobs:
           $buildDir = Join-Path $generated '_control-plane-compile'
           New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
           $files = @(Get-ChildItem -LiteralPath $generated -File -Filter 'ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
-          if ($files.Count -ne 15) { throw "MT5_COMPILE_GUARD_EXPECTED_15_EAS_FOUND_$($files.Count)" }
+          $expectedCount = [int]$env:EXPECTED_G13_CANDIDATE_COUNT
+          if ($expectedCount -lt 1 -or $files.Count -ne $expectedCount) {
+            throw "MT5_COMPILE_GUARD_CANDIDATE_COUNT_MISMATCH:expected=$expectedCount actual=$($files.Count)"
+          }
           $results = @()
           foreach ($file in $files) {
             $src = Join-Path $buildDir $file.Name
