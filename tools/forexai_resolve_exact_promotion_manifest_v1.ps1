@@ -23,7 +23,11 @@ $headers = @{
 
 # The first checkout is pinned to trusted main. Bind this compile check to
 # that SHA, not to a manifest committed in the feature branch.
-$trustedMainSha = (& git -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim()
+# The persistent self-hosted runner may own its checkout as another service identity.
+# Trust this exact freshly checked-out workspace for this single read-only Git command;
+# do not change the runner account's global Git safe.directory configuration.
+$trustedMainRoot = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+$trustedMainSha = (& git -c "safe.directory=$trustedMainRoot" -C $trustedMainRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $trustedMainSha -notmatch '^[0-9a-f]{40}$') {
     throw 'G13_EXACT_PROMOTION_TRUSTED_MAIN_SHA_UNRESOLVED'
 }
