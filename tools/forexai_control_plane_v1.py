@@ -814,6 +814,10 @@ def process_signal_intent(
     signal_bar_epoch = int(intent["signal_bar_epoch"])
     decision_id = f"G13-{candidate_id}-{signal_bar_epoch}-SELL"
     trade_id = f"G13-{candidate_id}-{signal_bar_epoch}-S"
+    # Avoid evaluating a later candidate's admission while an earlier one-shot
+    # record is outstanding. The same condition is rechecked under the ledger lock.
+    if any(common_files.glob("ForexAI_Authorization_*_EURUSD.auth")):
+        raise ControlPlaneError("G13_AUTHORIZATION_SLOT_OCCUPIED")
     input_hash = canonical_hash({
         "intent": intent,
         "promotion_head_sha": current_main_sha,
