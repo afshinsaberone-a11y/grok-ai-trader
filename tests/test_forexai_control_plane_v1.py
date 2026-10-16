@@ -454,41 +454,49 @@ def test_real_demo_intent_creates_hash_chained_authority_without_order_send(tmp_
 
 
 def test_missing_admission_file_fails_before_ledger_mutation(tmp_path):
+    mt5 = FakeMT5()
     with pytest.raises(ControlPlaneError, match="EXTERNAL_DEMO_ADMISSION_UNREADABLE"):
-        _call(tmp_path, omit_admission=True)
+        _call(tmp_path, mt5=mt5, omit_admission=True)
+    assert mt5.order_check_calls == 0
     assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
     assert not (tmp_path / "control-plane" / "authenticated-envelope.json").exists()
     assert not list((tmp_path / "common").glob("ForexAI_Authorization_*_EURUSD.auth"))
 
 
 def test_missing_upstream_demo_permission_fails_before_ledger_mutation(tmp_path):
+    mt5 = FakeMT5()
     with pytest.raises(
         ControlPlaneError,
         match="EXTERNAL_DEMO_ADMISSION_REJECTED:CONTROL_PLANE_DEMO_PERMISSION_NOT_GRANTED",
     ):
-        _call(tmp_path, signed_demo_permission=False)
+        _call(tmp_path, mt5=mt5, signed_demo_permission=False)
+    assert mt5.order_check_calls == 0
     assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
     assert not (tmp_path / "control-plane" / "authenticated-envelope.json").exists()
     assert not list((tmp_path / "common").glob("ForexAI_Authorization_*_EURUSD.auth"))
 
 
 def test_tampered_upstream_admission_fails_before_ledger_mutation(tmp_path):
+    mt5 = FakeMT5()
     with pytest.raises(
         ControlPlaneError,
         match="EXTERNAL_DEMO_ADMISSION_REJECTED:CONTROL_PLANE_ADMISSION_SIGNATURE_INVALID",
     ):
-        _call(tmp_path, tamper_admission=True)
+        _call(tmp_path, mt5=mt5, tamper_admission=True)
+    assert mt5.order_check_calls == 0
     assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
     assert not (tmp_path / "control-plane" / "authenticated-envelope.json").exists()
 
 
 
 def test_signed_admission_cannot_authorize_a_different_live_entry_price(tmp_path):
+    mt5 = FakeMT5()
     with pytest.raises(
         ControlPlaneError,
         match="EXTERNAL_DEMO_ADMISSION_SIGNAL_PAYLOAD_MISMATCH:entry_price",
     ):
-        _call(tmp_path, mismatch_payload_price=True)
+        _call(tmp_path, mt5=mt5, mismatch_payload_price=True)
+    assert mt5.order_check_calls == 0
     assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
     assert not (tmp_path / "control-plane" / "authenticated-envelope.json").exists()
     assert not list((tmp_path / "common").glob("ForexAI_Authorization_*_EURUSD.auth"))
