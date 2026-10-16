@@ -609,7 +609,7 @@ def _verify_external_demo_admission(
     candidate_id: int,
     decision_id: str,
     trade_id: str,
-    risk_fraction: float,
+    risk_fraction: float | None,
     now: datetime,
 ) -> dict[str, Any]:
     """Require an independent, signed one-signal Demo grant before any mutation."""
@@ -739,7 +739,10 @@ def _verify_external_demo_admission(
 
     reserved_risk = float(parsed["reserved_risk"])
     authorized_risk = float(parsed["authorized_risk"])
-    if risk_fraction > reserved_risk + 1e-9 or reserved_risk > authorized_risk + 1e-9:
+    if (
+        (risk_fraction is not None and risk_fraction > reserved_risk + 1e-9)
+        or reserved_risk > authorized_risk + 1e-9
+    ):
         raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_RISK_BUDGET_INSUFFICIENT")
     valid_until = parsed.get("valid_until")
     if not isinstance(valid_until, datetime) or (valid_until - now).total_seconds() < 5:
@@ -802,6 +805,36 @@ def process_signal_intent(
         expected_promotion_run_id=promotion_run_id,
     )
     intent = _validate_signal_intent(intent_path, manifest=manifest, candidate=candidate, now=now)
+    signal_bar_epoch = int(intent["signal_bar_epoch"])
+    decision_id = f"G13-{candidate_id}-{signal_bar_epoch}-SELL"
+    trade_id = f"G13-{candidate_id}-{signal_bar_epoch}-S"
+    # Do not touch the broker API for an unsigned, missing or misbound grant.
+    # An unavailable/invalid request may remain in the provider slot while the
+    # service waits, so verification must precede the read-only order_check too.
+    if any(common_files.glob("ForexAI_Authorization_*_EURUSD.auth")):
+        raise ControlPlaneError("G13_AUTHORIZATION_SLOT_OCCUPIED")
+    external_admission = _verify_external_demo_admission(
+        admission_request_path=admission_request_path,
+        admission_public_key=admission_public_key,
+        intent=intent,
+        manifest=manifest,
+        attestation_path=attestation_path,
+        provenance_path=provenance_path,
+        current_main_sha=current_main_sha,
+        promotion_run_id=promotion_run_id,
+        candidate_id=candidate_id,
+        decision_id=decision_id,
+        trade_id=trade_id,
+        risk_fraction=None,
+        now=now,
+    )
+    signed_authorization = external_admission["authorization"]
+    signed_parsed = external_admission["parsed"]
+    authorization_id = str(signed_authorization["authorization_id"])
+    reservation_id = str(signed_authorization["reservation_id"])
+    authorized_risk = float(signed_parsed["authorized_risk"])
+    reserved_risk = float(signed_parsed["reserved_risk"])
+
     snapshot = _demo_snapshot(
         mt5,
         intent=intent,
@@ -814,15 +847,12 @@ def process_signal_intent(
     risk_fraction = float(snapshot["risk_fraction"])
     if risk_fraction > risk_cap + 1e-9:
         raise ControlPlaneError("ACTUAL_STOP_RISK_EXCEEDS_PROMOTED_RISK_POLICY")
+    if risk_fraction > reserved_risk + 1e-9:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_RISK_BUDGET_INSUFFICIENT")
 
-    signal_bar_epoch = int(intent["signal_bar_epoch"])
-    decision_id = f"G13-{candidate_id}-{signal_bar_epoch}-SELL"
-    trade_id = f"G13-{candidate_id}-{signal_bar_epoch}-S"
-    # Avoid evaluating a later candidate's admission while an earlier one-shot
-    # record is outstanding. The same condition is rechecked under the ledger lock.
-    if any(common_files.glob("ForexAI_Authorization_*_EURUSD.auth")):
-        raise ControlPlaneError("G13_AUTHORIZATION_SLOT_OCCUPIED")
     input_hash = canonical_hash({
+        "admission_request_sha256": external_admission["request_sha256"],
+        "signed_signal_input_sha256": external_admission["candidate"]["input_hash"],
         "intent": intent,
         "promotion_head_sha": current_main_sha,
         "risk_fraction": risk_fraction,
@@ -848,32 +878,11 @@ def process_signal_intent(
         "strategy_id": "forexai.g13.rsi_divergence.m15",
         "model_id": f"g13-candidate-{candidate_id}-{candidate['config_hash'][:16]}",
         "policy_version": "forexai.capital-policy.v1",
-        "risk_authorization_id": "",
+        "risk_authorization_id": authorization_id,
         "authorization_expiry": "",
         "input_hash": input_hash,
         "execution_contract_version": "forexai.execution.v1",
     }
-    external_admission = _verify_external_demo_admission(
-        admission_request_path=admission_request_path,
-        admission_public_key=admission_public_key,
-        intent=intent,
-        manifest=manifest,
-        attestation_path=attestation_path,
-        provenance_path=provenance_path,
-        current_main_sha=current_main_sha,
-        promotion_run_id=promotion_run_id,
-        candidate_id=candidate_id,
-        decision_id=decision_id,
-        trade_id=trade_id,
-        risk_fraction=risk_fraction,
-        now=now,
-    )
-    signed_authorization = external_admission["authorization"]
-    signed_parsed = external_admission["parsed"]
-    authorization_id = str(signed_authorization["authorization_id"])
-    reservation_id = str(signed_authorization["reservation_id"])
-    authorized_risk = float(signed_parsed["authorized_risk"])
-    reserved_risk = float(signed_parsed["reserved_risk"])
     expires_dt = min(
         now + timedelta(seconds=AUTHORIZATION_TTL_SECONDS),
         signed_parsed["valid_until"],
