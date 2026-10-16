@@ -77,6 +77,12 @@ on:
       - 'tests/test_capital_authorization_preflight_workflow_contract.py'
       - 'research/optimization/cost_aware_adaptive_regime_switch_v25.py'
       - 'tests/test_v25_execution_accounting.py'
+      - 'tools/capital_firewall_grant_issuer_v1.py'
+      - 'tests/test_capital_firewall_grant_issuer_v1.py'
+      - 'docs/CAPITAL_FIREWALL_GRANT_ISSUER_V1.md'
+      - 'tools/capital_firewall_host_preflight_v1.py'
+      - 'tests/test_capital_firewall_host_preflight_v1.py'
+      - 'docs/CAPITAL_FIREWALL_HOST_PREFLIGHT_V1.md'
   workflow_dispatch:
 
 concurrency:
