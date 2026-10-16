@@ -54,7 +54,7 @@ permissions:
 # Newer source pushes supersede stale queued parity runs for this feature branch.
 concurrency:
   # A newer candidate commit supersedes any stale parity job for this branch.
-  group: forexai-control-plane-pr-real-data-parity-${{ github.head_ref || github.ref_name }}
+  group: forexai-control-plane-pr-real-data-parity-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -83,7 +83,7 @@ jobs:
   real-data-parity:
     needs: resolve-main
     # Never execute PR-controlled workflow code from a fork on the privileged MT5 runner.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'feat/authoritative-capital-control-plane-v1')
     permissions:
       contents: read
       actions: read
