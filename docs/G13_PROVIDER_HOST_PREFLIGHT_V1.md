@@ -74,3 +74,28 @@ $LASTEXITCODE
 Run an elevated PowerShell session for the initial host inventory. Once a runtime identity or service has been deliberately configured, run it again under the intended identity to inspect that identity's effective process environment. The script reports only variable presence and public-key match statuses; it never prints public-key values, passphrases, registry paths, or private-key contents. For PEM files it reads only the first header line. It does not install/start services, alter ACLs or environment variables, open the production issuance registry, write a source packet/admission, or authorize trading. Exit code 2 indicates blockers in the inspected configuration.
 
 A report from this tool is diagnostic only. It does not validate the signed source packet or grant authority. The Promotion Attestor private key must remain under its separately administered trust boundary; if its key is found on the Provider host, resolve custody through the approved key-rotation process rather than treating the local file as authoritative. Do not store passphrases in persistent Machine/User environment variables; provide them to the runtime process from the approved secret manager. A correct environment shape and a successful SQLite parent-directory probe are not permission to trade.
+
+
+## Current blocker snapshot (2026-10-16)
+
+Provider-host diagnostic on `WIN-P7MA35DRF6Q` returned `BLOCKED`: no registered `ForexAIProviderSvc`, empty input/output directories, no current source packet, missing Signal/Risk/Operator/Capital Firewall public keys, Promotion key mismatch, Admission passphrase absent from the process environment, and Promotion private-key custody requiring review. The diagnostic did not open the production registry. These observations apply to this host; they do not prove independent services cannot exist elsewhere.
+
+### Source roles — one compact checklist
+
+| Role | Code found in repository | Actual owner/system location |
+|---|---|---|
+| Promotion evidence attestor | `tools/g13_capital_firewall_promotion_attestor_v1.py` | Must be separately administered; actual deployment not verified |
+| Signal source | Admission verifier defines contract only | `NOT_IDENTIFIED` |
+| Risk/reservation source | Admission verifier defines contract only | `NOT_IDENTIFIED` |
+| Human operator approval | Admission verifier defines contract only | `NOT_IDENTIFIED` |
+| Capital Firewall grant signer | Grant verification contract exists; signer is independent | `NOT_IDENTIFIED` |
+| Admission signer/provider | `tools/control_plane_admission_provider_v1.py` | Host files exist; service/secure runtime not established |
+| MT5 consumer | Control Plane and authorization tools exist | Runner files/interactive-terminal boundary still need verification |
+
+### Minimum next actions
+
+1. Confirm the accountable owner and approved location for each `NOT_IDENTIFIED` source. If no source exists, mark it `NOT_PROVISIONED`; do not substitute test helpers or self-signed production attestations.
+2. Resolve the Promotion public-key mismatch with the trust-anchor owner; review Promotion private-key custody on the Provider host. Recover the Admission passphrase only from the approved secret manager, then verify the private/public keypair without logging secrets. If the passphrase is unavailable, plan a coordinated rotation before changing trust anchors.
+3. Once real source owners provide verified public fingerprints, signed fresh attestations and a separate one-signal Capital Firewall Demo grant, configure the Provider runtime/packet path and re-run this preflight.
+
+Do not install the one-shot Admission CLI directly as a long-running Windows service. Until those actions succeed, keep Kill Switch `DENY`, Demo unauthorized, and Live disabled. Host readiness alone is not permission to trade.
