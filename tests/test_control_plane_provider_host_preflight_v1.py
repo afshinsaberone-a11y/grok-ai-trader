@@ -1,4 +1,4 @@
-"""Tests for the read-only, fail-closed external provider host preflight."""
+""""Tests for the read-only, fail-closed external provider host preflight."""
 from __future__ import annotations
 
 import base64
@@ -126,3 +126,84 @@ def test_existing_registry_is_not_opened_or_modified(tmp_path: Path):
     assert report["registry_check"]["status"] == "PASS"
     assert registry.read_bytes() == marker
     assert report["admission_issuance_authorized"] is False
+
+
+
+def test_windows_provider_deployment_diagnostic_is_read_only_and_redacted():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "tools" / "diagnose_provider_host_deployment_v1.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    for token in (
+        "forexai.provider_host_deployment_diagnostic.v1",
+        "Get-EnvironmentPresence",
+        "Get-PublicKeyConsistency",
+        "ENCRYPTED_PKCS8",
+        "PUBLIC_KEY_ENV_FILE_MISMATCH",
+        "PROMOTION_PRIVATE_KEY_PRESENT_ON_PROVIDER_HOST_VERIFY_TRUST_BOUNDARY",
+        "PROVIDER_INPUT_DIRECTORY_EMPTY",
+        "passphrase_values_printed = $false",
+        "key_values_printed = $false",
+        "orders_submitted = $false",
+        "signed_request_created = $false",
+        "ledger_mutated = $false",
+        "authenticated_envelope_created = $false",
+        "demo_trading_authorized = $false",
+        "live_trading_allowed = $false",
+    ):
+        assert token in script, f"Provider deployment diagnostic missing token: {token}"
+
+    # Private PEM inspection is header-only. Key values are never added to the report.
+    assert "Get-Content -LiteralPath $Path -TotalCount 1" in script
+    assert "Get-Content -LiteralPath $FilePath -Raw" in script  # public key files only
+    assert "private_key_contents_read = $false" in script
+    assert "private_key_header_only = $true" in script
+    assert "Write-Output $env:" not in script
+    assert "Write-Host $env:" not in script
+
+    # It is an inventory tool, never a service installer or authority producer.
+    for forbidden in (
+        "New-Service",
+        "Set-Service",
+        "Start-Service",
+        "Stop-Service",
+        "SetEnvironmentVariable(",
+        "write_request_new(",
+        "order_send(",
+        "order_check(",
+        "Move-Item ",
+        "Copy-Item ",
+    ):
+        assert forbidden not in script, f"read-only diagnostic contains mutating token: {forbidden}"
+
+
+def test_provider_host_diagnostic_does_not_expose_public_key_or_passphrase_values():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "tools" / "diagnose_provider_host_deployment_v1.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    for variable in (
+        "FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY",
+        "FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY",
+        "FOREXAI_PROVIDER_SIGNAL_PUBLIC_KEY",
+        "FOREXAI_PROVIDER_RISK_PUBLIC_KEY",
+        "FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY",
+        "FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY",
+        "FOREXAI_PROVIDER_SIGNING_KEY_PASSPHRASE",
+        "FOREXAI_G13_ATTESTOR_KEY_PASSPHRASE",
+        "FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH",
+    ):
+        assert variable in script
+
+    for field in (
+        "public_environment_presence",
+        "passphrase_environment_presence",
+        "environment_presence = $registryPresence",
+    ):
+        assert field in script
+
+    assert "environment_value =" not in script
+    assert "passphrase_value =" not in script
+    assert "registry_path = $registryPath" not in script
