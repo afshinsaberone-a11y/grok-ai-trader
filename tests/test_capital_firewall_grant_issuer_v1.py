@@ -404,3 +404,36 @@ def test_prepared_cache_ttl_starts_after_slow_evidence_verification(tmp_path: Pa
         now_utc=finish + timedelta(seconds=1),
     )
     assert verified["grant_id"] == receipt["grant_id_reserved_for_followup"]
+
+
+def test_sensitive_file_paths_must_be_absolute_external_and_non_symlink(tmp_path: Path):
+    with pytest.raises(GrantIssuerError, match="PATH_NOT_ABSOLUTE"):
+        grant_issuer._resolve_distinct_paths({"key": "relative-grant-key.pem"})
+
+    repository_root = Path(__file__).resolve().parents[1]
+    key_inside_repository = repository_root / ".capital-firewall-test-key-must-not-exist.pem"
+    with pytest.raises(GrantIssuerError, match="PATH_INSIDE_REPOSITORY"):
+        grant_issuer._resolve_distinct_paths({"key": str(key_inside_repository)})
+    with pytest.raises(GrantIssuerError, match="PATH_INSIDE_REPOSITORY"):
+        grant_issuer._load_private_key(key_inside_repository, None)
+
+    real_file = tmp_path / "source-packet.json"
+    real_file.write_text("{}", encoding="utf-8")
+    symlink = tmp_path / "source-packet-link.json"
+    try:
+        symlink.symlink_to(real_file)
+    except OSError:
+        pytest.skip("this runner does not permit creating a symlink")
+    with pytest.raises(GrantIssuerError, match="SYMLINK_FORBIDDEN"):
+        grant_issuer._resolve_distinct_paths({"source_packet": str(symlink)})
+
+
+def test_registry_bootstrap_rejects_repository_location(tmp_path: Path):
+    repository_root = Path(__file__).resolve().parents[1]
+    registry_inside_repository = repository_root / ".capital-firewall-test-registry-must-not-exist.sqlite"
+    with pytest.raises(GrantIssuerError, match="PATH_INSIDE_REPOSITORY"):
+        initialize_registry(
+            registry_inside_repository,
+            confirmation="INITIALIZE_CAPITAL_FIREWALL_GRANT_REGISTRY",
+        )
+    assert not registry_inside_repository.exists()
