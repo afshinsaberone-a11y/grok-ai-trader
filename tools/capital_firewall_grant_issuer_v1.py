@@ -479,108 +479,6 @@ def verify_evidence_cache(
     return dict(verified)
 
 
-def prepare_evidence_cache(
-    *,
-    metadata_path: str,
-    private_key_path: str,
-    output_path: str,
-    receipt_path: str,
-    repo: str,
-    token: str,
-    trusted_public_keys: Mapping[str, str],
-    confirmation: str,
-) -> dict[str, Any]:
-    if confirmation != CONFIRM_PREPARE:
-        raise GrantIssuerError("CAPITAL_FIREWALL_PREPARE_CONFIRMATION_INVALID")
-    if repo != PINNED_REPOSITORY:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REPOSITORY_NOT_PINNED")
-    paths = {
-        "metadata": Path(metadata_path).expanduser(),
-        "key": Path(private_key_path).expanduser(),
-        "output": Path(output_path).expanduser(),
-        "receipt": Path(receipt_path).expanduser(),
-    }
-    raw_paths = {name: path.absolute() for name, path in paths.items()}
-    if len(set(str(path.resolve(strict=False)) for path in raw_paths.values())) != len(raw_paths):
-        raise GrantIssuerError("CAPITAL_FIREWALL_PATH_COLLISION")
-    if not paths["metadata"].is_file() or not paths["key"].is_file():
-        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_OR_KEY_FILE_MISSING")
-    if paths["output"].exists() or paths["receipt"].exists():
-        raise GrantIssuerError("CAPITAL_FIREWALL_OUTPUT_ALREADY_EXISTS")
-
-    metadata = load_json_object(paths["metadata"], "CAPITAL_FIREWALL_METADATA_FILE_INVALID")
-    grant_private_key = _load_private_key(
-        paths["key"], os.environ.get("FOREXAI_CAPITAL_FIREWALL_GRANT_KEY_PASSPHRASE")
-    )
-    validate_trust_keys(trusted_public_keys, grant_private_key)
-    current_main = promotion_attestor._api_json(repo, "commits/main", token).get("sha")
-    if not isinstance(current_main, str) or not COMMIT_SHA.fullmatch(current_main):
-        raise GrantIssuerError("CAPITAL_FIREWALL_CURRENT_MAIN_SHA_INVALID")
-    run_ids = validate_metadata(metadata, current_main_sha=current_main)
-    issued = datetime.now(timezone.utc)
-    grant_id = f"capital-firewall-grant-{uuid.uuid4().hex}"
-    draft = _make_draft(metadata, grant_id, issued)
-    evidence_payload = _build_artifact_evidence(
-        repo=repo, target_sha=current_main, run_ids=run_ids, token=token, grant_draft=draft
-    )
-    latest_main = promotion_attestor._api_json(repo, "commits/main", token).get("sha")
-    if latest_main != current_main:
-        raise GrantIssuerError("CAPITAL_FIREWALL_MAIN_MOVED_DURING_PREPARATION")
-    _validate_verified_promotion(metadata, evidence_payload, grant_id=grant_id)
-
-    cache_until = issued + timedelta(seconds=MAX_CACHE_LIFETIME_SECONDS)
-    cache_body = {
-        "schema": CACHE_SCHEMA,
-        "key_id": CACHE_KEY_ID,
-        "repository": PINNED_REPOSITORY,
-        "commit_sha": current_main,
-        "grant_id": grant_id,
-        "issued_at_utc": issued.isoformat(),
-        "valid_until_utc": cache_until.isoformat(),
-        "metadata": dict(metadata),
-        "verified_promotion_payload": dict(evidence_payload),
-    }
-    cache = _sign_object(cache_body, grant_private_key, CACHE_KEY_ID)
-    receipt = {
-        "schema": PREPARE_RECEIPT_SCHEMA,
-        "status": "PASS",
-        "repository": PINNED_REPOSITORY,
-        "commit_sha": current_main,
-        "run_ids": run_ids,
-        "candidate_id": metadata["candidate_id"],
-        "candidate_config_hash": metadata["candidate_config_hash"],
-        "grant_id_reserved_for_followup": grant_id,
-        "evidence_bundle_sha256": evidence_payload["evidence_bundle_sha256"],
-        "valid_until_utc": cache_until.isoformat(),
-        "evidence_cache_created": True,
-        "grant_issued": False,
-        "orders_submitted": False,
-        "live_trading_allowed": False,
-    }
-    try:
-        promotion_attestor._write_pair_new(
-            paths["output"].resolve(strict=False), cache,
-            paths["receipt"].resolve(strict=False), receipt,
-        )
-    except promotion_attestor.AttestorError as exc:
-        raise GrantIssuerError(str(exc)) from exc
-    return receipt
-
-
-def _load_private_key(path: str | Path, passphrase: str | None) -> Ed25519PrivateKey:
-    _resolve_distinct_paths({"key": str(path)})
-    try:
-        key = serialization.load_pem_private_key(
-            Path(path).read_bytes(),
-            password=passphrase.encode("utf-8") if passphrase else None,
-        )
-    except (OSError, ValueError, TypeError) as exc:
-        raise GrantIssuerError("CAPITAL_FIREWALL_PRIVATE_KEY_UNAVAILABLE_OR_INVALID") from exc
-    if not isinstance(key, Ed25519PrivateKey):
-        raise GrantIssuerError("CAPITAL_FIREWALL_PRIVATE_KEY_MUST_BE_ED25519") from None
-    return key
-
-
 def build_signed_grant(
     metadata: Mapping[str, Any],
     source_packet: Mapping[str, Any],
@@ -703,130 +601,6 @@ def _build_artifact_evidence(
     except promotion_attestor.AttestorError as exc:
         raise GrantIssuerError(str(exc)) from exc
     return payload
-
-
-def initialize_registry(path: str | Path, *, confirmation: str) -> None:
-    if confirmation != CONFIRM_INIT:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_BOOTSTRAP_CONFIRMATION_INVALID")
-    _resolve_distinct_paths({"registry": str(path)})
-    raw_target = Path(path).expanduser()
-    if raw_target.is_symlink():
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
-    target = raw_target.resolve(strict=False)
-    if target.exists():
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_ALREADY_EXISTS")
-    if not target.parent.is_dir():
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_PARENT_MISSING")
-    created = False
-    try:
-        fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        os.close(fd)
-        created = True
-        with closing(sqlite3.connect(str(target), timeout=10.0, isolation_level=None)) as db:
-            db.execute("PRAGMA journal_mode = DELETE")
-            db.execute("PRAGMA synchronous = FULL")
-            db.execute("CREATE TABLE registry_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-            db.execute("INSERT INTO registry_meta(key,value) VALUES ('schema',?)", (REGISTRY_SCHEMA,))
-            db.execute(REGISTRY_TABLE_SQL)
-            db.execute("PRAGMA user_version = 1")
-            integrity = db.execute("PRAGMA integrity_check").fetchone()
-            if not integrity or integrity[0] != "ok":
-                raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_INTEGRITY_FAILED")
-        try:
-            os.chmod(target, 0o600)
-        except OSError:
-            pass
-    except GrantIssuerError:
-        if created:
-            try:
-                target.unlink()
-            except OSError:
-                pass
-        raise
-    except Exception as exc:
-        if created:
-            try:
-                target.unlink()
-            except OSError:
-                pass
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_BOOTSTRAP_FAILED") from exc
-
-
-def _verify_registry(db: sqlite3.Connection) -> None:
-    try:
-        integrity = db.execute("PRAGMA integrity_check").fetchone()
-        if not integrity or integrity[0] != "ok":
-            raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_INTEGRITY_FAILED")
-        metadata = db.execute("SELECT value FROM registry_meta WHERE key='schema'").fetchone()
-        if not metadata or metadata[0] != REGISTRY_SCHEMA:
-            raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SCHEMA_INVALID")
-        user_version = db.execute("PRAGMA user_version").fetchone()
-        if not user_version or user_version[0] != 1:
-            raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_VERSION_INVALID")
-        columns = db.execute("PRAGMA table_info(issued_grants)").fetchall()
-        expected = [
-            "grant_id", "signal_id", "reservation_id", "authorization_id", "trade_id",
-            "commit_sha", "candidate_id", "candidate_config_hash", "issued_at_utc", "grant_sha256",
-        ]
-        if [row[1] for row in columns] != expected:
-            raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_TABLE_INVALID")
-    except sqlite3.Error as exc:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SCHEMA_INVALID") from exc
-
-
-def record_grant_issuance(
-    grant: Mapping[str, Any],
-    registry_path: str | Path,
-    *,
-    current_main_sha: str,
-    grant_public_key: str,
-    now_utc: datetime | None = None,
-) -> None:
-    now = _now_utc(now_utc)
-    _resolve_distinct_paths({"registry": str(registry_path)})
-    raw_target = Path(registry_path).expanduser()
-    if raw_target.is_symlink():
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
-    target = raw_target.resolve(strict=False)
-    if not target.is_file():
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_FILE_NOT_PROVISIONED")
-    try:
-        verified = promotion_attestor._verify_grant(
-            grant, repo=PINNED_REPOSITORY, target_sha=current_main_sha,
-            now=now, public_key_encoded=grant_public_key,
-        )
-    except promotion_attestor.AttestorError as exc:
-        raise GrantIssuerError(str(exc)) from exc
-    grant_hash = hashlib.sha256(canonical_json(grant)).hexdigest()
-    try:
-        with closing(sqlite3.connect(str(target), timeout=10.0, isolation_level=None)) as db:
-            db.execute("PRAGMA busy_timeout = 10000")
-            _verify_registry(db)
-            db.execute("BEGIN IMMEDIATE")
-            try:
-                db.execute(
-                    """INSERT INTO issued_grants
-                    (grant_id, signal_id, reservation_id, authorization_id, trade_id,
-                     commit_sha, candidate_id, candidate_config_hash, issued_at_utc, grant_sha256)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        verified["grant_id"], verified["signal_id"], verified["reservation_id"],
-                        verified["authorization_id"], verified["trade_id"], verified["commit_sha"],
-                        verified["candidate_id"], verified["candidate_config_hash"],
-                        verified["issued_at_utc"], grant_hash,
-                    ),
-                )
-                db.commit()
-            except sqlite3.IntegrityError as exc:
-                db.rollback()
-                raise GrantIssuerError("CAPITAL_FIREWALL_GRANT_OR_SIGNAL_ALREADY_ISSUED") from exc
-            except sqlite3.Error as exc:
-                db.rollback()
-                raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_WRITE_FAILED") from exc
-    except GrantIssuerError:
-        raise
-    except sqlite3.Error as exc:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_UNAVAILABLE") from exc
 
 
 def _verify_cache_identity(metadata: Mapping[str, Any], evidence: Mapping[str, Any], grant_id: str) -> None:
@@ -1029,6 +803,7 @@ def issue_grant_from_cache_files(
 
 
 def _load_private_key(path: str | Path, passphrase: str | None) -> Ed25519PrivateKey:
+    _resolve_distinct_paths({"key": str(path)})
     try:
         key = serialization.load_pem_private_key(
             Path(path).read_bytes(),
@@ -1044,6 +819,7 @@ def _load_private_key(path: str | Path, passphrase: str | None) -> Ed25519Privat
 def initialize_registry(path: str | Path, *, confirmation: str) -> None:
     if confirmation != CONFIRM_INIT:
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_BOOTSTRAP_CONFIRMATION_INVALID")
+    _resolve_distinct_paths({"registry": str(path)})
     raw_target = Path(path).expanduser()
     if raw_target.is_symlink():
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
@@ -1118,6 +894,7 @@ def record_grant_issuance(
     now_utc: datetime | None = None,
 ) -> None:
     now = _now_utc(now_utc)
+    _resolve_distinct_paths({"registry": str(registry_path)})
     raw_target = Path(registry_path).expanduser()
     if raw_target.is_symlink():
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
