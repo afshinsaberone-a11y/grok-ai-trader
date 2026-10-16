@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
@@ -11,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools import control_plane_admission_provider_v1 as admission_provider
 from tools import g13_capital_firewall_promotion_attestor_v1 as promotion_attestor
+from tools import capital_firewall_grant_issuer_v1 as grant_issuer
 from tools.capital_firewall_grant_issuer_v1 import (
     CACHE_KEY_ID,
     CACHE_SCHEMA,
@@ -343,3 +345,62 @@ def test_registry_rejects_tampered_grant(tmp_path: Path):
             tampered, registry, current_main_sha=SHA, grant_public_key=TRUST_KEYS["grant"],
             now_utc=NOW + timedelta(seconds=1),
         )
+
+
+def test_prepared_cache_ttl_starts_after_slow_evidence_verification(tmp_path: Path, monkeypatch):
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_text(json.dumps(metadata()), encoding="utf-8")
+    private_key_path = tmp_path / "grant-key.pem"
+    private_key_path.write_text("test-only placeholder; loader is mocked", encoding="utf-8")
+    cache_path = tmp_path / "cache.json"
+    receipt_path = tmp_path / "receipt.json"
+
+    real_datetime = datetime
+    start = datetime(2026, 10, 16, 20, 0, tzinfo=timezone.utc)
+    finish = start + timedelta(minutes=7)
+
+    class SlowClock(real_datetime):
+        calls = 0
+
+        @classmethod
+        def now(cls, tz=None):
+            cls.calls += 1
+            return start if cls.calls == 1 else finish
+
+    monkeypatch.setattr(grant_issuer, "datetime", SlowClock)
+    monkeypatch.setattr(grant_issuer, "load_trust_keys", lambda: dict(TRUST_KEYS))
+    monkeypatch.setattr(grant_issuer, "_load_private_key", lambda *_args, **_kwargs: KEYS["grant"])
+    monkeypatch.setattr(
+        promotion_attestor, "_api_json",
+        lambda *_args, **_kwargs: {"sha": SHA},
+    )
+
+    def slow_verified_evidence(*, grant_draft, **_kwargs):
+        assert grant_draft["issued_at_utc"] == start.isoformat()
+        return verified_promotion(grant_draft["grant_id"])
+
+    monkeypatch.setattr(grant_issuer, "_build_artifact_evidence", slow_verified_evidence)
+
+    receipt = grant_issuer.prepare_evidence_cache_from_files(
+        metadata_path=str(metadata_path),
+        private_key_path=str(private_key_path),
+        output_path=str(cache_path),
+        receipt_path=str(receipt_path),
+        repo=PINNED_REPOSITORY,
+        token="test-read-only-token",
+        confirmation="PREPARE_CAPITAL_FIREWALL_EVIDENCE",
+    )
+
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert cache["issued_at_utc"] == finish.isoformat()
+    assert cache["valid_until_utc"] == (finish + timedelta(minutes=5)).isoformat()
+    assert receipt["grant_issued"] is False
+    assert receipt["orders_submitted"] is False
+
+    verified = grant_issuer.verify_evidence_cache(
+        cache,
+        grant_public_key=TRUST_KEYS["grant"],
+        current_main_sha=SHA,
+        now_utc=finish + timedelta(seconds=1),
+    )
+    assert verified["grant_id"] == receipt["grant_id_reserved_for_followup"]
