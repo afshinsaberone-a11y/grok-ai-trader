@@ -184,6 +184,13 @@ jobs:
             Copy-Item -LiteralPath $file.FullName -Destination $src -Force
             Remove-Item -LiteralPath $ex5,$log -Force -ErrorAction SilentlyContinue
             $proc = Start-Process -FilePath $meta -WorkingDirectory $buildDir -ArgumentList @("/compile:$src", '/log') -Wait -PassThru
+            # MetaEditor command-line /compile returns the number of successfully
+            # compiled source files, not the conventional 0-success process code.
+            # This loop compiles exactly one source per invocation, so success is 1.
+            # Still require clean diagnostics below and an actual EX5 output.
+            if ($proc.ExitCode -ne 1) {
+              throw "MT5_COMPILE_GUARD_COMPILE_COUNT_INVALID_$($file.Name):exit=$($proc.ExitCode)"
+            }
             if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "MT5_COMPILE_GUARD_COMPILE_LOG_MISSING_$($file.Name)" }
             $logText = Get-Content -LiteralPath $log -Raw
             $match = [regex]::Match($logText, 'Result:\s*(\d+)\s+errors,\s*(\d+)\s+warnings')

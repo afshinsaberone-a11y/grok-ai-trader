@@ -75,6 +75,7 @@ jobs:
 
           producer = Path("tools/forexai_control_plane_v1.py").read_text(encoding="utf-8")
           workflow = Path(".github/workflows/forexai-control-plane-v1.yml").read_text(encoding="utf-8")
+          compile_workflow = Path(".github/workflows/forexai-control-plane-mt5-compile-guard.yml").read_text(encoding="utf-8")
           generated_gate = Path("research/optimization/g13_control_plane_ea_gate_v1.py").read_text(encoding="utf-8")
           calls = [
               node.func.attr
@@ -104,5 +105,12 @@ jobs:
           assert "FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_FILE_MISSING" not in workflow
           assert "admission_request_path=args.admission_request" in producer
           assert "EXTERNAL_DEMO_ADMISSION_DIRECTORY_MISSING" in producer
+
+          # Each invocation compiles one .mq5; validate MetaEditor's observed
+          # count-style exit code as well as parsed diagnostics and the .ex5 file.
+          assert "MT5_COMPILE_GUARD_COMPILE_COUNT_INVALID_" in compile_workflow
+          assert "if ($proc.ExitCode -ne 1)" in compile_workflow
+          assert "MT5_COMPILE_GUARD_NONZERO_DIAGNOSTICS_" in compile_workflow
+          assert "MT5_COMPILE_GUARD_EX5_MISSING_" in compile_workflow
           print("FOREXAI_CONTROL_PLANE_AUTHORITY_BOUNDARIES_OK")
           PY

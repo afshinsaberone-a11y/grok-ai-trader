@@ -8,6 +8,10 @@ The Control Plane never calls `order_send`, never changes the kill switch to `AL
 
 The producer consumes the exact verified admission file immediately before the first Ledger append, making it one-shot and freeing the configured provider output path for the next request. A failure after that point is not retried automatically; reconcile the append-only Ledger and provider issuance registry before requesting any new grant. The generated EA independently checks Demo account status, quote drift, actual risk, record bindings/integrity, decision ID, age, the kill switch and an atomic single-attempt lock before its one order attempt. The authorization record has a 10-second maximum age. If the outcome of an order attempt is unknown, the EA does not retry.
 
+## MetaEditor compile gate
+
+The Windows compile guard invokes MetaEditor once per generated `.mq5` file. For this invocation, the gate expects MetaEditor's count-style `/compile` exit result to be `1` (one source successfully compiled), then independently requires the log to report zero errors and zero warnings and verifies that the corresponding `.ex5` file exists. This avoids treating MetaEditor's observed `1` as a conventional process-failure code. The observed behavior is consistent with the MQL5 discussion in [Beyond Clone and Commit: The Advanced Side of MQL5 Algo Forge](https://www.mql5.com/en/articles/23991), and the exact installed build is revalidated through the Windows compile job.
+
 ## Prerequisites for a controlled Demo window
 
 1. Merge and validate the PR first. G13 Validation/Robustness/OOS/Promotion/Compile-Parity/readiness workflows must succeed for the same current `main` SHA. The service refuses a stale Promotion artifact.
