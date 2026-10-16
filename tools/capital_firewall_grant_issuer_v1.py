@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Issue a narrowly scoped Capital Firewall Grant from independently signed evidence.
+"""Fail-closed two-phase issuer for one-signal Capital Firewall Demo grants.
 
-This issuer must run only in the separately administered Capital Firewall
-security boundary. It does not place orders, create MT5 authorization records,
-change the Kill Switch, or authorize Live trading.
+Run only in the separately administered Capital Firewall security boundary.
+The prepare phase verifies the exact current G13 Actions run/artifact chain.
+The issue phase then accepts fresh, independently signed source evidence without
+re-downloading those artifacts, so signal freshness is checked at issuance time.
+Neither phase places orders, changes the Kill Switch, or enables Live trading.
 """
 from __future__ import annotations
 
@@ -31,24 +33,34 @@ from tools import g13_capital_firewall_promotion_attestor_v1 as promotion_attest
 
 
 PINNED_REPOSITORY = "afshinsaberone-a11y/grok-ai-trader"
-REQUEST_SCHEMA = "forexai.capital_firewall.grant_issue_request.v1"
+METADATA_SCHEMA = "forexai.capital_firewall.grant_metadata_request.v1"
+SOURCE_PACKET_SCHEMA = "forexai.capital_firewall.source_attestation_packet.v1"
+CACHE_SCHEMA = "forexai.capital_firewall.verified_g13_chain_cache.v1"
+CACHE_KEY_ID = "forexai-capital-firewall-evidence-cache-v1"
 GRANT_SCHEMA = promotion_attestor.GRANT_SCHEMA
 GRANT_KEY_ID = promotion_attestor.GRANT_KEY_ID
 REGISTRY_SCHEMA = "forexai.capital_firewall.grant_registry.v1"
 RECEIPT_SCHEMA = "forexai.capital_firewall.grant_issuance_receipt.v1"
+PREPARE_RECEIPT_SCHEMA = "forexai.capital_firewall.evidence_cache_receipt.v1"
 MAX_GRANT_LIFETIME_SECONDS = 900
-ISSUER_ATTESTATION_MAX_AGE_SECONDS = 300
-ISSUER_SIGNAL_MAX_AGE_SECONDS = 10
+MAX_CACHE_LIFETIME_SECONDS = 300
+CONFIRM_PREPARE = "PREPARE_CAPITAL_FIREWALL_EVIDENCE"
 CONFIRM_ISSUE = "ISSUE_ONE_SIGNAL_DEMO_GRANT"
 CONFIRM_INIT = "INITIALIZE_CAPITAL_FIREWALL_GRANT_REGISTRY"
 SAFE_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 
-REQUEST_FIELDS = {
+METADATA_FIELDS = {
     "schema", "repository", "commit_sha", "run_ids", "candidate_id",
-    "candidate_config_hash", "signal", "risk", "operator_approval",
+    "candidate_config_hash", "signal_id", "trade_id", "authorization_id", "reservation_id",
 }
+SOURCE_PACKET_FIELDS = {"schema", "signal", "risk", "operator_approval"}
+CACHE_FIELDS = {
+    "schema", "key_id", "repository", "commit_sha", "grant_id", "issued_at_utc",
+    "valid_until_utc", "metadata", "verified_promotion_payload", "signature",
+}
+SIGNATURE_FIELDS = {"algorithm", "key_id", "signature"}
 SOURCE_TYPES = ("signal", "risk", "operator_approval")
 TRUST_ENVIRONMENTS = {
     "admission": "FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY",
@@ -97,7 +109,7 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def load_request(path: str | Path) -> dict[str, Any]:
+def load_json_object(path: str | Path, reason: str) -> dict[str, Any]:
     try:
         value = json.loads(
             Path(path).read_text(encoding="utf-8"),
@@ -106,13 +118,9 @@ def load_request(path: str | Path) -> dict[str, Any]:
     except GrantIssuerError:
         raise
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REQUEST_FILE_INVALID") from exc
+        raise GrantIssuerError(reason) from exc
     if not isinstance(value, dict):
-        raise GrantIssuerError("CAPITAL_FIREWALL_REQUEST_ROOT_INVALID")
-    if set(value) != REQUEST_FIELDS:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REQUEST_FIELDS_INVALID")
-    if value.get("schema") != REQUEST_SCHEMA:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REQUEST_SCHEMA_INVALID")
+        raise GrantIssuerError(reason)
     return value
 
 
@@ -135,17 +143,21 @@ def _safe_id(value: Any, reason: str) -> str:
     return value
 
 
-def _validate_request_identity(
-    request: Mapping[str, Any], *, repository: str, current_main_sha: str
+def validate_metadata(
+    metadata: Mapping[str, Any], *, current_main_sha: str
 ) -> dict[str, int]:
-    if repository != PINNED_REPOSITORY or request.get("repository") != PINNED_REPOSITORY:
+    if not isinstance(metadata, Mapping) or set(metadata) != METADATA_FIELDS:
+        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_FIELDS_INVALID")
+    if metadata.get("schema") != METADATA_SCHEMA:
+        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_SCHEMA_INVALID")
+    if metadata.get("repository") != PINNED_REPOSITORY:
         raise GrantIssuerError("CAPITAL_FIREWALL_REPOSITORY_NOT_PINNED")
-    requested_sha = request.get("commit_sha")
+    requested_sha = metadata.get("commit_sha")
     if not isinstance(requested_sha, str) or not COMMIT_SHA.fullmatch(requested_sha):
-        raise GrantIssuerError("CAPITAL_FIREWALL_REQUEST_SHA_INVALID")
+        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_SHA_INVALID")
     if requested_sha != current_main_sha:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REQUEST_SHA_NOT_CURRENT_MAIN")
-    raw_ids = request.get("run_ids")
+        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_SHA_NOT_CURRENT_MAIN")
+    raw_ids = metadata.get("run_ids")
     expected_roles = set(promotion_attestor.REQUIRED_RUNS)
     if not isinstance(raw_ids, Mapping) or set(raw_ids) != expected_roles:
         raise GrantIssuerError("CAPITAL_FIREWALL_RUN_IDS_INVALID")
@@ -155,16 +167,39 @@ def _validate_request_identity(
     }
     if len(set(run_ids.values())) != len(run_ids):
         raise GrantIssuerError("CAPITAL_FIREWALL_RUN_IDS_NOT_UNIQUE")
-    candidate_id = _positive_int(
-        request.get("candidate_id"), "CAPITAL_FIREWALL_CANDIDATE_ID_INVALID"
-    )
-    config_hash = request.get("candidate_config_hash")
-    if not isinstance(config_hash, str) or not SHA256.fullmatch(config_hash):
+    _positive_int(metadata.get("candidate_id"), "CAPITAL_FIREWALL_CANDIDATE_ID_INVALID")
+    if not isinstance(metadata.get("candidate_config_hash"), str) or not SHA256.fullmatch(
+        metadata["candidate_config_hash"]
+    ):
         raise GrantIssuerError("CAPITAL_FIREWALL_CONFIG_HASH_INVALID")
+    for field, reason in (
+        ("signal_id", "CAPITAL_FIREWALL_SIGNAL_ID_INVALID"),
+        ("trade_id", "CAPITAL_FIREWALL_TRADE_ID_INVALID"),
+        ("authorization_id", "CAPITAL_FIREWALL_AUTHORIZATION_ID_INVALID"),
+        ("reservation_id", "CAPITAL_FIREWALL_RESERVATION_ID_INVALID"),
+    ):
+        _safe_id(metadata.get(field), reason)
+    if not str(metadata["trade_id"]).endswith("-S"):
+        raise GrantIssuerError("CAPITAL_FIREWALL_TRADE_ID_MUST_END_WITH_-S")
+    if len({
+        metadata["signal_id"], metadata["trade_id"],
+        metadata["authorization_id"], metadata["reservation_id"],
+    }) != 4:
+        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_IDENTIFIERS_NOT_UNIQUE")
     return run_ids
 
 
-def _validate_trust_keys(
+def load_trust_keys() -> dict[str, str]:
+    keys: dict[str, str] = {}
+    for role, environment_name in TRUST_ENVIRONMENTS.items():
+        value = os.environ.get(environment_name, "")
+        if not value:
+            raise GrantIssuerError(f"CAPITAL_FIREWALL_PUBLIC_KEY_NOT_CONFIGURED:{role}")
+        keys[role] = value
+    return keys
+
+
+def validate_trust_keys(
     trusted_public_keys: Mapping[str, str], grant_private_key: Ed25519PrivateKey
 ) -> dict[str, bytes]:
     if set(trusted_public_keys) != set(TRUST_ENVIRONMENTS):
@@ -192,43 +227,41 @@ def _validate_trust_keys(
     )
     if not hmac.compare_digest(private_public_raw, raw_keys["grant"]):
         raise GrantIssuerError("CAPITAL_FIREWALL_GRANT_KEYPAIR_MISMATCH")
-    distinct = list(raw_keys.values())
-    if len(set(distinct)) != len(distinct):
+    if len(set(raw_keys.values())) != len(raw_keys):
         raise GrantIssuerError("CAPITAL_FIREWALL_TRUST_KEYS_MUST_BE_DISTINCT")
     return raw_keys
 
 
 def _source_payloads(
-    request: Mapping[str, Any],
-    *, public_keys: Mapping[str, str], now: datetime,
+    metadata: Mapping[str, Any],
+    source_packet: Mapping[str, Any],
+    *,
+    public_keys: Mapping[str, str],
+    now: datetime,
 ) -> tuple[dict[str, dict[str, Any]], datetime]:
+    if not isinstance(source_packet, Mapping) or set(source_packet) != SOURCE_PACKET_FIELDS:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SOURCE_PACKET_FIELDS_INVALID")
+    if source_packet.get("schema") != SOURCE_PACKET_SCHEMA:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SOURCE_PACKET_SCHEMA_INVALID")
     source_payloads: dict[str, dict[str, Any]] = {}
     outer_expiries: list[datetime] = []
-    key_names = {
-        "signal": "signal",
-        "risk": "risk",
-        "operator_approval": "operator_approval",
-    }
     for source_type in SOURCE_TYPES:
-        attestation = request[source_type]
+        attestation = source_packet[source_type]
         try:
             payload = admission_provider._verify_attestation(
                 attestation,
-                source_type=key_names[source_type],
-                public_key=public_keys[key_names[source_type]],
+                source_type=source_type,
+                public_key=public_keys[source_type],
                 now=now,
             )
-        except admission_provider.AdmissionProviderError as exc:
-            raise GrantIssuerError(str(exc)) from exc
-        if not isinstance(payload, dict):
-            raise GrantIssuerError(f"CAPITAL_FIREWALL_SOURCE_PAYLOAD_INVALID:{source_type}")
-        try:
             expiry = admission_provider._parse_utc(
                 attestation.get("valid_until_utc"),
                 f"CAPITAL_FIREWALL_SOURCE_EXPIRY_INVALID:{source_type}",
             )
         except admission_provider.AdmissionProviderError as exc:
             raise GrantIssuerError(str(exc)) from exc
+        if not isinstance(payload, dict):
+            raise GrantIssuerError(f"CAPITAL_FIREWALL_SOURCE_PAYLOAD_INVALID:{source_type}")
         outer_expiries.append(expiry)
         source_payloads[source_type] = dict(payload)
 
@@ -241,33 +274,26 @@ def _source_payloads(
     except admission_provider.AdmissionProviderError as exc:
         raise GrantIssuerError(str(exc)) from exc
 
-    request_candidate_id = _positive_int(
-        request["candidate_id"], "CAPITAL_FIREWALL_CANDIDATE_ID_INVALID"
+    identity = (
+        (signal["candidate_id"], metadata["candidate_id"]),
+        (signal["signal_id"], metadata["signal_id"]),
+        (signal["trade_id"], metadata["trade_id"]),
+        (signal["config_hash"], metadata["candidate_config_hash"]),
+        (risk["candidate_id"], metadata["candidate_id"]),
+        (risk["signal_id"], metadata["signal_id"]),
+        (risk["trade_id"], metadata["trade_id"]),
+        (risk["authorization_id"], metadata["authorization_id"]),
+        (risk["reservation_id"], metadata["reservation_id"]),
+        (operator["candidate_id"], metadata["candidate_id"]),
+        (operator["signal_id"], metadata["signal_id"]),
+        (operator["trade_id"], metadata["trade_id"]),
+        (operator["authorization_id"], metadata["authorization_id"]),
+        (operator["reservation_id"], metadata["reservation_id"]),
     )
-    if signal["candidate_id"] != request_candidate_id:
-        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNAL_CANDIDATE_MISMATCH")
-    if not hmac.compare_digest(signal["config_hash"], str(request["candidate_config_hash"])):
-        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNAL_CONFIG_HASH_MISMATCH")
-
-    cross_links = (
-        (risk["candidate_id"], signal["candidate_id"]),
-        (risk["signal_id"], signal["signal_id"]),
-        (risk["trade_id"], signal["trade_id"]),
-        (operator["candidate_id"], signal["candidate_id"]),
-        (operator["signal_id"], signal["signal_id"]),
-        (operator["trade_id"], signal["trade_id"]),
-        (operator["authorization_id"], risk["authorization_id"]),
-        (operator["reservation_id"], risk["reservation_id"]),
-    )
-    if any(left != right for left, right in cross_links):
+    if any(left != right for left, right in identity):
         raise GrantIssuerError("CAPITAL_FIREWALL_SOURCE_IDENTITY_CROSS_LINK_MISMATCH")
-
-    linked_ids = [
-        signal["signal_id"], signal["trade_id"],
-        risk["authorization_id"], risk["reservation_id"],
-    ]
-    if len(set(linked_ids)) != len(linked_ids):
-        raise GrantIssuerError("CAPITAL_FIREWALL_SOURCE_IDENTIFIERS_NOT_UNIQUE")
+    if (signal["symbol"], signal["timeframe"], signal["side"]) != ("EURUSD", "M15", "SELL"):
+        raise GrantIssuerError("CAPITAL_FIREWALL_TRADE_IDENTITY_UNSUPPORTED")
 
     risk_expiry = admission_provider._parse_utc(
         risk["expires_at_utc"], "CAPITAL_FIREWALL_RISK_EXPIRY_INVALID"
@@ -279,18 +305,283 @@ def _source_payloads(
         raise GrantIssuerError("CAPITAL_FIREWALL_RISK_RESERVATION_EXPIRED")
     if operator_expiry <= now:
         raise GrantIssuerError("CAPITAL_FIREWALL_OPERATOR_APPROVAL_EXPIRED")
-
-    source_expiry = min(outer_expiries)
-    if source_expiry <= now:
-        raise GrantIssuerError("CAPITAL_FIREWALL_SOURCE_ATTESTATION_EXPIRED")
     return {"signal": signal, "risk": risk, "operator_approval": operator}, min(
-        risk_expiry, operator_expiry, source_expiry,
+        risk_expiry, operator_expiry, min(outer_expiries),
         now + timedelta(seconds=MAX_GRANT_LIFETIME_SECONDS),
     )
 
 
+def _make_draft(metadata: Mapping[str, Any], grant_id: str, issued: datetime) -> dict[str, Any]:
+    return {
+        "schema": GRANT_SCHEMA,
+        "key_id": GRANT_KEY_ID,
+        "grant_id": grant_id,
+        "repository": PINNED_REPOSITORY,
+        "commit_sha": metadata["commit_sha"],
+        "run_ids": dict(metadata["run_ids"]),
+        "candidate_id": metadata["candidate_id"],
+        "candidate_config_hash": metadata["candidate_config_hash"],
+        "signal_id": metadata["signal_id"],
+        "trade_id": metadata["trade_id"],
+        "authorization_id": metadata["authorization_id"],
+        "reservation_id": metadata["reservation_id"],
+        "scope": "ONE_SIGNAL_DEMO_ONLY",
+        "symbol": "EURUSD",
+        "timeframe": "M15",
+        "side": "SELL",
+        "issued_at_utc": issued.isoformat(),
+        "valid_until_utc": (issued + timedelta(seconds=MAX_GRANT_LIFETIME_SECONDS)).isoformat(),
+        "demo_trading_allowed": True,
+        "live_trading_allowed": False,
+    }
+
+
+def _validate_verified_promotion(
+    metadata: Mapping[str, Any],
+    evidence: Mapping[str, Any],
+    *,
+    grant_id: str,
+) -> None:
+    if not isinstance(evidence, Mapping) or evidence.get("schema") != promotion_attestor.PROMOTION_EVIDENCE_SCHEMA:
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_PROMOTION_SCHEMA_INVALID")
+    if evidence.get("commit_sha") != metadata["commit_sha"]:
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_PROMOTION_SHA_MISMATCH")
+    if evidence.get("source_grant_id") != grant_id:
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_ID_MISMATCH")
+    if evidence.get("source_grant_candidate_id") != metadata["candidate_id"]:
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_CANDIDATE_MISMATCH")
+    for field in ("source_grant_signal_id", "source_grant_trade_id",
+                  "source_grant_authorization_id", "source_grant_reservation_id"):
+        metadata_field = {
+            "source_grant_signal_id": "signal_id",
+            "source_grant_trade_id": "trade_id",
+            "source_grant_authorization_id": "authorization_id",
+            "source_grant_reservation_id": "reservation_id",
+        }[field]
+        if evidence.get(field) != metadata[metadata_field]:
+            raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_IDENTITY_MISMATCH")
+    if dict(evidence.get("run_ids", {})) != dict(metadata["run_ids"]):
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_RUN_IDS_MISMATCH")
+    if evidence.get("readiness_status") != "READY_FOR_CONTROLLED_DEMO_AUDIT":
+        raise GrantIssuerError("CAPITAL_FIREWALL_READINESS_NOT_READY")
+    gates = evidence.get("gates")
+    if not isinstance(gates, Mapping) or set(gates) != set(promotion_attestor.REQUIRED_GATES):
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GATES_INVALID")
+    if any(gates[name] != "PASS" for name in gates):
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GATE_NOT_PASS")
+    if (
+        evidence.get("demo_trading_allowed") is not True
+        or evidence.get("live_trading_allowed") is not False
+        or evidence.get("real_data_only") is not True
+        or evidence.get("synthetic_data") is not False
+    ):
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_POLICY_INVALID")
+    candidate_id = metadata["candidate_id"]
+    candidates = evidence.get("promoted_candidate_ids")
+    hashes = evidence.get("candidate_config_hashes")
+    if not isinstance(candidates, list) or candidate_id not in candidates:
+        raise GrantIssuerError("CAPITAL_FIREWALL_CANDIDATE_NOT_PROMOTED")
+    if not isinstance(hashes, Mapping) or not hmac.compare_digest(
+        str(hashes.get(str(candidate_id), "")), metadata["candidate_config_hash"]
+    ):
+        raise GrantIssuerError("CAPITAL_FIREWALL_PROMOTED_CONFIG_HASH_MISMATCH")
+    for field in ("source_grant_sha256", "evidence_bundle_sha256"):
+        if not isinstance(evidence.get(field), str) or not SHA256.fullmatch(evidence[field]):
+            raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_EVIDENCE_DIGEST_INVALID")
+
+
+def _sign_object(body: Mapping[str, Any], key: Ed25519PrivateKey, key_id: str) -> dict[str, Any]:
+    result = dict(body)
+    result["signature"] = {
+        "algorithm": "Ed25519",
+        "key_id": key_id,
+        "signature": base64.b64encode(key.sign(canonical_json(body))).decode("ascii"),
+    }
+    return result
+
+
+def _verify_signed_object(
+    obj: Mapping[str, Any],
+    *,
+    exact_fields: set[str],
+    schema: str,
+    key_id: str,
+    public_key: str,
+    now: datetime,
+    max_age_seconds: int,
+) -> dict[str, Any]:
+    if not isinstance(obj, Mapping) or set(obj) != exact_fields:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNED_OBJECT_FIELDS_INVALID")
+    if obj.get("schema") != schema or obj.get("key_id") != key_id:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNED_OBJECT_SCHEMA_INVALID")
+    sig = obj.get("signature")
+    if not isinstance(sig, Mapping) or set(sig) != SIGNATURE_FIELDS:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNATURE_FIELDS_INVALID")
+    if sig.get("algorithm") != "Ed25519" or sig.get("key_id") != key_id:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNATURE_METADATA_INVALID")
+    encoded = sig.get("signature")
+    if not isinstance(encoded, str):
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNATURE_INVALID")
+    try:
+        raw_signature = base64.b64decode(encoded, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNATURE_INVALID") from exc
+    if len(raw_signature) != 64:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNATURE_INVALID")
+    try:
+        pub = promotion_attestor._load_raw_ed25519_public(
+            public_key, "CAPITAL_FIREWALL_PUBLIC_KEY_INVALID"
+        )
+        unsigned = {name: value for name, value in obj.items() if name != "signature"}
+        pub.verify(raw_signature, canonical_json(unsigned))
+    except (promotion_attestor.AttestorError, InvalidSignature) as exc:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNATURE_VERIFICATION_FAILED") from exc
+    issued = admission_provider._parse_utc(
+        obj.get("issued_at_utc"), "CAPITAL_FIREWALL_SIGNED_OBJECT_TIMESTAMP_INVALID"
+    )
+    until = admission_provider._parse_utc(
+        obj.get("valid_until_utc"), "CAPITAL_FIREWALL_SIGNED_OBJECT_EXPIRY_INVALID"
+    )
+    if issued > now + timedelta(seconds=2):
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNED_OBJECT_FROM_FUTURE")
+    if now - issued > timedelta(seconds=max_age_seconds):
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNED_OBJECT_STALE")
+    if until <= now or until <= issued:
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNED_OBJECT_EXPIRED")
+    if until - issued > timedelta(seconds=max_age_seconds):
+        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNED_OBJECT_VALIDITY_TOO_LONG")
+    return dict(obj)
+
+
+def verify_evidence_cache(
+    cache: Mapping[str, Any],
+    *,
+    grant_public_key: str,
+    current_main_sha: str,
+    now_utc: datetime | None = None,
+) -> dict[str, Any]:
+    now = _now_utc(now_utc)
+    verified = _verify_signed_object(
+        cache, exact_fields=CACHE_FIELDS, schema=CACHE_SCHEMA, key_id=CACHE_KEY_ID,
+        public_key=grant_public_key, now=now, max_age_seconds=MAX_CACHE_LIFETIME_SECONDS,
+    )
+    if verified.get("repository") != PINNED_REPOSITORY:
+        raise GrantIssuerError("CAPITAL_FIREWALL_CACHE_REPOSITORY_INVALID")
+    if verified.get("commit_sha") != current_main_sha:
+        raise GrantIssuerError("CAPITAL_FIREWALL_CACHE_SHA_NOT_CURRENT_MAIN")
+    metadata = verified.get("metadata")
+    run_ids = validate_metadata(metadata, current_main_sha=current_main_sha)
+    evidence = verified.get("verified_promotion_payload")
+    _validate_verified_promotion(metadata, evidence, grant_id=verified.get("grant_id", ""))
+    if dict(run_ids) != dict(evidence.get("run_ids", {})):
+        raise GrantIssuerError("CAPITAL_FIREWALL_CACHE_RUN_IDS_MISMATCH")
+    return dict(verified)
+
+
+def prepare_evidence_cache(
+    *,
+    metadata_path: str,
+    private_key_path: str,
+    output_path: str,
+    receipt_path: str,
+    repo: str,
+    token: str,
+    trusted_public_keys: Mapping[str, str],
+    confirmation: str,
+) -> dict[str, Any]:
+    if confirmation != CONFIRM_PREPARE:
+        raise GrantIssuerError("CAPITAL_FIREWALL_PREPARE_CONFIRMATION_INVALID")
+    if repo != PINNED_REPOSITORY:
+        raise GrantIssuerError("CAPITAL_FIREWALL_REPOSITORY_NOT_PINNED")
+    paths = {
+        "metadata": Path(metadata_path).expanduser(),
+        "key": Path(private_key_path).expanduser(),
+        "output": Path(output_path).expanduser(),
+        "receipt": Path(receipt_path).expanduser(),
+    }
+    raw_paths = {name: path.absolute() for name, path in paths.items()}
+    if len(set(str(path.resolve(strict=False)) for path in raw_paths.values())) != len(raw_paths):
+        raise GrantIssuerError("CAPITAL_FIREWALL_PATH_COLLISION")
+    if not paths["metadata"].is_file() or not paths["key"].is_file():
+        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_OR_KEY_FILE_MISSING")
+    if paths["output"].exists() or paths["receipt"].exists():
+        raise GrantIssuerError("CAPITAL_FIREWALL_OUTPUT_ALREADY_EXISTS")
+
+    metadata = load_json_object(paths["metadata"], "CAPITAL_FIREWALL_METADATA_FILE_INVALID")
+    grant_private_key = _load_private_key(
+        paths["key"], os.environ.get("FOREXAI_CAPITAL_FIREWALL_GRANT_KEY_PASSPHRASE")
+    )
+    validate_trust_keys(trusted_public_keys, grant_private_key)
+    current_main = promotion_attestor._api_json(repo, "commits/main", token).get("sha")
+    if not isinstance(current_main, str) or not COMMIT_SHA.fullmatch(current_main):
+        raise GrantIssuerError("CAPITAL_FIREWALL_CURRENT_MAIN_SHA_INVALID")
+    run_ids = validate_metadata(metadata, current_main_sha=current_main)
+    issued = datetime.now(timezone.utc)
+    grant_id = f"capital-firewall-grant-{uuid.uuid4().hex}"
+    draft = _make_draft(metadata, grant_id, issued)
+    evidence_payload = _build_artifact_evidence(
+        repo=repo, target_sha=current_main, run_ids=run_ids, token=token, grant_draft=draft
+    )
+    latest_main = promotion_attestor._api_json(repo, "commits/main", token).get("sha")
+    if latest_main != current_main:
+        raise GrantIssuerError("CAPITAL_FIREWALL_MAIN_MOVED_DURING_PREPARATION")
+    _validate_verified_promotion(metadata, evidence_payload, grant_id=grant_id)
+
+    cache_until = issued + timedelta(seconds=MAX_CACHE_LIFETIME_SECONDS)
+    cache_body = {
+        "schema": CACHE_SCHEMA,
+        "key_id": CACHE_KEY_ID,
+        "repository": PINNED_REPOSITORY,
+        "commit_sha": current_main,
+        "grant_id": grant_id,
+        "issued_at_utc": issued.isoformat(),
+        "valid_until_utc": cache_until.isoformat(),
+        "metadata": dict(metadata),
+        "verified_promotion_payload": dict(evidence_payload),
+    }
+    cache = _sign_object(cache_body, grant_private_key, CACHE_KEY_ID)
+    receipt = {
+        "schema": PREPARE_RECEIPT_SCHEMA,
+        "status": "PASS",
+        "repository": PINNED_REPOSITORY,
+        "commit_sha": current_main,
+        "run_ids": run_ids,
+        "candidate_id": metadata["candidate_id"],
+        "candidate_config_hash": metadata["candidate_config_hash"],
+        "grant_id_reserved_for_followup": grant_id,
+        "evidence_bundle_sha256": evidence_payload["evidence_bundle_sha256"],
+        "valid_until_utc": cache_until.isoformat(),
+        "evidence_cache_created": True,
+        "grant_issued": False,
+        "orders_submitted": False,
+        "live_trading_allowed": False,
+    }
+    try:
+        promotion_attestor._write_pair_new(
+            paths["output"].resolve(strict=False), cache,
+            paths["receipt"].resolve(strict=False), receipt,
+        )
+    except promotion_attestor.AttestorError as exc:
+        raise GrantIssuerError(str(exc)) from exc
+    return receipt
+
+
+def _load_private_key(path: str | Path, passphrase: str | None) -> Ed25519PrivateKey:
+    try:
+        key = serialization.load_pem_private_key(
+            Path(path).read_bytes(),
+            password=passphrase.encode("utf-8") if passphrase else None,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        raise GrantIssuerError("CAPITAL_FIREWALL_PRIVATE_KEY_UNAVAILABLE_OR_INVALID") from exc
+    if not isinstance(key, Ed25519PrivateKey):
+        raise GrantIssuerError("CAPITAL_FIREWALL_PRIVATE_KEY_MUST_BE_ED25519") from None
+    return key
+
+
 def build_signed_grant(
-    request: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    source_packet: Mapping[str, Any],
     *,
     verified_promotion_payload: Mapping[str, Any],
     grant_private_key: Ed25519PrivateKey,
@@ -298,106 +589,46 @@ def build_signed_grant(
     grant_id: str,
     now_utc: datetime | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Create a grant only from signed independent source evidence and verified G13 evidence.
-
-    In production this must be called only with verified_promotion_payload returned by
-    the exact-SHA GitHub artifact verifier in issue_grant_from_file().
-    """
+    """Sign one exact grant from verified G13 evidence and independently signed sources."""
     now = _now_utc(now_utc)
-    if not isinstance(request, Mapping) or set(request) != REQUEST_FIELDS:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REQUEST_FIELDS_INVALID")
-    if request.get("schema") != REQUEST_SCHEMA:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REQUEST_SCHEMA_INVALID")
-    if request.get("repository") != PINNED_REPOSITORY:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REPOSITORY_NOT_PINNED")
-    current_sha = verified_promotion_payload.get("commit_sha")
-    if not isinstance(current_sha, str) or not COMMIT_SHA.fullmatch(current_sha):
-        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_PROMOTION_SHA_INVALID")
-    if request.get("commit_sha") != current_sha:
-        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_PROMOTION_SHA_MISMATCH")
-    raw_ids = request.get("run_ids")
-    if not isinstance(raw_ids, Mapping) or set(raw_ids) != set(promotion_attestor.REQUIRED_RUNS):
-        raise GrantIssuerError("CAPITAL_FIREWALL_RUN_IDS_INVALID")
-    requested_ids = {
-        role: _positive_int(raw_ids[role], "CAPITAL_FIREWALL_RUN_ID_INVALID")
-        for role in promotion_attestor.REQUIRED_RUNS
-    }
-    verified_ids = verified_promotion_payload.get("run_ids")
-    if not isinstance(verified_ids, Mapping) or dict(verified_ids) != requested_ids:
-        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_RUN_IDS_MISMATCH")
-    if verified_promotion_payload.get("schema") != promotion_attestor.PROMOTION_EVIDENCE_SCHEMA:
-        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_PROMOTION_SCHEMA_INVALID")
-    if verified_promotion_payload.get("readiness_status") != "READY_FOR_CONTROLLED_DEMO_AUDIT":
-        raise GrantIssuerError("CAPITAL_FIREWALL_READINESS_NOT_READY")
-    if verified_promotion_payload.get("real_data_only") is not True or verified_promotion_payload.get("synthetic_data") is not False:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REAL_DATA_POLICY_FAILED")
-    if verified_promotion_payload.get("live_trading_allowed") is not False:
-        raise GrantIssuerError("CAPITAL_FIREWALL_LIVE_MUST_REMAIN_DISABLED")
-    if verified_promotion_payload.get("demo_trading_allowed") is not True:
-        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_PERMISSION_MISSING")
-
-    candidate_id = _positive_int(request.get("candidate_id"), "CAPITAL_FIREWALL_CANDIDATE_ID_INVALID")
-    config_hash = request.get("candidate_config_hash")
-    if not isinstance(config_hash, str) or not SHA256.fullmatch(config_hash):
-        raise GrantIssuerError("CAPITAL_FIREWALL_CONFIG_HASH_INVALID")
-    promoted_ids = verified_promotion_payload.get("promoted_candidate_ids")
-    config_hashes = verified_promotion_payload.get("candidate_config_hashes")
-    if not isinstance(promoted_ids, list) or candidate_id not in promoted_ids:
-        raise GrantIssuerError("CAPITAL_FIREWALL_CANDIDATE_NOT_PROMOTED")
-    if not isinstance(config_hashes, Mapping) or not hmac.compare_digest(
-        config_hash, str(config_hashes.get(str(candidate_id), ""))
-    ):
-        raise GrantIssuerError("CAPITAL_FIREWALL_PROMOTED_CONFIG_HASH_MISMATCH")
-
-    _validate_trust_keys(trusted_public_keys, grant_private_key)
-    public_keys = {
-        "signal": trusted_public_keys["signal"],
-        "risk": trusted_public_keys["risk"],
-        "operator_approval": trusted_public_keys["operator_approval"],
-    }
-    payloads, source_expiry = _source_payloads(request, public_keys=public_keys, now=now)
+    if not isinstance(metadata, Mapping) or set(metadata) != METADATA_FIELDS:
+        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_FIELDS_INVALID")
+    if metadata.get("schema") != METADATA_SCHEMA or metadata.get("repository") != PINNED_REPOSITORY:
+        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_SCHEMA_INVALID")
+    if not isinstance(verified_promotion_payload.get("commit_sha"), str):
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_PROMOTION_INVALID")
+    _validate_verified_promotion(metadata, verified_promotion_payload, grant_id=grant_id)
+    validate_trust_keys(trusted_public_keys, grant_private_key)
+    payloads, source_expiry = _source_payloads(
+        metadata, source_packet,
+        public_keys={
+            "signal": trusted_public_keys["signal"],
+            "risk": trusted_public_keys["risk"],
+            "operator_approval": trusted_public_keys["operator_approval"],
+        },
+        now=now,
+    )
     signal = payloads["signal"]
     risk = payloads["risk"]
-    operator = payloads["operator_approval"]
-    if (signal["symbol"], signal["timeframe"], signal["side"]) != ("EURUSD", "M15", "SELL"):
-        raise GrantIssuerError("CAPITAL_FIREWALL_TRADE_IDENTITY_UNSUPPORTED")
-    if signal["candidate_id"] != candidate_id:
-        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNAL_CANDIDATE_MISMATCH")
-    if not hmac.compare_digest(signal["config_hash"], config_hash):
-        raise GrantIssuerError("CAPITAL_FIREWALL_SIGNAL_CONFIG_HASH_MISMATCH")
-
-    grant_id = _safe_id(grant_id, "CAPITAL_FIREWALL_GRANT_ID_INVALID")
-    if verified_promotion_payload.get("source_grant_id") != grant_id:
-        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_ID_MISMATCH")
-    identity_checks = {
-        "source_grant_candidate_id": candidate_id,
-        "source_grant_signal_id": signal["signal_id"],
-        "source_grant_trade_id": signal["trade_id"],
-        "source_grant_authorization_id": risk["authorization_id"],
-        "source_grant_reservation_id": risk["reservation_id"],
-    }
-    if any(verified_promotion_payload.get(name) != value for name, value in identity_checks.items()):
-        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_IDENTITY_MISMATCH")
+    if not 0 < float(risk["authorized_risk"]) <= 0.006:
+        raise GrantIssuerError("CAPITAL_FIREWALL_AUTHORIZED_RISK_POLICY_FAILED")
+    if not 0 < float(risk["reserved_risk"]) <= float(risk["authorized_risk"]):
+        raise GrantIssuerError("CAPITAL_FIREWALL_RESERVED_RISK_POLICY_FAILED")
 
     issued = now
-    until = min(
-        now + timedelta(seconds=MAX_GRANT_LIFETIME_SECONDS),
-        source_expiry,
-    )
+    until = min(now + timedelta(seconds=MAX_GRANT_LIFETIME_SECONDS), source_expiry)
     if until <= issued or (until - issued).total_seconds() > MAX_GRANT_LIFETIME_SECONDS:
         raise GrantIssuerError("CAPITAL_FIREWALL_GRANT_VALIDITY_INVALID")
-    if not 0 < float(risk["authorized_risk"]) <= 0.006 or not 0 < float(risk["reserved_risk"]) <= float(risk["authorized_risk"]):
-        raise GrantIssuerError("CAPITAL_FIREWALL_RISK_POLICY_FAILED")
-
-    grant: dict[str, Any] = {
+    grant_id = _safe_id(grant_id, "CAPITAL_FIREWALL_GRANT_ID_INVALID")
+    grant_body = {
         "schema": GRANT_SCHEMA,
         "key_id": GRANT_KEY_ID,
         "grant_id": grant_id,
         "repository": PINNED_REPOSITORY,
-        "commit_sha": current_sha,
-        "run_ids": requested_ids,
-        "candidate_id": candidate_id,
-        "candidate_config_hash": config_hash,
+        "commit_sha": metadata["commit_sha"],
+        "run_ids": dict(metadata["run_ids"]),
+        "candidate_id": metadata["candidate_id"],
+        "candidate_config_hash": metadata["candidate_config_hash"],
         "signal_id": signal["signal_id"],
         "trade_id": signal["trade_id"],
         "authorization_id": risk["authorization_id"],
@@ -411,31 +642,24 @@ def build_signed_grant(
         "demo_trading_allowed": True,
         "live_trading_allowed": False,
     }
-    encoded = base64.b64encode(grant_private_key.sign(canonical_json(grant))).decode("ascii")
-    grant["signature"] = {
-        "algorithm": "Ed25519",
-        "key_id": GRANT_KEY_ID,
-        "signature": encoded,
-    }
-
-    source_hashes = {
-        source_type: hashlib.sha256(canonical_json(request[source_type])).hexdigest()
-        for source_type in SOURCE_TYPES
-    }
+    grant = _sign_object(grant_body, grant_private_key, GRANT_KEY_ID)
     receipt = {
         "schema": RECEIPT_SCHEMA,
         "status": "PASS",
         "grant_id": grant_id,
         "repository": PINNED_REPOSITORY,
-        "commit_sha": current_sha,
-        "run_ids": requested_ids,
-        "candidate_id": candidate_id,
-        "candidate_config_hash": config_hash,
+        "commit_sha": metadata["commit_sha"],
+        "run_ids": dict(metadata["run_ids"]),
+        "candidate_id": metadata["candidate_id"],
+        "candidate_config_hash": metadata["candidate_config_hash"],
         "signal_id": signal["signal_id"],
         "trade_id": signal["trade_id"],
         "authorization_id": risk["authorization_id"],
         "reservation_id": risk["reservation_id"],
-        "source_attestation_sha256": source_hashes,
+        "source_attestation_sha256": {
+            source_type: hashlib.sha256(canonical_json(source_packet[source_type])).hexdigest()
+            for source_type in SOURCE_TYPES
+        },
         "grant_sha256": hashlib.sha256(canonical_json(grant)).hexdigest(),
         "issued_at_utc": grant["issued_at_utc"],
         "valid_until_utc": grant["valid_until_utc"],
@@ -447,12 +671,46 @@ def build_signed_grant(
     return grant, receipt
 
 
+def _build_artifact_evidence(
+    *, repo: str, target_sha: str, run_ids: Mapping[str, int], token: str,
+    grant_draft: Mapping[str, Any],
+) -> dict[str, Any]:
+    runs: dict[str, Mapping[str, Any]] = {}
+    artifacts: dict[str, Mapping[str, Any]] = {}
+    docs: dict[str, Mapping[str, Any]] = {}
+    digests: dict[str, str] = {}
+    for role in promotion_attestor.REQUIRED_RUNS:
+        run, artifact, documents, digest = promotion_attestor._fetch_run_and_artifact(
+            repo, role, run_ids[role], target_sha, token,
+        )
+        runs[role] = run
+        artifacts[role] = artifact
+        digests[role] = digest
+        if role == "parity":
+            docs["parity"] = documents[str(promotion_attestor.REQUIRED_RUNS[role]["document"])]
+            docs["parity_package"] = documents[str(
+                promotion_attestor.REQUIRED_RUNS[role]["package_document"]
+            )]
+        else:
+            docs[role] = documents[str(promotion_attestor.REQUIRED_RUNS[role]["document"])]
+    try:
+        payload, _receipt = promotion_attestor._validate_evidence(
+            repo=repo, target_sha=target_sha, grant=grant_draft,
+            runs=runs, artifacts=artifacts, docs=docs, digests=digests,
+        )
+    except promotion_attestor.AttestorError as exc:
+        raise GrantIssuerError(str(exc)) from exc
+    return payload
+
+
 def initialize_registry(path: str | Path, *, confirmation: str) -> None:
-    """Initialize a new empty registry only through an explicit local operator action."""
     if confirmation != CONFIRM_INIT:
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_BOOTSTRAP_CONFIRMATION_INVALID")
-    target = Path(path).expanduser().resolve(strict=False)
-    if target.exists() or target.is_symlink():
+    raw_target = Path(path).expanduser()
+    if raw_target.is_symlink():
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
+    target = raw_target.resolve(strict=False)
+    if target.exists():
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_ALREADY_EXISTS")
     if not target.parent.is_dir():
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_PARENT_MISSING")
@@ -465,19 +723,22 @@ def initialize_registry(path: str | Path, *, confirmation: str) -> None:
             db.execute("PRAGMA journal_mode = DELETE")
             db.execute("PRAGMA synchronous = FULL")
             db.execute("CREATE TABLE registry_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-            db.execute(
-                "INSERT INTO registry_meta(key,value) VALUES ('schema',?)",
-                (REGISTRY_SCHEMA,),
-            )
+            db.execute("INSERT INTO registry_meta(key,value) VALUES ('schema',?)", (REGISTRY_SCHEMA,))
             db.execute(REGISTRY_TABLE_SQL)
             db.execute("PRAGMA user_version = 1")
-            db.execute("PRAGMA integrity_check")
-            db.commit()
+            integrity = db.execute("PRAGMA integrity_check").fetchone()
+            if not integrity or integrity[0] != "ok":
+                raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_INTEGRITY_FAILED")
         try:
             os.chmod(target, 0o600)
         except OSError:
             pass
     except GrantIssuerError:
+        if created:
+            try:
+                target.unlink()
+            except OSError:
+                pass
         raise
     except Exception as exc:
         if created:
@@ -493,18 +754,17 @@ def _verify_registry(db: sqlite3.Connection) -> None:
         integrity = db.execute("PRAGMA integrity_check").fetchone()
         if not integrity or integrity[0] != "ok":
             raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_INTEGRITY_FAILED")
-        metadata = db.execute(
-            "SELECT value FROM registry_meta WHERE key='schema'"
-        ).fetchone()
+        metadata = db.execute("SELECT value FROM registry_meta WHERE key='schema'").fetchone()
         if not metadata or metadata[0] != REGISTRY_SCHEMA:
             raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SCHEMA_INVALID")
         user_version = db.execute("PRAGMA user_version").fetchone()
         if not user_version or user_version[0] != 1:
             raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_VERSION_INVALID")
         columns = db.execute("PRAGMA table_info(issued_grants)").fetchall()
-        expected = ["grant_id", "signal_id", "reservation_id", "authorization_id",
-                    "trade_id", "commit_sha", "candidate_id", "candidate_config_hash",
-                    "issued_at_utc", "grant_sha256"]
+        expected = [
+            "grant_id", "signal_id", "reservation_id", "authorization_id", "trade_id",
+            "commit_sha", "candidate_id", "candidate_config_hash", "issued_at_utc", "grant_sha256",
+        ]
         if [row[1] for row in columns] != expected:
             raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_TABLE_INVALID")
     except sqlite3.Error as exc:
@@ -519,10 +779,12 @@ def record_grant_issuance(
     grant_public_key: str,
     now_utc: datetime | None = None,
 ) -> None:
-    """Durably consume the grant/signal/reservation IDs before output publication."""
     now = _now_utc(now_utc)
-    target = Path(registry_path).expanduser().resolve(strict=False)
-    if target.is_symlink() or not target.is_file():
+    raw_target = Path(registry_path).expanduser()
+    if raw_target.is_symlink():
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
+    target = raw_target.resolve(strict=False)
+    if not target.is_file():
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_FILE_NOT_PROVISIONED")
     try:
         verified = promotion_attestor._verify_grant(
@@ -531,12 +793,9 @@ def record_grant_issuance(
         )
     except promotion_attestor.AttestorError as exc:
         raise GrantIssuerError(str(exc)) from exc
-    raw_grant = canonical_json(grant)
-    grant_hash = hashlib.sha256(raw_grant).hexdigest()
+    grant_hash = hashlib.sha256(canonical_json(grant)).hexdigest()
     try:
-        with closing(sqlite3.connect(
-            str(target), timeout=10.0, isolation_level=None
-        )) as db:
+        with closing(sqlite3.connect(str(target), timeout=10.0, isolation_level=None)) as db:
             db.execute("PRAGMA busy_timeout = 10000")
             _verify_registry(db)
             db.execute("BEGIN IMMEDIATE")
@@ -566,29 +825,178 @@ def record_grant_issuance(
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_UNAVAILABLE") from exc
 
 
-def _validate_paths(
-    request_path: str, key_path: str, output_path: str, receipt_path: str, registry_path: str
-) -> None:
-    paths = {
-        "request": Path(request_path).expanduser().resolve(strict=False),
-        "key": Path(key_path).expanduser().resolve(strict=False),
-        "output": Path(output_path).expanduser().resolve(strict=False),
-        "receipt": Path(receipt_path).expanduser().resolve(strict=False),
-        "registry": Path(registry_path).expanduser().resolve(strict=False),
+def _verify_cache_identity(metadata: Mapping[str, Any], evidence: Mapping[str, Any], grant_id: str) -> None:
+    if not isinstance(evidence, Mapping) or evidence.get("schema") != promotion_attestor.PROMOTION_EVIDENCE_SCHEMA:
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_PROMOTION_SCHEMA_INVALID")
+    if evidence.get("source_grant_id") != grant_id:
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_ID_MISMATCH")
+    if evidence.get("commit_sha") != metadata.get("commit_sha"):
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_PROMOTION_SHA_MISMATCH")
+    if evidence.get("source_grant_candidate_id") != metadata.get("candidate_id"):
+        raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_CANDIDATE_MISMATCH")
+    for source_field, metadata_field in (
+        ("source_grant_signal_id", "signal_id"),
+        ("source_grant_trade_id", "trade_id"),
+        ("source_grant_authorization_id", "authorization_id"),
+        ("source_grant_reservation_id", "reservation_id"),
+    ):
+        if evidence.get(source_field) != metadata.get(metadata_field):
+            raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_IDENTITY_MISMATCH")
+
+
+def _resolve_distinct_paths(paths: Mapping[str, str], *, outputs: tuple[str, ...] = ()) -> None:
+    resolved: dict[str, Path] = {}
+    for name, raw in paths.items():
+        p = Path(raw).expanduser()
+        if name in {"key", "registry"} and p.is_symlink():
+            raise GrantIssuerError(f"CAPITAL_FIREWALL_SYMLINK_FORBIDDEN:{name.upper()}")
+        resolved[name] = p.resolve(strict=False)
+    if len(set(str(value) for value in resolved.values())) != len(resolved):
+        raise GrantIssuerError("CAPITAL_FIREWALL_PATH_COLLISION")
+    for name in outputs:
+        if resolved[name].exists():
+            raise GrantIssuerError("CAPITAL_FIREWALL_OUTPUT_ALREADY_EXISTS")
+
+
+def prepare_evidence_cache_from_files(
+    *, metadata_path: str, private_key_path: str, output_path: str, receipt_path: str,
+    repo: str, token: str, confirmation: str,
+) -> dict[str, Any]:
+    if confirmation != CONFIRM_PREPARE:
+        raise GrantIssuerError("CAPITAL_FIREWALL_PREPARE_CONFIRMATION_INVALID")
+    if repo != PINNED_REPOSITORY:
+        raise GrantIssuerError("CAPITAL_FIREWALL_REPOSITORY_NOT_PINNED")
+    _resolve_distinct_paths(
+        {"metadata": metadata_path, "key": private_key_path, "output": output_path, "receipt": receipt_path},
+        outputs=("output", "receipt"),
+    )
+    if not Path(metadata_path).expanduser().is_file() or not Path(private_key_path).expanduser().is_file():
+        raise GrantIssuerError("CAPITAL_FIREWALL_METADATA_OR_KEY_FILE_MISSING")
+    metadata = load_json_object(metadata_path, "CAPITAL_FIREWALL_METADATA_FILE_INVALID")
+    trusted_keys = load_trust_keys()
+    private_key = _load_private_key(
+        private_key_path, os.environ.get("FOREXAI_CAPITAL_FIREWALL_GRANT_KEY_PASSPHRASE")
+    )
+    validate_trust_keys(trusted_keys, private_key)
+    current_main = promotion_attestor._api_json(repo, "commits/main", token).get("sha")
+    if not isinstance(current_main, str) or not COMMIT_SHA.fullmatch(current_main):
+        raise GrantIssuerError("CAPITAL_FIREWALL_CURRENT_MAIN_SHA_INVALID")
+    run_ids = validate_metadata(metadata, current_main_sha=current_main)
+    issued = datetime.now(timezone.utc)
+    grant_id = f"capital-firewall-grant-{uuid.uuid4().hex}"
+    draft = _make_draft(metadata, grant_id, issued)
+    verified_payload = _build_artifact_evidence(
+        repo=repo, target_sha=current_main, run_ids=run_ids, token=token, grant_draft=draft,
+    )
+    if promotion_attestor._api_json(repo, "commits/main", token).get("sha") != current_main:
+        raise GrantIssuerError("CAPITAL_FIREWALL_MAIN_MOVED_DURING_PREPARATION")
+    _validate_cache_identity(metadata, verified_payload, grant_id)
+
+    body = {
+        "schema": CACHE_SCHEMA,
+        "key_id": CACHE_KEY_ID,
+        "repository": PINNED_REPOSITORY,
+        "commit_sha": current_main,
+        "grant_id": grant_id,
+        "issued_at_utc": issued.isoformat(),
+        "valid_until_utc": (issued + timedelta(seconds=MAX_CACHE_LIFETIME_SECONDS)).isoformat(),
+        "metadata": dict(metadata),
+        "verified_promotion_payload": dict(verified_payload),
     }
-    values = list(paths.items())
-    for index, (name_a, path_a) in enumerate(values):
-        for name_b, path_b in values[index + 1:]:
-            if path_a == path_b:
-                raise GrantIssuerError(
-                    f"CAPITAL_FIREWALL_PATH_COLLISION:{name_a.upper()}:{name_b.upper()}"
-                )
-    if not paths["request"].is_file() or not paths["key"].is_file():
-        raise GrantIssuerError("CAPITAL_FIREWALL_REQUEST_OR_KEY_FILE_MISSING")
-    if paths["output"].exists() or paths["receipt"].exists():
-        raise GrantIssuerError("CAPITAL_FIREWALL_OUTPUT_ALREADY_EXISTS")
-    if paths["registry"].is_symlink() or not paths["registry"].is_file():
-        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_FILE_NOT_PROVISIONED")
+    cache = _sign_object(body, private_key, CACHE_KEY_ID)
+    receipt = {
+        "schema": PREPARE_RECEIPT_SCHEMA,
+        "status": "PASS",
+        "repository": PINNED_REPOSITORY,
+        "commit_sha": current_main,
+        "run_ids": run_ids,
+        "candidate_id": metadata["candidate_id"],
+        "candidate_config_hash": metadata["candidate_config_hash"],
+        "grant_id_reserved_for_followup": grant_id,
+        "evidence_bundle_sha256": verified_payload["evidence_bundle_sha256"],
+        "valid_until_utc": body["valid_until_utc"],
+        "evidence_cache_created": True,
+        "grant_issued": False,
+        "orders_submitted": False,
+        "live_trading_allowed": False,
+    }
+    try:
+        promotion_attestor._write_pair_new(
+            Path(output_path).expanduser().resolve(strict=False), cache,
+            Path(receipt_path).expanduser().resolve(strict=False), receipt,
+        )
+    except promotion_attestor.AttestorError as exc:
+        raise GrantIssuerError(str(exc)) from exc
+    return receipt
+
+
+def issue_grant_from_cache_files(
+    *, cache_path: str, source_packet_path: str, private_key_path: str,
+    output_path: str, receipt_path: str, registry_path: str,
+    repo: str, token: str, confirmation: str,
+) -> dict[str, Any]:
+    if confirmation != CONFIRM_ISSUE:
+        raise GrantIssuerError("CAPITAL_FIREWALL_ISSUANCE_CONFIRMATION_INVALID")
+    if repo != PINNED_REPOSITORY:
+        raise GrantIssuerError("CAPITAL_FIREWALL_REPOSITORY_NOT_PINNED")
+    _resolve_distinct_paths(
+        {
+            "cache": cache_path, "source_packet": source_packet_path, "key": private_key_path,
+            "output": output_path, "receipt": receipt_path, "registry": registry_path,
+        },
+        outputs=("output", "receipt"),
+    )
+    if not all(Path(p).expanduser().is_file() for p in (cache_path, source_packet_path, private_key_path, registry_path)):
+        raise GrantIssuerError("CAPITAL_FIREWALL_INPUT_OR_REGISTRY_FILE_MISSING")
+    trusted_keys = load_trust_keys()
+    private_key = _load_private_key(
+        private_key_path, os.environ.get("FOREXAI_CAPITAL_FIREWALL_GRANT_KEY_PASSPHRASE")
+    )
+    validate_trust_keys(trusted_keys, private_key)
+    cache = load_json_object(cache_path, "CAPITAL_FIREWALL_CACHE_FILE_INVALID")
+
+    current_main = promotion_attestor._api_json(repo, "commits/main", token).get("sha")
+    if not isinstance(current_main, str) or not COMMIT_SHA.fullmatch(current_main):
+        raise GrantIssuerError("CAPITAL_FIREWALL_CURRENT_MAIN_SHA_INVALID")
+    now = datetime.now(timezone.utc)
+    verified_cache = verify_evidence_cache(
+        cache, grant_public_key=trusted_keys["grant"], current_main_sha=current_main, now_utc=now,
+    )
+    metadata = verified_cache["metadata"]
+    verified_payload = verified_cache["verified_promotion_payload"]
+    run_ids = validate_metadata(metadata, current_main_sha=current_main)
+    if dict(run_ids) != dict(verified_payload.get("run_ids", {})):
+        raise GrantIssuerError("CAPITAL_FIREWALL_CACHE_RUN_IDS_MISMATCH")
+    _verify_cache_identity(metadata, verified_payload, verified_cache["grant_id"])
+
+    # Read the source packet only after checking the cache/current SHA. The signal
+    # must be freshly attested for this issuance window; source systems must not
+    # reuse stale market observations just to satisfy this CLI.
+    source_packet = load_json_object(source_packet_path, "CAPITAL_FIREWALL_SOURCE_PACKET_FILE_INVALID")
+    if promotion_attestor._api_json(repo, "commits/main", token).get("sha") != current_main:
+        raise GrantIssuerError("CAPITAL_FIREWALL_MAIN_MOVED_DURING_ISSUANCE")
+    grant, receipt = build_signed_grant(
+        metadata, source_packet,
+        verified_promotion_payload=verified_payload,
+        grant_private_key=private_key,
+        trusted_public_keys=trusted_keys,
+        grant_id=verified_cache["grant_id"],
+        now_utc=datetime.now(timezone.utc),
+    )
+    record_grant_issuance(
+        grant, registry_path,
+        current_main_sha=current_main,
+        grant_public_key=trusted_keys["grant"],
+        now_utc=datetime.now(timezone.utc),
+    )
+    try:
+        promotion_attestor._write_pair_new(
+            Path(output_path).expanduser().resolve(strict=False), grant,
+            Path(receipt_path).expanduser().resolve(strict=False), receipt,
+        )
+    except promotion_attestor.AttestorError as exc:
+        raise GrantIssuerError(str(exc)) from exc
+    return receipt
 
 
 def _load_private_key(path: str | Path, passphrase: str | None) -> Ed25519PrivateKey:
@@ -604,184 +1012,190 @@ def _load_private_key(path: str | Path, passphrase: str | None) -> Ed25519Privat
     return key
 
 
-def _trusted_public_keys_from_environment() -> dict[str, str]:
-    keys: dict[str, str] = {}
-    for role, environment_name in TRUST_ENVIRONMENTS.items():
-        value = os.environ.get(environment_name, "")
-        if not value:
-            raise GrantIssuerError(f"CAPITAL_FIREWALL_PUBLIC_KEY_NOT_CONFIGURED:{role}")
-        keys[role] = value
-    return keys
-
-
-def _build_artifact_evidence(
-    *, repo: str, target_sha: str, run_ids: Mapping[str, int], token: str, grant_draft: Mapping[str, Any]
-) -> dict[str, Any]:
-    runs: dict[str, Mapping[str, Any]] = {}
-    artifacts: dict[str, Mapping[str, Any]] = {}
-    docs: dict[str, Mapping[str, Any]] = {}
-    digests: dict[str, str] = {}
-    for role in promotion_attestor.REQUIRED_RUNS:
-        run, artifact, documents, digest = promotion_attestor._fetch_run_and_artifact(
-            repo, role, run_ids[role], target_sha, token,
-        )
-        runs[role] = run
-        artifacts[role] = artifact
-        digests[role] = digest
-        if role == "parity":
-            docs["parity"] = documents[str(promotion_attestor.REQUIRED_RUNS[role]["document"])]
-            docs["parity_package"] = documents[
-                str(promotion_attestor.REQUIRED_RUNS[role]["package_document"])
-            ]
-        else:
-            docs[role] = documents[str(promotion_attestor.REQUIRED_RUNS[role]["document"])]
+def initialize_registry(path: str | Path, *, confirmation: str) -> None:
+    if confirmation != CONFIRM_INIT:
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_BOOTSTRAP_CONFIRMATION_INVALID")
+    raw_target = Path(path).expanduser()
+    if raw_target.is_symlink():
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
+    target = raw_target.resolve(strict=False)
+    if target.exists():
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_ALREADY_EXISTS")
+    if not target.parent.is_dir():
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_PARENT_MISSING")
+    created = False
     try:
-        payload, _receipt = promotion_attestor._validate_evidence(
-            repo=repo, target_sha=target_sha, grant=grant_draft,
-            runs=runs, artifacts=artifacts, docs=docs, digests=digests,
-        )
-    except promotion_attestor.AttestorError as exc:
-        raise GrantIssuerError(str(exc)) from exc
-    return payload
+        fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(fd)
+        created = True
+        with closing(sqlite3.connect(str(target), timeout=10.0, isolation_level=None)) as db:
+            db.execute("PRAGMA journal_mode = DELETE")
+            db.execute("PRAGMA synchronous = FULL")
+            db.execute("CREATE TABLE registry_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            db.execute("INSERT INTO registry_meta(key,value) VALUES ('schema',?)", (REGISTRY_SCHEMA,))
+            db.execute(REGISTRY_TABLE_SQL)
+            db.execute("PRAGMA user_version = 1")
+            integrity = db.execute("PRAGMA integrity_check").fetchone()
+            if not integrity or integrity[0] != "ok":
+                raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_INTEGRITY_FAILED")
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
+    except GrantIssuerError:
+        if created:
+            try:
+                target.unlink()
+            except OSError:
+                pass
+        raise
+    except Exception as exc:
+        if created:
+            try:
+                target.unlink()
+            except OSError:
+                pass
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_BOOTSTRAP_FAILED") from exc
 
 
-def issue_grant_from_file(
+def _verify_registry(db: sqlite3.Connection) -> None:
+    try:
+        integrity = db.execute("PRAGMA integrity_check").fetchone()
+        if not integrity or integrity[0] != "ok":
+            raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_INTEGRITY_FAILED")
+        metadata = db.execute("SELECT value FROM registry_meta WHERE key='schema'").fetchone()
+        if not metadata or metadata[0] != REGISTRY_SCHEMA:
+            raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SCHEMA_INVALID")
+        user_version = db.execute("PRAGMA user_version").fetchone()
+        if not user_version or user_version[0] != 1:
+            raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_VERSION_INVALID")
+        columns = db.execute("PRAGMA table_info(issued_grants)").fetchall()
+        expected = [
+            "grant_id", "signal_id", "reservation_id", "authorization_id", "trade_id",
+            "commit_sha", "candidate_id", "candidate_config_hash", "issued_at_utc", "grant_sha256",
+        ]
+        if [row[1] for row in columns] != expected:
+            raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_TABLE_INVALID")
+    except sqlite3.Error as exc:
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SCHEMA_INVALID") from exc
+
+
+def record_grant_issuance(
+    grant: Mapping[str, Any],
+    registry_path: str | Path,
     *,
-    request_path: str,
-    private_key_path: str,
-    output_path: str,
-    receipt_path: str,
-    registry_path: str,
-    repo: str,
-    token: str,
-    confirmation: str,
-) -> dict[str, Any]:
-    if confirmation != CONFIRM_ISSUE:
-        raise GrantIssuerError("CAPITAL_FIREWALL_ISSUANCE_CONFIRMATION_INVALID")
-    if repo != PINNED_REPOSITORY:
-        raise GrantIssuerError("CAPITAL_FIREWALL_REPOSITORY_NOT_PINNED")
-    _validate_paths(request_path, private_key_path, output_path, receipt_path, registry_path)
-    request = load_request(request_path)
-
-    trusted_keys = _trusted_public_keys_from_environment()
-    grant_private_key = _load_private_key(
-        private_key_path,
-        os.environ.get("FOREXAI_CAPITAL_FIREWALL_GRANT_KEY_PASSPHRASE"),
-    )
-    _validate_trust_keys(trusted_keys, grant_private_key)
-
-    current_main = promotion_attestor._api_json(repo, "commits/main", token).get("sha")
-    if not isinstance(current_main, str) or not COMMIT_SHA.fullmatch(current_main):
-        raise GrantIssuerError("CAPITAL_FIREWALL_CURRENT_MAIN_SHA_INVALID")
-    run_ids = _validate_request_identity(
-        request, repository=repo, current_main_sha=current_main
-    )
-
-    # Validate sources early, then validate them again after fetching all remote
-    # evidence so an expired/stale signal cannot survive a slow GitHub request.
-    preflight_now = datetime.now(timezone.utc)
-    initial_payloads, _initial_expiry = _source_payloads(
-        request,
-        public_keys={
-            "signal": trusted_keys["signal"],
-            "risk": trusted_keys["risk"],
-            "operator_approval": trusted_keys["operator_approval"],
-        },
-        now=preflight_now,
-    )
-    signal = initial_payloads["signal"]
-    risk = initial_payloads["risk"]
-    candidate_id = request["candidate_id"]
-    config_hash = request["candidate_config_hash"]
-    grant_id = f"capital-firewall-grant-{uuid.uuid4().hex}"
-    draft = {
-        "schema": GRANT_SCHEMA,
-        "key_id": GRANT_KEY_ID,
-        "grant_id": grant_id,
-        "repository": PINNED_REPOSITORY,
-        "commit_sha": current_main,
-        "run_ids": run_ids,
-        "candidate_id": candidate_id,
-        "candidate_config_hash": config_hash,
-        "signal_id": signal["signal_id"],
-        "trade_id": signal["trade_id"],
-        "authorization_id": risk["authorization_id"],
-        "reservation_id": risk["reservation_id"],
-        "scope": "ONE_SIGNAL_DEMO_ONLY",
-        "symbol": "EURUSD",
-        "timeframe": "M15",
-        "side": "SELL",
-        "issued_at_utc": preflight_now.isoformat(),
-        "valid_until_utc": (preflight_now + timedelta(seconds=MAX_GRANT_LIFETIME_SECONDS)).isoformat(),
-        "demo_trading_allowed": True,
-        "live_trading_allowed": False,
-    }
-    verified_promotion = _build_artifact_evidence(
-        repo=repo, target_sha=current_main, run_ids=run_ids, token=token, grant_draft=draft,
-    )
-    # Do not authorize an old chain if main moved while artifacts were being downloaded.
-    latest_main = promotion_attestor._api_json(repo, "commits/main", token).get("sha")
-    if latest_main != current_main:
-        raise GrantIssuerError("CAPITAL_FIREWALL_MAIN_MOVED_DURING_ISSUANCE")
-
-    issued_now = datetime.now(timezone.utc)
-    grant, receipt = build_signed_grant(
-        request,
-        verified_promotion_payload=verified_promotion,
-        grant_private_key=grant_private_key,
-        trusted_public_keys=trusted_keys,
-        grant_id=grant_id,
-        now_utc=issued_now,
-    )
-    record_grant_issuance(
-        grant, registry_path,
-        current_main_sha=current_main,
-        grant_public_key=trusted_keys["grant"],
-        now_utc=datetime.now(timezone.utc),
-    )
-    # Registry claim commits before file publication. If publication fails, this
-    # ID set is intentionally consumed; reconcile manually rather than re-issue.
+    current_main_sha: str,
+    grant_public_key: str,
+    now_utc: datetime | None = None,
+) -> None:
+    now = _now_utc(now_utc)
+    raw_target = Path(registry_path).expanduser()
+    if raw_target.is_symlink():
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
+    target = raw_target.resolve(strict=False)
+    if not target.is_file():
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_FILE_NOT_PROVISIONED")
     try:
-        promotion_attestor._write_pair_new(
-            Path(output_path), grant, Path(receipt_path), receipt
+        verified = promotion_attestor._verify_grant(
+            grant, repo=PINNED_REPOSITORY, target_sha=current_main_sha,
+            now=now, public_key_encoded=grant_public_key,
         )
     except promotion_attestor.AttestorError as exc:
         raise GrantIssuerError(str(exc)) from exc
-    return receipt
+    grant_hash = hashlib.sha256(canonical_json(grant)).hexdigest()
+    try:
+        with closing(sqlite3.connect(str(target), timeout=10.0, isolation_level=None)) as db:
+            db.execute("PRAGMA busy_timeout = 10000")
+            _verify_registry(db)
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute(
+                    """INSERT INTO issued_grants
+                    (grant_id, signal_id, reservation_id, authorization_id, trade_id,
+                     commit_sha, candidate_id, candidate_config_hash, issued_at_utc, grant_sha256)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        verified["grant_id"], verified["signal_id"], verified["reservation_id"],
+                        verified["authorization_id"], verified["trade_id"], verified["commit_sha"],
+                        verified["candidate_id"], verified["candidate_config_hash"],
+                        verified["issued_at_utc"], grant_hash,
+                    ),
+                )
+                db.commit()
+            except sqlite3.IntegrityError as exc:
+                db.rollback()
+                raise GrantIssuerError("CAPITAL_FIREWALL_GRANT_OR_SIGNAL_ALREADY_ISSUED") from exc
+            except sqlite3.Error as exc:
+                db.rollback()
+                raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_WRITE_FAILED") from exc
+    except GrantIssuerError:
+        raise
+    except sqlite3.Error as exc:
+        raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_UNAVAILABLE") from exc
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", default=PINNED_REPOSITORY)
-    parser.add_argument("--request")
+    parser.add_argument("--metadata-request")
+    parser.add_argument("--evidence-cache")
+    parser.add_argument("--source-packet")
     parser.add_argument("--grant-private-key")
     parser.add_argument("--output")
     parser.add_argument("--receipt-output")
-    parser.add_argument("--registry", required=True)
+    parser.add_argument("--registry")
     parser.add_argument("--confirmation", required=True)
+    parser.add_argument("--prepare-evidence", action="store_true")
     parser.add_argument("--initialize-registry", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.initialize_registry:
-            if any((args.request, args.grant_private_key, args.output, args.receipt_output)):
+            if any((args.metadata_request, args.evidence_cache, args.source_packet,
+                    args.grant_private_key, args.output, args.receipt_output)):
                 raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_BOOTSTRAP_ARGUMENTS_INVALID")
+            if not args.registry:
+                raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_PATH_REQUIRED")
             initialize_registry(args.registry, confirmation=args.confirmation)
             print(json.dumps({
-                "status": "PASS",
-                "registry_initialized": True,
-                "grant_issued": False,
-                "orders_submitted": False,
-                "live_trading_allowed": False,
+                "status": "PASS", "registry_initialized": True,
+                "grant_issued": False, "orders_submitted": False, "live_trading_allowed": False,
             }, sort_keys=True))
             return 0
 
-        if not all((args.request, args.grant_private_key, args.output, args.receipt_output)):
+        if args.prepare_evidence:
+            if not all((args.metadata_request, args.grant_private_key, args.output, args.receipt_output)):
+                raise GrantIssuerError("CAPITAL_FIREWALL_PREPARE_ARGUMENTS_MISSING")
+            if any((args.evidence_cache, args.source_packet, args.registry)):
+                raise GrantIssuerError("CAPITAL_FIREWALL_PREPARE_ARGUMENTS_INVALID")
+            token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+            if not token:
+                raise GrantIssuerError("CAPITAL_FIREWALL_GITHUB_READ_TOKEN_NOT_CONFIGURED")
+            receipt = prepare_evidence_cache_from_files(
+                metadata_path=args.metadata_request,
+                private_key_path=args.grant_private_key,
+                output_path=args.output,
+                receipt_path=args.receipt_output,
+                repo=args.repo,
+                token=token,
+                confirmation=args.confirmation,
+            )
+            print(json.dumps({
+                "status": "PASS", "evidence_cache_created": True,
+                "grant_issued": False, "commit_sha": receipt["commit_sha"],
+                "valid_until_utc": receipt["valid_until_utc"],
+                "orders_submitted": False, "live_trading_allowed": False,
+            }, sort_keys=True))
+            return 0
+
+        if not all((args.evidence_cache, args.source_packet, args.grant_private_key,
+                    args.output, args.receipt_output, args.registry)):
             raise GrantIssuerError("CAPITAL_FIREWALL_ISSUANCE_ARGUMENTS_MISSING")
         token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
         if not token:
             raise GrantIssuerError("CAPITAL_FIREWALL_GITHUB_READ_TOKEN_NOT_CONFIGURED")
-        receipt = issue_grant_from_file(
-            request_path=args.request,
+        receipt = issue_grant_from_cache_files(
+            cache_path=args.evidence_cache,
+            source_packet_path=args.source_packet,
             private_key_path=args.grant_private_key,
             output_path=args.output,
             receipt_path=args.receipt_output,
@@ -793,31 +1207,21 @@ def main(argv: list[str] | None = None) -> int:
     except (GrantIssuerError, admission_provider.AdmissionProviderError,
             promotion_attestor.AttestorError) as exc:
         print(json.dumps({
-            "status": "BLOCKED",
-            "reason": str(exc),
-            "grant_issued": False,
-            "orders_submitted": False,
-            "live_trading_allowed": False,
+            "status": "BLOCKED", "reason": str(exc), "grant_issued": False,
+            "orders_submitted": False, "live_trading_allowed": False,
         }, sort_keys=True))
         return 2
     except Exception:
         print(json.dumps({
-            "status": "BLOCKED",
-            "reason": "CAPITAL_FIREWALL_UNEXPECTED_FAILURE",
-            "grant_issued": False,
-            "orders_submitted": False,
-            "live_trading_allowed": False,
+            "status": "BLOCKED", "reason": "CAPITAL_FIREWALL_UNEXPECTED_FAILURE",
+            "grant_issued": False, "orders_submitted": False, "live_trading_allowed": False,
         }, sort_keys=True))
         return 2
 
     print(json.dumps({
-        "status": "PASS",
-        "grant_id": receipt["grant_id"],
-        "candidate_id": receipt["candidate_id"],
-        "expires_at_utc": receipt["valid_until_utc"],
-        "grant_issued": True,
-        "orders_submitted": False,
-        "live_trading_allowed": False,
+        "status": "PASS", "grant_id": receipt["grant_id"],
+        "candidate_id": receipt["candidate_id"], "expires_at_utc": receipt["valid_until_utc"],
+        "grant_issued": True, "orders_submitted": False, "live_trading_allowed": False,
     }, sort_keys=True))
     return 0
 
