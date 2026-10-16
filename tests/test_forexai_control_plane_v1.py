@@ -356,7 +356,7 @@ def _write_signed_admission(
     return path
 
 
-def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005, promotion_run_id=99123, selected_candidate_id=2, expected_demo_login=12345678, expected_demo_server="Broker-Demo", signed_demo_permission=True, tamper_admission=False, signed_reserved_risk=0.005, mismatch_payload_price=False):
+def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_pct=0.005, promotion_run_id=99123, selected_candidate_id=2, expected_demo_login=12345678, expected_demo_server="Broker-Demo", signed_demo_permission=True, tamper_admission=False, signed_reserved_risk=0.005, mismatch_payload_price=False, omit_admission=False):
     common_files = root / "common"
     common_files.mkdir(exist_ok=True)
     (common_files / "g13_demo_kill_switch.txt").write_text("ALLOW\n", encoding="utf-8")
@@ -387,6 +387,8 @@ def _call(root: Path, *, mt5=None, now=NOW, intent_time=None, side="SELL", risk_
         tampered = json.loads(admission_path.read_text(encoding="utf-8"))
         tampered["candidate"]["trade_id"] = "tampered-trade-S"
         admission_path.write_text(json.dumps(tampered, sort_keys=True), encoding="utf-8")
+    if omit_admission:
+        admission_path.unlink()
     ledger_path = root / "control-plane" / "trade-ledger.jsonl"
     envelope_path = root / "control-plane" / "authenticated-envelope.json"
     secret = "unit-test-only-control-plane-secret-32-bytes-minimum"
@@ -449,6 +451,14 @@ def test_real_demo_intent_creates_hash_chained_authority_without_order_send(tmp_
     )
     assert report["current_firewall_authority"] == "PASS"
 
+
+
+def test_missing_admission_file_fails_before_ledger_mutation(tmp_path):
+    with pytest.raises(ControlPlaneError, match="EXTERNAL_DEMO_ADMISSION_UNREADABLE"):
+        _call(tmp_path, omit_admission=True)
+    assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
+    assert not (tmp_path / "control-plane" / "authenticated-envelope.json").exists()
+    assert not list((tmp_path / "common").glob("ForexAI_Authorization_*_EURUSD.auth"))
 
 
 def test_missing_upstream_demo_permission_fails_before_ledger_mutation(tmp_path):

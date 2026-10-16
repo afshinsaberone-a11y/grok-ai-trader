@@ -100,6 +100,9 @@ jobs:
           assert "EXTERNAL_DEMO_ADMISSION_DEMO_PERMISSION_MISSING" in producer
           assert "FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY" in workflow
           assert "FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH" in workflow
+          assert "CONTROL_PLANE_EXTERNAL_ADMISSION_DIRECTORY_MISSING" in workflow
+          assert "FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_FILE_MISSING" not in workflow
           assert "admission_request_path=args.admission_request" in producer
+          assert "EXTERNAL_DEMO_ADMISSION_DIRECTORY_MISSING" in producer
           print("FOREXAI_CONTROL_PLANE_AUTHORITY_BOUNDARIES_OK")
           PY

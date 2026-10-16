@@ -74,9 +74,13 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH)) {
             throw 'CONTROL_PLANE_EXTERNAL_ADMISSION_REQUEST_PATH_MISSING'
           }
-          if (!(Test-Path -LiteralPath $env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH -PathType Leaf)) {
-            throw 'CONTROL_PLANE_EXTERNAL_ADMISSION_REQUEST_FILE_MISSING'
+          $admissionDirectory = Split-Path -Parent $env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH
+          if ([string]::IsNullOrWhiteSpace($admissionDirectory) -or
+              !(Test-Path -LiteralPath $admissionDirectory -PathType Container)) {
+            throw 'CONTROL_PLANE_EXTERNAL_ADMISSION_DIRECTORY_MISSING'
           }
+          # The independent provider publishes a grant only after it receives a
+          # fresh EA signal intent; no pre-existing request file is required here.
           "FOREXAI_MT5_COMMON_FILES=$commonFiles" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "FOREXAI_CONTROL_PLANE_BUNDLE=$(Join-Path $env:ProgramData 'ForexAI\ControlPlane\promotion-bundle')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           New-Item -ItemType Directory -Force -Path (Join-Path $env:ProgramData 'ForexAI\ControlPlane') | Out-Null

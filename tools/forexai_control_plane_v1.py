@@ -1224,6 +1224,10 @@ def main() -> int:
         raise ControlPlaneError("CONTROL_PLANE_PATHS_NOT_CONFIGURED:" + ",".join(missing))
     if not args.common_files.is_dir():
         raise ControlPlaneError("MT5_COMMON_FILES_DIRECTORY_MISSING")
+    if not args.admission_request.parent.is_dir():
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_DIRECTORY_MISSING")
+    # The provider publishes the signed request only after it observes a fresh
+    # EA intent. A request file must not be required before the watch loop starts.
     admission_public_key = os.environ.get(args.admission_public_key_env, "")
     if not admission_public_key:
         raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED")
