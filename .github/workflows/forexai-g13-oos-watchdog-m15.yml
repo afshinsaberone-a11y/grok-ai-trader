@@ -267,6 +267,73 @@ jobs:
           test -n "$promotion_run_id"
           echo "PROMOTION_RUN_ID=$promotion_run_id" >> "$GITHUB_ENV"
 
+      - name: Dispatch exact Execution Safety Audit after Promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "G13_SAFETY_DISPATCH_STALE_SHA=true CURRENT_MAIN=$main_sha TARGET_SHA=$GITHUB_SHA"
+            exit 1
+          }
+          safety_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-execution-safety-audit-m15.yml/runs?branch=main&per_page=50")"
+          safety_baseline_id="$(printf '%s' "$safety_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
+          echo "G13_SAFETY_AUDIT_BASELINE_ID=$safety_baseline_id" >> "$GITHUB_ENV"
+          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"promotion_run_id":sys.argv[1]}}))' "$PROMOTION_RUN_ID")"
+          status="$(curl -sS --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors --retry-delay 2 \
+            -o /tmp/g13-safety-dispatch-response.txt -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-execution-safety-audit-m15.yml/dispatches" \
+            --data "$payload")"
+          if [[ "$status" != "204" ]]; then
+            echo "G13_SAFETY_AUDIT_DISPATCH_FAILED_HTTP=$status"
+            cat /tmp/g13-safety-dispatch-response.txt
+            exit 1
+          fi
+          echo "G13_SAFETY_AUDIT_DISPATCHED=true PROMOTION_RUN_ID=$PROMOTION_RUN_ID TARGET_SHA=$GITHUB_SHA"
+
+      - name: Resolve exact successful Execution Safety Audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          safety_run_id=""
+          for attempt in $(seq 1 40); do
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-execution-safety-audit-m15.yml/runs?branch=main&per_page=50")"
+            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" BASELINE_ID="$G13_SAFETY_AUDIT_BASELINE_ID" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; baseline=int(os.environ["BASELINE_ID"]); rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if int(r.get("id",0))>baseline and r.get("event")=="workflow_dispatch" and r.get("name")=="ForexAI G13 Execution Safety Audit M15" and r.get("head_branch")=="main" and r.get("head_sha")==target]; success=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
+            case "$state" in
+              SUCCESS\|*)
+                safety_run_id="${state#SUCCESS|}"
+                echo "G13_SAFETY_AUDIT_SUCCESS_RESOLVED=true RUN=$safety_run_id SHA=$GITHUB_SHA"
+                break
+                ;;
+              FAILED\|*)
+                echo "G13_SAFETY_AUDIT_FAILED_FOR_SHA=$GITHUB_SHA RUN=${state#FAILED|}"
+                exit 1
+                ;;
+              PENDING\|*|NOT_STARTED\|*)
+                echo "G13_SAFETY_AUDIT_WAIT attempt=$attempt state=$state SHA=$GITHUB_SHA"
+                sleep 30
+                ;;
+            esac
+          done
+          if [[ -z "$safety_run_id" ]]; then
+            echo "G13_SAFETY_AUDIT_WAIT_TIMEOUT_FOR_SHA=$GITHUB_SHA"
+            exit 1
+          fi
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "G13_SAFETY_AUDIT_MAIN_MOVED=true CURRENT_MAIN=$main_sha TARGET_SHA=$GITHUB_SHA"
+            exit 1
+          }
+          safety_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$safety_run_id")"
+          printf '%s' "$safety_json" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; p=json.load(sys.stdin); target=os.environ["TARGET_SHA"]; assert p["name"]=="ForexAI G13 Execution Safety Audit M15",p["name"]; assert p["head_branch"]=="main",p["head_branch"]; assert p["status"]=="completed",p["status"]; assert p["conclusion"]=="success",p["conclusion"]; assert p["head_sha"]==target,(p["head_sha"],target); print("G13_EXACT_SAFETY_AUDIT_BOUND",p["id"],target)'
+          echo "SAFETY_AUDIT_RUN_ID=$safety_run_id" >> "$GITHUB_ENV"
+
       - name: Dispatch exact MT5 Compile + Signal Parity
         env:
           GH_TOKEN: ${{ github.token }}
@@ -318,7 +385,15 @@ jobs:
                 fi
                 if [[ "$compile_setup_retry_used" == "0" ]]; then
                   failed_run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$failed_run_id")"
-                  failed_attempt="$(printf '%s' "$failed_run_json" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; p=json.load(sys.stdin); target=os.environ["TARGET_SHA"]; assert p.get("name")=="ForexAI G13 MT5 Compile + Signal Parity",p.get("name"); assert p.get("head_branch")=="main",p.get("head_branch"); assert p.get("head_sha")==target,(p.get("head_sha"),target); assert p.get("status")=="completed",p.get("status"); assert p.get("conclusion")=="failure",p.get("conclusion"); print(int(p.get("run_attempt",0)))')"
+                  failed_observed_status="$(printf '%s' "$failed_run_json" | python -c 'import json,sys; print(json.load(sys.stdin).get("status","unknown"))')"
+                  failed_observed_conclusion="$(printf '%s' "$failed_run_json" | python -c 'import json,sys; print(json.load(sys.stdin).get("conclusion","unknown") or "unknown")')"
+                  failed_observed_attempt="$(printf '%s' "$failed_run_json" | python -c 'import json,sys; print(int(json.load(sys.stdin).get("run_attempt",0)))')"
+                  if [[ "$failed_observed_status" != "completed" || "$failed_observed_conclusion" != "failure" ]]; then
+                    echo "G13_COMPILE_PARITY_FAILURE_STATE_CHANGED=true RUN=$failed_run_id STATUS=$failed_observed_status CONCLUSION=$failed_observed_conclusion ATTEMPT=$failed_observed_attempt"
+                    sleep 15
+                    continue
+                  fi
+                  failed_attempt="$(printf '%s' "$failed_run_json" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; p=json.load(sys.stdin); target=os.environ["TARGET_SHA"]; assert p.get("name")=="ForexAI G13 MT5 Compile + Signal Parity",p.get("name"); assert p.get("head_branch")=="main",p.get("head_branch"); assert p.get("head_sha")==target,(p.get("head_sha"),target); print(int(p.get("run_attempt",0)))')"
                   failed_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$failed_run_id/attempts/$failed_attempt/jobs?per_page=100")"
                   setup_only_failure="$(printf '%s' "$failed_jobs" | python -c 'import json,sys; jobs=json.load(sys.stdin).get("jobs", []); failed=[job for job in jobs if job.get("conclusion") not in (None,"success","skipped")]; safe=(len(failed)==1 and failed[0].get("name")=="compile-and-parity" and failed[0].get("conclusion")=="failure" and len(failed[0].get("steps") or [])==1 and (failed[0].get("steps") or [])[0].get("name")=="Set up job" and (failed[0].get("steps") or [])[0].get("conclusion")=="failure"); print("true" if safe else "false")')"
                   if [[ "$setup_only_failure" == "true" ]]; then
@@ -428,15 +503,50 @@ jobs:
           }
           echo "PREFLIGHT_RUN_ID=$preflight_run_id" >> "$GITHUB_ENV"
 
+      - name: Dispatch exact Readiness Gate using verified run IDs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "G13_READINESS_DISPATCH_STALE_SHA=true CURRENT_MAIN=$main_sha TARGET_SHA=$GITHUB_SHA"
+            exit 1
+          }
+
+          runtime_payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml/runs?branch=main&status=completed&per_page=50")"
+          runtime_run_id="$(printf '%s' "$runtime_payload" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); m=[r for r in rs if r.get("name")=="ForexAI G13 MT5 Runtime Safety Probe M15 v2" and r.get("head_branch")=="main" and r.get("status")=="completed" and r.get("conclusion")=="success"]; assert m, "no successful G13 runtime safety probe"; print(max(m,key=lambda x:x["id"])["id"])')"
+
+          readiness_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-demo-readiness-gate-m15.yml/runs?branch=main&per_page=50")"
+          readiness_baseline_id="$(printf '%s' "$readiness_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
+          echo "G13_READINESS_BASELINE_ID=$readiness_baseline_id" >> "$GITHUB_ENV"
+
+          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"runtime_run_id":sys.argv[1],"safety_run_id":sys.argv[2],"parity_run_id":sys.argv[3],"promotion_run_id":sys.argv[4],"preflight_run_id":sys.argv[5]}}))' "$runtime_run_id" "$SAFETY_AUDIT_RUN_ID" "$COMPILE_PARITY_RUN_ID" "$PROMOTION_RUN_ID" "$PREFLIGHT_RUN_ID")"
+          status="$(curl -sS --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors --retry-delay 2 \
+            -o /tmp/g13-readiness-dispatch-response.txt -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-demo-readiness-gate-m15.yml/dispatches" \
+            --data "$payload")"
+          if [[ "$status" != "204" ]]; then
+            echo "G13_READINESS_DISPATCH_FAILED_HTTP=$status"
+            cat /tmp/g13-readiness-dispatch-response.txt
+            exit 1
+          fi
+          echo "G13_READINESS_EXPLICITLY_DISPATCHED=true RUNTIME=$runtime_run_id SAFETY=$SAFETY_AUDIT_RUN_ID PARITY=$COMPILE_PARITY_RUN_ID PROMOTION=$PROMOTION_RUN_ID PREFLIGHT=$PREFLIGHT_RUN_ID SHA=$GITHUB_SHA"
+
       - name: Resolve exact successful Demo Readiness Gate
         env:
           GH_TOKEN: ${{ github.token }}
+          BASELINE_ID: ${{ env.G13_READINESS_BASELINE_ID }}
         run: |
           set -euo pipefail
           readiness_run_id=""
           for attempt in $(seq 1 40); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-demo-readiness-gate-m15.yml/runs?branch=main&per_page=50")"
-            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("name")=="ForexAI G13 Demo Readiness Gate M15" and r.get("head_branch")=="main" and r.get("head_sha")==target]; ok=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(ok,key=lambda x:x["id"])["id"])) if ok else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
+            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" BASELINE_ID="$BASELINE_ID" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; baseline=int(os.environ["BASELINE_ID"]); rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if int(r.get("id",0))>baseline and r.get("event")=="workflow_dispatch" and r.get("name")=="ForexAI G13 Demo Readiness Gate M15" and r.get("head_branch")=="main" and r.get("head_sha")==target]; ok=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(ok,key=lambda x:x["id"])["id"])) if ok else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
             case "$state" in
               SUCCESS\|*)
                 readiness_run_id="${state#SUCCESS|}"
