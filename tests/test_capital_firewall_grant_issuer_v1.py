@@ -19,7 +19,6 @@ from tools.capital_firewall_grant_issuer_v1 import (
     PINNED_REPOSITORY,
     PREPARE_RECEIPT_SCHEMA,
     REGISTRY_SCHEMA,
-    REQUEST_SCHEMA if False else METADATA_SCHEMA,
     SOURCE_PACKET_SCHEMA,
     GrantIssuerError,
     build_signed_grant,
