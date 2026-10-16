@@ -883,15 +883,22 @@ def prepare_evidence_cache_from_files(
     if not isinstance(current_main, str) or not COMMIT_SHA.fullmatch(current_main):
         raise GrantIssuerError("CAPITAL_FIREWALL_CURRENT_MAIN_SHA_INVALID")
     run_ids = validate_metadata(metadata, current_main_sha=current_main)
-    issued = datetime.now(timezone.utc)
+    # Reserve the cache/grant identity before evidence verification, but do not
+    # start its short TTL until the expensive run/artifact verification finishes.
+    draft_issued = datetime.now(timezone.utc)
     grant_id = f"capital-firewall-grant-{uuid.uuid4().hex}"
-    draft = _make_draft(metadata, grant_id, issued)
+    draft = _make_draft(metadata, grant_id, draft_issued)
     verified_payload = _build_artifact_evidence(
         repo=repo, target_sha=current_main, run_ids=run_ids, token=token, grant_draft=draft,
     )
     if promotion_attestor._api_json(repo, "commits/main", token).get("sha") != current_main:
         raise GrantIssuerError("CAPITAL_FIREWALL_MAIN_MOVED_DURING_PREPARATION")
     _validate_cache_identity(metadata, verified_payload, grant_id)
+    # Cache validity starts immediately before signing/publishing, not before
+    # fetching the eight current-SHA G13 artifact bundles.
+    issued = datetime.now(timezone.utc)
+    if promotion_attestor._api_json(repo, "commits/main", token).get("sha") != current_main:
+        raise GrantIssuerError("CAPITAL_FIREWALL_MAIN_MOVED_DURING_PREPARATION")
 
     body = {
         "schema": CACHE_SCHEMA,
