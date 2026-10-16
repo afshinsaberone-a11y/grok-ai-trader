@@ -45,6 +45,9 @@ on:
       - 'tools/capital_firewall_grant_issuer_v1.py'
       - 'tests/test_capital_firewall_grant_issuer_v1.py'
       - 'docs/CAPITAL_FIREWALL_GRANT_ISSUER_V1.md'
+      - 'tools/capital_firewall_host_preflight_v1.py'
+      - 'tests/test_capital_firewall_host_preflight_v1.py'
+      - 'docs/CAPITAL_FIREWALL_HOST_PREFLIGHT_V1.md'
   pull_request:
     paths:
       - '.github/workflows/forexai-g13-*.yml'
@@ -103,10 +106,10 @@ jobs:
       - name: Test read-only Provider host diagnostic contract
         run: python -m pytest -q tests/test_control_plane_provider_host_preflight_v1.py
 
-      - name: Test Capital Firewall Grant issuer contract
+      - name: Test Capital Firewall Grant issuer and host preflight contracts
         run: |
-          python -m py_compile tools/capital_firewall_grant_issuer_v1.py
-          python -m pytest -q tests/test_capital_firewall_grant_issuer_v1.py tests/test_g13_capital_firewall_promotion_attestor_v1.py
+          python -m py_compile tools/capital_firewall_grant_issuer_v1.py tools/capital_firewall_host_preflight_v1.py
+          python -m pytest -q tests/test_capital_firewall_grant_issuer_v1.py tests/test_capital_firewall_host_preflight_v1.py tests/test_g13_capital_firewall_promotion_attestor_v1.py
 
       - name: Parse PowerShell Provider host diagnostic
         shell: pwsh
