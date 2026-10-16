@@ -55,16 +55,17 @@ def _configured_environment(tmp_path: Path) -> tuple[dict[str, str], Path, Path]
 
 
 def _inspect(environment, private_path, registry, **overrides):
-    return inspect_host(
-        environ=environment,
-        observed_hostname="capital-firewall-01",
-        expected_hostname="CAPITAL-FIREWALL-01",
-        forbidden_hostnames=("provider-host-01", "mt5-runner-01"),
-        grant_private_key_path=str(private_path),
-        registry_path=str(registry),
-        repository_root=Path(__file__).resolve().parents[1],
-        **overrides,
-    )
+    arguments = {
+        "environ": environment,
+        "observed_hostname": "capital-firewall-01",
+        "expected_hostname": "CAPITAL-FIREWALL-01",
+        "forbidden_hostnames": ("provider-host-01", "mt5-runner-01"),
+        "grant_private_key_path": str(private_path),
+        "registry_path": str(registry),
+        "repository_root": Path(__file__).resolve().parents[1],
+    }
+    arguments.update(overrides)
+    return inspect_host(**arguments)
 
 
 def test_valid_shape_only_passes_to_manual_trust_boundary_review(tmp_path: Path):
