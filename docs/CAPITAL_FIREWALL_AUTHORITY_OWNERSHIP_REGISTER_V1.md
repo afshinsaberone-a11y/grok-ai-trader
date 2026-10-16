@@ -2,7 +2,7 @@
 
 **Status date:** 2026-10-16  
 **Register status:** BLOCKED — no independent Capital Firewall Grant signer or four upstream source owners verified.  
-**Current repository baseline inspected:** `855b0a11c3afe498fd2791e0a19e3160b940de26`.
+**Current repository baseline inspected:** `123d5fd4368c870313f7dcce195d0f75139436cb`.
 
 This is an accountability and provisioning register, not a grant, not a signed attestation, and not trading permission. Adding this file does not create operational trust or authorize any order.
 
@@ -15,16 +15,19 @@ This is an accountability and provisioning register, not a grant, not a signed a
 
 Afshin Saber (افشین صابر) is recorded as the accountable project owner at the user's direction. The named project owner can coordinate and approve provisioning, but this register does not claim that the signer services or independent key custodians already exist. Do not conflate business accountability with possession of a source signing key or independent administration.
 
-## 2. Four upstream authorities and ownership status
+## 2. Independent Grant signer plus four upstream source authorities
 
-| Authority | Required technical responsibility | Accountable owner | Operational system / signing-key custodian | Current state |
+**Counting rule:** the independent Capital Firewall Grant signer is a separate authority. The four upstream source authorities are **Promotion Attestor, Live Signal Source, Risk Engine + Reservation, and Human Operator Approval**. Project accountability is recorded separately from operational service ownership and signing-key custody.
+
+| Authority | Required technical responsibility | Accountable project owner | Operational system / signer / key custodian | Current state |
 |---|---|---|---|---|
-| Capital Firewall Grant | Verify source eligibility and issue a short-lived, single-candidate/single-signal `forexai.capital_firewall.one_signal_demo_grant.v1` grant | **Afshin Saber (افشین صابر) — accountable project owner (user-designated); separate operational owner/key custodian still to be recorded** | **NOT PROVISIONED**; no signer endpoint or separately administered signing host verified | **BLOCKER 1** |
-| Live Signal Source | Publish a fresh, real EURUSD/M15/SELL signal with stable signal/strategy/model/decision/snapshot identities and a frozen candidate config hash | **Afshin Saber (افشین صابر) — accountable project owner for provisioning (user-designated); separate operational service owner/key custodian still to be recorded** | **NOT IDENTIFIED**; no production signal attestor verified | BLOCKED |
-| Risk Engine + Reservation | Decide risk under policy; atomically reserve capacity; issue a signed decision bound to signal, Trade, authorization and reservation IDs | **Afshin Saber (افشین صابر) — accountable project owner for provisioning (user-designated); separate operational service owner/key custodian still to be recorded** | **NOT IDENTIFIED**; no production risk signer or durable reservation authority verified | BLOCKED |
-| Human Operator Approval | Capture a verified human decision scoped exactly to `ONE_SIGNAL_DEMO_ONLY`, bound to the same signal/Trade/authorization/reservation | **Afshin Saber (افشین صابر) — designated accountable human approver per user; the signed approval capture/source is still NOT PROVISIONED** | **NOT IDENTIFIED**; no independent approval attestation source verified | BLOCKED |
+| Capital Firewall Grant signer (separate from the four sources below) | Verify source eligibility and issue a short-lived, single-candidate/single-signal grant using schema forexai.capital_firewall.one_signal_demo_grant.v1 | **Afshin Saber (افشین صابر) — accountable project owner (user-designated); separate operational owner/key custodian still to be recorded** | **NOT PROVISIONED**; no signer endpoint or separately administered signing host verified | **BLOCKER 1** |
+| Promotion Attestor (upstream source 1 of 4) | Independently verify real G13 workflow run IDs and artifact digests for the exact current main SHA, bind the promoted candidate/frozen config hash, verify the Capital Firewall Grant, and sign promotion evidence | **Afshin Saber (افشین صابر) — accountable project owner for provisioning (user-designated); separate operational service owner/key custodian still to be recorded** | The verifier code exists at tools/g13_capital_firewall_promotion_attestor_v1.py; a separately administered production attestor host is **NOT VERIFIED**. Prior diagnostics found the Promotion private key on the Provider host and a configured public-key mismatch; owner-approved key rotation and custody separation are required | **BLOCKED — trust boundary/key mismatch** |
+| Live Signal Source (upstream source 2 of 4) | Publish a fresh, real EURUSD/M15/SELL signal with stable signal/strategy/model/decision/snapshot identities and a frozen candidate config hash | **Afshin Saber (افشین صابر) — accountable project owner for provisioning (user-designated); separate operational service owner/key custodian still to be recorded** | **NOT IDENTIFIED**; no production signal attestor verified | BLOCKED |
+| Risk Engine + Reservation (upstream source 3 of 4) | Decide risk under policy; atomically reserve capacity; issue a signed decision bound to signal, Trade, authorization and reservation IDs | **Afshin Saber (افشین صابر) — accountable project owner for provisioning (user-designated); separate operational service owner/key custodian still to be recorded** | **NOT IDENTIFIED**; no production risk signer or durable reservation authority verified | BLOCKED |
+| Human Operator Approval (upstream source 4 of 4) | Capture a verified human decision scoped exactly to ONE_SIGNAL_DEMO_ONLY, bound to the same signal/Trade/authorization/reservation | **Afshin Saber (افشین صابر) — designated accountable human approver per user; the signed approval capture/source is still NOT PROVISIONED** | **NOT IDENTIFIED**; no independent approval attestation source verified | BLOCKED |
 
-“NOT IDENTIFIED” / “NOT PROVISIONED” means the operational signer/service or separate key custody was not found in examined connected sources; it does not prove no service exists in an unrelated cloud account. Afshin Saber (افشین صابر) is the accountable project owner for arranging provisioning, based on the user's instruction. This does not certify any production signer as operational. To change a row to PROVISIONED, record the operational service owner/key custodian, service location, independent administrative boundary, verified public-key fingerprint/key ID, secret-custody location (never the secret itself), operational runbook, and successful negative/positive contract-test evidence.
+“NOT IDENTIFIED” / “NOT PROVISIONED” means the operational signer/service or separate key custody was not found in examined connected sources; it does not prove no service exists in an unrelated cloud account. Afshin Saber (افشین صابر) is the accountable project owner for arranging provisioning, based on the user's instruction. This does not certify any production signer as operational. To change a row to PROVISIONED, record the operational service owner/key custodian, service location, independent administrative boundary, verified public-key fingerprint/key ID, secret-custody location (never the secret itself), operational runbook, revocation owner, and successful negative/positive contract-test evidence.
 
 ## 3. First authority to provision: Capital Firewall Grant
 
@@ -50,7 +53,7 @@ A separate folder, another script, or a second repository under the same unrestr
 
 ## 4. Appointment and provisioning workflow
 
-For each of the four roles above, fill in the following record in a reviewed change (never include private key material):
+For the independent Grant signer and each of the four upstream source authorities, fill in the following record in a reviewed change (never include private key material):
 
 - Accountable project owner: Afshin Saber (افشین صابر) (user-designated). Operational service owner / team:
 - Operational system / hostname or managed service:
@@ -62,7 +65,7 @@ For each of the four roles above, fill in the following record in a reviewed cha
 - Positive and negative test evidence:
 - Date the role was confirmed operational:
 
-If no existing system can be evidenced, create the service in an independently administered environment and mark it NOT_PROVISIONED until deployment is verified. Do not substitute test keys or generated signatures as production evidence.
+If no existing system can be evidenced, create the service in an independently administered environment and mark it NOT_PROVISIONED until deployment is verified. The Promotion Attestor is the first of the four upstream source roles; its existing code is not evidence of independently administered production key custody. Do not substitute test keys or generated signatures as production evidence.
 
 ## 5. Explicit current blockers and invariants
 
