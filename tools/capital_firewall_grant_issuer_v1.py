@@ -568,6 +568,7 @@ def prepare_evidence_cache(
 
 
 def _load_private_key(path: str | Path, passphrase: str | None) -> Ed25519PrivateKey:
+    _resolve_distinct_paths({"key": str(path)})
     try:
         key = serialization.load_pem_private_key(
             Path(path).read_bytes(),
@@ -707,6 +708,7 @@ def _build_artifact_evidence(
 def initialize_registry(path: str | Path, *, confirmation: str) -> None:
     if confirmation != CONFIRM_INIT:
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_BOOTSTRAP_CONFIRMATION_INVALID")
+    _resolve_distinct_paths({"registry": str(path)})
     raw_target = Path(path).expanduser()
     if raw_target.is_symlink():
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
@@ -781,6 +783,7 @@ def record_grant_issuance(
     now_utc: datetime | None = None,
 ) -> None:
     now = _now_utc(now_utc)
+    _resolve_distinct_paths({"registry": str(registry_path)})
     raw_target = Path(registry_path).expanduser()
     if raw_target.is_symlink():
         raise GrantIssuerError("CAPITAL_FIREWALL_REGISTRY_SYMLINK_FORBIDDEN")
@@ -845,18 +848,36 @@ def _verify_cache_identity(metadata: Mapping[str, Any], evidence: Mapping[str, A
             raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GRANT_IDENTITY_MISMATCH")
 
 
-def _resolve_distinct_paths(paths: Mapping[str, str], *, outputs: tuple[str, ...] = ()) -> None:
+def _resolve_distinct_paths(paths: Mapping[str, str], *, outputs: tuple[str, ...] = ()) -> dict[str, Path]:
+    """Require explicit external absolute paths and reject symlinks for all sensitive files.
+
+    Production inputs/outputs, the Grant private key, evidence cache, source packet,
+    receipt and replay registry must never resolve into the checked-out repository.
+    The caller must still provision filesystem ACLs and protect parent directories.
+    """
+    repository_root = Path(__file__).resolve().parents[1]
     resolved: dict[str, Path] = {}
     for name, raw in paths.items():
+        if not isinstance(raw, str) or not raw.strip():
+            raise GrantIssuerError(f"CAPITAL_FIREWALL_PATH_NOT_CONFIGURED:{name.upper()}")
         p = Path(raw).expanduser()
-        if name in {"key", "registry"} and p.is_symlink():
+        if not p.is_absolute():
+            raise GrantIssuerError(f"CAPITAL_FIREWALL_PATH_NOT_ABSOLUTE:{name.upper()}")
+        if p.is_symlink():
             raise GrantIssuerError(f"CAPITAL_FIREWALL_SYMLINK_FORBIDDEN:{name.upper()}")
-        resolved[name] = p.resolve(strict=False)
-    if len(set(str(value) for value in resolved.values())) != len(resolved):
+        try:
+            canonical = p.resolve(strict=False)
+        except (OSError, RuntimeError) as exc:
+            raise GrantIssuerError(f"CAPITAL_FIREWALL_PATH_RESOLUTION_FAILED:{name.upper()}") from exc
+        if canonical.is_relative_to(repository_root):
+            raise GrantIssuerError(f"CAPITAL_FIREWALL_PATH_INSIDE_REPOSITORY:{name.upper()}")
+        resolved[name] = canonical
+    if len(set(resolved.values())) != len(resolved):
         raise GrantIssuerError("CAPITAL_FIREWALL_PATH_COLLISION")
     for name in outputs:
         if resolved[name].exists():
             raise GrantIssuerError("CAPITAL_FIREWALL_OUTPUT_ALREADY_EXISTS")
+    return resolved
 
 
 def prepare_evidence_cache_from_files(
