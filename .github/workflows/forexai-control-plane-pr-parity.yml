@@ -1,10 +1,8 @@
 name: ForexAI Control Plane PR Real-Data Parity
 
-# This runs the existing real EURUSD M15 Python/MQL5 parity harness against
-# Trigger is intentionally path-bound so main-sync merges refresh evidence for the exact resulting source tree.
-# EAs generated from this exact same-repository candidate SHA. The Promotion
-# artifact remains sourced from an independently successful main SHA.
-# The MQL5 script is signal-only; it does not attach/run generated EAs or trade.
+# Run the real EURUSD M15 Python/MQL5 signal-parity harness against the exact candidate SHA.
+# Promotion evidence is independently resolved from a successful main-SHA run.
+# The MQL5 harness is signal-only and never attaches an EA or submits orders.
 on:
   push:
     branches:
@@ -16,11 +14,38 @@ on:
       - 'research/optimization/g13_mql5_parity_harness_generator.py'
       - 'research/optimization/g13_demo_readiness_gate_m15.py'
       - 'research/optimization/g13_execution_safety_audit_m15.py'
+      - 'tools/forexai_control_plane_v1.py'
+      - 'tests/test_forexai_control_plane_v1.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_g13_mql5_generator_v2.py'
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
       - '.github/workflows/forexai-g13-mql5-generation.yml'
       - '.github/workflows/forexai-g13-workflow-lint.yml'
       - '.github/workflows/forexai-control-plane-pr-parity.yml'
       - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
+      - '.github/workflows/forexai-control-plane-v1.yml'
+      - '.github/workflows/forexai-control-plane-contract.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'research/optimization/g13_mql5_generator_v2.py'
+      - 'research/optimization/g13_mql5_parity.py'
+      - 'research/optimization/g13_mql5_parity_harness_generator.py'
+      - 'research/optimization/g13_demo_readiness_gate_m15.py'
+      - 'research/optimization/g13_execution_safety_audit_m15.py'
+      - 'tools/forexai_control_plane_v1.py'
+      - 'tests/test_forexai_control_plane_v1.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_g13_mql5_generator_v2.py'
+      - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
+      - '.github/workflows/forexai-g13-mql5-generation.yml'
+      - '.github/workflows/forexai-g13-workflow-lint.yml'
+      - '.github/workflows/forexai-control-plane-pr-parity.yml'
+      - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
+      - '.github/workflows/forexai-control-plane-v1.yml'
+      - '.github/workflows/forexai-control-plane-contract.yml'
 
 permissions:
   contents: read
@@ -28,7 +53,8 @@ permissions:
 
 # Newer source pushes supersede stale queued parity runs for this feature branch.
 concurrency:
-  group: forexai-control-plane-pr-real-data-parity
+  # A newer candidate commit supersedes any stale parity job for this branch.
+  group: forexai-control-plane-pr-real-data-parity-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -56,10 +82,13 @@ jobs:
 
   real-data-parity:
     needs: resolve-main
+    # Never execute PR-controlled workflow code from a fork on the privileged MT5 runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       actions: read
     uses: ./.github/workflows/forexai-g13-mt5-compile-parity.yml
     with:
-      candidate_source_ref: ${{ github.sha }}
+      # github.sha is the synthetic merge ref for pull_request events. Use the head SHA instead.
+      candidate_source_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       promotion_target_sha: ${{ needs.resolve-main.outputs.sha }}
