@@ -75,6 +75,9 @@ def _key_path_check(
         return report
     try:
         raw = Path(os.path.expandvars(os.path.expanduser(raw_path.strip())))
+        if not raw.is_absolute():
+            report["status"] = "PRIVATE_KEY_PATH_NOT_ABSOLUTE"
+            return report
         report["symlink"] = raw.is_symlink()
         if report["symlink"]:
             report["status"] = "SYMLINK_FORBIDDEN"
@@ -145,6 +148,9 @@ def _inspect_registry(raw_path: str) -> dict[str, object]:
     try:
         expanded = os.path.expandvars(os.path.expanduser(raw_path.strip()))
         supplied_path = Path(expanded)
+        if not supplied_path.is_absolute():
+            report["status"] = "PATH_NOT_ABSOLUTE"
+            return report
         report["symlink"] = supplied_path.is_symlink()
         if report["symlink"]:
             report["status"] = "SYMLINK_FORBIDDEN"
