@@ -61,3 +61,16 @@ python -m pytest -q tests/test_control_plane_provider_host_preflight_v1.py
 
 Tests use test-only public-key-shaped bytes and a temporary directory. They do
 not create real private keys, signed admissions, source evidence, or orders.
+
+## Deployment inventory diagnostic
+
+The repository also includes `tools/diagnose_provider_host_deployment_v1.ps1`. Use it to collect a reusable, redacted snapshot of the Windows host while diagnosing a blocked deployment:
+
+```powershell
+& 'C:\ProgramData\ForexAI-Provider\source\tools\diagnose_provider_host_deployment_v1.ps1'
+$LASTEXITCODE
+```
+
+Run an elevated PowerShell session for the initial host inventory. Once a runtime identity or service has been deliberately configured, run it again under the intended identity to inspect that identity's effective process environment. The script reports only variable presence and public-key match statuses; it never prints public-key values, passphrases, registry paths, or private-key contents. For PEM files it reads only the first header line. It does not install/start services, alter ACLs or environment variables, open the production issuance registry, write a source packet/admission, or authorize trading. Exit code 2 indicates blockers in the inspected configuration.
+
+A report from this tool is diagnostic only. It does not validate the signed source packet or grant authority. The Promotion Attestor private key must remain under its separately administered trust boundary; if its key is found on the Provider host, resolve custody through the approved key-rotation process rather than treating the local file as authoritative. Do not store passphrases in persistent Machine/User environment variables; provide them to the runtime process from the approved secret manager. A correct environment shape and a successful SQLite parent-directory probe are not permission to trade.
