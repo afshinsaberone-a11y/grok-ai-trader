@@ -170,7 +170,7 @@ def _inspect_registry(raw_path: str) -> dict[str, object]:
         if not path.is_file():
             report["status"] = "REGISTRY_PATH_NOT_FILE"
             return report
-        uri = "file:" + quote(str(path), safe="/:\\") + "?mode=ro"
+        uri = path.as_uri() + "?mode=ro"
         with closing(sqlite3.connect(uri, uri=True, timeout=5.0)) as db:
             report["opened_read_only"] = True
             integrity = db.execute("PRAGMA integrity_check").fetchone()
@@ -295,6 +295,7 @@ def inspect_host(
         "demo_trading_authorized": False,
         "live_trading_allowed": False,
         "independent_administration_verified": False,
+        "source_authorities_operational_verified": False,
         "manual_requirements": [
             "independently verify the host, operating-system administrator, VM/hypervisor and secret-manager boundary",
             "verify operational owners, incident contacts, key rotation and revocation for all upstream authorities",
