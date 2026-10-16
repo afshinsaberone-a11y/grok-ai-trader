@@ -97,6 +97,7 @@ The Promotion Attestor must subsequently verify the signed Grant against the exa
 
 - Grant, signal, reservation and authorization identifiers are unique in a durable SQLite registry using BEGIN IMMEDIATE; duplicate issuance is blocked.
 - The registry claim commits before the Grant/receipt pair is published. Publication failure consumes the identifiers; investigate and reconcile instead of reissuing.
+- Every production input/output path (private key, metadata request, cache, source packet, registry, Grant and receipt) must be absolute, must resolve outside the repository checkout, and must not itself be a symlink. Registry initialization, key loading and issuance enforce these guards in code; Windows ACLs and parent-directory trust still require host-level review.
 - Output files must not pre-exist or collide with inputs, key or registry paths. Publication uses a no-overwrite pair write.
 - Logs/stdout are redacted; the script prints status and safe identifiers only, never secrets or source payloads.
 - Prepare receipts say grant_issued=false; final issuance receipts say orders_submitted=false and live_trading_allowed=false.
