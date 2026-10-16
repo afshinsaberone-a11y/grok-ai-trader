@@ -10,21 +10,21 @@ This is an accountability and provisioning register, not a grant, not a signed a
 
 | Function | Current determination | Evidence / limitation |
 |---|---|---|
-| Project / repository coordination | **Afshin Saber** (name supplied by the user) is the accountable ForexAI project owner; GitHub account `afshinsaberone-a11y` owns/administers `grok-ai-trader` | The person's name is user-provided; repository metadata independently verifies the GitHub account's repository permissions, not legal identity. Project ownership does **not** by itself confer independent signing authority. |
-| Appointment of independent source owners | **Afshin Saber is the accountable project owner for appointing and approving provisioning of each role**; separate service/key custodians and their environments still need to be designated and verified | User supplied the name. Repository and connected-source searches did not verify operational signer services or independent key custody. |
+| Project / repository coordination | **Afshin Saber (افشین صابر)** (name supplied by the user) is the accountable ForexAI project owner; GitHub account `afshinsaberone-a11y` owns/administers `grok-ai-trader` | The person's name is user-provided; repository metadata independently verifies the GitHub account's repository permissions, not legal identity. Project ownership does **not** by itself confer independent signing authority. |
+| Appointment of independent source owners | **Afshin Saber (افشین صابر) is the accountable project owner for appointing and approving provisioning of each role**; separate service/key custodians and their environments still need to be designated and verified | User supplied the name. Repository and connected-source searches did not verify operational signer services or independent key custody. |
 
-Afshin Saber is recorded as the accountable project owner at the user's direction. The named project owner can coordinate and approve provisioning, but this register does not claim that the signer services or independent key custodians already exist. Do not conflate business accountability with possession of a source signing key or independent administration.
+Afshin Saber (افشین صابر) is recorded as the accountable project owner at the user's direction. The named project owner can coordinate and approve provisioning, but this register does not claim that the signer services or independent key custodians already exist. Do not conflate business accountability with possession of a source signing key or independent administration.
 
 ## 2. Four upstream authorities and ownership status
 
 | Authority | Required technical responsibility | Accountable owner | Operational system / signing-key custodian | Current state |
 |---|---|---|---|---|
-| Capital Firewall Grant | Verify source eligibility and issue a short-lived, single-candidate/single-signal `forexai.capital_firewall.one_signal_demo_grant.v1` grant | **Afshin Saber — accountable project owner (user-designated); separate operational owner/key custodian still to be recorded** | **NOT PROVISIONED**; no signer endpoint or separately administered signing host verified | **BLOCKER 1** |
-| Live Signal Source | Publish a fresh, real EURUSD/M15/SELL signal with stable signal/strategy/model/decision/snapshot identities and a frozen candidate config hash | **Afshin Saber — accountable project owner for provisioning (user-designated); separate operational service owner/key custodian still to be recorded** | **NOT IDENTIFIED**; no production signal attestor verified | BLOCKED |
-| Risk Engine + Reservation | Decide risk under policy; atomically reserve capacity; issue a signed decision bound to signal, Trade, authorization and reservation IDs | **Afshin Saber — accountable project owner for provisioning (user-designated); separate operational service owner/key custodian still to be recorded** | **NOT IDENTIFIED**; no production risk signer or durable reservation authority verified | BLOCKED |
-| Human Operator Approval | Capture a verified human decision scoped exactly to `ONE_SIGNAL_DEMO_ONLY`, bound to the same signal/Trade/authorization/reservation | **Afshin Saber — designated accountable human approver per user; the signed approval capture/source is still NOT PROVISIONED** | **NOT IDENTIFIED**; no independent approval attestation source verified | BLOCKED |
+| Capital Firewall Grant | Verify source eligibility and issue a short-lived, single-candidate/single-signal `forexai.capital_firewall.one_signal_demo_grant.v1` grant | **Afshin Saber (افشین صابر) — accountable project owner (user-designated); separate operational owner/key custodian still to be recorded** | **NOT PROVISIONED**; no signer endpoint or separately administered signing host verified | **BLOCKER 1** |
+| Live Signal Source | Publish a fresh, real EURUSD/M15/SELL signal with stable signal/strategy/model/decision/snapshot identities and a frozen candidate config hash | **Afshin Saber (افشین صابر) — accountable project owner for provisioning (user-designated); separate operational service owner/key custodian still to be recorded** | **NOT IDENTIFIED**; no production signal attestor verified | BLOCKED |
+| Risk Engine + Reservation | Decide risk under policy; atomically reserve capacity; issue a signed decision bound to signal, Trade, authorization and reservation IDs | **Afshin Saber (افشین صابر) — accountable project owner for provisioning (user-designated); separate operational service owner/key custodian still to be recorded** | **NOT IDENTIFIED**; no production risk signer or durable reservation authority verified | BLOCKED |
+| Human Operator Approval | Capture a verified human decision scoped exactly to `ONE_SIGNAL_DEMO_ONLY`, bound to the same signal/Trade/authorization/reservation | **Afshin Saber (افشین صابر) — designated accountable human approver per user; the signed approval capture/source is still NOT PROVISIONED** | **NOT IDENTIFIED**; no independent approval attestation source verified | BLOCKED |
 
-“NOT IDENTIFIED” / “NOT PROVISIONED” means the operational signer/service or separate key custody was not found in examined connected sources; it does not prove no service exists in an unrelated cloud account. Afshin Saber is the accountable project owner for arranging provisioning, based on the user's instruction. This does not certify any production signer as operational. To change a row to PROVISIONED, record the operational service owner/key custodian, service location, independent administrative boundary, verified public-key fingerprint/key ID, secret-custody location (never the secret itself), operational runbook, and successful negative/positive contract-test evidence.
+“NOT IDENTIFIED” / “NOT PROVISIONED” means the operational signer/service or separate key custody was not found in examined connected sources; it does not prove no service exists in an unrelated cloud account. Afshin Saber (افشین صابر) is the accountable project owner for arranging provisioning, based on the user's instruction. This does not certify any production signer as operational. To change a row to PROVISIONED, record the operational service owner/key custodian, service location, independent administrative boundary, verified public-key fingerprint/key ID, secret-custody location (never the secret itself), operational runbook, and successful negative/positive contract-test evidence.
 
 ## 3. First authority to provision: Capital Firewall Grant
 
@@ -40,7 +40,7 @@ A separate folder, another script, or a second repository under the same unrestr
 
 ### Minimum operating controls
 
-1. Afshin Saber is the accountable project owner for this provisioning work. Before production activation, record the separately designated key custodian/reviewer and the identities allowed to approve a grant versus deploy/rotate the signer. The project owner's name does not eliminate the required independent trust boundary.
+1. Afshin Saber (افشین صابر) is the accountable project owner for this provisioning work. Before production activation, record the separately designated key custodian/reviewer and the identities allowed to approve a grant versus deploy/rotate the signer. The project owner's name does not eliminate the required independent trust boundary.
 2. Generate the dedicated Ed25519 key pair inside the chosen separately administered security boundary. Publish only the verified raw-32-byte public key (base64) as `FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY` after fingerprint confirmation through an approved change record.
 3. Keep this key distinct from Admission, Promotion Attestor, Signal, Risk, and Operator Approval keys. Verify key IDs and decoded key material are not duplicates.
 4. Grant issuance must validate actual current G13 run IDs/artifacts and exact current main SHA, one promoted candidate and its frozen config hash, fresh real signal identity, completed real risk reservation, explicit human approval, unique Trade/authorization/reservation IDs, and an approved Demo-only scope.
@@ -52,7 +52,7 @@ A separate folder, another script, or a second repository under the same unrestr
 
 For each of the four roles above, fill in the following record in a reviewed change (never include private key material):
 
-- Accountable project owner: Afshin Saber (user-designated). Operational service owner / team:
+- Accountable project owner: Afshin Saber (افشین صابر) (user-designated). Operational service owner / team:
 - Operational system / hostname or managed service:
 - Independent administrator / key custodian:
 - Public key ID and verified public-key fingerprint:
@@ -74,7 +74,7 @@ If no existing system can be evidenced, create the service in an independently a
 
 ## 6. Current accountable owner and what is still unverified
 
-Afshin Saber is the accountable ForexAI project owner, per the user's explicit statement. This is an ownership designation, not independent identity verification. The accountable owner is responsible for appointing/approving role provisioning and recording custodians. The following are still **not established** by naming the project owner: the Capital Firewall signing host/service, private-key custody, Signal production attestor, Risk service with durable atomic reservation, Operator Approval attestation source, and independent Promotion/Provider trust separation.
+Afshin Saber (افشین صابر) is the accountable ForexAI project owner, per the user's explicit statement. This is an ownership designation, not independent identity verification. The accountable owner is responsible for appointing/approving role provisioning and recording custodians. The following are still **not established** by naming the project owner: the Capital Firewall signing host/service, private-key custody, Signal production attestor, Risk service with durable atomic reservation, Operator Approval attestation source, and independent Promotion/Provider trust separation.
 
 ## 7. Definition of “provisioned”
 
