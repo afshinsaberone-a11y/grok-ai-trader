@@ -236,7 +236,7 @@ foreach ($check in $publicKeyChecks) {
 foreach ($relativePath in $criticalFiles.Keys) {
     if ($criticalFiles[$relativePath] -ne 'EXISTS_FILE') { $blockers.Add("CRITICAL_FILE_NOT_PRESENT:$relativePath") }
 }
-if ($inventory.in.status -eq 'EMPTY') { $blockers.Add('PROVIDER_INPUT_DIRECTORY_EMPTY') }
+if ($inventory['in'].status -eq 'EMPTY') { $blockers.Add('PROVIDER_INPUT_DIRECTORY_EMPTY') }
 if ($registryParentStatus -ne 'EXISTS_DIRECTORY') { $blockers.Add('PROVIDER_REGISTRY_PARENT_NOT_AVAILABLE') }
 if ($privateKeyHeaders.admission -ne 'ENCRYPTED_PKCS8') { $blockers.Add('ADMISSION_PRIVATE_KEY_HEADER_UNEXPECTED') }
 if ($privateKeyHeaders.promotion_attestor -eq 'ENCRYPTED_PKCS8' -and $promotionPrivateKeyOnProviderHost) {
@@ -244,8 +244,13 @@ if ($privateKeyHeaders.promotion_attestor -eq 'ENCRYPTED_PKCS8' -and $promotionP
 }
 foreach ($name in $passphraseNames) {
     $presence = $passphrasePresence[$name]
-    if (-not $presence.Process) { $blockers.Add("PASSPHRASE_NOT_IN_CURRENT_PROCESS_ENVIRONMENT:$name") }
-    if ($presence.Machine) { $blockers.Add("PASSPHRASE_MACHINE_SCOPE_CONFIGURED_REVIEW:$name") }
+    if ($name -eq 'FOREXAI_PROVIDER_SIGNING_KEY_PASSPHRASE') {
+        if (-not $presence.Process) { $blockers.Add("PASSPHRASE_NOT_IN_CURRENT_PROCESS_ENVIRONMENT:$name") }
+        if ($presence.Machine -or $presence.User) { $blockers.Add("PERSISTENT_PASSPHRASE_SCOPE_CONFIGURED_REVIEW:$name") }
+    }
+    elseif ($presence.Process -or $presence.User -or $presence.Machine) {
+        $blockers.Add("PROMOTION_ATTESTOR_PASSPHRASE_PRESENT_ON_PROVIDER_HOST_VERIFY_TRUST_BOUNDARY")
+    }
 }
 
 $report = [PSCustomObject]@{
