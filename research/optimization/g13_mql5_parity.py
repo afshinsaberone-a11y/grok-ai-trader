@@ -32,15 +32,21 @@ REAL_DATA_SOURCES = ("HistData.com", "Dukascopy")
 
 
 def expected_signals(data: pd.DataFrame, params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the canonical expected signal rows with NumPy scalar access."""
     d = prep(data)
-    sig = signals(d, params)
+    sig = signals(d, params).to_numpy(dtype=int, copy=False)
+    atr_values = d["ATR14"].to_numpy(dtype=float, copy=False)
+    open_values = d["Open"].to_numpy(dtype=float, copy=False)
+    index = d.index
     out: list[dict[str, Any]] = []
     for i in range(1, len(d)):
-        if bool(sig.iloc[i - 1]):
-            atr = float(d.ATR14.iloc[i - 1])
-            if not pd.notna(atr) or atr <= 0:
+        if sig[i - 1] != 0:
+            atr = float(atr_values[i - 1])
+            # Preserve the historical NaN/zero guard exactly; do not replace
+            # pd.notna semantics with np.isfinite (which would also reject inf).
+            if pd.isna(atr) or atr <= 0:
                 continue
-            entry = float(d.Open.iloc[i])
+            entry = float(open_values[i])
             risk = float(params["atr_mult"]) * atr
             sl = entry + risk
             tp = entry - float(params["rr"]) * risk
@@ -48,7 +54,7 @@ def expected_signals(data: pd.DataFrame, params: dict[str, Any]) -> list[dict[st
                 {
                     "candidate_id": None,
                     "event": "SIGNAL",
-                    "timestamp": d.index[i].strftime("%Y-%m-%dT%H:%M:00+00:00"),
+                    "timestamp": index[i].strftime("%Y-%m-%dT%H:%M:00+00:00"),
                     "side": -1,
                     "entry": entry,
                     "sl": sl,
