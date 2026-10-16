@@ -14,6 +14,7 @@ from research.optimization.execution_contract_v1 import (
     apply_entry_cost,
     apply_exit_cost,
 )
+from research.optimization.g13_mql5_parity import expected_signals
 from research.optimization.rsi_divergence_discovery_g13 import (
     MAX_HOLD,
     pivots,
@@ -65,6 +66,33 @@ def _legacy_signals(d: pd.DataFrame, p: dict) -> pd.Series:
             a, b = lows[-2], lows[-1]
             if b[1] < a[1] - p["min_delta"] and b[2] > a[2] and b[2] <= p["rsi_low"]:
                 out.iloc[i] = 1
+    return out
+
+
+def _legacy_expected_signals(data: pd.DataFrame, p: dict) -> list[dict]:
+    """Reference implementation of parity expectations before NumPy row access."""
+    d = prep(data)
+    sig = _legacy_signals(d, p)
+    out = []
+    for i in range(1, len(d)):
+        if bool(sig.iloc[i - 1]):
+            atr = float(d.ATR14.iloc[i - 1])
+            if not pd.notna(atr) or atr <= 0:
+                continue
+            entry = float(d.Open.iloc[i])
+            risk = float(p["atr_mult"]) * atr
+            sl = entry + risk
+            tp = entry - float(p["rr"]) * risk
+            out.append({
+                "candidate_id": None,
+                "event": "SIGNAL",
+                "timestamp": d.index[i].strftime("%Y-%m-%dT%H:%M:00+00:00"),
+                "side": -1,
+                "entry": entry,
+                "sl": sl,
+                "tp": tp,
+                "atr": atr,
+            })
     return out
 
 
@@ -145,3 +173,11 @@ def test_short_history_still_returns_no_trades():
     params = PARAMETERS[0]
     assert trade_returns(data, params) == []
     assert _legacy_trade_returns(data, params) == []
+
+
+def test_numpy_expected_parity_rows_match_legacy_pandas_path_exactly():
+    raw = _fixture()
+    for params in PARAMETERS:
+        actual = expected_signals(raw, params)
+        expected = _legacy_expected_signals(raw, params)
+        assert actual == expected
