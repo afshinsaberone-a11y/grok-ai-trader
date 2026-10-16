@@ -19,6 +19,7 @@ from tools.capital_firewall_grant_issuer_v1 import (
     PINNED_REPOSITORY,
     PREPARE_RECEIPT_SCHEMA,
     REGISTRY_SCHEMA,
+    REQUIRED_GATE_NAMES,
     SOURCE_PACKET_SCHEMA,
     GrantIssuerError,
     build_signed_grant,
@@ -161,7 +162,7 @@ def verified_promotion(grant_id: str) -> dict:
     return {
         "schema": promotion_attestor.PROMOTION_EVIDENCE_SCHEMA,
         "commit_sha": SHA,
-        "gates": {gate: "PASS" for gate in promotion_attestor.REQUIRED_GATES},
+        "gates": {gate: "PASS" for gate in REQUIRED_GATE_NAMES},
         "readiness_status": "READY_FOR_CONTROLLED_DEMO_AUDIT",
         "demo_trading_allowed": True,
         "live_trading_allowed": False,
