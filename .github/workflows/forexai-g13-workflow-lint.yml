@@ -138,6 +138,7 @@ jobs:
           ./actionlint .github/workflows/forexai-control-plane-v1.yml
           ./actionlint .github/workflows/forexai-control-plane-contract.yml
           ./actionlint .github/workflows/forexai-control-plane-mt5-compile-guard.yml
+          ./actionlint .github/workflows/forexai-control-plane-pr-parity.yml
 
       - name: Compile all G13 Python gates
         run: |
