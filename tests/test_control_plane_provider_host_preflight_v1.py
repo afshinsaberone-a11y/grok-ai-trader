@@ -1,4 +1,4 @@
-""""Tests for the read-only, fail-closed external provider host preflight."""
+"""Tests for the read-only, fail-closed external provider host preflight."""
 from __future__ import annotations
 
 import base64
@@ -143,6 +143,9 @@ def test_windows_provider_deployment_diagnostic_is_read_only_and_redacted():
         "PUBLIC_KEY_ENV_FILE_MISMATCH",
         "PROMOTION_PRIVATE_KEY_PRESENT_ON_PROVIDER_HOST_VERIFY_TRUST_BOUNDARY",
         "PROVIDER_INPUT_DIRECTORY_EMPTY",
+        "PERSISTENT_PASSPHRASE_SCOPE_CONFIGURED_REVIEW",
+        "PROMOTION_ATTESTOR_PASSPHRASE_PRESENT_ON_PROVIDER_HOST_VERIFY_TRUST_BOUNDARY",
+        "$inventory['in'].status -eq 'EMPTY'",
         "passphrase_values_printed = $false",
         "key_values_printed = $false",
         "orders_submitted = $false",
