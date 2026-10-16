@@ -611,6 +611,61 @@ def test_mismatched_promotion_run_id_is_rejected(tmp_path):
     assert not (tmp_path / "control-plane" / "trade-ledger.jsonl").exists()
 
 
+def test_external_admission_request_id_cannot_be_replayed_for_a_new_signal(tmp_path):
+    _result, ledger_path, envelope_path, common_files, secret, mt5 = _call(tmp_path)
+    original_events = len(TradeLedger(ledger_path).events)
+
+    # Simulate the EA consuming the first authorization record. A fresh signal
+    # and validly signed payload still may not reuse the same admission request ID.
+    for auth_path in common_files.glob("ForexAI_Authorization_*_EURUSD.auth"):
+        auth_path.unlink()
+
+    _manifest, _attestation, _provenance, candidate = _write_bundle(tmp_path)
+    second_intent = _write_intent(
+        common_files, candidate, now=NOW, bar_epoch=1791786600
+    )
+    admission_path = _write_signed_admission(
+        tmp_path,
+        intent_path=second_intent,
+        manifest_path=tmp_path / "promotion.json",
+        attestation_path=tmp_path / "attestation.json",
+        provenance_path=tmp_path / "provenance.json",
+        issued_at=NOW,
+    )
+    request = json.loads(admission_path.read_text(encoding="utf-8"))
+    request["request_id"] = "g13-request-2-1791785700"
+    admission_path.write_text(
+        json.dumps(_resign_admission(request), sort_keys=True), encoding="utf-8"
+    )
+
+    with pytest.raises(
+        ControlPlaneError,
+        match="EXTERNAL_DEMO_ADMISSION_REQUEST_REPLAYED",
+    ):
+        process_signal_intent(
+            intent_path=second_intent,
+            manifest_path=tmp_path / "promotion.json",
+            attestation_path=tmp_path / "attestation.json",
+            provenance_path=tmp_path / "provenance.json",
+            current_main_sha=MAIN_SHA,
+            ledger_path=ledger_path,
+            authenticated_envelope_path=envelope_path,
+            common_files=common_files,
+            mt5=mt5,
+            gateway=FakeGateway(),
+            secret=secret,
+            now=NOW,
+            promotion_run_id=99123,
+            selected_candidate_id=2,
+            expected_demo_login=12345678,
+            expected_demo_server="Broker-Demo",
+            admission_request_path=admission_path,
+            admission_public_key=ADMISSION_PUBLIC_KEY,
+        )
+    assert len(TradeLedger(ledger_path).events) == original_events
+    assert not list(common_files.glob("ForexAI_Authorization_*_EURUSD.auth"))
+
+
 def test_second_candidate_intent_is_blocked_while_global_auth_slot_is_occupied(tmp_path):
     _result, ledger_path, envelope_path, common_files, secret, mt5 = _call(tmp_path)
     ledger_before = TradeLedger(ledger_path)
