@@ -18,7 +18,6 @@ import platform
 import sqlite3
 import stat
 from typing import Mapping
-from urllib.parse import quote
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
