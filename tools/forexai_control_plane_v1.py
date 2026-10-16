@@ -616,6 +616,7 @@ def _verify_external_demo_admission(
     if not admission_public_key:
         raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED")
     try:
+        request_file_sha256 = _sha256_file(admission_request_path)
         request = load_admission_request(admission_request_path)
         verified = verify_admission_request(
             request,
@@ -634,6 +635,8 @@ def _verify_external_demo_admission(
     signed_authorization = verified.get("authorization")
     if not all(isinstance(value, dict) for value in (parsed, signed_candidate, signed_promotion, signed_authorization)):
         raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_VERIFIED_SHAPE_INVALID")
+    if _sha256_file(admission_request_path) != request_file_sha256:
+        raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_CHANGED_DURING_VERIFICATION")
 
     signal_bar_epoch = int(intent["signal_bar_epoch"])
     expected_identity = {
@@ -748,6 +751,7 @@ def _verify_external_demo_admission(
     return {
         "request_id": parsed["request_id"],
         "request_sha256": parsed["request_sha256"],
+        "request_file_sha256": request_file_sha256,
         "candidate": signed_candidate,
         "promotion": signed_promotion,
         "authorization": signed_authorization,
@@ -903,9 +907,23 @@ def process_signal_intent(
         ):
             raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_REQUEST_REPLAYED")
         ledger.assert_no_unresolved_reconciliation()
+        # Consume the exact verified request immediately before the first Ledger
+        # append. This frees the provider's configured output path for the next
+        # one-signal grant and makes this admission one-shot even across restarts.
+        try:
+            current_request_hash = _sha256_file(admission_request_path)
+        except OSError as exc:
+            raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_DISAPPEARED_BEFORE_CONSUMPTION") from exc
+        if current_request_hash != external_admission["request_file_sha256"]:
+            raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_CHANGED_BEFORE_CONSUMPTION")
+        try:
+            admission_request_path.unlink()
+        except OSError as exc:
+            raise ControlPlaneError("EXTERNAL_DEMO_ADMISSION_CONSUMPTION_FAILED") from exc
         audit_payload = {
             "admission_request_id": external_admission["request_id"],
             "admission_request_sha256": external_admission["request_sha256"],
+            "admission_request_file_sha256": external_admission["request_file_sha256"],
             "source_signal_id": external_admission["candidate"]["signal_id"],
             "source_snapshot_id": external_admission["candidate"]["snapshot_id"],
             "risk_decision_id": signed_authorization["risk_decision_id"],

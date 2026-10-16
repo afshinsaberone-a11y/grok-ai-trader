@@ -241,11 +241,17 @@ jobs:
               } |
               Remove-Item -Force -ErrorAction SilentlyContinue
           }
+          $admissionPath = $env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH
+          if (-not [string]::IsNullOrWhiteSpace($admissionPath) -and
+              (Test-Path -LiteralPath $admissionPath -PathType Leaf)) {
+            Remove-Item -LiteralPath $admissionPath -Force -ErrorAction Stop
+          }
           if (-not $switchVerified) {
             Write-Output 'CONTROL_PLANE_FINAL_DENY=UNVERIFIED'
             throw 'CONTROL_PLANE_CLEANUP_DENY_VERIFICATION_FAILED'
           }
           Write-Output 'CONTROL_PLANE_FINAL_DENY=VERIFIED'
+          Write-Output 'CONTROL_PLANE_EXTERNAL_ADMISSION_FILE=CONSUMED_OR_REMOVED'
           Write-Output 'CONTROL_PLANE_UNUSED_AUTHORIZATION_FILES=REMOVED'
           Write-Output 'CONTROL_PLANE_ORDER_SUBMISSION_BY_SERVICE=false'
           Write-Output 'CONTROL_PLANE_LIVE_TRADING_ALLOWED=false'

@@ -427,6 +427,7 @@ def test_real_demo_intent_creates_hash_chained_authority_without_order_send(tmp_
     assert result["kill_switch_changed"] is False
     assert mt5.order_check_calls == 1
     assert not hasattr(mt5, "order_send")
+    assert not (tmp_path / "signed-demo-admission.json").exists()
 
     ledger = TradeLedger(ledger_path)
     assert [event.state for event in ledger.events if event.state is not None] == [
