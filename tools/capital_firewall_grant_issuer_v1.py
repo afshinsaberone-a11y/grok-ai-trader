@@ -42,6 +42,7 @@ GRANT_KEY_ID = promotion_attestor.GRANT_KEY_ID
 REGISTRY_SCHEMA = "forexai.capital_firewall.grant_registry.v1"
 RECEIPT_SCHEMA = "forexai.capital_firewall.grant_issuance_receipt.v1"
 PREPARE_RECEIPT_SCHEMA = "forexai.capital_firewall.evidence_cache_receipt.v1"
+REQUIRED_GATE_NAMES = {"validation", "robustness", "oos", "parity", "package_preflight", "safety_audit"}
 MAX_GRANT_LIFETIME_SECONDS = 900
 MAX_CACHE_LIFETIME_SECONDS = 300
 CONFIRM_PREPARE = "PREPARE_CAPITAL_FIREWALL_EVIDENCE"
@@ -365,7 +366,7 @@ def _validate_verified_promotion(
     if evidence.get("readiness_status") != "READY_FOR_CONTROLLED_DEMO_AUDIT":
         raise GrantIssuerError("CAPITAL_FIREWALL_READINESS_NOT_READY")
     gates = evidence.get("gates")
-    if not isinstance(gates, Mapping) or set(gates) != set(promotion_attestor.REQUIRED_GATES):
+    if not isinstance(gates, Mapping) or set(gates) != REQUIRED_GATE_NAMES:
         raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GATES_INVALID")
     if any(gates[name] != "PASS" for name in gates):
         raise GrantIssuerError("CAPITAL_FIREWALL_VERIFIED_GATE_NOT_PASS")
