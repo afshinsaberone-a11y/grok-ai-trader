@@ -145,7 +145,7 @@ function Get-PublicKeyConsistency {
 }
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
 $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 $service = Get-CimInstance Win32_Service -Filter "Name='ForexAIProviderSvc'" -ErrorAction SilentlyContinue
@@ -159,11 +159,16 @@ $keysDirectory = Join-Path $ProviderRoot 'keys'
 $inputDirectory = Join-Path $ProviderRoot 'in'
 $outputDirectory = Join-Path $ProviderRoot 'out'
 
+$keysInventory = Get-DirectoryInventory -Path $keysDirectory
+$inputInventory = Get-DirectoryInventory -Path $inputDirectory
+$outputInventory = Get-DirectoryInventory -Path $outputDirectory
 $inventory = [ordered]@{
-    keys = Get-DirectoryInventory -Path $keysDirectory
-    in = Get-DirectoryInventory -Path $inputDirectory
-    out = Get-DirectoryInventory -Path $outputDirectory
+    keys = $keysInventory
+    in = $inputInventory
+    out = $outputInventory
 }
+$sourcePacketPath = Join-Path $inputDirectory 'current-source-packet.json'
+$sourcePacketStatus = Get-PathStatus -Path $sourcePacketPath
 
 $criticalFiles = [ordered]@{}
 foreach ($relativePath in @(
@@ -236,7 +241,8 @@ foreach ($check in $publicKeyChecks) {
 foreach ($relativePath in $criticalFiles.Keys) {
     if ($criticalFiles[$relativePath] -ne 'EXISTS_FILE') { $blockers.Add("CRITICAL_FILE_NOT_PRESENT:$relativePath") }
 }
-if ($inventory['in'].status -eq 'EMPTY') { $blockers.Add('PROVIDER_INPUT_DIRECTORY_EMPTY') }
+if ($inputInventory.status -eq 'EMPTY') { $blockers.Add('PROVIDER_INPUT_DIRECTORY_EMPTY') }
+if ($sourcePacketStatus -ne 'EXISTS_FILE') { $blockers.Add('AUTHORITATIVE_SOURCE_PACKET_NOT_PRESENT') }
 if ($registryParentStatus -ne 'EXISTS_DIRECTORY') { $blockers.Add('PROVIDER_REGISTRY_PARENT_NOT_AVAILABLE') }
 if ($privateKeyHeaders.admission -ne 'ENCRYPTED_PKCS8') { $blockers.Add('ADMISSION_PRIVATE_KEY_HEADER_UNEXPECTED') }
 if ($privateKeyHeaders.promotion_attestor -eq 'ENCRYPTED_PKCS8' -and $promotionPrivateKeyOnProviderHost) {
@@ -271,6 +277,7 @@ $report = [PSCustomObject]@{
     provider_service = $serviceSummary
     critical_files = [PSCustomObject]$criticalFiles
     directory_inventory = [PSCustomObject]$inventory
+    source_packet_status = $sourcePacketStatus
     public_key_checks = $publicKeyChecks
     private_key_headers = [PSCustomObject]$privateKeyHeaders
     public_environment_presence = [PSCustomObject]$environmentPresence
