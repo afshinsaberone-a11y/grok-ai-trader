@@ -21,6 +21,19 @@ Diagnostic run on 2026-10-16, host `WIN-P7MA35DRF6Q`:
 
 These observations describe that host and that diagnostic time. They do **not** prove that no independent source systems exist elsewhere.
 
+
+## Repository source-code inventory
+
+A name-level inventory of the default branch's `tools/`, `docs/` and workflow directories on 2026-10-16 found:
+
+- `tools/control_plane_admission_provider_v1.py`: final admission verifier/issuer. It expects a packet containing independently signed Promotion, Signal, Risk and Operator attestations; it is not itself those source systems.
+- `tools/g13_capital_firewall_promotion_attestor_v1.py`: validates the exact GitHub Actions evidence/artifacts and handles the Promotion-source attestation flow against a separately signed Capital Firewall grant. It is not the independent authority that creates that grant.
+- `tools/control_plane_provider_host_preflight_v1.py` and the new PowerShell diagnostic: host configuration checks only; neither grants authority.
+- `tools/control_plane_service_v1.py`, `tools/capital_firewall_v1.py`, `tools/execution_admission_v1.py`, and `tools/materialize_mql5_authorization_v1.py`: downstream control-plane, admission checks, Ledger/firewall lifecycle and authorization materialization. Their presence does not establish deployed upstream signal/risk/operator sources.
+- The current `tools/` listing did not identify a dedicated production source signer/service for live Signal, Risk/Reservation, Operator Approval, or the external Capital Firewall Grant signer. Test helpers that create ephemeral signatures are for testing only and must not be treated as production authorities.
+
+**Conclusion:** these four upstream source roles and the Capital Firewall grant authority remain `NOT_IDENTIFIED` from repository evidence. This is not proof that no externally hosted services exist; a responsible owner must confirm their existence and locations out-of-band.
+
 ## Authority inventory
 
 Fill only with information confirmed by the accountable owner through an approved channel. Never put private keys, passphrases, API tokens, HMAC secrets, account identifiers, or raw sensitive payloads in this file.
