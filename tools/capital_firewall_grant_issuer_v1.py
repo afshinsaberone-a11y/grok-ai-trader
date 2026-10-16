@@ -893,7 +893,7 @@ def prepare_evidence_cache_from_files(
     )
     if promotion_attestor._api_json(repo, "commits/main", token).get("sha") != current_main:
         raise GrantIssuerError("CAPITAL_FIREWALL_MAIN_MOVED_DURING_PREPARATION")
-    _validate_cache_identity(metadata, verified_payload, grant_id)
+    _verify_cache_identity(metadata, verified_payload, grant_id)
     # Cache validity starts immediately before signing/publishing, not before
     # fetching the eight current-SHA G13 artifact bundles.
     issued = datetime.now(timezone.utc)
