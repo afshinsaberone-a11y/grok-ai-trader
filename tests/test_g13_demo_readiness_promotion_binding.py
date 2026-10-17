@@ -266,7 +266,7 @@ def test_compile_guard_embedded_candidate_parity_resolver_executes_fail_closed_s
     ).read_text(encoding="utf-8")
     marker = 'pr_state="$(printf \'%s\' "$pr_payload" | python -c \''
     start = workflow.index(marker) + len(marker)
-    terminator = "' \"$CANDIDATE_SHA\")\""
+    terminator = "' \"$candidate_sha\")\""
     end = workflow.index(terminator, start)
     resolver_code = workflow[start:end]
 
