@@ -1,18 +1,14 @@
 name: ForexAI G13 MT5 Runtime Safety Probe M15 v2
 
 # Read-only execution safety verification. No EA/order submission is possible.
-# Current probe revision is intentionally re-triggered with the current repository commit for evidence freshness.
-# Evidence-refresh marker: keep runtime safety provenance aligned with the authoritative G13 SHA.
-# Evidence-refresh execution marker: force a fresh run on every G13 promotion baseline.
+# Runtime evidence is dispatched only by the main G13 watchdog after exact-SHA signal parity.
+# Every run is bound to the current main SHA through the official watchdog's ordered chain.
 # Every probe is installed under a run-unique MT5 Scripts directory to avoid
 # collisions with older MT5 processes or files locked by a prior run.
 on:
+  # The watchdog dispatches this only after exact-SHA Compile + Signal Parity.
+  # Do not let PR/source pushes seize the single Windows MT5 runner early.
   workflow_dispatch:
-  push:
-    paths:
-      - research/optimization/G13_Safety_Probe_AuthOff.mq5
-      - research/optimization/G13_Safety_Probe_AuthOn.mq5
-      - .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
 
 permissions:
   contents: read

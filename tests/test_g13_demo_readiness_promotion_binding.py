@@ -234,3 +234,15 @@ def test_runtime_safety_probe_startup_attaches_script_to_explicit_chart():
     assert workflow.count("          Period=M15\n") == 2
     assert workflow.count("          ShutdownTerminal=1\n") == 2
 
+def test_runtime_probe_is_dispatch_only_to_preserve_main_mt5_ordering():
+    workflow = Path(
+        ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
+    ).read_text(encoding="utf-8")
+    trigger_block = workflow.split("\\npermissions:", 1)[0]
+
+    # Only the official main watchdog may queue this single-runner probe, and
+    # it dispatches after current-main Compile + Signal Parity succeeds.
+    assert "  workflow_dispatch:\\n" in trigger_block
+    assert "\\n  push:" not in trigger_block
+    assert "workflow_run:" not in trigger_block
+
