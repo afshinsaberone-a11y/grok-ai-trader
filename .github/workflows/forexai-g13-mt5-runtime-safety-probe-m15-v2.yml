@@ -209,14 +209,27 @@ jobs:
             Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_STDERR=$startStderrText"
             Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
             if ($start.ExitCode -ne 0) {
+              $queryStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_off-task-query.stdout.txt"
+              $queryStderrPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_off-task-query.stderr.txt"
+              Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
               try {
-                $scheduledTask = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-                $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_STATE=$($scheduledTask.State)"
-                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_LAST_RUN_TIME=$($taskInfo.LastRunTime.ToString('o'))"
-                Write-Host ("G13_RUNTIME_AUTH_OFF_TASK_LAST_RESULT=0x{0:X8}" -f [uint32]$taskInfo.LastTaskResult)
+                $query = Start-Process -FilePath $schtasks -ArgumentList @('/Query','/TN',$taskName,'/FO','LIST') -NoNewWindow -RedirectStandardOutput $queryStdoutPath -RedirectStandardError $queryStderrPath -PassThru
+                if (-not $query.WaitForExit(10000)) {
+                  Stop-Process -Id $query.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_QUERY_TIMEOUT=true'
+                } else {
+                  $queryStdoutText = if (Test-Path -LiteralPath $queryStdoutPath) { (Get-Content -LiteralPath $queryStdoutPath -Raw).Trim() } else { '' }
+                  $queryStderrText = if (Test-Path -LiteralPath $queryStderrPath) { (Get-Content -LiteralPath $queryStderrPath -Raw).Trim() } else { '' }
+                  if ($queryStdoutText.Length -gt 2000) { $queryStdoutText = $queryStdoutText.Substring(0,2000) }
+                  if ($queryStderrText.Length -gt 2000) { $queryStderrText = $queryStderrText.Substring(0,2000) }
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_EXIT_CODE=$($query.ExitCode)"
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_OUTPUT=$queryStdoutText"
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_STDERR=$queryStderrText"
+                }
               } catch {
                 Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_ERROR=$($_.Exception.Message)"
+              } finally {
+                Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
               }
               throw "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$($start.ExitCode)"
             }
@@ -324,14 +337,27 @@ jobs:
             Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_STDERR=$startStderrText"
             Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
             if ($start.ExitCode -ne 0) {
+              $queryStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-query.stdout.txt"
+              $queryStderrPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-query.stderr.txt"
+              Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
               try {
-                $scheduledTask = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-                $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-                Write-Host "G13_RUNTIME_AUTH_ON_TASK_STATE=$($scheduledTask.State)"
-                Write-Host "G13_RUNTIME_AUTH_ON_TASK_LAST_RUN_TIME=$($taskInfo.LastRunTime.ToString('o'))"
-                Write-Host ("G13_RUNTIME_AUTH_ON_TASK_LAST_RESULT=0x{0:X8}" -f [uint32]$taskInfo.LastTaskResult)
+                $query = Start-Process -FilePath $schtasks -ArgumentList @('/Query','/TN',$taskName,'/FO','LIST') -NoNewWindow -RedirectStandardOutput $queryStdoutPath -RedirectStandardError $queryStderrPath -PassThru
+                if (-not $query.WaitForExit(10000)) {
+                  Stop-Process -Id $query.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host 'G13_RUNTIME_AUTH_ON_TASK_QUERY_TIMEOUT=true'
+                } else {
+                  $queryStdoutText = if (Test-Path -LiteralPath $queryStdoutPath) { (Get-Content -LiteralPath $queryStdoutPath -Raw).Trim() } else { '' }
+                  $queryStderrText = if (Test-Path -LiteralPath $queryStderrPath) { (Get-Content -LiteralPath $queryStderrPath -Raw).Trim() } else { '' }
+                  if ($queryStdoutText.Length -gt 2000) { $queryStdoutText = $queryStdoutText.Substring(0,2000) }
+                  if ($queryStderrText.Length -gt 2000) { $queryStderrText = $queryStderrText.Substring(0,2000) }
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_EXIT_CODE=$($query.ExitCode)"
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_OUTPUT=$queryStdoutText"
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_STDERR=$queryStderrText"
+                }
               } catch {
                 Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_ERROR=$($_.Exception.Message)"
+              } finally {
+                Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
               }
               throw "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$($start.ExitCode)"
             }
