@@ -245,3 +245,68 @@ GitHub Secrets که کاربر فهرست کرده بود:
 
 ---
 پایان بایگانی تجمیعی قابل دسترس تا ۱۷ اکتبر ۲۰۲۶.
+
+
+## 16. گفت‌وگوی ۱۷ اکتبر ۲۰۲۶ — بازبینی PR #227 و موانع Control Plane
+
+### خواستهٔ گفتگو
+کاربر گفت «ادامه بده» تا بررسی ForexAI/Control Plane ادامه پیدا کند؛ سپس صریحاً درخواست کرد «از چت تو گیت هاب آرشیو بساز». برای حفظ سابقه، این بخش به سند موجود افزوده شد و محتوای ۱۵ بخش قبلی حفظ گردید. این آرشیو همچنان تجمیعی/بازسازی‌شده است، نه رونویسی لفظ‌به‌لفظ تمام پیام‌های خام.
+
+### وضعیت زندهٔ خوانده‌شده از GitHub در این نوبت
+- مخزن: https://github.com/afshinsaberone-a11y/grok-ai-trader
+- PR #227: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227
+- عنوان: `feat(g13): create authoritative Capital Control Plane v1`
+- وضعیت: `open`, `draft=true`, `merged=false`; ادغام انجام نشد.
+- SHA شاخهٔ PR: `fffd19356ed4fafba584c2e16ff38278581e5bf6`
+- SHA ref واقعی `main` که از `git/ref/heads/main` خوانده شد: `2ac7cf05413e94fce7b56ee026af0abd99f9ad6a`
+- مقایسهٔ `main...head`: 70 کامیت جلوتر، صفر کامیت عقب‌تر؛ merge base برابر SHA واقعی `main` بود.
+- فرادادهٔ PR به‌طور ناسازگار `base.sha=6ed41a60961a5de9d115352323e90ec882245243` گزارش می‌کرد، درحالی‌که ref واقعی `main` برابر `2ac7cf...` بود. این اختلاف به‌عنوان ناسازگاری فراداده ثبت شد؛ مقایسهٔ مستقیم شاخه‌ها صفر کامیت عقب‌ماندگی نشان داد.
+- هیچ تغییر کد معاملاتی در این بررسی اعمال نشد؛ PR Draft نگه داشته شد.
+
+### گیت‌های موفق روی SHA دقیق PR
+- Control Plane Contract: [run 38763153450](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/38763153450) — success.
+- Python tests: [run 38763155164](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/38763155164) — success.
+- G13 Workflow Static Validation: [run 38763155090](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/38763155090) — success.
+- Agent Runtime: [run 38763153662](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/38763153662) — success.
+- Project Repair Loop: [run 38763155096](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/38763155096) — success.
+- Windows MT5 Compile Guard: [run 38763153730](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/38763153730) — success؛ 9 EA با صفر خطا و صفر هشدار کامپایل شدند؛ 1,536 حالت ماتریس ایمنی پاس شد؛ Kill Switch در پایان `DENY` بود.
+- Real-data Python/MQL5 parity: [run 38763154979](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/38763154979) — success؛ 9/9 کاندید parity موفق، 23,802 ردیف سیگنال، `real_data_only=true` و `synthetic_data=false`.
+- این گیت‌ها متعلق به SHA شاخهٔ PR هستند. پس از تغییر SHA شاخهٔ اصلی، زنجیرهٔ مستقل Validation → Robustness → OOS → Promotion و شواهد Downstream باید برای SHA جدید تازه‌سازی شود.
+
+### تعارض معماری مجوز Demo
+دو قرارداد صدور مجوز در مخزن وجود دارد:
+
+1. مسیر قدیمی در `tools/control_plane_service_v1.py` و `tools/control_plane_admission_provider_v1.py` طبق `docs/CONTROL_PLANE_PRODUCER_V1.md` به یک admission مستقل با امضای Ed25519 و attestations جداگانهٔ Promotion، Signal، Risk و Operator Approval نیاز دارد. مستند می‌گوید وضعیت Readiness با `demo_trading_allowed=false` به‌تنهایی برای صدور مجوز کافی نیست و نباید به مجوز معامله تبدیل شود.
+2. مسیر جدید PR #227، در `tools/forexai_control_plane_v1.py` و `docs/G13_CAPITAL_CONTROL_PLANE_V1.md`، می‌تواند با Promotion provenance، سیگنال زنده، بررسی MT5/ریسک و سوئیچ دستی `ALLOW` مجوز `AUTHORIZED_FOR_ONE_CONTROLLED_DEMO_ATTEMPT` صادر کند، بی‌آن‌که همان admission مستقل و چهار attestations را مصرف کند؛ در عین حال سیاست Promotion همچنان `demo_trading_allowed=false` است.
+
+این تعارض سیاستی مانع امنیتی است و با سبز بودن Compile/Parity یا unit tests حل نمی‌شود. راهکار ترجیحی fail-closed: قبل از Ledger reservation، envelope یا فایل `.auth`، مسیر جدید نیز admission یک‌سیگنالهٔ مستقل و attestations معتبر را الزام کند. راهکار جایگزین فقط در صورت تصویب سیاست جدید باید مستندات مرجع و تست‌های رگرسیون را تغییر دهد تا Readiness، مسیرهای صدور و مصرف‌کنندگان پایین‌دست نتوانند دربارهٔ مرجع مجوز اختلاف داشته باشند.
+
+### تغییرات ثبت‌شده در GitHub
+- نظر معماری در [PR comment 6202269660](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227#issuecomment-6202269660) به‌روزرسانی شد و تعارض قرارداد مجوز توضیح داده شد.
+- توضیحات PR با SHA و لینک گیت‌های واقعی، مانع معماری و حدود عملیاتی به‌روزرسانی شد.
+- درخواست Review رسمی از نوع `REQUEST_CHANGES` از سوی مالک همان PR توسط GitHub رد شد؛ Review رسمی ایجاد نشد. هیچ Review جعلی ثبت نشد.
+- وضعیت Draft حفظ شد؛ PR ادغام یا Ready نشد.
+
+### حفاظت از main و workflowهای فرعی
+- GitHub ref شاخهٔ `main` را `protected=false` گزارش کرد.
+- endpoint مربوط به مخزن، صفر Ruleset فعال برگرداند؛ بنابراین الزام سروری برای review یا گیت‌های CI قابل تأیید نبود.
+- این نکته در [PR comment 6202527808](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227#issuecomment-6202527808) ثبت شد. تنظیمات مخزن در این نوبت تغییر نکرد.
+- چند workflow قدیمیِ triggerشده با push روی همان SHA با `failure` گزارش شدند؛ از جمله runهای `38763152812`, `38763151133`, `38763149387`, `38763147639`. endpoint مربوط به jobs برای این runها صفر job برگرداند. علت دقیق هنوز تعیین نشده است؛ این‌ها از 13 check-run مرتبط با گیت‌های موفق PR جدا هستند و باید جداگانه بررسی شوند.
+
+### اقدامات بعدی
+1. قرارداد نهایی Demo را تعیین کن و ترجیحاً مسیر جدید را به admission امضاشده و attestations مستقل مقید کن.
+2. تست رگرسیون برای تعارض `demo_trading_allowed=false` در برابر تلاش برای صدور مجوز اضافه کن.
+3. Branch protection / rules برای `main` را فعال کن: review اجباری، گیت‌های مشخص CI، ابطال تأییدهای کهنه پس از push و محدودکردن direct push/bypass.
+4. پس از تغییر کد و هر ادغام مجاز، کل زنجیرهٔ شواهد G13 را روی SHA دقیق `main` تازه‌سازی کن؛ موفقیت PR SHA جایگزین این کار نیست.
+5. پیش از هر Demo کنترل‌شده، مرز اجرای سرویس در Windows Session 0 در برابر ترمینال تعاملی صاحب حساب MT5 را با بررسی صرفاً مجاز و read-only تأیید کن.
+
+### مرزهای ایمنی پایدار
+- Kill Switch روی `DENY` بماند.
+- `DemoTradingAuthorized=false` بماند تا قرارداد مجوز مستقل و معتبر تعیین و به‌طور رسمی تصویب شود.
+- Live غیرفعال بماند.
+- سرویس طولانی‌مدت Control Plane اجرا نشود و در این نوبت سفارش broker ارسال نشد.
+- از Grant، packet، امضا، تأیید انسانی یا دادهٔ معاملاتی ساختگی استفاده نشود.
+
+---
+
+پایان افزودهٔ گفت‌وگوی ۱۷ اکتبر ۲۰۲۶؛ محتوای بخش‌های قبلی بدون حذف حفظ شد.
