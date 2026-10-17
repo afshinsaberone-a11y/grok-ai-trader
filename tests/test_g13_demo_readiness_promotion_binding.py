@@ -212,3 +212,12 @@ def test_static_lint_freshness_reuses_only_unchanged_ancestor():
         "tools",
     ):
         assert audited_path in freshness
+
+
+def test_readiness_requires_runtime_probe_from_exact_current_main_sha():
+    workflow = Path(
+        ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
+    ).read_text(encoding="utf-8")
+
+    assert 'runtime_id="$(latest_success_exact "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml" "$MAIN_SHA")"' in workflow
+    assert 'if [ "$key" = "RUNTIME" ] || [ "$key" = "SAFETY" ]' in workflow
