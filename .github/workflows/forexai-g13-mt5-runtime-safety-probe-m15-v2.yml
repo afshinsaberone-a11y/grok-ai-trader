@@ -153,6 +153,9 @@ jobs:
           }
           New-Item -ItemType Directory -Path $portableBase -Force | Out-Null
           New-Item -ItemType Directory -Path $portableRoot -Force | Out-Null
+          # Publish the cleanup target immediately, so cleanup still runs if any
+          # later copy/config step fails halfway through.
+          "G13_ISOLATED_MT5_ROOT=$portableRoot" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
           # A second terminal must not share the existing executable directory.
           # Use a run-unique writable copy and avoid copying user chart profiles,
