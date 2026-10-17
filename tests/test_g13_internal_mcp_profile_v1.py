@@ -149,7 +149,10 @@ def test_compile_parity_workflow_disables_only_its_profile_mcp_before_launch():
     assert launch_step.index(helper_call) < launch_step.index("New-ScheduledTaskPrincipal")
     # Start a dedicated portable copy in the logged-on user's desktop session.
     assert "New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive" in launch_step
-    assert "G13_INTERACTIVE_MT5_REQUIRED" in launch_step
+    assert "$desktopShells = @(Get-CimInstance Win32_Process -Filter \"Name='explorer.exe'\"" in launch_step
+    assert "G13_INTERACTIVE_MT5_SESSION_REQUIRED" in launch_step
+    assert "G13_MT5_SESSION_RESOLUTION_SOURCE=desktop_shell" in launch_step
+    assert "refusing Session 0 launch" in launch_step
     assert "G13_PORTABLE_RUNTIME_PATH_REJECTED" in launch_step
     assert "G13_PARITY_TASK_NAME=$taskName" in launch_step
     assert "MT5_EXTERNAL_BARE_TERMINAL_PRESERVED" in launch_step
