@@ -191,9 +191,35 @@ jobs:
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
           try {
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
-            $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
-            if (-not $start.WaitForExit(15000)) { Stop-Process -Id $start.Id -Force -ErrorAction SilentlyContinue; throw 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT' }
-            if ($start.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_OFF_TASK_START_FAILED' }
+            $startStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_off-task-start.stdout.txt"
+            $startStderrPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_off-task-start.stderr.txt"
+            Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
+            $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -RedirectStandardOutput $startStdoutPath -RedirectStandardError $startStderrPath -PassThru
+            if (-not $start.WaitForExit(15000)) {
+              Stop-Process -Id $start.Id -Force -ErrorAction SilentlyContinue
+              Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT=true'
+              throw 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT'
+            }
+            $startStdoutText = if (Test-Path -LiteralPath $startStdoutPath) { (Get-Content -LiteralPath $startStdoutPath -Raw).Trim() } else { '' }
+            $startStderrText = if (Test-Path -LiteralPath $startStderrPath) { (Get-Content -LiteralPath $startStderrPath -Raw).Trim() } else { '' }
+            if ($startStdoutText.Length -gt 2000) { $startStdoutText = $startStdoutText.Substring(0,2000) }
+            if ($startStderrText.Length -gt 2000) { $startStderrText = $startStderrText.Substring(0,2000) }
+            Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_EXIT_CODE=$($start.ExitCode)"
+            Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_STDOUT=$startStdoutText"
+            Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_STDERR=$startStderrText"
+            Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
+            if ($start.ExitCode -ne 0) {
+              try {
+                $scheduledTask = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_STATE=$($scheduledTask.State)"
+                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_LAST_RUN_TIME=$($taskInfo.LastRunTime.ToString('o'))"
+                Write-Host ("G13_RUNTIME_AUTH_OFF_TASK_LAST_RESULT=0x{0:X8}" -f [uint32]$taskInfo.LastTaskResult)
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_ERROR=$($_.Exception.Message)"
+              }
+              throw "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$($start.ExitCode)"
+            }
             Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_STARTED=true'
 
             $startedAt = Get-Date
@@ -280,9 +306,35 @@ jobs:
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
           try {
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
-            $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
-            if (-not $start.WaitForExit(15000)) { Stop-Process -Id $start.Id -Force -ErrorAction SilentlyContinue; throw 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT' }
-            if ($start.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_ON_TASK_START_FAILED' }
+            $startStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-start.stdout.txt"
+            $startStderrPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-start.stderr.txt"
+            Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
+            $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -RedirectStandardOutput $startStdoutPath -RedirectStandardError $startStderrPath -PassThru
+            if (-not $start.WaitForExit(15000)) {
+              Stop-Process -Id $start.Id -Force -ErrorAction SilentlyContinue
+              Write-Host 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT=true'
+              throw 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT'
+            }
+            $startStdoutText = if (Test-Path -LiteralPath $startStdoutPath) { (Get-Content -LiteralPath $startStdoutPath -Raw).Trim() } else { '' }
+            $startStderrText = if (Test-Path -LiteralPath $startStderrPath) { (Get-Content -LiteralPath $startStderrPath -Raw).Trim() } else { '' }
+            if ($startStdoutText.Length -gt 2000) { $startStdoutText = $startStdoutText.Substring(0,2000) }
+            if ($startStderrText.Length -gt 2000) { $startStderrText = $startStderrText.Substring(0,2000) }
+            Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_EXIT_CODE=$($start.ExitCode)"
+            Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_STDOUT=$startStdoutText"
+            Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_STDERR=$startStderrText"
+            Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
+            if ($start.ExitCode -ne 0) {
+              try {
+                $scheduledTask = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+                Write-Host "G13_RUNTIME_AUTH_ON_TASK_STATE=$($scheduledTask.State)"
+                Write-Host "G13_RUNTIME_AUTH_ON_TASK_LAST_RUN_TIME=$($taskInfo.LastRunTime.ToString('o'))"
+                Write-Host ("G13_RUNTIME_AUTH_ON_TASK_LAST_RESULT=0x{0:X8}" -f [uint32]$taskInfo.LastTaskResult)
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_ERROR=$($_.Exception.Message)"
+              }
+              throw "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$($start.ExitCode)"
+            }
             Write-Host 'G13_RUNTIME_AUTH_ON_TASK_STARTED=true'
 
             $startedAt = Get-Date
