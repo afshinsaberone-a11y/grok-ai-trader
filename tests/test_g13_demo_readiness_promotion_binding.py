@@ -327,3 +327,15 @@ def test_compile_guard_embedded_candidate_parity_resolver_executes_fail_closed_s
         )
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == expected
+
+def test_runtime_probe_is_dispatch_only_to_preserve_main_mt5_ordering():
+    workflow = Path(
+        ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
+    ).read_text(encoding="utf-8")
+    trigger_block = workflow.split("\npermissions:", 1)[0]
+
+    # Only the official main watchdog may queue this single-runner probe, and
+    # it dispatches after current-main Compile + Signal Parity succeeds.
+    assert "  workflow_dispatch:\n" in trigger_block
+    assert "\n  push:" not in trigger_block
+    assert "workflow_run:" not in trigger_block
