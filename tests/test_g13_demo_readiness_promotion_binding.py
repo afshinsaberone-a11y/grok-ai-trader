@@ -190,3 +190,27 @@ def test_preflight_candidate_hash_mismatch_fails():
             main_head_sha="main-sha",
             promoted_ids=tuple(_preflight()["candidate_ids"]),
         )
+
+
+def test_static_lint_freshness_is_sha_and_source_bound():
+    workflow = Path(
+        ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
+    ).read_text(encoding="utf-8")
+
+    # Reuse an older successful lint only when it is on main, is an ancestor,
+    # and the audited G13/source/test areas have not changed since that run.
+    assert 'latest_success "forexai-g13-workflow-lint.yml"' in workflow
+    assert 'latest_success_exact "forexai-g13-workflow-lint.yml" "$MAIN_SHA"' not in workflow
+    assert 'git merge-base --is-ancestor "$LINT_HEAD_SHA" "$MAIN_HEAD_SHA"' in workflow
+    freshness_start = workflow.index("      - name: Verify static validation freshness")
+    freshness_end = workflow.index("      - name: Run readiness gate", freshness_start)
+    freshness = workflow[freshness_start:freshness_end]
+    for path_fragment in (
+        ".github/workflows",
+        ".github/actionlint.yaml",
+        "research/optimization",
+        "research/real_data",
+        "tests",
+        "tools",
+    ):
+        assert path_fragment in freshness
