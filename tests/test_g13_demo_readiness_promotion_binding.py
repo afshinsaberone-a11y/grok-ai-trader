@@ -229,8 +229,8 @@ def test_runtime_safety_probe_startup_attaches_script_to_explicit_chart():
 
     # MT5 does not start a startup Script when the current profile has no
     # chart. Force an explicit, deterministic chart for both no-order probes.
-    assert workflow.count("          Script=$scriptRel\\n") == 2
-    assert workflow.count("          Symbol=EURUSD\\n") == 2
-    assert workflow.count("          Period=M15\\n") == 2
-    assert workflow.count("          ShutdownTerminal=1\\n") == 2
+    assert workflow.count("          Script=$scriptRel\n") == 2
+    assert workflow.count("          Symbol=EURUSD\n") == 2
+    assert workflow.count("          Period=M15\n") == 2
+    assert workflow.count("          ShutdownTerminal=1\n") == 2
 
