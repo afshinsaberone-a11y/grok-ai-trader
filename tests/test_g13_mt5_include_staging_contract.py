@@ -58,6 +58,25 @@ def test_g13_diagnostics_do_not_join_optional_portable_paths_when_unset():
     assert "service_mql5_logs" in step
 
 
+def test_g13_mt5_profile_root_is_resolved_before_parity_without_writing_user_experts():
+    workflow = (
+        ROOT / ".github" / "workflows" / "forexai-g13-mt5-compile-parity.yml"
+    ).read_text(encoding="utf-8")
+    verify = workflow.split(
+        "      - name: Verify MT5 toolchain and data folder", 1
+    )[1].split(
+        "      - name: Verify MT5 script execution prerequisites", 1
+    )[0]
+    parity = workflow.split(
+        "      - name: Run MQL5 real-data parity script", 1
+    )[1].split("      - name: Collect MT5 parity diagnostics", 1)[0]
+
+    assert "$profileRoot = [System.IO.Path]::GetFullPath((Join-Path $data" in verify
+    assert "G13_MT5_PROFILE_ROOT=$profileRoot" in verify
+    assert "$env:G13_MT5_PROFILE_ROOT" in parity
+    assert "$env:MT5_DATA_ROOT" not in parity
+
+
 def test_g13_parity_uses_run_scoped_portable_terminal_in_interactive_session():
     workflow = (
         ROOT / ".github" / "workflows" / "forexai-g13-mt5-compile-parity.yml"
