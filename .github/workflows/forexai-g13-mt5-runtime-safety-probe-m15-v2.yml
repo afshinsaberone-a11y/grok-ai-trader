@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 20
     env:
       MT5_ROOT: 'C:\Program Files\MetaTrader 5'
+      MT5_DATA_ROOT: 'C:\Users\Star\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,23 +49,106 @@ jobs:
           # cannot reliably start the user's EURUSD M15 startup script.
           $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
           if (!(Test-Path -LiteralPath $resolver -PathType Leaf)) { throw 'G13_MT5_PROFILE_RESOLVER_MISSING' }
-          $resolved = @(& $resolver -TerminalPath $terminal)
-          $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
-          $ownerLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_TERMINAL_OWNER=' } | Select-Object -Last 1
-          if (-not $commonLine) { throw 'G13_MT5_COMMON_FILES_UNRESOLVED' }
-          if (-not $ownerLine) { throw 'G13_MT5_OWNER_UNRESOLVED' }
-          $common = ([string]$commonLine).Substring('G13_MT5_COMMON_FILES='.Length)
-          $interactiveAccount = ([string]$ownerLine).Substring('G13_MT5_TERMINAL_OWNER='.Length)
-          if (!(Test-Path -LiteralPath $common -PathType Container)) { throw 'G13_MT5_COMMON_FILES_MISSING' }
-          if ([string]::IsNullOrWhiteSpace($interactiveAccount) -or
-              $interactiveAccount -match '^(SYSTEM|LOCAL SERVICE|NETWORK SERVICE)$') {
-            throw 'G13_MT5_INTERACTIVE_ACCOUNT_INVALID'
-          }
+          # Prefer the actual interactive terminal owner when MT5 is open.
+          # The G13 parity job intentionally tears down its isolated portable copy,
+          # so the runtime safety probe must also support a closed MT5 desktop app.
+          $interactiveTerminals = @(Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.SessionId -gt 0 -and $_.ExecutablePath -and
+              [System.IO.Path]::GetFullPath([string]$_.ExecutablePath).Equals(
+                [System.IO.Path]::GetFullPath($terminal),
+                [System.StringComparison]::OrdinalIgnoreCase
+              )
+            })
+          if ($interactiveTerminals.Count -gt 0) {
+            $resolved = @(& $resolver -TerminalPath $terminal)
+            if ($LASTEXITCODE -ne 0) { throw 'G13_MT5_PROFILE_RESOLVER_FAILED' }
+            $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
+            $ownerLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_TERMINAL_OWNER=' } | Select-Object -Last 1
+            if (-not $commonLine) { throw 'G13_MT5_COMMON_FILES_UNRESOLVED' }
+            if (-not $ownerLine) { throw 'G13_MT5_OWNER_UNRESOLVED' }
+            $common = ([string]$commonLine).Substring('G13_MT5_COMMON_FILES='.Length)
+            $interactiveAccount = ([string]$ownerLine).Substring('G13_MT5_TERMINAL_OWNER='.Length)
+            $appData = $common -replace '[\\/]+MetaQuotes[\\/]+Terminal[\\/]+Common[\\/]+Files$', ''
+            if ([string]::IsNullOrWhiteSpace($appData) -or $appData -eq $common) { throw 'G13_MT5_APPDATA_DERIVATION_FAILED' }
+            $serviceData = Join-Path $appData 'MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
+            $scriptsRoot = Join-Path $serviceData 'MQL5\Scripts'
+            Write-Host 'MT5_PROFILE_RESOLUTION_SOURCE=INTERACTIVE_TERMINAL'
+          } else {
+            # Resolve the preconfigured terminal data directory to exactly one
+            # Windows profile, then require one logged-on Explorer session for
+            # that same profile. Never infer a user from LocalSystem APPDATA and
+            # never start a GUI terminal in Session 0.
+            $configuredDataRoot = [System.IO.Path]::GetFullPath($env:MT5_DATA_ROOT).TrimEnd('\')
+            if (!(Test-Path -LiteralPath $configuredDataRoot -PathType Container)) {
+              throw 'G13_MT5_CONFIGURED_DATA_ROOT_MISSING'
+            }
+            $terminalProfileHash = Split-Path -Leaf $configuredDataRoot
+            if ($terminalProfileHash -notmatch '^[0-9A-Fa-f]{32}$') {
+              throw 'G13_MT5_CONFIGURED_DATA_ROOT_INVALID'
+            }
+            $profileRoot = [System.IO.Path]::GetFullPath(
+              (Join-Path $configuredDataRoot '..\..\..\..\..')
+            ).TrimEnd('\')
+            $profiles = @(Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.LocalPath -and
+                [System.String]::Equals(
+                  [System.IO.Path]::GetFullPath([string]$_.LocalPath).TrimEnd('\'),
+                  $profileRoot,
+                  [System.StringComparison]::OrdinalIgnoreCase
+                )
+              })
+            if ($profiles.Count -ne 1) { throw 'G13_MT5_CONFIGURED_PROFILE_UNRESOLVED' }
 
-          $appData = $common -replace '[\\/]+MetaQuotes[\\/]+Terminal[\\/]+Common[\\/]+Files$', ''
-          if ([string]::IsNullOrWhiteSpace($appData) -or $appData -eq $common) { throw 'G13_MT5_APPDATA_DERIVATION_FAILED' }
-          $serviceData = Join-Path $appData 'MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
-          $scriptsRoot = Join-Path $serviceData 'MQL5\Scripts'
+            $explorerPath = [System.IO.Path]::GetFullPath((Join-Path $env:WINDIR 'explorer.exe'))
+            $desktopShells = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.SessionId -gt 0 -and $_.ExecutablePath -and
+                [System.IO.Path]::GetFullPath([string]$_.ExecutablePath).Equals(
+                  $explorerPath,
+                  [System.StringComparison]::OrdinalIgnoreCase
+                )
+              })
+            $matchingShells = @()
+            foreach ($shell in $desktopShells) {
+              $shellOwner = Invoke-CimMethod -InputObject $shell -MethodName GetOwner -ErrorAction SilentlyContinue
+              if ($null -eq $shellOwner -or $shellOwner.ReturnValue -ne 0 -or
+                  [string]::IsNullOrWhiteSpace([string]$shellOwner.User) -or
+                  $shellOwner.User -in @('SYSTEM','LOCAL SERVICE','NETWORK SERVICE')) {
+                continue
+              }
+              $shellAccount = "$($shellOwner.Domain)\$($shellOwner.User)"
+              try {
+                $shellSid = (New-Object System.Security.Principal.NTAccount($shellAccount)).Translate(
+                  [System.Security.Principal.SecurityIdentifier]
+                )
+              } catch {
+                continue
+              }
+              if ([string]::Equals(
+                    [string]$shellSid.Value,
+                    [string]$profiles[0].SID,
+                    [System.StringComparison]::OrdinalIgnoreCase
+                  )) {
+                $matchingShells += [PSCustomObject]@{ Process = $shell; Owner = $shellOwner }
+              }
+            }
+            $matchingSessions = @($matchingShells | ForEach-Object { [int]$_.Process.SessionId } | Sort-Object -Unique)
+            if ($matchingSessions.Count -ne 1) {
+              throw 'G13_MT5_INTERACTIVE_DESKTOP_REQUIRED'
+            }
+            $interactiveShell = $matchingShells |
+              Where-Object { [int]$_.Process.SessionId -eq [int]$matchingSessions[0] } |
+              Sort-Object { [DateTime]$_.Process.CreationDate } -Descending |
+              Select-Object -First 1
+            $interactiveAccount = "$($interactiveShell.Owner.Domain)\$($interactiveShell.Owner.User)"
+            $appData = Join-Path ([string]$profiles[0].LocalPath) 'AppData\Roaming'
+            $common = Join-Path $appData 'MetaQuotes\Terminal\Common\Files'
+            $serviceData = $configuredDataRoot
+            $scriptsRoot = Join-Path $serviceData 'MQL5\Scripts'
+            Write-Host 'MT5_PROFILE_RESOLUTION_SOURCE=CONFIGURED_PROFILE_MATCHING_DESKTOP'
+          }
           foreach ($p in @($serviceData,$scriptsRoot)) {
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw 'G13_MT5_USER_PROFILE_SCRIPT_PATH_MISSING' }
           }
