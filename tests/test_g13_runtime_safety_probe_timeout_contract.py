@@ -82,29 +82,30 @@ def test_missing_marker_emits_redacted_startup_diagnostics():
         assert "orders_expected = $false" in step
 
 
-def test_scheduler_start_failure_captures_bounded_cli_and_task_state_diagnostics():
+def test_scheduler_start_failure_is_diagnostic_until_marker_timeout():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     pairs = (
-        ("Run Auth OFF probe", "Run Auth ON probe", "AUTH_OFF"),
-        ("Run Auth ON probe", "Evaluate runtime evidence", "AUTH_ON"),
+        ("Run Auth OFF probe", "Run Auth ON probe", "OFF"),
+        ("Run Auth ON probe", "Evaluate runtime evidence", "ON"),
     )
     for name, next_name, mode in pairs:
         step = _step(workflow, name, next_name)
-        assert f"G13_RUNTIME_{mode}_TASK_START_FAILED_EXIT_" in step
-        assert f"G13_RUNTIME_{mode}_TASK_QUERY_ERROR=" in step
-        assert f"G13_RUNTIME_{mode}_TASK_START_TIMEOUT=true" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_EXIT_NONZERO" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_STDOUT=$startStdoutText" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_STDERR=$startStderrText" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_TASK_START_REQUEST_RETURNED=true" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_MARKER_MISSING" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_TASK_START_TIMEOUT=true" in step
         assert "Remove-Item -LiteralPath $startStdoutPath,$startStderrPath" in step
         assert "raw_task_config_exported = $false" in step
 
-    # Diagnostics must never flip a failed task launch into a passing runtime
-    # probe: the start failure remains a terminating error and the marker check
-    # remains the final source of success.
-    assert "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$startExitCode" in workflow
-    assert "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$startExitCode" in workflow
+    # A launcher status cannot replace the unique result marker or bypass
+    # account, Demo, no-order, and kill-switch checks.
+    assert "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$startExitCode" not in workflow
+    assert "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$startExitCode" not in workflow
     assert "G13_RUNTIME_AUTH_OFF_MARKER_MISSING" in workflow
     assert "G13_RUNTIME_AUTH_ON_MARKER_MISSING" in workflow
-
 
 def test_scheduler_output_diagnostics_tolerate_empty_files():
     workflow = WORKFLOW.read_text(encoding="utf-8")
