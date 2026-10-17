@@ -388,3 +388,42 @@ PR: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227
 - فقط پس از شواهد تازه و موفق Runtime + Preflight + Readiness، بررسی اجرای کنترل‌شدهٔ Demo. Live همچنان قفل.
 
 هیچ ledger event، کلید، envelope، Grant یا مجوز ساختگی ایجاد نشده است. Kill Switch روی `DENY`، Demo authorization برابر false و Live غیرفعال باقی می‌مانند؛ در این مرحله سفارشی به کارگزار ارسال نمی‌شود.
+
+
+---
+
+## ۱۴. تشخیص گلوگاه Compile/Parity و اصلاح نشست تعاملی — ۱۷ اکتبر ۲۰۲۶
+
+این بخش جدید است و فقط به انتهای آرشیو اضافه می‌شود؛ هیچ پیام، نتیجه یا بخشی از سابقهٔ قبلی حذف یا بازنویسی نشده است.
+
+### تشخیص تأییدشده از لاگ واقعی
+
+زنجیرهٔ G13 روی SHA `a4b635f941c5ab81b60170eb170c2648d14a0f45`:
+- Validation: [39056177263](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056177263) — موفق.
+- Robustness: [39056179645](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056179645) — موفق.
+- OOS: [39056730957](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056730957) — موفق.
+- Final Promotion: [39056884053](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056884053) — موفق.
+- Execution Safety Audit: [39056967411](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056967411) — موفق.
+- MT5 Compile + Signal Parity: [39057009024](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39057009024) — شکست در مرحلهٔ اجرای MQL5 parity harness.
+
+متن خطای قطعی لاگ:
+`G13_INTERACTIVE_MT5_REQUIRED: no MT5 process exists in a logged-on interactive session; refusing Session 0 launch`
+
+در همان اجرا، دریافت و تطبیق digest artifact پروموشن، ساخت EAهای فریز‌شده، کامپایل MetaEditor و آماده‌سازی دادهٔ EURUSD M15 موفق بود. گیت parity پایتون/‌MQL5 به‌درستی skipped شد چون harness در نشست تعاملی شروع نشده بود. بنابراین این شکست را نباید به اختلاف سیگنال یا کیفیت داده نسبت داد؛ parity هنوز اجرا نشده بود.
+
+### اصلاح پیشنهادی روی شاخهٔ مستقل
+
+PR [#279](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/279) شاخهٔ `fix/g13-parity-launch-from-active-desktop-session`:
+- اگر MT5 از قبل در نشست تعاملی فعال باشد، هویت همان ترمینال ترجیح داده می‌شود.
+- اگر MT5 بسته باشد، هویت کاربر از مسیر `MT5_DATA_ROOT` حل می‌شود و فقط `explorer.exe` تعاملی متعلق به همان پروفایل مجاز است.
+- اگر نشست کاربر پیدا نشود یا مبهم باشد، workflow fail-closed باقی می‌ماند و Session 0 هرگز جایگزین نمی‌شود.
+- ترمینال portable مخصوص همان run، مجزا از MT5 اصلی و با `AllowLiveTrading=0` اجرا می‌شود؛ شرط marker شروع/اتمام و parity تغییر نمی‌کند.
+- دو تست قراردادی برای fallback نشست کاربر به‌روز شده‌اند.
+
+این اصلاح هنوز **تأیید عملی روی Runner نیست**. CI باید روی head نهایی PR سبز شود و پس از ادغام، زنجیرهٔ exact-SHA جدید باید markerهای تازه و parity موفق تولید کند.
+
+### موانع مستقل مجوز
+
+Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) همچنان باز است: ورودی‌های معتبر TradeLedger/envelope، admission امضاشدهٔ تازه، کلیدهای مورد اعتماد و منبع‌های مستقل Promotion/Signal/Risk/Operator هنوز باید از محیط‌های واقعی تأمین و تأیید شوند. هیچ کلید، attestation، reservation، Grant یا مجوزی جعل نشده است.
+
+حالت ایمنی حفظ شده: سفارش جدید ارسال نشده؛ Kill Switch باید `DENY` بماند؛ Demo تا تأیید مستقل مجوز فعال نمی‌شود و Live قفل است.
