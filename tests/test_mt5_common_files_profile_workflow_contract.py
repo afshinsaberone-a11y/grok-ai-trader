@@ -109,6 +109,10 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert workflow.count("finally {") >= 2
     assert workflow.count("$taskCreatedAt = (Get-Date).AddSeconds(-2)") == 2
     assert workflow.count("$info.LastRunTime -gt $taskCreatedAt -and $info.LastTaskResult -ne 0") == 2
+    assert workflow.count('Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-') == 2
+    assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-off.ini'" not in workflow
+    assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-on.ini'" not in workflow
+    assert workflow.count("Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue") == 2
     assert "Stop-ScheduledTask -TaskName $taskName" in workflow
     assert "Unregister-ScheduledTask -TaskName $taskName -Confirm:$false" in workflow
     assert "$proc=Start-Process" not in workflow
