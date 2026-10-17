@@ -140,12 +140,16 @@ jobs:
                 exit 1
               fi
               pr_payload="$(gh api "repos/$repo/actions/runs?head_sha=$CANDIDATE_SHA&per_page=100")"
-              pr_state="$(printf '%s' "$pr_payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI Control Plane PR Real-Data Parity" and r.get("workflow_id")==385709004 and r.get("event")=="pull_request" and r.get("head_sha")==target]; latest=max(rs,key=lambda x:x["id"]) if rs else None; print(("COMPLETED|"+str(latest["id"])+"|"+str(latest.get("conclusion") or "unknown")) if latest and latest.get("status")=="completed" else ("PENDING" if latest else "NOT_STARTED"))' "$CANDIDATE_SHA")"
+              pr_state="$(printf '%s' "$pr_payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI Control Plane PR Real-Data Parity" and r.get("workflow_id")==385709004 and r.get("event")=="pull_request" and r.get("head_sha")==target]; latest=max(rs,key=lambda x:x["id"]) if rs else None; print(("SUCCESS|"+str(latest["id"])) if latest and latest.get("status")=="completed" and latest.get("conclusion")=="success" else (("FAILED|"+str(latest["id"])+"|"+str(latest.get("conclusion") or "unknown")) if latest and latest.get("status")=="completed" else ("PENDING" if latest else "NOT_STARTED"))' "$CANDIDATE_SHA")"
               case "$pr_state" in
-                COMPLETED\|*)
-                  pr_parity_id="${pr_state#COMPLETED|}"
-                  echo "MT5_COMPILE_GUARD_CANDIDATE_PARITY_COMPLETED state=$pr_state"
+                SUCCESS\|*)
+                  pr_parity_id="${pr_state#SUCCESS|}"
+                  echo "MT5_COMPILE_GUARD_CANDIDATE_PARITY_SUCCESS run=$pr_parity_id sha=$CANDIDATE_SHA"
                   break
+                  ;;
+                FAILED\|*)
+                  echo "MT5_COMPILE_GUARD_CANDIDATE_PARITY_FAILED state=$pr_state"
+                  exit 1
                   ;;
                 PENDING|NOT_STARTED)
                   echo "MT5_COMPILE_GUARD_WAITING_FOR_CANDIDATE_PARITY attempt=$pr_attempt state=$pr_state"

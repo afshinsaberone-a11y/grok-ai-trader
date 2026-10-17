@@ -234,6 +234,9 @@ def test_mt5_runner_waits_for_exact_candidate_parity_before_diagnostic_compile()
     assert "group: forexai-control-plane-pr-real-data-parity-pull_request-" in parity_workflow
     assert "CANDIDATE_SHA: ${{ github.event_name == 'pull_request'" in compile_workflow
     assert 'get("workflow_id")==385709004' in compile_workflow
+    assert '"SUCCESS|"+str(latest["id"])' in compile_workflow
+    assert '"FAILED|"+str(latest["id"])' in compile_workflow
+    assert "MT5_COMPILE_GUARD_CANDIDATE_PARITY_FAILED" in compile_workflow
     assert "MT5_COMPILE_GUARD_WAITING_FOR_CANDIDATE_PARITY" in compile_workflow
     assert "MT5_COMPILE_GUARD_RUNNER_SLOT_ORDER=MAIN_PARITY_THEN_CANDIDATE_PARITY_THEN_DIAGNOSTIC_COMPILE" in compile_workflow
     assert "timeout-minutes: 85" in compile_workflow
