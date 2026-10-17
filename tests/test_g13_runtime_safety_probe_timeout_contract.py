@@ -27,8 +27,9 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
         assert f"G13_RUNTIME_{label}_TASK_START_TIMEOUT" in step
         assert "$deadline = $startedAt.AddSeconds(180)" in step
         assert f"G13_RUNTIME_{label}_WAITING_FOR_MARKER" in step
-        # One bounded query timeout plus one task-cleanup timeout per probe.
-        assert step.count("WaitForExit(10000)") == 2
+        # One bounded marker-time diagnostic query, one launcher-failure query,
+        # and one bounded task-cleanup call per probe.
+        assert step.count("WaitForExit(10000)") == 3
         assert "Start-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTaskInfo -TaskName $taskName" not in step
@@ -65,7 +66,16 @@ def test_missing_marker_emits_redacted_startup_diagnostics():
         assert f"mode = '{mode}'" in step
         assert f"G13_RUNTIME_{mode}_MARKER_MISSING" in step
         assert "startup_config_present =" in step
+        assert "startup_config_contains_expected_script =" in step
         assert "probe_ex5_present =" in step
+        assert "scheduled_task_state = $taskState" in step
+        assert "scheduled_task_last_result = $taskLastResult" in step
+        assert "terminal_process_interactive_session_count =" in step
+        assert "recent_terminal_log_mentions_probe =" in step
+        assert "recent_terminal_log_mentions_script_failure =" in step
+        assert "recent_terminal_log_mentions_existing_instance =" in step
+        assert "recent_terminal_log_mentions_config_failure =" in step
+        assert "recent_terminal_log_mentions_login_failure =" in step
         assert "raw_terminal_logs_exported = $false" in step
         assert "raw_task_query_exported = $false" in step
         assert "raw_task_config_exported = $false" in step
