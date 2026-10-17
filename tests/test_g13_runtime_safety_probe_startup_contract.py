@@ -31,8 +31,8 @@ def test_runtime_probe_uses_extensionless_mt5_startup_script_names():
 
 def test_runtime_probe_resolves_configured_profile_when_mt5_is_closed():
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    start = workflow.index("      - name: Resolve MT5 service paths\\n")
-    end = workflow.index("      - name: Static no-order preflight\\n", start)
+    start = workflow.index("      - name: Resolve MT5 service paths\n")
+    end = workflow.index("      - name: Static no-order preflight\n", start)
     step = workflow[start:end]
 
     assert """$interactiveTerminals = @(Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'")""" in step
