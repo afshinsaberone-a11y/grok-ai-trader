@@ -46,9 +46,9 @@ jobs:
           # Resolve the actual terminal owner's profile. The runner service is
           # LocalSystem/Session 0, so launching the probe in its own identity
           # cannot reliably start the user's EURUSD M15 startup script.
-          $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
+          $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_runtime_profile_v1.ps1'
           if (!(Test-Path -LiteralPath $resolver -PathType Leaf)) { throw 'G13_MT5_PROFILE_RESOLVER_MISSING' }
-          $resolved = @(& $resolver -TerminalPath $terminal)
+          $resolved = @(& $resolver -TerminalPath $terminal -DataDirectoryName 'D0E8209F77C8CF37AD8BF550E51FF075')
           $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
           $ownerLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_TERMINAL_OWNER=' } | Select-Object -Last 1
           if (-not $commonLine) { throw 'G13_MT5_COMMON_FILES_UNRESOLVED' }
