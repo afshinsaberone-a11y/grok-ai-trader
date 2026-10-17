@@ -96,6 +96,15 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert "tools\\resolve_mt5_common_files_v1.ps1" in workflow
     assert "$resolved = @(& $resolver -TerminalPath $terminal)" in workflow
     assert "^G13_MT5_COMMON_FILES=" in workflow
+    assert "^G13_MT5_TERMINAL_OWNER=" in workflow
     assert "$appData = $common -replace" in workflow
     assert "$appData = $env:APPDATA" not in workflow
+    assert '"G13_MT5_INTERACTIVE_ACCOUNT=$interactiveAccount" | Out-File $env:GITHUB_ENV' in workflow
     assert "MT5_PROFILE_RESOLUTION=PASS" in workflow
+    # Runtime scripts must run in the terminal owner's logged-on interactive
+    # session, not Session 0; both configs retain no-live/no-order invariants.
+    assert workflow.count("New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive") == 2
+    assert workflow.count("AllowLiveTrading=0") == 2
+    assert workflow.count("orders_submitted,false") >= 2
+    assert workflow.count("finally {") >= 2
+    assert "$proc=Start-Process" not in workflow
