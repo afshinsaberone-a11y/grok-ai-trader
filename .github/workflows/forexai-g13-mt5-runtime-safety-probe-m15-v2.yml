@@ -75,8 +75,10 @@ jobs:
           "MT5_COMMON_FILES=$common" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "MT5_SCRIPTS_ROOT=$scriptsRoot" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "G13_MT5_INTERACTIVE_ACCOUNT=$interactiveAccount" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "G13_AUTH_OFF_SCRIPT=G13_Safety_Probe_AuthOff_$($env:GITHUB_RUN_ID).ex5" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "G13_AUTH_ON_SCRIPT=G13_Safety_Probe_AuthOn_$($env:GITHUB_RUN_ID).ex5" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          # MT5 [StartUp] Script uses a path relative to MQL5\Scripts without the .ex5 suffix.
+          # Keep the compiled artifact name separate from the config's script identifier.
+          "G13_AUTH_OFF_SCRIPT=G13_Safety_Probe_AuthOff_$($env:GITHUB_RUN_ID)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "G13_AUTH_ON_SCRIPT=G13_Safety_Probe_AuthOn_$($env:GITHUB_RUN_ID)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host 'MT5_PROFILE_RESOLUTION=PASS'
           Write-Host 'MT5_RUNTIME_PROBE_LAUNCH_MODE=ISOLATED_PORTABLE_INTERACTIVE_TASK'
 
@@ -180,12 +182,12 @@ jobs:
             throw "MT5 Scripts destination missing: $env:MT5_SCRIPTS_ROOT"
           }
           $pairs = @(
-            @{ Source='G13_Safety_Probe_AuthOff'; Dest=$env:G13_AUTH_OFF_SCRIPT },
-            @{ Source='G13_Safety_Probe_AuthOn'; Dest=$env:G13_AUTH_ON_SCRIPT }
+            @{ Source='G13_Safety_Probe_AuthOff'; ScriptBase=$env:G13_AUTH_OFF_SCRIPT },
+            @{ Source='G13_Safety_Probe_AuthOn'; ScriptBase=$env:G13_AUTH_ON_SCRIPT }
           )
           foreach ($pair in $pairs) {
             $src = Join-Path $env:GITHUB_WORKSPACE ('artifacts\g13\safety_probe_build\' + $pair.Source + '.ex5')
-            $dst = Join-Path $env:MT5_SCRIPTS_ROOT $pair.Dest
+            $dst = Join-Path $env:MT5_SCRIPTS_ROOT ($pair.ScriptBase + '.ex5')
             if (!(Test-Path -LiteralPath $src -PathType Leaf)) { throw "Probe EX5 missing: $src" }
             Copy-Item -LiteralPath $src -Destination $dst -Force
             $srcHash=(Get-FileHash $src -Algorithm SHA256).Hash
