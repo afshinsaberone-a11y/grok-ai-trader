@@ -29,6 +29,7 @@ jobs:
     env:
       PYTHONUNBUFFERED: "1"
       TERMINAL_PATH: ${{ inputs.terminal_path }}
+      MT5_DATA_ROOT: 'C:\Users\Star\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
       FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY: ${{ vars.FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY }}
       FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT: ${{ vars.FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT }}
       OPERATOR_CONFIRMATION: ${{ inputs.confirmation }}
@@ -54,12 +55,11 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
+          $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_profile_or_desktop_v1.ps1'
           if (!(Test-Path -LiteralPath $resolver -PathType Leaf)) {
             throw 'CONTROL_PLANE_MT5_PROFILE_RESOLVER_MISSING'
           }
-          $resolverOutput = & $resolver -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch
-          $resolverExit = $LASTEXITCODE
+          $resolverOutput = & $resolver -TerminalPath "$env:TERMINAL_PATH" -DataRoot "$env:MT5_DATA_ROOT" -SetDenyKillSwitch
           $resolverOutput | ForEach-Object {
             $line = [string]$_
             if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
@@ -67,7 +67,6 @@ jobs:
             elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
             else { Write-Output $line }
           }
-          if ($resolverExit -ne 0) { throw 'CONTROL_PLANE_MT5_PROFILE_RESOLUTION_FAILED' }
 
       - name: Require configured paths and trusted account binding
         shell: powershell

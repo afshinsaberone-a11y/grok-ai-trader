@@ -29,6 +29,7 @@ jobs:
       PYTHONUNBUFFERED: "1"
       CANDIDATE_ID: ${{ inputs.candidate_id }}
       TERMINAL_PATH: ${{ inputs.terminal_path }}
+      MT5_DATA_ROOT: 'C:\Users\Star\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
     steps:
       - name: Checkout exact revision
         uses: actions/checkout@v4
@@ -60,7 +61,7 @@ jobs:
           }
           $preflightReport | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encoding utf8
           try {
-            & (Join-Path $env:GITHUB_WORKSPACE 'tools\\resolve_mt5_common_files_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -SetDenyKillSwitch |
+            & (Join-Path $env:GITHUB_WORKSPACE 'tools\\resolve_mt5_profile_or_desktop_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -DataRoot "$env:MT5_DATA_ROOT" -SetDenyKillSwitch |
               ForEach-Object {
                 $line = [string]$_
                 if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
@@ -92,6 +93,15 @@ jobs:
               '^G13_KILL_SWITCH_INITIAL_DENY_FAILED:' { 'KILL_SWITCH_DENY_WRITE_FAILED'; break }
               '^G13_KILL_SWITCH_INITIAL_DENY_VERIFICATION_FAILED$' { 'KILL_SWITCH_DENY_VERIFY_FAILED'; break }
               '^G13_MT5_COMMON_FILES_WRITE_ACCESS_DENIED:' { 'COMMON_FILES_WRITE_ACCESS_DENIED'; break }
+              '^G13_MT5_CONFIGURED_DATA_ROOT_MISSING$' { 'CONFIGURED_DATA_ROOT_MISSING'; break }
+              '^G13_MT5_CONFIGURED_PROFILE_ROOT_MISSING$' { 'CONFIGURED_PROFILE_ROOT_MISSING'; break }
+              '^G13_MT5_CONFIGURED_PROFILE_UNRESOLVED$' { 'CONFIGURED_PROFILE_UNRESOLVED'; break }
+              '^G13_MT5_INTERACTIVE_SESSION_REQUIRED' { 'INTERACTIVE_SESSION_REQUIRED'; break }
+              '^G13_MT5_COMMON_FILES_PATH_MISMATCH$' { 'COMMON_FILES_PATH_MISMATCH'; break }
+              '^G13_MT5_COMMON_FILES_PATH_INVALID$' { 'COMMON_FILES_PATH_INVALID'; break }
+              '^G13_MT5_INTERACTIVE_PROFILE_RESOLUTION_FAILED$' { 'INTERACTIVE_PROFILE_RESOLUTION_FAILED'; break }
+              '^G13_MT5_PROFILE_RESOLUTION_FAILED$' { 'MT5_PROFILE_RESOLUTION_FAILED'; break }
+              '^G13_MT5_INTERACTIVE_PROFILE_OUTPUT_INCOMPLETE$' { 'INTERACTIVE_PROFILE_OUTPUT_INCOMPLETE'; break }
               default { 'UNCLASSIFIED_RESOLVER_FAILURE' }
             }
             $preflightReport.status = 'BLOCKED'
