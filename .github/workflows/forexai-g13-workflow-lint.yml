@@ -33,6 +33,7 @@ on:
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_runtime_safety_probe_startup_contract.py'
       - 'tests/test_g13_runtime_safety_probe_timeout_contract.py'
+      - 'tests/test_g13_runtime_probe_v1_trigger_contract.py'
       - 'tests/test_g13_real_data_provenance.py'
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
@@ -74,6 +75,7 @@ on:
       - 'tests/test_g13_demo_readiness_promotion_binding.py'
       - 'tests/test_g13_runtime_safety_probe_startup_contract.py'
       - 'tests/test_g13_runtime_safety_probe_timeout_contract.py'
+      - 'tests/test_g13_runtime_probe_v1_trigger_contract.py'
       - 'tests/test_g13_demo_package_manifest_builder.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
       - 'tests/test_g13_oos_watchdog_contract.py'
@@ -131,6 +133,9 @@ jobs:
       - name: Test G13 runtime probe startup, timeout and identity contracts
         run: python -m pytest -q tests/test_g13_runtime_safety_probe_startup_contract.py tests/test_g13_runtime_safety_probe_timeout_contract.py tests/test_g13_demo_readiness_promotion_binding.py
 
+      - name: Test legacy runtime probe trigger and shared runner lock
+        run: python -m pytest -q tests/test_g13_runtime_probe_v1_trigger_contract.py
+
       - name: Test Capital Firewall Grant issuer and host preflight contracts
         run: |
           python -m py_compile tools/capital_firewall_grant_issuer_v1.py tools/capital_firewall_host_preflight_v1.py
@@ -169,6 +174,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-execution-safety-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-demo-readiness-gate-m15.yml
           ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml
+          ./actionlint .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml
           ./actionlint .github/workflows/forexai-g13-preflight-dispatcher-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-audit-m15.yml
