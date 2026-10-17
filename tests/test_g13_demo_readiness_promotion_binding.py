@@ -190,3 +190,25 @@ def test_preflight_candidate_hash_mismatch_fails():
             main_head_sha="main-sha",
             promoted_ids=tuple(_preflight()["candidate_ids"]),
         )
+
+
+def test_static_lint_freshness_reuses_only_unchanged_ancestor():
+    workflow = Path(
+        ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
+    ).read_text(encoding="utf-8")
+
+    assert 'latest_success "forexai-g13-workflow-lint.yml"' in workflow
+    assert 'latest_success_exact "forexai-g13-workflow-lint.yml" "$MAIN_SHA"' not in workflow
+    assert 'git merge-base --is-ancestor "$LINT_HEAD_SHA" "$MAIN_HEAD_SHA"' in workflow
+    start = workflow.index("      - name: Verify static validation freshness")
+    end = workflow.index("      - name: Run readiness gate", start)
+    freshness = workflow[start:end]
+    for audited_path in (
+        ".github/workflows",
+        ".github/actionlint.yaml",
+        "research/optimization",
+        "research/real_data",
+        "tests",
+        "tools",
+    ):
+        assert audited_path in freshness
