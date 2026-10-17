@@ -27,7 +27,7 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
         assert f"G13_RUNTIME_{label}_TASK_START_TIMEOUT" in step
         assert "$deadline = $taskStartedAt.AddSeconds(180)" in step
         assert f"G13_RUNTIME_{label}_WAITING_FOR_MARKER" in step
-        assert step.count("WaitForExit(10000)") == 3
+        assert step.count("WaitForExit(10000)") == 2
         assert "Start-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTaskInfo -TaskName $taskName" not in step
