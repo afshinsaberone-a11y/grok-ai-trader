@@ -29,15 +29,20 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
         assert f"G13_RUNTIME_{label}_WAITING_FOR_MARKER" in step
         assert step.count("WaitForExit(10000)") == 1
         assert "Start-ScheduledTask -TaskName $taskName" not in step
-        assert "Get-ScheduledTask -TaskName $taskName" in step
-        assert "Get-ScheduledTaskInfo -TaskName $taskName" in step
+        assert "Get-ScheduledTask -TaskName $taskName" not in step
+        assert "Get-ScheduledTaskInfo -TaskName $taskName" not in step
         assert "-RedirectStandardOutput $startStdoutPath -RedirectStandardError $startStderrPath" in step
+        assert "-ArgumentList @('/Query','/TN',$taskName,'/FO','LIST')" in step
+        assert "WaitForExit(10000)" in step
         assert f"G13_RUNTIME_{label}_TASK_START_EXIT_CODE" in step
         assert f"G13_RUNTIME_{label}_TASK_START_STDOUT" in step
         assert f"G13_RUNTIME_{label}_TASK_START_STDERR" in step
-        assert f"G13_RUNTIME_{label}_TASK_STATE" in step
-        assert f"G13_RUNTIME_{label}_TASK_LAST_RUN_TIME" in step
-        assert f"G13_RUNTIME_{label}_TASK_LAST_RESULT=0x{{0:X8}}" in step
+        assert f"G13_RUNTIME_{label}_TASK_QUERY_EXIT_CODE" in step
+        assert f"G13_RUNTIME_{label}_TASK_QUERY_OUTPUT" in step
+        assert f"G13_RUNTIME_{label}_TASK_QUERY_STDERR" in step
+        assert f"G13_RUNTIME_{label}_TASK_QUERY_TIMEOUT=true" in step
+        assert "$queryStdoutText.Length -gt 2000" in step
+        assert "$queryStderrText.Length -gt 2000" in step
         assert "$startStdoutText.Length -gt 2000" in step
         assert "$startStderrText.Length -gt 2000" in step
         assert "Get-Content -LiteralPath $config -Raw" not in step
