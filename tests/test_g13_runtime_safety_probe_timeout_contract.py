@@ -90,7 +90,7 @@ def test_scheduler_start_failure_is_classified_only_after_marker_timeout():
     for name, next_name, mode in pairs:
         step = _step(workflow, name, next_name)
         assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_EXIT_NONZERO" in step
-        assert f"G13_RUNTIME_AUTH_{mode}_TASK_QUERY_ERROR=" in step
+        assert "task_query_exit_code = $taskQueryExitCode" in step
         assert f"G13_RUNTIME_AUTH_{mode}_TASK_START_TIMEOUT=true" in step
         assert f"G13_RUNTIME_AUTH_{mode}_TASK_START_FAILED_EXIT_$startExitCode" in step
         assert "Remove-Item -LiteralPath $startStdoutPath,$startStderrPath" in step
