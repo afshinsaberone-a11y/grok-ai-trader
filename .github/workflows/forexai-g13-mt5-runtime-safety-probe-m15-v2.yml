@@ -197,6 +197,93 @@ jobs:
           $principal = New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive -RunLevel Limited
           $action = New-ScheduledTaskAction -Execute $terminal -Argument ('/config:"' + $config + '" /skipupdate')
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
+          function Write-G13ProbeStartupDiagnostic {
+            param([Parameter(Mandatory = $true)][string]$Mode)
+            $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13'
+            New-Item -ItemType Directory -Path $diagRoot -Force | Out-Null
+            $taskState = 'QUERY_UNAVAILABLE'
+            $taskLastResult = $null
+            $taskLastRunTime = $null
+            $taskQueryExitCode = $null
+            $queryOut = Join-Path $env:RUNNER_TEMP ("g13-task-query-" + $Mode + "-" + $env:GITHUB_RUN_ID + ".txt")
+            $queryErr = Join-Path $env:RUNNER_TEMP ("g13-task-query-" + $Mode + "-" + $env:GITHUB_RUN_ID + ".err.txt")
+            try {
+              $queryProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Query','/TN',$taskName,'/V','/FO','LIST') -NoNewWindow -PassThru -RedirectStandardOutput $queryOut -RedirectStandardError $queryErr
+              if ($queryProcess.WaitForExit(10000)) {
+                $queryProcess.Refresh()
+                $rawQueryExitCode = $queryProcess.ExitCode
+                if ($null -ne $rawQueryExitCode) { $taskQueryExitCode = [int]$rawQueryExitCode }
+                $queryText = Get-TrimmedTextOrEmpty -Path $queryOut
+                if ($queryText -match '(?im)^Status:\s*(.+)$') { $taskState = $Matches[1].Trim() }
+                if ($queryText -match '(?im)^Last Result:\s*(.+)$') { $taskLastResult = $Matches[1].Trim() }
+                if ($queryText -match '(?im)^Last Run Time:\s*(.+)$') { $taskLastRunTime = $Matches[1].Trim() }
+              } else {
+                Stop-Process -Id $queryProcess.Id -Force -ErrorAction SilentlyContinue
+                $taskState = 'QUERY_TIMEOUT'
+              }
+            } catch {
+              $taskState = 'QUERY_FAILED'
+            } finally {
+              Remove-Item -LiteralPath $queryOut,$queryErr -Force -ErrorAction SilentlyContinue
+            }
+            $dataRoot = Split-Path -Parent (Split-Path -Parent $env:MT5_SCRIPTS_ROOT)
+            $logDirs = @((Join-Path $dataRoot 'logs'), (Join-Path $dataRoot 'MQL5\Logs'))
+            $logFiles = @()
+            $diagnosticSince = (Get-Date).AddMinutes(-10)
+            foreach ($logDir in $logDirs) {
+              if (Test-Path -LiteralPath $logDir -PathType Container) {
+                $logFiles += @(Get-ChildItem -LiteralPath $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $diagnosticSince })
+              }
+            }
+            $recentLogs = @($logFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 3)
+            $logText = ''
+            foreach ($logFile in $recentLogs) {
+              try { $logText += ' ' + (Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction Stop) } catch { }
+            }
+            $probePath = Join-Path $env:MT5_SCRIPTS_ROOT ($scriptRel + '.ex5')
+            $terminalProcesses = @()
+            try { $terminalProcesses = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'terminal64.exe'" -ErrorAction Stop) } catch { }
+            $interactiveTerminalProcesses = @($terminalProcesses | Where-Object { [int]$_.SessionId -gt 0 })
+            $killSwitch = Join-Path $env:MT5_COMMON_FILES 'g13_demo_kill_switch.txt'
+            $killSwitchState = '__MISSING__'
+            if (Test-Path -LiteralPath $killSwitch -PathType Leaf) {
+              try { $killSwitchState = (Get-Content -LiteralPath $killSwitch -Raw -ErrorAction Stop).Trim() } catch { $killSwitchState = '__UNREADABLE__' }
+            }
+            $configText = Get-TrimmedTextOrEmpty -Path $config
+            $configScriptMatches = $configText -match ("(?m)^Script=" + [regex]::Escape($scriptRel) + "\s*$")
+            $diag = [ordered]@{
+              schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
+              mode = $Mode
+              result_marker_present = [bool](Test-Path -LiteralPath $done -PathType Leaf)
+              startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
+              startup_config_contains_expected_script = [bool]$configScriptMatches
+              probe_ex5_present = [bool](Test-Path -LiteralPath $probePath -PathType Leaf)
+              probe_ex5_sha256 = if (Test-Path -LiteralPath $probePath -PathType Leaf) { (Get-FileHash -LiteralPath $probePath -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
+              common_files_directory_present = [bool](Test-Path -LiteralPath $env:MT5_COMMON_FILES -PathType Container)
+              kill_switch_state_is_deny = ($killSwitchState -eq 'DENY')
+              kill_switch_state_is_allow = ($killSwitchState -eq 'ALLOW')
+              scheduled_task_state = $taskState
+              scheduled_task_query_exit_code = $taskQueryExitCode
+              scheduled_task_last_result = $taskLastResult
+              scheduled_task_last_run_time = $taskLastRunTime
+              terminal_process_count = $terminalProcesses.Count
+              terminal_process_interactive_session_count = $interactiveTerminalProcesses.Count
+              recent_terminal_log_count = $recentLogs.Count
+              recent_terminal_log_mentions_probe = [bool]($logText -match [regex]::Escape([System.IO.Path]::GetFileNameWithoutExtension($scriptRel)))
+              recent_terminal_log_mentions_script_failure = [bool]($logText -match '(?i)(failed to load|cannot load|script.{0,60}not found|failed.{0,60}open)')
+              recent_terminal_log_mentions_existing_instance = [bool]($logText -match '(?i)(already running|another instance|another copy)')
+              recent_terminal_log_mentions_config_failure = [bool]($logText -match '(?i)(config.{0,60}(failed|error|invalid)|invalid configuration)')
+              recent_terminal_log_mentions_login_failure = [bool]($logText -match '(?i)(authorization failed|invalid account|failed login|server not found)')
+              raw_terminal_logs_exported = $false
+              raw_task_query_exported = $false
+              raw_task_config_exported = $false
+              orders_expected = $false
+            }
+            $diagPath = Join-Path $diagRoot ("g13-runtime-probe-startup-diagnostic-" + $Mode + ".json")
+            $diag | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $diagPath -Encoding utf8
+            Write-Host ("G13_RUNTIME_" + $Mode + "_STARTUP_DIAGNOSTIC_WRITTEN=true")
+          }
+          
           try {
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
             $startStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_off-task-start.stdout.txt"
@@ -272,19 +359,7 @@ jobs:
               Start-Sleep -Seconds 2
             }
             if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
-              $diag = [ordered]@{
-                schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
-                mode = 'AUTH_OFF'
-                result_marker_present = $false
-                startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
-                probe_ex5_present = [bool](Test-Path -LiteralPath $scriptBinary -PathType Leaf)
-                kill_switch_state_is_deny = ((Test-Path -LiteralPath $switch -PathType Leaf) -and (Get-Content -LiteralPath $switch -Raw).Trim() -eq 'DENY')
-                raw_terminal_logs_exported = $false
-                raw_task_query_exported = $false
-                raw_task_config_exported = $false
-                orders_expected = $false
-              }
-              $diag | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13-runtime-probe-startup-diagnostic-AUTH_OFF.json') -Encoding utf8
+              Write-G13ProbeStartupDiagnostic -Mode 'AUTH_OFF'
               throw 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING'
             }
             foreach ($assertion in @(
@@ -353,7 +428,93 @@ jobs:
           $principal = New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive -RunLevel Limited
           $action = New-ScheduledTaskAction -Execute $terminal -Argument ('/config:"' + $config + '" /skipupdate')
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
-          try {
+          function Write-G13ProbeStartupDiagnostic {
+            param([Parameter(Mandatory = $true)][string]$Mode)
+            $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13'
+            New-Item -ItemType Directory -Path $diagRoot -Force | Out-Null
+            $taskState = 'QUERY_UNAVAILABLE'
+            $taskLastResult = $null
+            $taskLastRunTime = $null
+            $taskQueryExitCode = $null
+            $queryOut = Join-Path $env:RUNNER_TEMP ("g13-task-query-" + $Mode + "-" + $env:GITHUB_RUN_ID + ".txt")
+            $queryErr = Join-Path $env:RUNNER_TEMP ("g13-task-query-" + $Mode + "-" + $env:GITHUB_RUN_ID + ".err.txt")
+            try {
+              $queryProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Query','/TN',$taskName,'/V','/FO','LIST') -NoNewWindow -PassThru -RedirectStandardOutput $queryOut -RedirectStandardError $queryErr
+              if ($queryProcess.WaitForExit(10000)) {
+                $queryProcess.Refresh()
+                $rawQueryExitCode = $queryProcess.ExitCode
+                if ($null -ne $rawQueryExitCode) { $taskQueryExitCode = [int]$rawQueryExitCode }
+                $queryText = Get-TrimmedTextOrEmpty -Path $queryOut
+                if ($queryText -match '(?im)^Status:\s*(.+)$') { $taskState = $Matches[1].Trim() }
+                if ($queryText -match '(?im)^Last Result:\s*(.+)$') { $taskLastResult = $Matches[1].Trim() }
+                if ($queryText -match '(?im)^Last Run Time:\s*(.+)$') { $taskLastRunTime = $Matches[1].Trim() }
+              } else {
+                Stop-Process -Id $queryProcess.Id -Force -ErrorAction SilentlyContinue
+                $taskState = 'QUERY_TIMEOUT'
+              }
+            } catch {
+              $taskState = 'QUERY_FAILED'
+            } finally {
+              Remove-Item -LiteralPath $queryOut,$queryErr -Force -ErrorAction SilentlyContinue
+            }
+            $dataRoot = Split-Path -Parent (Split-Path -Parent $env:MT5_SCRIPTS_ROOT)
+            $logDirs = @((Join-Path $dataRoot 'logs'), (Join-Path $dataRoot 'MQL5\Logs'))
+            $logFiles = @()
+            $diagnosticSince = (Get-Date).AddMinutes(-10)
+            foreach ($logDir in $logDirs) {
+              if (Test-Path -LiteralPath $logDir -PathType Container) {
+                $logFiles += @(Get-ChildItem -LiteralPath $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $diagnosticSince })
+              }
+            }
+            $recentLogs = @($logFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 3)
+            $logText = ''
+            foreach ($logFile in $recentLogs) {
+              try { $logText += ' ' + (Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction Stop) } catch { }
+            }
+            $probePath = Join-Path $env:MT5_SCRIPTS_ROOT ($scriptRel + '.ex5')
+            $terminalProcesses = @()
+            try { $terminalProcesses = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'terminal64.exe'" -ErrorAction Stop) } catch { }
+            $interactiveTerminalProcesses = @($terminalProcesses | Where-Object { [int]$_.SessionId -gt 0 })
+            $killSwitch = Join-Path $env:MT5_COMMON_FILES 'g13_demo_kill_switch.txt'
+            $killSwitchState = '__MISSING__'
+            if (Test-Path -LiteralPath $killSwitch -PathType Leaf) {
+              try { $killSwitchState = (Get-Content -LiteralPath $killSwitch -Raw -ErrorAction Stop).Trim() } catch { $killSwitchState = '__UNREADABLE__' }
+            }
+            $configText = Get-TrimmedTextOrEmpty -Path $config
+            $configScriptMatches = $configText -match ("(?m)^Script=" + [regex]::Escape($scriptRel) + "\s*$")
+            $diag = [ordered]@{
+              schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
+              mode = $Mode
+              result_marker_present = [bool](Test-Path -LiteralPath $done -PathType Leaf)
+              startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
+              startup_config_contains_expected_script = [bool]$configScriptMatches
+              probe_ex5_present = [bool](Test-Path -LiteralPath $probePath -PathType Leaf)
+              probe_ex5_sha256 = if (Test-Path -LiteralPath $probePath -PathType Leaf) { (Get-FileHash -LiteralPath $probePath -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
+              common_files_directory_present = [bool](Test-Path -LiteralPath $env:MT5_COMMON_FILES -PathType Container)
+              kill_switch_state_is_deny = ($killSwitchState -eq 'DENY')
+              kill_switch_state_is_allow = ($killSwitchState -eq 'ALLOW')
+              scheduled_task_state = $taskState
+              scheduled_task_query_exit_code = $taskQueryExitCode
+              scheduled_task_last_result = $taskLastResult
+              scheduled_task_last_run_time = $taskLastRunTime
+              terminal_process_count = $terminalProcesses.Count
+              terminal_process_interactive_session_count = $interactiveTerminalProcesses.Count
+              recent_terminal_log_count = $recentLogs.Count
+              recent_terminal_log_mentions_probe = [bool]($logText -match [regex]::Escape([System.IO.Path]::GetFileNameWithoutExtension($scriptRel)))
+              recent_terminal_log_mentions_script_failure = [bool]($logText -match '(?i)(failed to load|cannot load|script.{0,60}not found|failed.{0,60}open)')
+              recent_terminal_log_mentions_existing_instance = [bool]($logText -match '(?i)(already running|another instance|another copy)')
+              recent_terminal_log_mentions_config_failure = [bool]($logText -match '(?i)(config.{0,60}(failed|error|invalid)|invalid configuration)')
+              recent_terminal_log_mentions_login_failure = [bool]($logText -match '(?i)(authorization failed|invalid account|failed login|server not found)')
+              raw_terminal_logs_exported = $false
+              raw_task_query_exported = $false
+              raw_task_config_exported = $false
+              orders_expected = $false
+            }
+            $diagPath = Join-Path $diagRoot ("g13-runtime-probe-startup-diagnostic-" + $Mode + ".json")
+            $diag | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $diagPath -Encoding utf8
+            Write-Host ("G13_RUNTIME_" + $Mode + "_STARTUP_DIAGNOSTIC_WRITTEN=true")
+          }
+                    try {
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
             $startStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-start.stdout.txt"
             $startStderrPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-start.stderr.txt"
@@ -428,19 +589,7 @@ jobs:
               Start-Sleep -Seconds 2
             }
             if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
-              $diag = [ordered]@{
-                schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
-                mode = 'AUTH_ON'
-                result_marker_present = $false
-                startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
-                probe_ex5_present = [bool](Test-Path -LiteralPath $scriptBinary -PathType Leaf)
-                kill_switch_state_is_deny = ((Test-Path -LiteralPath $switch -PathType Leaf) -and (Get-Content -LiteralPath $switch -Raw).Trim() -eq 'DENY')
-                raw_terminal_logs_exported = $false
-                raw_task_query_exported = $false
-                raw_task_config_exported = $false
-                orders_expected = $false
-              }
-              $diag | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13-runtime-probe-startup-diagnostic-AUTH_ON.json') -Encoding utf8
+              Write-G13ProbeStartupDiagnostic -Mode 'AUTH_ON'
               throw 'G13_RUNTIME_AUTH_ON_MARKER_MISSING'
             }
             foreach ($assertion in @(

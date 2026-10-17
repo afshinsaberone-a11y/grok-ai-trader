@@ -302,3 +302,58 @@ https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/fix/g13-runtime-probe
 - شش کلید عمومی متمایز Ed25519، امضاکنندهٔ مستقل Grant، منابع مستقل Signal/Risk/Operator، registry پایدار و allowlist واقعی حساب Demo هنوز باید از منابع واقعی پیکربندی/تأیید شوند.
 - سطح دسترسی اتصال GitHub برای تغییر branch protection کافی نیست؛ باید مالک مخزن required checks، reviews و محدودیت direct push/bypass را از تنظیمات مدیریتی GitHub بررسی کند.
 - تا تکمیل شواهد مستقل و تأیید اپراتور، Kill Switch باید `DENY`، `DemoTradingAuthorized=false` و Live غیرفعال بمانند. هیچ سفارشی در این نوبت ارسال نشده است.
+
+
+---
+
+## ۱۲. بررسی زندهٔ تکمیلی — Runtime Safety Probe روی main فعلی (۱۷ اکتبر ۲۰۲۶)
+
+این بخش به‌روزرسانی زندهٔ همان روز است؛ سوابق پیشین عمداً حذف یا بازنویسی نشده‌اند.
+
+### ۱۲.۱ زنجیرهٔ G13 روی SHA دقیق main
+
+SHA مشاهده‌شدهٔ `main` هنگام این بررسی:
+
+`679c89128ff5a5e6944a4c7542bf80d1afe02a7d`
+
+- Validation — [run 39049953169](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049953169): success
+- Robustness — [run 39049955317](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049955317): success
+- OOS — [run 39050572236](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39050572236): success
+- Final Promotion — [run 39050729580](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39050729580): success
+- Execution Safety Audit — [run 39050818079](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39050818079): success
+- MT5 Compile + Signal Parity — [run 39050862681](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39050862681): success
+- MT5 Runtime Safety Probe — [run 39051289025](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39051289025): **failure** در Auth OFF
+- OOS Watchdog — [run 39049944669](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049944669): failure پس از دریافت نتیجهٔ ناموفق Runtime Safety Probe
+- Demo Readiness — [run 39050083316](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39050083316): skipped
+
+نتیجه‌های موفق بالا فقط برای SHA یادشده معتبرند؛ هر commit تازه به زنجیرهٔ exact-SHA تازه نیاز دارد.
+
+### ۱۲.۲ علت مستقیم شکست Runtime Safety Probe
+
+Job `117450234812` روی همان run نشان داد:
+
+- دو اسکریپت غیرمعاملاتی MQL5 با صفر خطا و صفر هشدار کامپایل شدند.
+- باینری‌های `.ex5` در مسیر Scripts حساب کاربر تعاملی کپی شدند و هش مبدأ و مقصد تطبیق داده شد.
+- پیش‌شرط Kill Switch برابر `DENY` بررسی شد؛ `AllowLiveTrading=0` در فایل‌های اجرای probe حفظ شد.
+- `schtasks.exe` اعلام کرد Scheduled Task را برای اجرا پذیرفته است.
+- تا پایان پنجرهٔ ۱۸۰ ثانیه‌ای، فایل نتیجهٔ Auth OFF ساخته نشد؛ task سپس خاتمه داده و پاک‌سازی شد و job با `G13_RUNTIME_AUTH_OFF_MARKER_MISSING` شکست خورد.
+- Auth ON، ارزیابی نهایی، Preflight و Readiness پس از این شکست تکمیل نشدند.
+
+پس مانع اثبات‌شده، **نبودن marker واقعی بعد از launch پذیرفته‌شدهٔ Task Scheduler** است؛ هنوز شواهد کافی برای انتساب علت به session اشتباه، بارگذاری‌نشدن Script، خطای config یا مسیر marker وجود ندارد. نباید از پیام `SUCCESS` خود Scheduler به‌تنهایی اجرای واقعی اسکریپت را نتیجه گرفت.
+
+### ۱۲.۳ اصلاح تشخیصی در شاخهٔ مستقل
+
+شاخهٔ بررسی:
+
+`fix/g13-runtime-probe-safe-diagnostics-2026-10-17`
+
+تغییر پیشنهادی به workflow فقط هنگام فقدان marker، داده‌های حداقلی و ساختاریافته تولید می‌کند: وضعیت/نتیجهٔ Task Scheduler با timeout محدود، شمار ترمینال‌ها و ترمینال‌های interactive، تطبیق نام Script در startup config، وجود و SHA-256 باینری، و چند شاخص بولی از logهای تغییرکرده در ده دقیقهٔ اخیر. متن خام لاگ، خروجی خام Query، config کامل Task، PIDها و داده‌های هویتی در artifact صادر نمی‌شوند.
+
+این تغییر **تشخیصی است، نه رفع قطعی علت**. marker همچنان لازم است؛ هیچ شرطی به موفقیت نرم‌تر تبدیل نمی‌شود؛ هیچ سفارش، مجوز Demo/Live، Grant، ledger event یا کلید تولیدی ساخته نمی‌شود. آزمون‌های قرارداد نیز برای پوشش این فیلدهای تشخیصی و حفظ timeoutها به‌روزرسانی شده‌اند. تا زمان پاس‌شدن CI روی SHA نهایی شاخه و اجرای تازه روی Windows MT5، نتیجهٔ عملی آن اثبات نشده است.
+
+### ۱۲.۴ وضعیت منابع مستقل و مجوز
+
+Issue مرجع موانع [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) همچنان باز است. ادغام اصلاح تشخیصی، اگر بعداً انجام شود، جایگزین تأمین واقعی Control Plane نیست. Ledger و authenticated envelope، کلید/امضاکنندهٔ معتبر، منابع Signal/Risk/Operator و رزرو پایدار باید از تولیدکنندگان واقعی و مستقل بیایند.
+
+**حالت ایمنی ثابت:** Kill Switch = `DENY`؛ `demo_trading_authorized=false`؛ `live_trading_allowed=false`؛ `orders_submitted=false`. اجرای probe آزمایشی مجاز به ارسال سفارش نیست.
+

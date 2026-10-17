@@ -111,14 +111,15 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert workflow.count("$deadline = $startedAt.AddSeconds(180)") == 2
     assert workflow.count("Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName)") == 2
     assert workflow.count("WaitForExit(15000)") == 2
-    # Each probe has one 10-second cleanup bound and one 10-second
-    # schtasks /Query diagnostic bound; none can poll Task Scheduler forever.
-    assert workflow.count("WaitForExit(10000)") == 4
+    # Each probe has three bounded calls: the missing-marker evidence query,
+    # the launcher-failure query, and task cleanup. None can poll forever.
+    assert workflow.count("WaitForExit(10000)") == 6
+    # Account for one bounded diagnostic query, one bounded launcher-error
+    # query, and one bounded cleanup call per Auth OFF/ON step.
     assert workflow.count("WaitForExit(10000)") == (
-        workflow.count("G13_RUNTIME_AUTH_OFF_TASK_QUERY_TIMEOUT=true")
-        + workflow.count("G13_RUNTIME_AUTH_ON_TASK_QUERY_TIMEOUT=true")
-        + workflow.count("G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb")
-        + workflow.count("G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb")
+        workflow.count("$queryProcess.WaitForExit(10000)")
+        + workflow.count("$query.WaitForExit(10000)")
+        + workflow.count("$cleanup.WaitForExit(10000)")
     )
     # Do not use potentially blocking Task Scheduler cmdlets for launch/polling.
     assert "Start-ScheduledTask -TaskName $taskName" not in workflow
