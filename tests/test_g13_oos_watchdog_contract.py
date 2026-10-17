@@ -116,7 +116,10 @@ def test_watchdog_rechecks_main_sha_immediately_before_dispatches():
     for name, next_name, guard in steps:
         section = _workflow_step(workflow, name, next_name)
         assert 'gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha' in section
-        assert '[[ "$current_main" != "$GITHUB_SHA" ]]' in section
+        assert (
+            '[[ "$current_main" != "$GITHUB_SHA" ]]' in section
+            or '[[ "$current_main" == "$GITHUB_SHA" ]] || {' in section
+        )
         assert guard in section
         assert "exit 1" in section
 
