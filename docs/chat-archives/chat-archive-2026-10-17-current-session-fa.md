@@ -185,3 +185,58 @@ PR آرشیو [#271](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/
 PR بزرگ Control Plane [#227](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227) هنوز Draft/unmerged و از نظر تاریخچه با main واگراست؛ تغییرات هم‌پوشان Runtime Safety/Readiness باید با بازبینی حل شوند. کلیدهای مستقل و مراجع واقعی سرمایه/Signal/Risk/Operator هم همچنان پیش‌نیاز بیرونی‌اند.
 
 تا PASS شدن کل زنجیره روی SHA جدید main و راستی‌آزمایی مراجع مستقل، Kill Switch باید `DENY` بماند، `DemoTradingAuthorized=false` باشد و Live غیرفعال بماند.
+
+
+---
+
+## پیگیری نهایی این مکالمه — ۱۷ اکتبر ۲۰۲۶
+
+### درخواست کاربر و محدودهٔ اجرا
+
+کاربر خواست موانع باقی‌مانده برطرف شوند و محتوای همین گفت‌وگو به فایل تبدیل و در GitHub قرار گیرد. این پیگیری پس از بررسی قبلی PRهای #227 و #271 انجام شد. هیچ سفارش بروکری ارسال نشده و وضعیت مجوز Demo/Live تغییر نکرده است.
+
+### وضعیت زندهٔ main
+
+- SHA فعلی بررسی‌شده: `3d71b856fefb1cb312357486927cf81e73c9e832`.
+- Validation: موفق، [run 39039591498](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039591498).
+- Robustness: موفق، [run 39039592921](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039592921).
+- OOS: موفق، [run 39039975781](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039975781).
+- Final Promotion: موفق، [run 39040131118](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39040131118).
+- Execution Safety Audit: موفق، [run 39040210456](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39040210456).
+- MT5 Compile + Signal Parity: موفق، [run 39040251209](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39040251209).
+- Workflow Static Validation: موفق، [run 39039583565](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039583565).
+- Runtime Safety Probe: **ناموفق**، [run 39040597009](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39040597009)، مرحلهٔ Auth OFF با خطای `G13_RUNTIME_AUTH_OFF_TASK_START_FAILED` متوقف شد.
+- OOS Watchdog: ناموفق، [run 39039583674](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039583674)، چون Runtime Safety Probe موفقی برای همان SHA پیدا نکرد.
+- Demo Readiness Gate: رد شد/اجرا نشد، [run 39039613734](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039613734).
+
+در اجرای Runtime Safety Probe، هر دو فایل Probe در MetaEditor با صفر خطا و صفر هشدار کامپایل و deploy شدند؛ خطای واقعی ثبت‌شده، exit code غیرصفر اجرای `schtasks.exe /Run` بود. نسخهٔ قبلی workflow، stdout/stderr آن دستور و وضعیت Task Scheduler را ثبت نمی‌کرد؛ در نتیجه علت نهایی هنوز از شواهد موجود معلوم نیست. این شکست را نباید به‌عنوان PASS تفسیر کرد.
+
+### اصلاح تشخیصی جدید: PR #274
+
+PR جداگانهٔ [#274 — expose MT5 Task Scheduler probe-start failures](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/274) از SHA فعلی main ایجاد شد تا تغییرات Control Planeِ واگرا با این اصلاح کوچک مخلوط نشوند.
+
+- شاخه: `fix/g13-runtime-task-start-diagnostics-2026-10-17`.
+- آخرین commit این شاخه در snapshot: `50e4e11f69b76fde10f59134ec95f1467bb4ae0b`.
+- تغییر: capture محدود stdout/stderr و exit code اجرای `schtasks /Run` برای هر دو حالت Auth OFF و Auth ON؛ در شکست، پرس‌وجوی `schtasks /Query /FO LIST` با timeout ده‌ثانیه‌ای و capture محدود خروجی.
+- رفتار ایمنی حفظ شده است: خطای شروع Task همچنان fatal است، نبودن marker همچنان fail-closed است، `AllowLiveTrading=0` و `orders_submitted=false` حفظ می‌شوند؛ فایل INI حساب یا محتوای تنظیمات به artifact آپلود نمی‌شود.
+- یک اجرای Static Validation قبلی در این شاخه به‌علت تست قراردادی موجود شکست خورد، زیرا آن تست cmdletهای بالقوهٔ blockingِ `Get-ScheduledTask*` را ممنوع می‌کند. کد به `schtasks /Query` محدود و تست به‌روزرسانی شد تا با قرارداد موجود هم‌خوان بماند.
+- CI نهایی commit `50e4e11...` در snapshot در صف بود؛ این تغییر هنوز یک اجرای موفق واقعی روی Windows MT5 نیست و تا دریافت نتیجهٔ CI و اجرای probe روی میزبان، نباید مانع Runtime را رفع‌شده تلقی کرد.
+
+### آرشیو این گفت‌وگو در GitHub
+
+این فایل در شاخهٔ آرشیوی `archive/chat-session-followup-fa-2026-10-17` به‌روزرسانی می‌شود و در PR آرشیوی [#271](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/271) قابل بازبینی است. این روش main را صرفاً برای افزودن متن گفتگو تغییر نمی‌دهد و در نتیجه SHA شواهد G13 را با یک تغییر مستنداتی تازه نامعتبر نمی‌کند.
+
+### وضعیت PR #227
+
+PR [#227](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227) در snapshot همچنان Draft/open/unmerged است. مقایسهٔ head آن `13f10d55cb511840f51061981a7b12028e79a1b7` با main `3d71b856fefb1cb312357486927cf81e73c9e832` وضعیت `diverged` نشان می‌دهد: ۱۵۱ commit جلو و ۴ commit عقب، با هم‌پوشانی در workflowها و تست‌های امنیتی G13. merge خودکارِ بی‌بررسی مناسب نیست؛ ابتدا باید با main همگام و تعارض‌ها بررسی شوند.
+
+### موانع خارجی که هنوز بازند
+
+1. شش کلید عمومی Ed25519 مستقل و معتبر برای trust anchors.
+2. Grant signer واقعی، منابع مستقل Signal و Risk، تأیید Operator انسانی و registry پایدارِ صدور یک‌باره.
+3. HMAC secret مجزا و allowlist دقیق حساب Demo مجاز.
+4. اجرای واقعی Auth OFF/ON روی همان حساب Demo متصل با Runtime Safety Probe موفق روی SHA جاری main.
+5. اجرای مجدد OOS Watchdog و سپس Controlled Demo Package Preflight و Readiness روی همان SHA.
+6. تأیید تنظیمات branch protection / required checks / review و محدودیت push مستقیم. endpoint قواعد repository در بررسی قبلی `[]` برگردانده بود؛ اتصال GitHub قابل استفاده در این مکالمه ابزار لازم برای تنظیم branch protection یا dispatch مستقیم workflow را در اختیار نمی‌گذارد.
+
+این مراجع و کلیدها نباید جعل شوند و وضعیت runtime باید با اجرای واقعی اثبات شود. تا پایان این موارد، `Kill Switch=DENY`، `DemoTradingAuthorized=false` و Live غیرفعال باقی می‌مانند. هیچ سفارش بروکری در این اصلاحات ارسال نشده است.
