@@ -361,3 +361,30 @@ PR: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227
 - در این ادامهٔ گفت‌وگو سفارش معاملاتی ارسال نشد و هیچ Grant، امضا، کلید، تأیید انسانی یا دادهٔ معاملاتی ساختگی ایجاد نشد.
 
 ---
+
+
+---
+
+## ۱۳. پیگیری پس از ادغام PR #278 — ۱۷ اکتبر ۲۰۲۶
+
+این بخش به انتهای آرشیو افزوده شد؛ هیچ بخش یا پاسخ قبلی حذف یا بازنویسی نشده است.
+
+- PR #278 ادغام شد: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/278
+- main پس از ادغام: `709d67844fe53493b3d82f051e873e9045f93e47`
+- هدف تغییر: افزودن تشخیص محدود و redacted هنگام تولیدنشدن marker در Auth OFF/ON. شرط marker و fail-closed بودن حفظ شده‌اند.
+- G13 Workflow Static Validation روی SHA جدید موفق: [39056115291](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056115291)
+- هنگام ثبت این بخش، Python tests [39056115253](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056115253)، Agent Runtime [39056115201](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056115201)، Validation [39056121253](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056121253)، Robustness [39056122330](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056122330) و OOS Watchdog [39056115434](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39056115434) هنوز در حال اجرا بودند.
+
+### موانع باقی‌مانده (بدون ادعای رفع زودهنگام)
+
+1. **Runtime marker:** اجرای قبلی Task Scheduler را پذیرفت اما marker Auth OFF تولید نشد. باید اجرای تازهٔ Windows MT5 از مسیر رسمی Watchdog و artifact تشخیصی آن بررسی شود.
+2. **Capital Firewall Control Plane:** Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) همچنان باز است. در تشخیص ثبت‌شده، مسیر TradeLedger و authenticated envelope پیکربندی نشده‌اند؛ secret محافظت‌شدهٔ HMAC و رکورد مجوز MQL5 نیز موجود/تأیید نشده‌اند. منبع معتبر تولیدکننده و مجوز/رزرو واقعی باید مشخص شوند.
+
+### ترتیب اجرای بعدی
+
+- پایان‌یافتن گیت‌های CI روی SHA دقیق main.
+- اجرای رسمی Runtime Safety Probe از مسیر G13 Watchdog؛ تشخیص علت از روی شاخص‌های redacted و اصلاح علت واقعی.
+- تأمین و راستی‌آزمایی ledger/envelope معتبر و کلید موجود در Secret Store، سپس اجرای دوبارهٔ Capital Firewall Authorization Preflight.
+- فقط پس از شواهد تازه و موفق Runtime + Preflight + Readiness، بررسی اجرای کنترل‌شدهٔ Demo. Live همچنان قفل.
+
+هیچ ledger event، کلید، envelope، Grant یا مجوز ساختگی ایجاد نشده است. Kill Switch روی `DENY`، Demo authorization برابر false و Live غیرفعال باقی می‌مانند؛ در این مرحله سفارشی به کارگزار ارسال نمی‌شود.
