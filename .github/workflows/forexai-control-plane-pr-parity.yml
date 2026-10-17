@@ -83,7 +83,7 @@ jobs:
   real-data-parity:
     needs: resolve-main
     # Never execute PR-controlled workflow code from a fork on the privileged MT5 runner.
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'feat/authoritative-capital-control-plane-v1')
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       actions: read
