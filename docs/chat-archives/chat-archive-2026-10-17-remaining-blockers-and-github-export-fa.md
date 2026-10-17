@@ -324,3 +324,24 @@ SHA فعلی main در آخرین بررسی: \`a52a0d7e984b7d543d848d1897b0f009
 - Static Validation، Full Python tests و Agent Runtime روی این SHA قبلاً موفق شده‌اند (runs 39048415069، 39048415067 و 39048415125).
 
 این وضعیت نشان می‌دهد اصلاح کد و تست‌های قراردادی قبول شده‌اند، ولی هنوز اجرای Runtime Safety Probe جدید و Readiness موفقی برای این SHA ثبت نشده است. بعد از تکمیل Robustness، نتیجه باید از خود Watchdog و runهای بعدی تأیید شود؛ هیچ مجوز Demo/Live از این وضعیت استنباط نمی‌شود.
+
+
+### ۱۱.۹ اصلاح race در زنجیرهٔ OOS و وضعیت جدید — ۱۷ اکتبر ۲۰۲۶، ۱۶:۲۶ UTC
+
+در بررسی مجدد معلوم شد watchdog قدیمی روی SHA \`a52a0d7...\` بعد از اینکه \`main\` به SHA جدیدتری حرکت کرده بود، OOS را dispatch کرده است. اجرای OOS [39048984720](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048984720) موفق شد، اما روی SHA \`a52a0d7...\` بود و نباید به‌عنوان نتیجهٔ زنجیرهٔ بعدی پذیرفته شود. Watchdog قدیمی [39048414992](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048414992) به‌درستی بعداً با \`G13_WATCHDOG_MAIN_MOVED_DURING_OOS\` شکست خورد و Promotion را ادامه نداد.
+
+برای رفع علت این race، دو تغییر جدید روی main ثبت شد:
+
+- [Commit 5c1c713530c081c8568169d37dbd76b2cf843ca7](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/5c1c713530c081c8568169d37dbd76b2cf843ca7): کنترل SHA فعلی درست پیش از dispatchهای Validation/Robustness، OOS، Promotion و Compile/Parity؛ snapshot کردن بزرگ‌ترین OOS run ID قبل از dispatch؛ و الزام اینکه OOS حل‌شده هم SHA دقیق داشته باشد و هم شناسه‌اش بعد از baseline همین فراخوانی باشد.
+- [Commit b60f950694b8366b4f1d330768c2fd8ae9bffa34](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/b60f950694b8366b4f1d330768c2fd8ae9bffa34): اصلاح assertion تست برای قبول دو فرم معادل شرط SHA؛ این commit نیز تست‌های جدید race را روی main اعمال کرد.
+
+SHA جاری main در این بررسی: \`b60f950694b8366b4f1d330768c2fd8ae9bffa34\`.
+
+- [Workflow Static Validation — 39049219949](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219949): **success** روی همین SHA.
+- [Full Python tests — 39049219925](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219925): **success** روی همین SHA.
+- [Agent Runtime Check — 39049219868](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219868): **success** روی همین SHA.
+- [Validation M15 — 39049247886](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049247886): در حال اجرا در آخرین بررسی.
+- [Robustness M15 — 39049249741](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049249741): در حال اجرا؛ آماده‌سازی و دانلود دادهٔ واقعی انجام شده بود.
+- [OOS Watchdog — 39049219879](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219879): در حال resolve کردن Validation/Robustness همین SHA؛ مراحل downstream هنوز باید نتیجه دهند.
+
+اجرای موفق OOS روی SHA قبلی، هرچند معتبر برای خودش بود، **شواهد زنجیرهٔ جاری نیست**. تا کامل‌شدن Validation/Robustness و dispatch OOS تازهٔ همین SHA، سپس Promotion/Safety/Compile-Parity/Runtime Probe/Preflight/Readiness، وضعیت Demo آمادۀ اجرا اعلام نمی‌شود.
