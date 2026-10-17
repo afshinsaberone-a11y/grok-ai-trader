@@ -1065,12 +1065,23 @@ jobs:
           }
 
       - name: Upload MT5 parity diagnostics
+        id: upload-mt5-parity-diagnostics
         if: always()
+        # Diagnostic logs are supplementary. Transient GitHub artifact API
+        # resets must not invalidate a successful signal-parity verdict when
+        # the required compile + parity evidence artifact uploads separately.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: g13-mt5-parity-diagnostics-${{ github.run_id }}
           path: artifacts/g13/diagnostics/**
           if-no-files-found: warn
+
+      - name: Warn if supplementary diagnostics upload failed
+        if: steps.upload-mt5-parity-diagnostics.outcome == 'failure'
+        shell: pwsh
+        run: |
+          Write-Warning "G13_DIAGNOSTICS_ARTIFACT_UPLOAD_FAILED_NON_BLOCKING; verify the mandatory compile+parity evidence artifact separately."
 
       - name: Upload compile + parity evidence
         if: always()
