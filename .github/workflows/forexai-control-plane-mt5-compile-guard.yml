@@ -40,7 +40,7 @@ jobs:
     # Never run fork-controlled code on the privileged self-hosted MT5 runner.
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, windows, mt5]
-    timeout-minutes: 35
+    timeout-minutes: 60
     env:
       PYTHONUNBUFFERED: "1"
       SOURCE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha) }}
@@ -101,13 +101,35 @@ jobs:
 
       - name: Resolve exact current-main Promotion artifact
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
-        timeout-minutes: 5
+        # The main-SHA watchdog may still be producing Robustness/OOS/Promotion.
+        # Wait for that exact Promotion artifact, but never substitute a stale SHA.
+        timeout-minutes: 26
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
           $resolver = Join-Path $source 'tools\forexai_resolve_exact_promotion_manifest_v1.ps1'
-          & $resolver -SourceRoot $source
+          $deadline = (Get-Date).AddMinutes(24)
+          $attempt = 0
+          while ($true) {
+            $attempt++
+            try {
+              & $resolver -SourceRoot $source
+              Write-Output "MT5_COMPILE_GUARD_EXACT_MAIN_PROMOTION_RESOLVED attempt=$attempt"
+              break
+            } catch {
+              $reason = [string]$_.Exception.Message
+              if ($reason -notmatch 'G13_EXACT_PROMOTION_RUN_NOT_FOUND:') {
+                throw
+              }
+              if ((Get-Date) -ge $deadline) {
+                throw 'MT5_COMPILE_GUARD_EXACT_MAIN_PROMOTION_WAIT_TIMEOUT'
+              }
+              Write-Output "MT5_COMPILE_GUARD_WAITING_FOR_EXACT_MAIN_PROMOTION attempt=$attempt"
+              Start-Sleep -Seconds 15
+            }
+          }
 
       - name: Run generation contracts and generate candidate EAs
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
