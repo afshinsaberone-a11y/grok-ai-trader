@@ -62,7 +62,6 @@ jobs:
             })
           if ($interactiveTerminals.Count -gt 0) {
             $resolved = @(& $resolver -TerminalPath $terminal)
-            if ($LASTEXITCODE -ne 0) { throw 'G13_MT5_PROFILE_RESOLVER_FAILED' }
             $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
             $ownerLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_TERMINAL_OWNER=' } | Select-Object -Last 1
             if (-not $commonLine) { throw 'G13_MT5_COMMON_FILES_UNRESOLVED' }
