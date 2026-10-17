@@ -26,7 +26,7 @@ bool HasOtherG13Position(long current_magic)
    return false;
 }
 
-void WriteProbe(const string label,const long mode,const bool account_identity_verified,const bool auth,const bool kill_switch,const bool other,
+void WriteProbe(const string label,const long mode,const bool account_identity_verified,const bool account_login_present,const bool account_server_present,const bool auth,const bool kill_switch,const bool other,
                const bool terminal_connected,const bool terminal_trade_allowed,const bool mql_trade_allowed,
                const bool account_trade_allowed,const bool account_trade_expert,
                const int symbol_trade_mode,const bool symbol_market,const bool symbol_sl,const bool symbol_tp,
@@ -39,6 +39,8 @@ void WriteProbe(const string label,const long mode,const bool account_identity_v
    FileWrite(h,"probe,"+label);
    FileWrite(h,"account_mode,"+IntegerToString((int)mode));
    FileWrite(h,"account_identity_verified,"+(string)(account_identity_verified ? "true" : "false"));
+   FileWrite(h,"account_login_present,"+(string)(account_login_present ? "true" : "false"));
+   FileWrite(h,"account_server_present,"+(string)(account_server_present ? "true" : "false"));
    FileWrite(h,"demo_account,"+(string)((mode==ACCOUNT_TRADE_MODE_DEMO && account_identity_verified) ? "true" : "false"));
    FileWrite(h,"real_account_detected,"+(string)((mode==ACCOUNT_TRADE_MODE_REAL && account_identity_verified) ? "true" : "false"));
    FileWrite(h,"authorization,"+(string)(auth ? "true" : "false"));
@@ -62,14 +64,35 @@ void WriteProbe(const string label,const long mode,const bool account_identity_v
 
 void OnStart()
 {
-   const long mode=AccountInfoInteger(ACCOUNT_TRADE_MODE);
    const bool authorized=false;
+   bool terminal_connected=false;
+   long account_login=0;
+   string account_server="";
+   bool account_identity_verified=false;
+   const int identity_wait_seconds=45;
+
+   // MT5 can launch the startup script before the saved Demo session has
+   // completed its connection handshake. Wait boundedly for the account
+   // identity; never infer a login/server or accept an unverified account.
+   for(int wait_second=0; wait_second<identity_wait_seconds; ++wait_second)
+   {
+      terminal_connected=(bool)TerminalInfoInteger(TERMINAL_CONNECTED);
+      account_login=AccountInfoInteger(ACCOUNT_LOGIN);
+      account_server=AccountInfoString(ACCOUNT_SERVER);
+      account_identity_verified=terminal_connected && account_login>0 && StringLen(account_server)>0;
+      if(account_identity_verified || IsStopped()) break;
+      Sleep(1000);
+   }
+   // Refresh once after the last bounded wait so the emitted marker reflects
+   // the latest real terminal state, including a just-completed connection.
+   terminal_connected=(bool)TerminalInfoInteger(TERMINAL_CONNECTED);
+   account_login=AccountInfoInteger(ACCOUNT_LOGIN);
+   account_server=AccountInfoString(ACCOUNT_SERVER);
+   account_identity_verified=terminal_connected && account_login>0 && StringLen(account_server)>0;
+
+   const long mode=AccountInfoInteger(ACCOUNT_TRADE_MODE);
    const bool kill_switch=DemoKillSwitchAllowed();
    const bool other=HasOtherG13Position(0);
-   const bool terminal_connected=(bool)TerminalInfoInteger(TERMINAL_CONNECTED);
-   const long account_login=AccountInfoInteger(ACCOUNT_LOGIN);
-   const string account_server=AccountInfoString(ACCOUNT_SERVER);
-   const bool account_identity_verified=terminal_connected && account_login>0 && StringLen(account_server)>0;
    const bool terminal_trade_allowed=(bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED);
    const bool mql_trade_allowed=(bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
    const bool account_trade_allowed=(bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED);
@@ -97,7 +120,7 @@ void OnStart()
                       kill_switch &&
                       !other;
 
-   WriteProbe("auth_off",mode,account_identity_verified,authorized,kill_switch,other,
+   WriteProbe("auth_off",mode,account_identity_verified,account_login>0,StringLen(account_server)>0,authorized,kill_switch,other,
               terminal_connected,terminal_trade_allowed,mql_trade_allowed,
               account_trade_allowed,account_trade_expert,
               symbol_trade_mode,symbol_market,symbol_sl,symbol_tp,stops_level,allowed);
