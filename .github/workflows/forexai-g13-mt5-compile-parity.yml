@@ -152,7 +152,8 @@ jobs:
     # Do not run candidate-controlled workflow code from fork PRs on the MT5 host.
     if: needs.resolve-promotion.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, windows, mt5]
-    timeout-minutes: 240
+    # Bound use of the single self-hosted MT5 runner; parity startup/completion loops are separately bounded.
+    timeout-minutes: 60
     env:
       PYTHONOPTIMIZE: '0'
       PROMOTION_RUN_ID: ${{ needs.resolve-promotion.outputs.promotion_run_id }}
@@ -429,6 +430,7 @@ jobs:
             --started-file "$env:PARITY_STARTED_FILE"
 
       - name: Compile all promoted G13 EAs with MetaEditor
+        timeout-minutes: 20
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
@@ -467,6 +469,7 @@ jobs:
           Write-Host "MT5_COMPILE_OK=$env:G13_CANDIDATE_COUNT"
 
       - name: Compile and deploy MQL5 real-data parity script
+        timeout-minutes: 10
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
@@ -665,6 +668,7 @@ jobs:
           Write-Host "REAL_INPUT_STAGED_OK"
 
       - name: Run MQL5 real-data parity script
+        timeout-minutes: 25
         run: |
           $ErrorActionPreference = 'Stop'
           $sourceTerminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
@@ -1009,6 +1013,7 @@ jobs:
           Write-Host "PARITY_INPUT_OK"
           
       - name: Run fail-closed Python vs MQL5 signal parity
+        timeout-minutes: 10
         run: |
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m research.optimization.g13_mql5_parity `
@@ -1020,6 +1025,7 @@ jobs:
             --output artifacts/g13-mql5-signal-parity.json
 
       - name: Build immutable Demo package manifest
+        timeout-minutes: 5
         run: |
           $ErrorActionPreference = 'Stop'
           & $env:PYTHON_EXE -m research.optimization.g13_demo_package_manifest_builder_m15 `
