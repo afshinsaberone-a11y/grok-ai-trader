@@ -76,3 +76,43 @@ def test_mt5_resolver_falls_back_to_cim_path_but_keeps_exact_path_match():
     assert "$unresolvedProcessPathCount++" in helper
     assert "G13_MT5_TERMINAL_PROCESS_ACCESS_DENIED" in helper
 
+
+
+def test_mt5_profile_resolver_prefers_interactive_terminal_over_stale_session_zero():
+    helper = (ROOT / "tools/resolve_mt5_common_files_v1.ps1").read_text(encoding="utf-8")
+
+    assert "$interactiveProcesses = @" in helper
+    assert "$matchingProcesses | Where-Object { [int]$_.SessionId -gt 0 }" in helper
+    assert helper.index("$interactiveProcesses = @") < helper.index("$resolvedOwners = @")
+    assert "G13_MT5_MULTIPLE_TERMINAL_PROFILES_MATCH_EXECUTABLE" in helper
+
+
+def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
+    workflow = (
+        ROOT
+        / ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "tools\\resolve_mt5_common_files_v1.ps1" in workflow
+    assert "$resolved = @(& $resolver -TerminalPath $terminal)" in workflow
+    assert "^G13_MT5_COMMON_FILES=" in workflow
+    assert "^G13_MT5_TERMINAL_OWNER=" in workflow
+    assert "$appData = $common -replace" in workflow
+    assert "$appData = $env:APPDATA" not in workflow
+    assert '"G13_MT5_INTERACTIVE_ACCOUNT=$interactiveAccount" | Out-File $env:GITHUB_ENV' in workflow
+    assert "MT5_PROFILE_RESOLUTION=PASS" in workflow
+    # Runtime scripts must run in the terminal owner's logged-on interactive
+    # session, not Session 0; both configs retain no-live/no-order invariants.
+    assert workflow.count("New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive") == 2
+    assert workflow.count("AllowLiveTrading=0") == 2
+    assert workflow.count("orders_submitted,false") >= 2
+    assert workflow.count("finally {") >= 2
+    assert workflow.count("$taskCreatedAt = (Get-Date).AddSeconds(-2)") == 2
+    assert workflow.count("$info.LastRunTime -gt $taskCreatedAt -and $info.LastTaskResult -ne 0") == 2
+    assert workflow.count('Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-') == 2
+    assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-off.ini'" not in workflow
+    assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-on.ini'" not in workflow
+    assert workflow.count("Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue") == 2
+    assert "Stop-ScheduledTask -TaskName $taskName" in workflow
+    assert "Unregister-ScheduledTask -TaskName $taskName -Confirm:$false" in workflow
+    assert "$proc=Start-Process" not in workflow
