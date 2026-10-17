@@ -39,12 +39,10 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
         assert f"G13_RUNTIME_{label}_TASK_START_EXIT_CODE" in step
         assert f"G13_RUNTIME_{label}_TASK_START_STDOUT" in step
         assert f"G13_RUNTIME_{label}_TASK_START_STDERR" in step
-        assert f"G13_RUNTIME_{label}_TASK_QUERY_EXIT_CODE" in step
-        assert f"G13_RUNTIME_{label}_TASK_QUERY_OUTPUT" in step
-        assert f"G13_RUNTIME_{label}_TASK_QUERY_STDERR" in step
-        assert f"G13_RUNTIME_{label}_TASK_QUERY_TIMEOUT=true" in step
-        assert "$queryStdoutText.Length -gt 2000" in step
-        assert "$queryStderrText.Length -gt 2000" in step
+        # Diagnostics query state is bounded and summarized without exporting raw logs.
+        assert "task_query_exit_code = $taskQueryExitCode" in step
+        assert "scheduled_task_state = $taskState" in step
+        assert "raw_task_query_exported = $false" in step
         assert "$startStdoutText.Length -gt 2000" in step
         assert "$startStderrText.Length -gt 2000" in step
         assert "Get-Content -LiteralPath $config -Raw" not in step
