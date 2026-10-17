@@ -504,3 +504,25 @@ Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) �
 پس از ادغام هر تغییر در `main`، شواهد قبلی روی SHA تازه قابل استفاده نیستند؛ Watchdog باید Validation تا Runtime/Preflight/Readiness را مجدداً برای commit جدید اجرا کند. موفقیت Compile/Parity، به‌تنهایی مجوز Demo یا Live نیست. Runtime Safety، Preflight و Readiness باید روی همان SHA تکمیل شوند و Capital Firewall همچنان به grant و attestationهای مستقل واقعی نیاز دارد.
 
 هیچ سفارشی ارسال نشده و Live قفل است.
+
+
+---
+
+## ۱۴. Runtime Safety: شناسایی علت `ACCOUNT_IDENTITY_UNVERIFIED` — ۱۷ اکتبر ۲۰۲۶
+
+این بخش به انتهای آرشیو افزوده شده؛ متن و لینک‌های قبلی حذف نشده‌اند.
+
+### شواهد اجرای واقعی
+
+پس از ادغام watchdog timeout fix، Watchdog توانست Compile + Signal Parity را روی SHA قبلی به‌درستی resolve کند و Runtime Safety Probe را اجرا کند. Runtime run [39062958335](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39062958335) دو Probe را کامپایل و deploy کرد و `schtasks.exe` درخواست Auth OFF را با پیام SUCCESS پذیرفت. با این‌حال نتیجهٔ MQL5 در کمتر از ۲۰ ثانیه با `G13_RUNTIME_AUTH_OFF_ACCOUNT_IDENTITY_UNVERIFIED` رد شد. یعنی Runtime به اسکریپت رسید، اما حساب در همان لحظه اتصال/شناسهٔ معتبر نداشت؛ این موفقیت محسوب نمی‌شود و Preflight/Readiness درست است که متوقف بمانند.
+
+کد قبلی فقط یک‌بار `TERMINAL_CONNECTED`، `ACCOUNT_LOGIN` و `ACCOUNT_SERVER` را هنگام `OnStart()` می‌خواند. در شروع تازهٔ ترمینال، این زمان‌بندی ممکن است قبل از اتصال سرور باشد. لاگ فعلی شناسهٔ واقعی حساب یا نام سرور را منتشر نکرده؛ فقط نتیجهٔ تأیید هویت false بوده است.
+
+### اصلاح در دست بازبینی
+
+[PR #285](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/285) اضافه می‌کند:
+- انتظار محدود ۴۵ ثانیه‌ای برای تأیید اتصال واقعی، login غیرصفر و server غیرخالی در هر دو Probe Auth OFF/ON؛ در صورت نبود اتصال، Probe همچنان fail-closed می‌ماند.
+- دو پرچم غیرحساس `account_login_present` و `account_server_present` در marker تا نتیجهٔ بعدی علت به‌صورت دقیق‌تر مشخص شود؛ خود login و server نوشته یا چاپ نمی‌شوند.
+- کپی و چاپ marker بعد از اجرای Probe و پیش از assertion، تا وقتی assertion شکست می‌خورد نیز شواهد محدود و غیرحساس artifact شود. هیچ سفارش یا مجوز جدیدی صادر نمی‌شود.
+
+پس از ادغام، به علت تغییر SHA باید زنجیرهٔ G13 از ابتدا روی همان SHA جدید اجرا شود. موفقیت Validation/Robustness/OOS/Promotion/Parity به‌تنهایی مجوز Demo نیست. Live همچنان قفل است.
