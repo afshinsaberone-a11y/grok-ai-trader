@@ -35,7 +35,9 @@ on:
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
       - 'tests/test_g13_oos_watchdog_contract.py'
+      - 'tests/test_mt5_common_files_profile_workflow_contract.py'
       - 'tools/control_plane_provider_host_preflight_v1.py'
+      - 'tools/resolve_mt5_common_files_v1.ps1'
       - 'tools/diagnose_provider_host_deployment_v1.ps1'
       - 'tests/test_control_plane_provider_host_preflight_v1.py'
       - 'docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md'
@@ -71,7 +73,9 @@ on:
       - 'tests/test_g13_demo_package_manifest_builder.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
       - 'tests/test_g13_oos_watchdog_contract.py'
+      - 'tests/test_mt5_common_files_profile_workflow_contract.py'
       - 'tools/control_plane_provider_host_preflight_v1.py'
+      - 'tools/resolve_mt5_common_files_v1.ps1'
       - 'tools/diagnose_provider_host_deployment_v1.ps1'
       - 'tests/test_control_plane_provider_host_preflight_v1.py'
       - 'docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md'
@@ -116,6 +120,9 @@ jobs:
 
       - name: Test G13 watchdog orchestration contract
         run: python -m pytest -q tests/test_g13_oos_watchdog_contract.py
+
+      - name: Test MT5 Common Files profile resolution contract
+        run: python -m pytest -q tests/test_mt5_common_files_profile_workflow_contract.py
 
       - name: Test Capital Firewall Grant issuer and host preflight contracts
         run: |
