@@ -4,27 +4,6 @@ name: ForexAI Control Plane PR Real-Data Parity
 # Promotion evidence is independently resolved from a successful main-SHA run.
 # The MQL5 harness is signal-only and never attaches an EA or submits orders.
 on:
-  push:
-    branches:
-      - feat/authoritative-capital-control-plane-v1
-    paths:
-      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
-      - 'research/optimization/g13_mql5_generator_v2.py'
-      - 'research/optimization/g13_mql5_parity.py'
-      - 'research/optimization/g13_mql5_parity_harness_generator.py'
-      - 'research/optimization/g13_demo_readiness_gate_m15.py'
-      - 'research/optimization/g13_execution_safety_audit_m15.py'
-      - 'tools/forexai_control_plane_v1.py'
-      - 'tests/test_forexai_control_plane_v1.py'
-      - 'tests/test_g13_control_plane_ea_gate_v1.py'
-      - 'tests/test_g13_mql5_generator_v2.py'
-      - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
-      - '.github/workflows/forexai-g13-mql5-generation.yml'
-      - '.github/workflows/forexai-g13-workflow-lint.yml'
-      - '.github/workflows/forexai-control-plane-pr-parity.yml'
-      - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
-      - '.github/workflows/forexai-control-plane-v1.yml'
-      - '.github/workflows/forexai-control-plane-contract.yml'
   pull_request:
     branches:
       - main
@@ -51,7 +30,7 @@ permissions:
   contents: read
   actions: read
 
-# Newer source pushes supersede stale queued parity runs for this feature branch.
+# Newer PR revisions supersede stale queued parity runs for this feature branch.
 concurrency:
   # A newer candidate commit supersedes any stale parity job for this branch.
   group: forexai-control-plane-pr-real-data-parity-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
