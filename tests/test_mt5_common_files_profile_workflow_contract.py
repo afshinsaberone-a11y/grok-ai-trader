@@ -107,12 +107,20 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert workflow.count("AllowLiveTrading=0") == 2
     assert workflow.count("orders_submitted,false") >= 2
     assert workflow.count("finally {") >= 2
-    assert workflow.count("$taskCreatedAt = (Get-Date).AddSeconds(-2)") == 2
-    assert workflow.count("$info.LastRunTime -gt $taskCreatedAt -and $info.LastTaskResult -ne 0") == 2
+    assert workflow.count("$startedAt = Get-Date") == 2
+    assert workflow.count("$deadline = $startedAt.AddSeconds(180)") == 2
+    assert workflow.count("Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName)") == 2
+    assert workflow.count("WaitForExit(15000)") == 2
+    assert workflow.count("WaitForExit(10000)") == 2
+    # Do not use potentially blocking Task Scheduler cmdlets for launch/polling.
+    assert "Start-ScheduledTask -TaskName $taskName" not in workflow
+    assert "Get-ScheduledTask -TaskName $taskName" not in workflow
+    assert "Get-ScheduledTaskInfo -TaskName $taskName" not in workflow
     assert workflow.count('Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-') == 2
     assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-off.ini'" not in workflow
     assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-on.ini'" not in workflow
     assert workflow.count("Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue") == 2
-    assert "Stop-ScheduledTask -TaskName $taskName" in workflow
-    assert "Unregister-ScheduledTask -TaskName $taskName -Confirm:$false" in workflow
+    assert "foreach ($verb in @('/End','/Delete'))" in workflow
+    assert "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb" in workflow
+    assert "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb" in workflow
     assert "$proc=Start-Process" not in workflow

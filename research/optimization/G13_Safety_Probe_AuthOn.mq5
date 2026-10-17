@@ -26,7 +26,7 @@ bool HasOtherG13Position(long current_magic)
    return false;
 }
 
-void WriteProbe(const string label,const long mode,const bool auth,const bool kill_switch,const bool other,
+void WriteProbe(const string label,const long mode,const bool account_identity_verified,const bool auth,const bool kill_switch,const bool other,
                const bool terminal_connected,const bool terminal_trade_allowed,const bool mql_trade_allowed,
                const bool account_trade_allowed,const bool account_trade_expert,
                const int symbol_trade_mode,const bool symbol_market,const bool symbol_sl,const bool symbol_tp,
@@ -38,8 +38,9 @@ void WriteProbe(const string label,const long mode,const bool auth,const bool ki
    FileWrite(h,"status,PASS");
    FileWrite(h,"probe,"+label);
    FileWrite(h,"account_mode,"+IntegerToString((int)mode));
-   FileWrite(h,"demo_account,"+(string)(mode==ACCOUNT_TRADE_MODE_DEMO ? "true" : "false"));
-   FileWrite(h,"real_account_detected,"+(string)(mode==ACCOUNT_TRADE_MODE_REAL ? "true" : "false"));
+   FileWrite(h,"account_identity_verified,"+(string)(account_identity_verified ? "true" : "false"));
+   FileWrite(h,"demo_account,"+(string)((mode==ACCOUNT_TRADE_MODE_DEMO && account_identity_verified) ? "true" : "false"));
+   FileWrite(h,"real_account_detected,"+(string)((mode==ACCOUNT_TRADE_MODE_REAL && account_identity_verified) ? "true" : "false"));
    FileWrite(h,"authorization,"+(string)(auth ? "true" : "false"));
    FileWrite(h,"kill_switch_allow,"+(string)(kill_switch ? "true" : "false"));
    FileWrite(h,"other_g13_position,"+(string)(other ? "true" : "false"));
@@ -66,6 +67,9 @@ void OnStart()
    const bool kill_switch=DemoKillSwitchAllowed();
    const bool other=HasOtherG13Position(130000+2);
    const bool terminal_connected=(bool)TerminalInfoInteger(TERMINAL_CONNECTED);
+   const long account_login=AccountInfoInteger(ACCOUNT_LOGIN);
+   const string account_server=AccountInfoString(ACCOUNT_SERVER);
+   const bool account_identity_verified=terminal_connected && account_login>0 && StringLen(account_server)>0;
    const bool terminal_trade_allowed=(bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED);
    const bool mql_trade_allowed=(bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
    const bool account_trade_allowed=(bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED);
@@ -79,6 +83,7 @@ void OnStart()
    const bool symbol_sell=(symbol_trade_mode==SYMBOL_TRADE_MODE_FULL || symbol_trade_mode==SYMBOL_TRADE_MODE_SHORTONLY);
    const bool allowed=authorized &&
                       mode==ACCOUNT_TRADE_MODE_DEMO &&
+                      account_identity_verified &&
                       terminal_connected &&
                       terminal_trade_allowed &&
                       mql_trade_allowed &&
@@ -92,7 +97,7 @@ void OnStart()
                       kill_switch &&
                       !other;
 
-   WriteProbe("auth_on",mode,authorized,kill_switch,other,
+   WriteProbe("auth_on",mode,account_identity_verified,authorized,kill_switch,other,
               terminal_connected,terminal_trade_allowed,mql_trade_allowed,
               account_trade_allowed,account_trade_expert,
               symbol_trade_mode,symbol_market,symbol_sl,symbol_tp,stops_level,allowed);

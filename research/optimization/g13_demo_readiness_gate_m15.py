@@ -121,6 +121,25 @@ def read_kv(path: Path) -> dict[str, str]:
         rows[key] = value
     return rows
 
+def validate_runtime_probe_identity(off: dict[str, str], on: dict[str, str]) -> None:
+    """Reject offline MT5 defaults that numerically resemble DEMO account mode."""
+    for label, evidence in (("auth_off", off), ("auth_on", on)):
+        assert evidence["status"] == "PASS", f"{label} runtime probe did not pass"
+        assert evidence["account_identity_verified"] == "true", (
+            f"{label} runtime probe has no verified connected account identity"
+        )
+        assert evidence["terminal_connected"] == "true", (
+            f"{label} runtime probe terminal is disconnected"
+        )
+        assert evidence["demo_account"] == "true", (
+            f"{label} runtime probe is not bound to an actual DEMO account"
+        )
+    assert off["account_mode"] == "0"
+    assert on["account_mode"] == "0"
+    assert off["real_account_detected"] == "false"
+    assert on["real_account_detected"] == "false"
+
+
 def gate(
     *,
     promotion: Path,
@@ -212,7 +231,7 @@ def gate(
 
     off = read_kv(runtime_dir / "g13_safety_probe_auth_off.done.txt")
     on = read_kv(runtime_dir / "g13_safety_probe_auth_on.done.txt")
-    assert off["status"] == "PASS" and on["status"] == "PASS"
+    validate_runtime_probe_identity(off, on)
     assert off["authorization"] == "false"
     assert off["execution_allowed"] == "false"
     assert on["authorization"] == "true"
@@ -302,6 +321,8 @@ def gate(
         "runtime": {
             "runtime_head_sha": runtime_head_sha,
             "account_mode": int(on["account_mode"]),
+            "account_identity_verified": on["account_identity_verified"] == "true",
+            "terminal_connected": on["terminal_connected"] == "true",
             "demo_account": on["demo_account"] == "true",
             "real_account_detected": on["real_account_detected"] == "true",
             "authorization_off_blocks": off["execution_allowed"] == "false",
