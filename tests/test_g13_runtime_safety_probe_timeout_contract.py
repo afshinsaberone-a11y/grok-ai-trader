@@ -94,3 +94,26 @@ def test_scheduler_start_failure_captures_bounded_cli_and_task_state_diagnostics
     assert "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$($start.ExitCode)" in workflow
     assert "G13_RUNTIME_AUTH_OFF_MARKER_MISSING" in workflow
     assert "G13_RUNTIME_AUTH_ON_MARKER_MISSING" in workflow
+
+
+def test_scheduler_output_diagnostics_tolerate_empty_files():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    pairs = (
+        ("Run Auth OFF probe", "Run Auth ON probe"),
+        ("Run Auth ON probe", "Evaluate runtime evidence"),
+    )
+    for name, next_name in pairs:
+        step = _step(workflow, name, next_name)
+        assert "function Get-TrimmedTextOrEmpty" in step
+        for variable, path in (
+            ("startStdoutText", "startStdoutPath"),
+            ("startStderrText", "startStderrPath"),
+            ("queryStdoutText", "queryStdoutPath"),
+            ("queryStderrText", "queryStderrPath"),
+        ):
+            assert f"${variable} = Get-TrimmedTextOrEmpty -Path ${path}" in step
+        assert "if ($null -eq $raw) { return '' }" in step
+        assert not __import__("re").search(
+            r"Get-Content -LiteralPath \$(?:start|query)(?:Stdout|Stderr)Path -Raw\)\.Trim\(\)",
+            step,
+        )
