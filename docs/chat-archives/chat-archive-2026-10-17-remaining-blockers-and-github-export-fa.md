@@ -104,3 +104,87 @@ PR: [feat(g13): create authoritative Capital Control Plane v1](https://github.co
 - این قبولی‌ها، تست‌های ایستا/پایتون هستند؛ **Runtime Safety Probe واقعی روی main هنوز موفق نشده است**. آخرین اجرای تأییدشده همچنان [39030848129](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39030848129) است که در Auth-Off به‌دلیل نبودن marker شکست خورد.
 - آخرین کد اصلاح runtime در شاخهٔ PR است؛ تا زمان اجرای موفق روی main، Readiness و مجوز معامله تأییدشده محسوب نمی‌شوند.
 - این آرشیو در PR #227 قرار دارد و به main ادغام نشده است.
+
+
+---
+
+## ۹. الحاقیهٔ گفت‌وگوی تکمیلی و وضعیت تازه — ۱۷ اکتبر ۲۰۲۶
+
+### درخواست‌های ثبت‌شده در این نوبت
+
+- کاربر: «موانع باقی مونده برو برطرف کن»
+- کاربر: «محتوای چت رو تبدبل به فایل کن و توی گیت هاب بگذار»
+
+این الحاقیه به آرشیو عملیاتی قبلی افزوده شد تا درخواست‌ها، تغییرات، شواهد جدید GitHub و کارهای باز در یک فایل پیگیری شوند. این سند، خلاصهٔ ساختاریافتهٔ گفت‌وگو و اقدامات است؛ کپی خام پیام‌های داخلی ابزارها یا اطلاعات محرمانه نیست.
+
+### ۹.۱ وضعیت تازهٔ main
+
+SHA جاری `main` در آخرین بررسی: **`e5ebd56eef7d3e4f62e85b4888eb90fa69fddd98`**.
+
+زنجیرهٔ G13 برای همین SHA در حال اجراست؛ شواهد SHAهای قدیمی‌تر با این SHA جایگزین نمی‌شوند:
+
+| مرحله | Run | نتیجهٔ آخرین بررسی |
+|---|---:|---|
+| Validation M15 | [39034034208](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034034208) | موفق |
+| Robustness M15 | [39034035532](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034035532) | موفق |
+| OOS M15 Current | [39034667588](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034667588) | موفق |
+| Final Promotion M15 | [39034819844](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034819844) | در حال اجرا هنگام آخرین بررسی |
+| OOS Watchdog | [39034026544](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034026544) | در حال دنبال‌کردن زنجیرهٔ همین SHA |
+
+Watchdog برای همین SHA مراحل بعدی را به‌ترتیب دنبال می‌کند: Promotion → Execution Safety Audit → MT5 Compile/Signal Parity → Runtime Safety Probe → Controlled Demo Package Preflight → Readiness Gate. نتیجهٔ این مراحل تا قبل از تکمیل هر run، موفق فرض نمی‌شود.
+
+### ۹.۲ اصلاح مانع کاذب Readiness
+
+روی `main`، فایل `.github/workflows/forexai-g13-demo-readiness-gate-m15.yml` در آخرین بررسی دارای منطق source-bound freshness بود (blob SHA: `faef9609e0314b8b3f2f2d43e4f5b072152c1813`):
+
+- آخرین اجرای موفق workflow-lint باید متعلق به `main` باشد.
+- SHA اجرای lint باید نیای مستقیم یا غیرمستقیم SHA فعلی `main` باشد.
+- اگر هرکدام از مسیرهای ممیزی‌شدهٔ workflow، کد، تست یا ابزارها بعد از lint تغییر کرده باشند، Readiness با خطا متوقف می‌شود.
+- commitهای نامرتبط، مثل افزودن آرشیو گفتگو، به‌تنهایی نباید یک lint موفق را نامعتبر کنند.
+
+اجرای قدیمی [Readiness run 39006148521](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39006148521) روی SHA قبلی `b96102e...` به‌دلیل نداشتن workflow-lint موفق روی همان SHA شکست خورده بود. آن شکست تاریخی است؛ برای SHA جاری `e5ebd56...` باید نتیجهٔ Readiness تازه از زنجیرهٔ جاری ثبت شود. همچنین روی SHA قبلی‌تر `a7cf9f3...`، [Parity run 39030453629](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39030453629) موفق بود اما [Runtime Safety Probe run 39030848129](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39030848129) در Auth-Off به‌دلیل `G13_RUNTIME_AUTH_OFF_MARKER_MISSING` شکست خورده بود؛ بنابراین موفقیت Compile/Parity به‌معنای اثبات اتصال Demo یا Readiness نیست.
+
+### ۹.۳ اصلاحات workflow/صف که ثبت شدند
+
+در شاخهٔ PR #227 اصلاحات زیر ثبت شده‌اند:
+
+1. **Real-data parity:** شرطی که Parity را برای PR هم‌مخزن skip می‌کرد حذف شد. PRهای فورک همچنان اجازهٔ اجرای کد روی runner خصوصی MT5 ندارند.
+2. **اولویت زنجیرهٔ main:** انتظار برای Promotion روی runner ابری منتقل شد؛ Windows MT5 فقط پس از resolve شواهد لازم وارد کار می‌شود.
+3. **رفع رقابت اجرای قدیمی:** اجرای قدیمی push-parity با [run 39005751623](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39005751623) در نهایت cancelled شد. گروه concurrency در تغییرات بعدی با گروه PR قدیمی همسان شد تا اجرای جدید بتواند اجرای stale را جایگزین کند.
+4. **Static validation freshness:** تست رگرسیون برای قواعد SHA/ancestor و تغییرات مسیرهای ممیزی‌شده اضافه شد.
+5. **CI روی SHA قبلی PR:** [Control Plane Contract run 39006662760](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39006662760)، [Workflow Static Validation run 39006662790](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39006662790)، [Agent Runtime run 39006662743](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39006662743) و [Python tests run 39006662768](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39006662768) موفق شدند. این نتایج متعلق به SHA همان runهاست و خودبه‌خود قبولی برای head بعدی PR نیست.
+
+### ۹.۴ وضعیت فعلی PR #227
+
+PR: [feat(g13): create authoritative Capital Control Plane v1](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227)
+
+- آخرین head بررسی‌شده در زمان تهیهٔ این الحاقیه: `a95b142870dc7c16b81a522043bb0959e996ab8e`
+- وضعیت: باز، Draft، ادغام‌نشده.
+- مقایسهٔ head این PR با `main` جاری نشان داد شاخهٔ PR از نظر تاریخچه diverged است و عقب‌ماندگی هم دارد؛ پیش از ادغام باید با main جاری sync/rebase شود، سپس CI روی head نهایی و بازبینی انسانی انجام شود.
+- روی همان head، [Full tests run 39034158881](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034158881) و [Project Repair Loop run 39034158943](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034158943) موفق بودند. چند workflow قدیمی دیگر روی headهای متفاوت اجرا شده‌اند؛ نباید آن‌ها را قبولی نهایی head فعلی تلقی کرد.
+- این PR Draft و ادغام‌نشده باقی مانده است؛ من در این نوبت آن را merge نکردم.
+
+### ۹.۵ موانعی که همچنان به دسترسی یا شواهد مستقل نیاز دارند
+
+1. **Runtime MT5:** آخرین Runtime Safety Probe موفقِ شناخته‌شده‌ای که قبلاً به آن استناد شده بود روی SHA قدیمی‌تر بود؛ اجرای جاری باید یک probe جدید با `terminal_connected=true`، هویت حساب تأییدشده، Auth-Off مسدود، `orders_submitted=false` و Kill Switch روی `DENY` ارائه دهد.
+2. **اعتماد مستقل Control Plane:** شش کلید عمومی متمایز Ed25519، امضاکنندهٔ Grant، منابع مستقل Signal و Risk/رزرو سرمایه، تأیید اپراتور، registry پایدار و secretهای واقعی هنوز باید از صاحبان واقعی‌شان پیکربندی و اثبات شوند. هیچ‌کدام نباید از روی CI موفق فرض شوند.
+3. **حفاظت main:** endpoint حفاظت branch برای اتصال فعلی با خطای دسترسی 403 قابل‌خواندن نبود؛ endpoint rulesets فهرست خالی برگرداند. این اطلاعات برای ادعای فعال‌بودن branch protection کافی نیست. سطح دسترسی ادمین باید در رابط GitHub، قواعد required checks/reviews، محدودیت direct push و bypass را بررسی و تنظیم کند.
+4. **همگام‌سازی PR:** PR #227 باید از نظر base/head با main فعلی همگام شود و CI روی SHA نهایی دوباره اجرا شود.
+5. **Readiness و مجوز معامله:** تا موفقیت Readiness روی SHA جاری و تأیید شواهد مستقل، Demo authorization صادر نشود؛ Live همچنان غیرفعال بماند.
+
+### ۹.۶ تصمیم‌های ایمنی ثابت
+
+- هیچ سفارش معاملاتی در این نوبت ارسال نشده است.
+- Parity موفق، Promotion موفق یا Preflight موفق معادل مجوز معامله نیست.
+- دادهٔ HistData.com با دادهٔ Dukascopy یکی نیست؛ منبع واقعی هر اجرای پژوهشی باید از manifest همان run خوانده شود.
+- Kill Switch برابر `DENY`، `DemoTradingAuthorized=false` و `live_trading_allowed=false` باقی می‌مانند تا مراجع مستقل و اپراتور واقعی تأیید شوند.
+- این فایل یک آرشیو عملیاتی عمومی است و نباید private key، token، password یا secret در آن قرار بگیرد.
+
+### ۹.۷ لینک‌های پیگیری
+
+- مخزن: https://github.com/afshinsaberone-a11y/grok-ai-trader
+- PR کنترل پل سرمایه: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227
+- Validation جاری: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034034208
+- Robustness جاری: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034035532
+- OOS جاری: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034667588
+- Promotion جاری: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034819844
