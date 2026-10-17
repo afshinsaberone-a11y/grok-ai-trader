@@ -14,8 +14,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: g13-g13-mt5-runtime-safety-probe-m15-v2
-  cancel-in-progress: true
+  # Shared with the legacy manual-only probe so they never run concurrently
+  # against the same terminal/runner. Queue rather than cancel active safety evidence.
+  group: g13-mt5-runtime-safety-probe-shared
+  cancel-in-progress: false
 
 defaults:
   run:
