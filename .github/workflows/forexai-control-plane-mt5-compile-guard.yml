@@ -140,7 +140,7 @@ jobs:
                 exit 1
               fi
               pr_payload="$(gh api "repos/$repo/actions/runs?head_sha=$CANDIDATE_SHA&per_page=100")"
-              pr_state="$(printf '%s' "$pr_payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI Control Plane PR Real-Data Parity" and r.get("workflow_id")==385709004 and r.get("event")=="pull_request" and r.get("head_sha")==target]; latest=max(rs,key=lambda x:x["id"]) if rs else None; print(("SUCCESS|"+str(latest["id"])) if latest and latest.get("status")=="completed" and latest.get("conclusion")=="success" else (("FAILED|"+str(latest["id"])+"|"+str(latest.get("conclusion") or "unknown")) if latest and latest.get("status")=="completed" else ("PENDING" if latest else "NOT_STARTED"))' "$CANDIDATE_SHA")"
+              pr_state="$(printf '%s' "$pr_payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI Control Plane PR Real-Data Parity" and r.get("workflow_id")==385709004 and r.get("event")=="pull_request" and r.get("head_sha")==target]; latest=max(rs,key=lambda x:x["id"]) if rs else None; print((["NOT_STARTED"] if latest is None else (["PENDING"] if latest.get("status") != "completed" else (["SUCCESS|"+str(latest["id"])] if latest.get("conclusion") == "success" else ["FAILED|"+str(latest["id"])+"|"+str(latest.get("conclusion") or "unknown")])))[0])' "$CANDIDATE_SHA")"
               case "$pr_state" in
                 SUCCESS\|*)
                   pr_parity_id="${pr_state#SUCCESS|}"
