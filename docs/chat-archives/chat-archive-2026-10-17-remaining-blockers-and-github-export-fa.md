@@ -312,3 +312,15 @@ SHA فعلی main در آخرین بررسی: \`a52a0d7e984b7d543d848d1897b0f009
 - [Readiness — 39048440531](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048440531): \`skipped\`؛ این رویداد Preflight موفقی برای SHA فعلی ارائه نکرده بود. تا ثبت Validation → Robustness → OOS → Promotion → Safety Audit → Compile/Parity → Runtime Probe → Preflight → Readiness موفق، وضعیت READY اعلام نمی‌شود.
 
 **نتیجه:** رفع مشکل ExitCode پذیرفته شده در GitHub و آزمون‌های ایستا/پایتون موفق‌اند؛ این به‌تنهایی ثابت نمی‌کند که Auth-Off/Auth-On واقعی روی ترمینال MT5 marker صحیح تولید کرده‌اند. برای آن باید Runtime Safety Probe تازه روی SHA جاری کامل و موفق شود.
+
+
+### ۱۱.۸ تازه‌سازی زنجیرهٔ جاری — ۱۷ اکتبر ۲۰۲۶، ۱۶:۱۸ UTC
+
+دوباره وضعیت اجراهای دقیق SHA فعلی \`a52a0d7e984b7d543d848d1897b0f009c4fec577\` بررسی شد:
+
+- [Validation M15 — run 39048423066](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048423066): **success**.
+- [Robustness M15 — run 39048424416](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048424416): هنوز در حال اجرا؛ آماده‌سازی، دانلود/اعتبارسنجی داده، بررسی مرز OOS، handoff منجمد Validation و parity smoke موفق شده‌اند؛ گام «Run G13 robustness» فعال بود.
+- [OOS Watchdog — run 39048414992](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048414992): در حال resolve کردن Validation و Robustness همان SHA؛ مراحل بعدی هنوز اجرا نشده‌اند.
+- Static Validation، Full Python tests و Agent Runtime روی این SHA قبلاً موفق شده‌اند (runs 39048415069، 39048415067 و 39048415125).
+
+این وضعیت نشان می‌دهد اصلاح کد و تست‌های قراردادی قبول شده‌اند، ولی هنوز اجرای Runtime Safety Probe جدید و Readiness موفقی برای این SHA ثبت نشده است. بعد از تکمیل Robustness، نتیجه باید از خود Watchdog و runهای بعدی تأیید شود؛ هیچ مجوز Demo/Live از این وضعیت استنباط نمی‌شود.
