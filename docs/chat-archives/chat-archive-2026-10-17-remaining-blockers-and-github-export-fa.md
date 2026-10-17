@@ -298,3 +298,17 @@ SHA فعلی main در آخرین بررسی: \`a52a0d7e984b7d543d848d1897b0f009
 5. branch protection، required checks، review اجباری و محدودیت direct push/bypass نیاز به دسترسی مدیریتی واقعی GitHub دارد.
 
 **سیاست ثابت:** هیچ سفارش معاملاتی در این اصلاح ارسال نشده؛ Kill Switch باید \`DENY\`، \`DemoTradingAuthorized=false\` و Live غیرفعال بماند تا Runtime Probe و Readiness روی SHA جاری موفق شوند و مراجع مستقل واقعی تأیید شوند.
+
+
+### ۱۱.۷ به‌روزرسانی CI پس از اصلاح — ۱۷ اکتبر ۲۰۲۶، ساعت ۱۶:۱۳ UTC
+
+برای SHA فعلی \`a52a0d7e984b7d543d848d1897b0f009c4fec577\`، بررسی بعدی GitHub این نتایج را برگرداند:
+
+- [G13 Workflow Static Validation — 39048415069](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048415069): **success**.
+- [Full Python tests — 39048415067](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048415067): **success**.
+- [ForexAI Agent Runtime Check — 39048415125](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048415125): **success**.
+- [Validation M15 — 39048423066](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048423066) و [Robustness M15 — 39048424416](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048424416): هنگام این بررسی هنوز در حال اجرا بودند.
+- [OOS Watchdog — 39048414992](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048414992): همچنان در حال resolve کردن زنجیرهٔ دقیق SHA بود.
+- [Readiness — 39048440531](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048440531): \`skipped\`؛ این رویداد Preflight موفقی برای SHA فعلی ارائه نکرده بود. تا ثبت Validation → Robustness → OOS → Promotion → Safety Audit → Compile/Parity → Runtime Probe → Preflight → Readiness موفق، وضعیت READY اعلام نمی‌شود.
+
+**نتیجه:** رفع مشکل ExitCode پذیرفته شده در GitHub و آزمون‌های ایستا/پایتون موفق‌اند؛ این به‌تنهایی ثابت نمی‌کند که Auth-Off/Auth-On واقعی روی ترمینال MT5 marker صحیح تولید کرده‌اند. برای آن باید Runtime Safety Probe تازه روی SHA جاری کامل و موفق شود.
