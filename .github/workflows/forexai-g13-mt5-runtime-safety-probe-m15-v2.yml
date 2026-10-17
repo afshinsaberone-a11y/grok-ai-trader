@@ -375,6 +375,15 @@ jobs:
               }
               throw 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING'
             }
+            # Preserve a marker artifact before enforcing assertions, even on failure.
+            # This marker contains booleans only, not the actual account login/server.
+            $markerArtifact = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\g13_safety_probe_auth_off.done.txt'
+            New-Item -ItemType Directory -Path (Split-Path -Parent $markerArtifact) -Force | Out-Null
+            Copy-Item -LiteralPath $done -Destination $markerArtifact -Force
+            Get-Content -LiteralPath $done | Where-Object {
+              $_ -match '^(status|probe|account_mode|account_identity_verified|account_login_present|account_server_present|demo_account|real_account_detected|authorization|kill_switch_allow|other_g13_position|terminal_connected|terminal_trade_allowed|mql_trade_allowed|account_trade_allowed|account_trade_expert|symbol_trade_mode|symbol_market_order_allowed|symbol_sl_allowed|symbol_tp_allowed|stops_level_points|execution_allowed|orders_submitted|probe_only),'
+            } | ForEach-Object { Write-Host "G13_RUNTIME_AUTH_OFF_MARKER=$_ " }
+
             foreach ($assertion in @(
               @{ Pattern='^status,PASS$'; Error='G13_RUNTIME_AUTH_OFF_STATUS_INVALID' },
               @{ Pattern='^authorization,false$'; Error='G13_RUNTIME_AUTH_OFF_AUTHORIZATION_MISMATCH' },
@@ -599,6 +608,15 @@ jobs:
               }
               throw 'G13_RUNTIME_AUTH_ON_MARKER_MISSING'
             }
+            # Preserve a marker artifact before enforcing assertions, even on failure.
+            # This marker contains booleans only, not the actual account login/server.
+            $markerArtifact = Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\g13_safety_probe_auth_on.done.txt'
+            New-Item -ItemType Directory -Path (Split-Path -Parent $markerArtifact) -Force | Out-Null
+            Copy-Item -LiteralPath $done -Destination $markerArtifact -Force
+            Get-Content -LiteralPath $done | Where-Object {
+              $_ -match '^(status|probe|account_mode|account_identity_verified|account_login_present|account_server_present|demo_account|real_account_detected|authorization|kill_switch_allow|other_g13_position|terminal_connected|terminal_trade_allowed|mql_trade_allowed|account_trade_allowed|account_trade_expert|symbol_trade_mode|symbol_market_order_allowed|symbol_sl_allowed|symbol_tp_allowed|stops_level_points|execution_allowed|orders_submitted|probe_only),'
+            } | ForEach-Object { Write-Host "G13_RUNTIME_AUTH_ON_MARKER=$_ " }
+
             foreach ($assertion in @(
               @{ Pattern='^status,PASS$'; Error='G13_RUNTIME_AUTH_ON_STATUS_INVALID' },
               @{ Pattern='^authorization,true$'; Error='G13_RUNTIME_AUTH_ON_AUTHORIZATION_MISMATCH' },
