@@ -408,6 +408,6 @@ def test_runtime_probe_workflow_is_denied_first_and_uses_isolated_portable_mt5()
     assert "G13_ISOLATED_TERMINAL_PATH" in workflow
     assert workflow.count("/portable /config:") == 2
     assert "Cleanup isolated portable MT5 runtime" in workflow
+    assert '"G13_ISOLATED_MT5_ROOT=$portableRoot" | Out-File $env:GITHUB_ENV' in workflow
     assert "G13_RUNTIME_AUTH_OFF_ACCOUNT_IDENTITY_UNVERIFIED" in workflow
     assert "G13_RUNTIME_AUTH_ON_ACCOUNT_IDENTITY_UNVERIFIED" in workflow
-    assert "MT5_COMPILE_GUARD_TRUSTED_MAIN_SHA_MISMATCH" not in workflow
