@@ -371,7 +371,7 @@ Static Validation روی SHA موقت `e406f9...` یک failure داشت، زیر
 #### CI فعلی روی main SHA `679c89128ff5a5e6944a4c7542bf80d1afe02a7d`
 
 - [Full Python tests — 39049944672](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049944672): **success**؛ 9 مرحله در job Python tests موفق شدند.
-- [Workflow Static Validation — 39049944726](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049944726): هنگام آخرین بررسی در حال اجرا بود؛ هنوز نتیجهٔ نهایی اعلام نشده.
+- [Workflow Static Validation — 39049944726](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049944726): **success** روی همین SHA؛ تمام 21 مرحلهٔ validate موفق شدند.
 - [Validation M15 — 39049953169](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049953169): در حال اجرا.
 - [Robustness M15 — 39049955317](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049955317): در حال اجرا.
 - [OOS Watchdog — 39049944669](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049944669): منتظر Validation و Robustness موفق برای همین SHA است.
