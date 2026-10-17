@@ -27,14 +27,14 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
         assert f"G13_RUNTIME_{label}_TASK_START_TIMEOUT" in step
         assert "$deadline = $startedAt.AddSeconds(180)" in step
         assert f"G13_RUNTIME_{label}_WAITING_FOR_MARKER" in step
-        # One bounded marker-time diagnostic query, one launcher-failure query,
-        # and one bounded task-cleanup call per probe.
-        assert step.count("WaitForExit(10000)") == 3
+        # One bounded marker-time diagnostic query and one bounded task-cleanup
+        # call per probe. A nonzero launcher exit no longer triggers a query.
+        assert step.count("WaitForExit(10000)") == 2
         assert "Start-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTaskInfo -TaskName $taskName" not in step
         assert "-RedirectStandardOutput $startStdoutPath -RedirectStandardError $startStderrPath" in step
-        assert "-ArgumentList @('/Query','/TN',$taskName,'/FO','LIST')" in step
+        assert "-ArgumentList @('/Query','/TN',$taskName,'/V','/FO','LIST')" in step
         assert "WaitForExit(10000)" in step
         assert f"G13_RUNTIME_{label}_TASK_START_EXIT_CODE" in step
         assert f"G13_RUNTIME_{label}_TASK_START_STDOUT" in step
