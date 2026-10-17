@@ -240,3 +240,28 @@ PR [#227](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227) در s
 6. تأیید تنظیمات branch protection / required checks / review و محدودیت push مستقیم. endpoint قواعد repository در بررسی قبلی `[]` برگردانده بود؛ اتصال GitHub قابل استفاده در این مکالمه ابزار لازم برای تنظیم branch protection یا dispatch مستقیم workflow را در اختیار نمی‌گذارد.
 
 این مراجع و کلیدها نباید جعل شوند و وضعیت runtime باید با اجرای واقعی اثبات شود. تا پایان این موارد، `Kill Switch=DENY`، `DemoTradingAuthorized=false` و Live غیرفعال باقی می‌مانند. هیچ سفارش بروکری در این اصلاحات ارسال نشده است.
+
+
+---
+
+## به‌روزرسانی CI برای PR #274 — ۱۷ اکتبر ۲۰۲۶، ۱۴:۳۹ UTC
+
+این بخش وضعیت آزمایش قبلی PR #274 را به‌روز می‌کند؛ پاراگراف‌های قبلی برای ثبت سابقه باقی می‌مانند.
+
+- آخرین commit تشخیصی: `e7ccb9728575eb94ae28af6765a902513a31ed42`.
+- [G13 Workflow Static Validation — run 39041553872](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39041553872): **success**.
+- [Full Python tests — run 39041553859](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39041553859): **success**.
+- [PR-triggered Static Validation — run 39041552393](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39041552393): **success**.
+- [P0 Quant Trust Gate — run 39041552389](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39041552389): **success**.
+- [Agent Runtime — run 39041552376](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39041552376): **success**.
+- [PR-triggered Full Python tests — run 39041552407](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39041552407): **success**.
+
+این CI موفقیت تغییراتِ تشخیصی، تست‌های قراردادی و صحت workflow را نشان می‌دهد؛ **اثبات اجرای واقعی Runtime Safety Probe نیست**. مرحلهٔ Runtime در main همچنان آخرین‌بار با خطای شروع Task شکست خورد و این workflow فقط با dispatch زنجیرهٔ رسمی روی Windows MT5 قابل اثبات است.
+
+### وضعیت PRها پس از آرشیو
+
+- آرشیو فارسی در commit `5fe4eb658b192404e5a8f27497a247c692738805` به‌روزرسانی و در PR [#271](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/271) ارائه شده است. PR باز است، ادغام نشده و فقط فایل مستندات آرشیو را تغییر می‌دهد. فایل: [باز کردن آرشیو کامل](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/archive/chat-session-followup-fa-2026-10-17/docs/chat-archives/chat-archive-2026-10-17-current-session-fa.md).
+- PR تشخیصی [#274](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/274) باز و Draft است؛ CI Static/Python آن موفق است، ولی اجرای Auth OFF/ON روی main هنوز نیازمند تأیید واقعی است.
+- PR Control Plane [#227](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227) همچنان Draft/open/unmerged و نسبت به main واگراست. به‌دلیل هم‌پوشانی امنیتی، merge بدون همگام‌سازی و بازبینی مناسب نیست.
+
+هیچ سفارش بروکری ارسال نشده است. تا اثبات Runtime Safety Probe و فراهم‌شدن مراجع مستقل واقعی، `Kill Switch=DENY`، `DemoTradingAuthorized=false` و Live غیرفعال باقی می‌مانند.
