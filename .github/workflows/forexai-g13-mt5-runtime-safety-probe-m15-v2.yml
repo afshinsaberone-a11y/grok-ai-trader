@@ -155,6 +155,8 @@ jobs:
 
           [StartUp]
           Script=$scriptRel
+          Symbol=EURUSD
+          Period=M15
           ShutdownTerminal=1
           "@ | Set-Content -LiteralPath $config -Encoding ascii
           $proc=Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @('/config:"' + $config + '"','/skipupdate') -PassThru
@@ -188,6 +190,8 @@ jobs:
 
           [StartUp]
           Script=$scriptRel
+          Symbol=EURUSD
+          Period=M15
           ShutdownTerminal=1
           "@ | Set-Content -LiteralPath $config -Encoding ascii
           $proc=Start-Process -FilePath $terminal -WorkingDirectory (Split-Path $terminal) -ArgumentList @('/config:"' + $config + '"','/skipupdate') -PassThru

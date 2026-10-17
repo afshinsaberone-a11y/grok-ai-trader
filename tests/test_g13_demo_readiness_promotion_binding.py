@@ -221,3 +221,16 @@ def test_readiness_requires_runtime_probe_from_exact_current_main_sha():
 
     assert 'runtime_id="$(latest_success_exact "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml" "$MAIN_SHA")"' in workflow
     assert 'if [ "$key" = "RUNTIME" ] || [ "$key" = "SAFETY" ]' in workflow
+
+def test_runtime_safety_probe_startup_attaches_script_to_explicit_chart():
+    workflow = Path(
+        ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
+    ).read_text(encoding="utf-8")
+
+    # MT5 does not start a startup Script when the current profile has no
+    # chart. Force an explicit, deterministic chart for both no-order probes.
+    assert workflow.count("          Script=$scriptRel\\n") == 2
+    assert workflow.count("          Symbol=EURUSD\\n") == 2
+    assert workflow.count("          Period=M15\\n") == 2
+    assert workflow.count("          ShutdownTerminal=1\\n") == 2
+
