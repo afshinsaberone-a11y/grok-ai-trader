@@ -41,7 +41,7 @@ jobs:
   resolve-promotion:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 85
     permissions:
       contents: read
       actions: read
@@ -54,6 +54,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
         run: |
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
@@ -126,6 +127,43 @@ jobs:
             echo "MT5_COMPILE_GUARD_MAIN_PARITY_WAIT_TIMEOUT"
             exit 1
           fi
+          # Serialize candidate diagnostics behind the exact candidate's PR Parity.
+          # The full parity workflow compiles EAs and runs real-data signal parity; the
+          # compile guard must not take the sole Windows runner before that evidence exists.
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'MT5_COMPILE_GUARD_CANDIDATE_SHA_INVALID'; exit 1; }
+            pr_parity_id=""
+            for pr_attempt in $(seq 1 100); do
+              current_sha="$(gh api "repos/$repo/commits/main" --jq .sha)"
+              if [[ "$current_sha" != "$target_sha" ]]; then
+                echo "MT5_COMPILE_GUARD_MAIN_SHA_MOVED_DURING_PR_PARITY_WAIT"
+                exit 1
+              fi
+              pr_payload="$(gh api "repos/$repo/actions/runs?head_sha=$CANDIDATE_SHA&per_page=100")"
+              pr_state="$(printf '%s' "$pr_payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI Control Plane PR Real-Data Parity" and r.get("workflow_id")==385709004 and r.get("event")=="pull_request" and r.get("head_sha")==target]; latest=max(rs,key=lambda x:x["id"]) if rs else None; print(("COMPLETED|"+str(latest["id"])+"|"+str(latest.get("conclusion") or "unknown")) if latest and latest.get("status")=="completed" else ("PENDING" if latest else "NOT_STARTED"))' "$CANDIDATE_SHA")"
+              case "$pr_state" in
+                COMPLETED\|*)
+                  pr_parity_id="${pr_state#COMPLETED|}"
+                  echo "MT5_COMPILE_GUARD_CANDIDATE_PARITY_COMPLETED state=$pr_state"
+                  break
+                  ;;
+                PENDING|NOT_STARTED)
+                  echo "MT5_COMPILE_GUARD_WAITING_FOR_CANDIDATE_PARITY attempt=$pr_attempt state=$pr_state"
+                  sleep 15
+                  ;;
+                *)
+                  echo "MT5_COMPILE_GUARD_CANDIDATE_PARITY_STATE_INVALID"
+                  exit 1
+                  ;;
+              esac
+            done
+            if [[ -z "$pr_parity_id" ]]; then
+              echo "MT5_COMPILE_GUARD_CANDIDATE_PARITY_WAIT_TIMEOUT"
+              exit 1
+            fi
+          fi
+          echo "MT5_COMPILE_GUARD_RUNNER_SLOT_ORDER=MAIN_PARITY_THEN_CANDIDATE_PARITY_THEN_DIAGNOSTIC_COMPILE"
+
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
           echo "promotion_run_id=$promotion_id" >> "$GITHUB_OUTPUT"
           echo "MT5_COMPILE_GUARD_PROMOTION_READY=true run=$promotion_id sha=$target_sha"

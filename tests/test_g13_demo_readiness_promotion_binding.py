@@ -214,3 +214,21 @@ def test_static_lint_freshness_is_sha_and_source_bound():
         "tools",
     ):
         assert path_fragment in freshness
+
+
+def test_mt5_runner_waits_for_exact_candidate_parity_before_diagnostic_compile():
+    parity_workflow = Path(
+        ".github/workflows/forexai-control-plane-pr-parity.yml"
+    ).read_text(encoding="utf-8")
+    compile_workflow = Path(
+        ".github/workflows/forexai-control-plane-mt5-compile-guard.yml"
+    ).read_text(encoding="utf-8")
+
+    # PR-only parity shares one stable branch group so a new head cancels stale
+    # PR parity jobs, while the hosted compile resolver waits before using MT5.
+    assert "group: forexai-control-plane-pr-real-data-parity-pull_request-" in parity_workflow
+    assert "CANDIDATE_SHA: ${{ github.event_name == 'pull_request'" in compile_workflow
+    assert "workflow_id)==385709004" in compile_workflow
+    assert "MT5_COMPILE_GUARD_WAITING_FOR_CANDIDATE_PARITY" in compile_workflow
+    assert "MT5_COMPILE_GUARD_RUNNER_SLOT_ORDER=MAIN_PARITY_THEN_CANDIDATE_PARITY_THEN_DIAGNOSTIC_COMPILE" in compile_workflow
+    assert "timeout-minutes: 85" in compile_workflow
