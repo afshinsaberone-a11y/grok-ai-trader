@@ -72,7 +72,7 @@ jobs:
             if ([string]::IsNullOrWhiteSpace($appData) -or $appData -eq $common) { throw 'G13_MT5_APPDATA_DERIVATION_FAILED' }
             $serviceData = Join-Path $appData 'MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
             $scriptsRoot = Join-Path $serviceData 'MQL5\Scripts'
-            Write-Host 'MT5_PROFILE_RESOLUTION_SOURCE=INTERACTIVE_TERMINAL'
+            Write-Host 'G13_MT5_PROFILE_RESOLUTION_SOURCE=INTERACTIVE_TERMINAL'
           } else {
             # Resolve the preconfigured terminal data directory to exactly one
             # Windows profile, then require one logged-on Explorer session for
@@ -146,7 +146,7 @@ jobs:
             $common = Join-Path $appData 'MetaQuotes\Terminal\Common\Files'
             $serviceData = $configuredDataRoot
             $scriptsRoot = Join-Path $serviceData 'MQL5\Scripts'
-            Write-Host 'MT5_PROFILE_RESOLUTION_SOURCE=CONFIGURED_PROFILE_MATCHING_DESKTOP'
+            Write-Host 'G13_MT5_PROFILE_RESOLUTION_SOURCE=CONFIGURED_PROFILE_MATCHING_DESKTOP'
           }
           foreach ($p in @($serviceData,$scriptsRoot)) {
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw 'G13_MT5_USER_PROFILE_SCRIPT_PATH_MISSING' }
