@@ -341,11 +341,27 @@ jobs:
           for workflow_path, group_prefix in sha_scoped_dispatch_gates:
               workflow_text = Path(workflow_path).read_text(encoding="utf-8")
               assert f"group: {group_prefix}-" in workflow_text, (
-                  f"G13 concurrency group must be SHA-scoped: {workflow_path}"
+                  f"G13 concurrency group must be SHA/invocation scoped: {workflow_path}"
               )
-              assert "github.sha }}" in workflow_text, (
-                  f"G13 concurrency group must use the dispatched commit SHA: {workflow_path}"
-              )
+              if workflow_path.endswith("forexai-g13-oos-m15-current.yml"):
+                  # OOS must be uniquely keyed by the verified expected main SHA
+                  # and the dispatching watchdog run, so a stale watchdog cannot
+                  # cancel a newer invocation. Its start guard independently
+                  # verifies GITHUB_SHA and the parent watchdog run.
+                  for required in (
+                      "github.event.inputs.expected_main_sha",
+                      "github.event.inputs.watchdog_run_id",
+                      "G13_OOS_RUN_SHA_MISMATCH",
+                      "G13_OOS_WATCHDOG_INVOCATION_VERIFIED",
+                      "G13_OOS_MAIN_MOVED_BEFORE_START",
+                  ):
+                      assert required in workflow_text, (
+                          f"OOS invocation-binding token missing: {required}"
+                      )
+              else:
+                  assert "github.sha }}" in workflow_text, (
+                      f"G13 concurrency group must use the dispatched commit SHA: {workflow_path}"
+                  )
 
           for workflow_path, group_prefix in [
               (".github/workflows/forexai-g13-demo-readiness-gate-m15.yml", "g13-demo-readiness-gate-m15"),
