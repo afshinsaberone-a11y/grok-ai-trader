@@ -433,6 +433,74 @@ jobs:
           printf '%s' "$compile_json" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; p=json.load(sys.stdin); target=os.environ["TARGET_SHA"]; assert p["name"]=="ForexAI G13 MT5 Compile + Signal Parity",p["name"]; assert p["head_branch"]=="main",p["head_branch"]; assert p["status"]=="completed",p["status"]; assert p["conclusion"]=="success",p["conclusion"]; assert p["head_sha"]==target,(p["head_sha"],target); print("G13_EXACT_COMPILE_PARITY_BOUND",p["id"],target)'
           echo "COMPILE_PARITY_RUN_ID=$compile_run_id" >> "$GITHUB_ENV"
 
+      - name: Dispatch exact MT5 Runtime Safety Probe after successful parity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "G13_RUNTIME_DISPATCH_STALE_SHA=true CURRENT_MAIN=$main_sha TARGET_SHA=$GITHUB_SHA"
+            exit 1
+          }
+
+          runtime_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml/runs?branch=main&per_page=50")"
+          runtime_baseline_id="$(printf '%s' "$runtime_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
+          echo "G13_RUNTIME_SAFETY_BASELINE_ID=$runtime_baseline_id"
+          echo "G13_RUNTIME_SAFETY_BASELINE_ID=$runtime_baseline_id" >> "$GITHUB_ENV"
+
+          status="$(curl -sS --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors --retry-delay 2 \
+            -o /tmp/g13-runtime-dispatch-response.txt -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml/dispatches" \
+            --data '{"ref":"main"}')"
+          if [[ "$status" != "204" ]]; then
+            echo "G13_RUNTIME_SAFETY_DISPATCH_FAILED_HTTP=$status"
+            cat /tmp/g13-runtime-dispatch-response.txt
+            exit 1
+          fi
+          echo "G13_RUNTIME_SAFETY_PROBE_DISPATCHED=true TARGET_SHA=$GITHUB_SHA"
+
+      - name: Resolve exact successful MT5 Runtime Safety Probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runtime_run_id=""
+          for attempt in $(seq 1 120); do
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml/runs?branch=main&per_page=50")"
+            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" BASELINE_ID="$G13_RUNTIME_SAFETY_BASELINE_ID" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; baseline=int(os.environ["BASELINE_ID"]); rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if int(r.get("id",0))>baseline and r.get("event")=="workflow_dispatch" and r.get("name")=="ForexAI G13 MT5 Runtime Safety Probe M15 v2" and r.get("head_branch")=="main" and r.get("head_sha")==target]; ok=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(ok,key=lambda x:x["id"])["id"])) if ok else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
+            case "$state" in
+              SUCCESS\|*)
+                runtime_run_id="${state#SUCCESS|}"
+                echo "G13_RUNTIME_SAFETY_SUCCESS_RESOLVED=true RUN=$runtime_run_id SHA=$GITHUB_SHA"
+                break
+                ;;
+              FAILED\|*)
+                echo "G13_RUNTIME_SAFETY_FAILED_FOR_SHA=$GITHUB_SHA RUN=${state#FAILED|}"
+                exit 1
+                ;;
+              PENDING\|*|NOT_STARTED\|*)
+                echo "G13_RUNTIME_SAFETY_WAIT attempt=$attempt state=$state SHA=$GITHUB_SHA"
+                sleep 15
+                ;;
+            esac
+          done
+          if [[ -z "$runtime_run_id" ]]; then
+            echo "G13_RUNTIME_SAFETY_WAIT_TIMEOUT_FOR_SHA=$GITHUB_SHA"
+            exit 1
+          fi
+
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "G13_WATCHDOG_MAIN_MOVED_AFTER_RUNTIME_SAFETY=true CURRENT_MAIN=$main_sha TARGET_SHA=$GITHUB_SHA"
+            exit 1
+          }
+          echo "RUNTIME_SAFETY_RUN_ID=$runtime_run_id" >> "$GITHUB_ENV"
+
       - name: Dispatch exact Controlled Demo Package Preflight
         env:
           GH_TOKEN: ${{ github.token }}
@@ -514,8 +582,9 @@ jobs:
             exit 1
           }
 
-          runtime_payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml/runs?branch=main&status=completed&per_page=50")"
-          runtime_run_id="$(printf '%s' "$runtime_payload" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); m=[r for r in rs if r.get("name")=="ForexAI G13 MT5 Runtime Safety Probe M15 v2" and r.get("head_branch")=="main" and r.get("status")=="completed" and r.get("conclusion")=="success"]; assert m, "no successful G13 runtime safety probe"; print(max(m,key=lambda x:x["id"])["id"])')"
+          runtime_run_id="${RUNTIME_SAFETY_RUN_ID:?exact-SHA runtime safety evidence is required}"
+          runtime_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$runtime_run_id")"
+          printf '%s' "$runtime_json" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; r=json.load(sys.stdin); assert r.get("name")=="ForexAI G13 MT5 Runtime Safety Probe M15 v2",r.get("name"); assert r.get("event")=="workflow_dispatch",r.get("event"); assert r.get("status")=="completed" and r.get("conclusion")=="success",(r.get("status"),r.get("conclusion")); assert r.get("head_branch")=="main",r.get("head_branch"); assert r.get("head_sha")==os.environ["TARGET_SHA"],(r.get("head_sha"),os.environ["TARGET_SHA"]); print("G13_RUNTIME_EVIDENCE_EXACT_SHA_VERIFIED",r["id"],r["head_sha"])'
 
           readiness_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-demo-readiness-gate-m15.yml/runs?branch=main&per_page=50")"
           readiness_baseline_id="$(printf '%s' "$readiness_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
