@@ -127,3 +127,43 @@ PR اصلی: [#227 — feat(g13): create authoritative Capital Control Plane v1]
 این نوبت گفت‌وگو در GitHub آرشیو می‌شود. در کنار آن، علت شکست اخیر Compile + Parity نیز مشخص شد: شکست شبکه‌ای در بارگذاری artifact تشخیصی، نه شکست خود مقایسهٔ سیگنال. اصلاحی برای مستقل کردن diagnostics از gate اصلی Parity در شاخهٔ PR ثبت شده و آزمونش اضافه شده است؛ تا پیش از اتمام CI، همگام‌سازی PR و اجرای موفق زنجیره روی SHA فعلی `main`، آن را رفع‌شده در محیط اصلی اعلام نمی‌کنیم.
 
 Readiness، مجوز Demo یا مجوز Live از این آرشیو یا از موفقیت یک job به دست نمی‌آید. همهٔ مجوزهای معاملاتی همچنان باید fail-closed باقی بمانند.
+
+
+---
+
+## پیوست تکمیلی — ادامهٔ رفع موانع و ثبت آرشیو
+
+### فایل آرشیو و PR مستند
+
+- فایل در GitHub: [chat-archive-2026-10-17-current-session-fa.md](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/archive/chat-session-followup-fa-2026-10-17/docs/chat-archives/chat-archive-2026-10-17-current-session-fa.md)
+- PR آرشیو: [#271](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/271), پایهٔ PR = main SHA `18806df5901a1cf139ec8ac40fe03f8f7b1209d8`.
+- آزمون‌های PR آرشیو موفق شدند: [Full tests #39039283404](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039283404) و [Agent Runtime #39039283444](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039283444).
+- PR #271 باز است و هنوز ادغام نشده؛ به این ترتیب main در اثر اضافه‌شدن آرشیو تغییر نکرده است.
+
+### PR کوچک برای خطای بارگذاری artifact
+
+برای جلوگیری از آنکه شکست موقت در بارگذاری لاگ‌های تکمیلی، کل run مربوط به Signal Parity را قرمز کند، یک PR جداگانه بر پایهٔ main ساخته شد:
+
+- [PR #272 — fix(g13): prevent transient diagnostics upload from blocking parity](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/272)
+- شاخه: `fix/g13-diagnostics-upload-2026-10-17`
+- head: `3cae4118078904afcd934022e127411aaadd567f`
+- تغییر: `Upload MT5 parity diagnostics` با `continue-on-error: true` و هشدار روشن تنظیم شده است.
+- شواهد اصلی `g13-mt5-compile-parity-*` همچنان اجباری‌اند؛ failure در بارگذاری artifact اصلی همچنان run را ناموفق نگه می‌دارد.
+- regression test اضافه شده تا این تفاوت حفظ شود.
+- [Static Validation #39039462513](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039462513) موفق شد. در آخرین snapshot، [Full tests #39039477723](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039477723) و [Agent Runtime #39039477712](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039477712) هنوز در حال اجرا بودند.
+
+این PR کوچک هم هنوز باز و ادغام‌نشده است؛ بنابراین تا merge و اجرای دوبارهٔ زنجیره روی SHA جدید main، نمی‌توان گفت این مانع در main برطرف شده است.
+
+### وضعیت PR بزرگ Control Plane
+
+PR #227 در آخرین مقایسه با main وضعیت `diverged` داشت، ۱۵۱ commit جلو و ۳ commit عقب بود و GitHub مقدار `mergeable=false` برگرداند. فایل‌های Runtime Safety Probe، Readiness، workflow lint و قراردادهای تست در هر دو طرف تغییر کرده‌اند. تغییرات امنیتی این شاخه را نباید با merge کورکورانه بازنویسی کرد؛ ابتدا باید شاخه همگام‌سازی شود، تعارض‌های حساس دستی حل و CI دوباره اجرا شود.
+
+### گیت‌های نهایی همچنان بازند
+
+- آخرین main SHA ثبت‌شده: `18806df5901a1cf139ec8ac40fe03f8f7b1209d8`.
+- آخرین Compile + Signal Parity run [39037836658](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39037836658) در سطح کل workflow شکست خورد، چون بارگذاری diagnostics خطای `ECONNRESET` داد؛ خود مقایسهٔ سیگنال موفق بود و artifact اصلی با شناسهٔ `12103410870` بارگذاری شد.
+- OOS Watchdog [39036904266](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036904266) نتوانست این run را به‌عنوان نتیجهٔ کلی موفق resolve کند؛ Readiness [39036928583](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036928583) رد شد/Skip ماند.
+- بعد از merge PR #272 باید G13 chain با SHA دقیق جدید main دوباره اجرا شود و Readiness تازه تأیید شود.
+- مرجع‌های مستقل واقعی (شش کلید Ed25519، Grant signer، Signal/Risk/Operator authorities، registry پایدار، HMAC secret و allowlist حساب Demo) همچنان به پیکربندی و شواهد صاحبان واقعی نیاز دارند. این‌ها با CI یا آرشیو قابل جعل یا خودکارشدن نیستند.
+
+تا زمانی که این موارد واقعاً تأیید نشوند، Kill Switch باید `DENY` بماند، `DemoTradingAuthorized=false` باشد و Live غیرفعال بماند.
