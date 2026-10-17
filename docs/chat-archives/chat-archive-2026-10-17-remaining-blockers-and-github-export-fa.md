@@ -188,3 +188,46 @@ PR: [feat(g13): create authoritative Capital Control Plane v1](https://github.co
 - Robustness جاری: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034035532
 - OOS جاری: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034667588
 - Promotion جاری: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034819844
+
+
+## ۱۰. بررسی تکمیلی Runtime Probe و زنجیرهٔ اصلی — ۱۷ اکتبر ۲۰۲۶
+
+### وضعیت آخرین اجرای main
+
+SHA جاری main: `e5ebd56eef7d3e4f62e85b4888eb90fa69fddd98`.
+
+- [Validation 39034034208](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034034208): success.
+- [Robustness 39034035532](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034035532): success.
+- [OOS 39034667588](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034667588): success.
+- [Promotion 39034819844](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034819844): success.
+- [Execution Safety Audit 39034898019](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034898019): success.
+- [MT5 Compile + Signal Parity 39034938982](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034938982): در حال اجرا روی `FOREXAI-WINDOWS-MT5`؛ آخرین مشاهده در مرحلهٔ `Set up job` بود. تا زمان اتمام job هیچ نتیجهٔ Parity فرض نمی‌شود.
+- [OOS Watchdog 39034026544](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034026544): در حال resolve کردن نتیجهٔ Parity همین SHA؛ بعد از آن Runtime Safety Probe، Preflight و Readiness را به ترتیب دنبال می‌کند.
+
+### اختلافی که در کد main و شاخهٔ PR مشاهده شد
+
+دو نسخهٔ فایل `.github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml` مقایسه شدند:
+
+- Blob روی main: `f2dd5536d7ffbaa4961960d829f526ed5d5f869e`.
+- Blob روی شاخهٔ PR در زمان بررسی: `526bd18ade8d6c04029be55c4033256689ce8ae2`.
+
+در نسخهٔ main، متغیرهای `G13_AUTH_OFF_SCRIPT` و `G13_AUTH_ON_SCRIPT` نام‌هایی با پسوند `.ex5` دارند و همان مقادیر به فیلد `[StartUp] Script=` داده می‌شوند. در نسخهٔ PR، شناسهٔ Script بدون پسوند است و `.ex5` فقط هنگام کپی‌کردن فایل باینری افزوده می‌شود. همچنین probeهای MQL5 در main فاقد فیلد `account_identity_verified` بودند، در حالی که نسخهٔ PR این فیلد و شرط اتصال/هویت حساب را اضافه کرده بود.
+
+این اختلاف یک مانع کد مشخص است؛ هنوز به‌تنهایی اثبات نمی‌کند که اجرای جاری حتماً شکست می‌خورد. نتیجهٔ Runtime Probe روی SHA جاری main باید تعیین‌کننده باشد. اگر Auth-Off دوباره marker ندهد یا هویت حساب را تأیید نکند، باید اصلاحات runtime از شاخهٔ PR پس از بازبینی و همگام‌سازی با main، به main منتقل شوند و کل زنجیره روی SHA تازه دوباره اجرا شود. شواهد SHA قبلی قابل انتقال نیستند.
+
+### PRهای runtime موجود
+
+- [PR #265](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/265): merged؛ اصلاح interactive-session/MT5 profile در چهار فایل. این ادغام به‌تنهایی مشکل پسوند Script و تأیید هویت Probe را در نسخهٔ جاری main رفع نکرده است.
+- [PR #267](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/267): باز و Draft؛ timeout محدود برای Auth-Off/Auth-On، جایگزینی polling بالقوه بلاک‌شونده با `schtasks.exe` و تست‌های قرارداد. روی head ثبت‌شده، Static Validation و Python tests موفق‌اند، اما کد باید با main جاری همگام و سپس روی runner ویندوز واقعاً اجرا شود.
+- [PR #227](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227): باز و Draft؛ Control Plane بزرگ‌تر و بخشی از runtime اصلاحات. head فعلی آن در آخرین بررسی `30af3f5c9ed915766d30fefe22c486677b0cceca` بود. [Python tests 39034935253](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39034935253) برای همین commit موفق شد. PR در مقایسه با main جاری عقب‌ماندگی دارد و قبل از merge باید sync/review شود.
+
+### موانع باقی‌مانده پس از این بررسی
+
+1. اتمام Parity و اجرای یک Runtime Safety Probe تازه روی SHA `e5ebd56...`.
+2. اگر probe شکست خورد، ادغام/انتقال اصلاحات Script extensionless، account identity و timeout محدود به main پس از بازبینی؛ سپس بازاجرای زنجیرهٔ کامل روی SHA جدید.
+3. اجرای موفق Preflight و Readiness متصل به artifactهای دقیق همان SHA.
+4. همگام‌سازی PRهای runtime با main و بازبینی انسانی؛ CI یک head را نمی‌توان برای head دیگری PASS تلقی کرد.
+5. تأمین شش کلید عمومی متمایز Ed25519، امضاکنندهٔ Grant، منابع مستقل Signal/Risk/Operator، registry پایدار، runtime secret و allowlist واقعی حساب Demo. این‌ها از روی مخزن یا CI قابل‌جعل نیستند.
+6. بررسی و فعال‌سازی branch protection/required checks توسط مالک دارای مجوز مدیریتی؛ اتصال GitHub فعلی در endpoint حفاظت branch خطای 403 برگرداند و اجازهٔ تنظیم آن را نمی‌دهد.
+
+**حالت ایمنی:** هیچ سفارشی در این نوبت ارسال نشده؛ Kill Switch باید `DENY`، `DemoTradingAuthorized=false` و Live غیرفعال بمانند.
