@@ -27,10 +27,26 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
         assert f"G13_RUNTIME_{label}_TASK_START_TIMEOUT" in step
         assert "$deadline = $startedAt.AddSeconds(180)" in step
         assert f"G13_RUNTIME_{label}_WAITING_FOR_MARKER" in step
-        assert step.count("WaitForExit(10000)") == 1
+        # One bounded query timeout plus one task-cleanup timeout per probe.
+        assert step.count("WaitForExit(10000)") == 2
         assert "Start-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTaskInfo -TaskName $taskName" not in step
+        assert "-RedirectStandardOutput $startStdoutPath -RedirectStandardError $startStderrPath" in step
+        assert "-ArgumentList @('/Query','/TN',$taskName,'/FO','LIST')" in step
+        assert "WaitForExit(10000)" in step
+        assert f"G13_RUNTIME_{label}_TASK_START_EXIT_CODE" in step
+        assert f"G13_RUNTIME_{label}_TASK_START_STDOUT" in step
+        assert f"G13_RUNTIME_{label}_TASK_START_STDERR" in step
+        assert f"G13_RUNTIME_{label}_TASK_QUERY_EXIT_CODE" in step
+        assert f"G13_RUNTIME_{label}_TASK_QUERY_OUTPUT" in step
+        assert f"G13_RUNTIME_{label}_TASK_QUERY_STDERR" in step
+        assert f"G13_RUNTIME_{label}_TASK_QUERY_TIMEOUT=true" in step
+        assert "$queryStdoutText.Length -gt 2000" in step
+        assert "$queryStderrText.Length -gt 2000" in step
+        assert "$startStdoutText.Length -gt 2000" in step
+        assert "$startStderrText.Length -gt 2000" in step
+        assert "Get-Content -LiteralPath $config -Raw" not in step
 
     assert "AllowLiveTrading=0" in workflow
     assert "G13_RUNTIME_AUTH_OFF_MUST_BLOCK" in workflow
@@ -54,3 +70,27 @@ def test_missing_marker_emits_redacted_startup_diagnostics():
         assert "raw_task_query_exported = $false" in step
         assert "raw_task_config_exported = $false" in step
         assert "orders_expected = $false" in step
+
+
+def test_scheduler_start_failure_captures_bounded_cli_and_task_state_diagnostics():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    pairs = (
+        ("Run Auth OFF probe", "Run Auth ON probe", "AUTH_OFF"),
+        ("Run Auth ON probe", "Evaluate runtime evidence", "AUTH_ON"),
+    )
+    for name, next_name, mode in pairs:
+        step = _step(workflow, name, next_name)
+        assert f"G13_RUNTIME_{mode}_TASK_START_FAILED_EXIT_" in step
+        assert f"G13_RUNTIME_{mode}_TASK_QUERY_ERROR=" in step
+        assert f"G13_RUNTIME_{mode}_TASK_START_TIMEOUT=true" in step
+        assert "Remove-Item -LiteralPath $startStdoutPath,$startStderrPath" in step
+        assert "raw_task_config_exported = $false" in step
+
+    # Diagnostics must never flip a failed task launch into a passing runtime
+    # probe: the start failure remains a terminating error and the marker check
+    # remains the final source of success.
+    assert "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$($start.ExitCode)" in workflow
+    assert "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$($start.ExitCode)" in workflow
+    assert "G13_RUNTIME_AUTH_OFF_MARKER_MISSING" in workflow
+    assert "G13_RUNTIME_AUTH_ON_MARKER_MISSING" in workflow
