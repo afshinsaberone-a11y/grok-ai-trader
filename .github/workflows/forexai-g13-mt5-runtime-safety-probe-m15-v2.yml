@@ -195,35 +195,24 @@ jobs:
             $launchStderr = Join-Path $env:RUNNER_TEMP "g13-auth-off-schtasks-$($env:GITHUB_RUN_ID).stderr.txt"
             Remove-Item -LiteralPath $launchStdout,$launchStderr -Force -ErrorAction SilentlyContinue
             $launchExitCode = -1
-            $taskStateAtLaunch = 'UNKNOWN'
-            $taskLastRunAtLaunch = ''
-            $taskLastResultAtLaunch = ''
+            $schtasksStdoutText = ''
+            $schtasksStderrText = ''
             $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru -RedirectStandardOutput $launchStdout -RedirectStandardError $launchStderr
             if (-not $start.WaitForExit(15000)) { Stop-Process -Id $start.Id -Force -ErrorAction SilentlyContinue; throw 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT' }
             $launchExitCode = [int]$start.ExitCode
             if ($launchExitCode -ne 0) {
-              # schtasks may print that the task was requested even when its
-              # process exit status is non-zero on this host. Do not convert
-              # this launcher status into a runtime pass or immediate failure:
-              # the fresh MQL5 result marker below is the only success signal.
+              # Avoid Task Scheduler module queries because they can block on
+              # this host. A launcher result is diagnostic, not a runtime pass.
               Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_EXIT_NONZERO=$launchExitCode"
-              if (Test-Path -LiteralPath $launchStdout) { Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_STDOUT=$((Get-Content -LiteralPath $launchStdout -Raw).Trim())" }
-              if (Test-Path -LiteralPath $launchStderr) { Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_STDERR=$((Get-Content -LiteralPath $launchStderr -Raw).Trim())" }
-              try {
-                $scheduled = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-                $taskStateAtLaunch = [string]$scheduled.State
-                $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-                if ($taskInfo.LastRunTime) { $taskLastRunAtLaunch = $taskInfo.LastRunTime.ToString('o') }
-                $taskLastResultAtLaunch = [string]$taskInfo.LastTaskResult
-              } catch {
-                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_AFTER_LAUNCH_FAILED=$($_.Exception.GetType().Name)"
+              if (Test-Path -LiteralPath $launchStdout) {
+                $schtasksStdoutText = (Get-Content -LiteralPath $launchStdout -Raw).Trim()
+                Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_STDOUT=$schtasksStdoutText"
               }
-              Write-Host "G13_RUNTIME_AUTH_OFF_TASK_STATE_AFTER_LAUNCH=$taskStateAtLaunch"
-              Write-Host "G13_RUNTIME_AUTH_OFF_TASK_LAST_RUN_AFTER_LAUNCH=$taskLastRunAtLaunch"
-              Write-Host "G13_RUNTIME_AUTH_OFF_TASK_LAST_RESULT_AFTER_LAUNCH=$taskLastResultAtLaunch"
+              if (Test-Path -LiteralPath $launchStderr) {
+                $schtasksStderrText = (Get-Content -LiteralPath $launchStderr -Raw).Trim()
+                Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_STDERR=$schtasksStderrText"
+              }
             }
-            # The request is only a launch attempt. Success requires the unique
-            # Auth OFF marker to pass all identity/connectivity/no-order assertions.
             Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_REQUEST_RETURNED=true"
 
             $startedAt = Get-Date
@@ -235,23 +224,13 @@ jobs:
               Start-Sleep -Seconds 2
             }
             if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
-              try {
-                $scheduled = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-                $taskStateAtLaunch = [string]$scheduled.State
-                $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-                if ($taskInfo.LastRunTime) { $taskLastRunAtLaunch = $taskInfo.LastRunTime.ToString('o') }
-                $taskLastResultAtLaunch = [string]$taskInfo.LastTaskResult
-              } catch {
-                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_AFTER_TIMEOUT_FAILED=$($_.Exception.GetType().Name)"
-              }
               $diag = [ordered]@{
                 schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
                 mode = 'AUTH_OFF'
                 result_marker_present = $false
                 schtasks_exit_code = $launchExitCode
-                task_state_at_launch = $taskStateAtLaunch
-                task_last_run_at_launch = $taskLastRunAtLaunch
-                task_last_result_at_launch = $taskLastResultAtLaunch
+                schtasks_stdout = $schtasksStdoutText
+                schtasks_stderr = $schtasksStderrText
                 startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
                 probe_ex5_present = [bool](Test-Path -LiteralPath $scriptBinary -PathType Leaf)
                 kill_switch_state_is_deny = ((Test-Path -LiteralPath $switch -PathType Leaf) -and (Get-Content -LiteralPath $switch -Raw).Trim() -eq 'DENY')
@@ -327,35 +306,24 @@ jobs:
             $launchStderr = Join-Path $env:RUNNER_TEMP "g13-auth-on-schtasks-$($env:GITHUB_RUN_ID).stderr.txt"
             Remove-Item -LiteralPath $launchStdout,$launchStderr -Force -ErrorAction SilentlyContinue
             $launchExitCode = -1
-            $taskStateAtLaunch = 'UNKNOWN'
-            $taskLastRunAtLaunch = ''
-            $taskLastResultAtLaunch = ''
+            $schtasksStdoutText = ''
+            $schtasksStderrText = ''
             $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru -RedirectStandardOutput $launchStdout -RedirectStandardError $launchStderr
             if (-not $start.WaitForExit(15000)) { Stop-Process -Id $start.Id -Force -ErrorAction SilentlyContinue; throw 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT' }
             $launchExitCode = [int]$start.ExitCode
             if ($launchExitCode -ne 0) {
-              # schtasks may print that the task was requested even when its
-              # process exit status is non-zero on this host. Do not convert
-              # this launcher status into a runtime pass or immediate failure:
-              # the fresh MQL5 result marker below is the only success signal.
+              # Avoid Task Scheduler module queries because they can block on
+              # this host. A launcher result is diagnostic, not a runtime pass.
               Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_EXIT_NONZERO=$launchExitCode"
-              if (Test-Path -LiteralPath $launchStdout) { Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_STDOUT=$((Get-Content -LiteralPath $launchStdout -Raw).Trim())" }
-              if (Test-Path -LiteralPath $launchStderr) { Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_STDERR=$((Get-Content -LiteralPath $launchStderr -Raw).Trim())" }
-              try {
-                $scheduled = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-                $taskStateAtLaunch = [string]$scheduled.State
-                $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-                if ($taskInfo.LastRunTime) { $taskLastRunAtLaunch = $taskInfo.LastRunTime.ToString('o') }
-                $taskLastResultAtLaunch = [string]$taskInfo.LastTaskResult
-              } catch {
-                Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_AFTER_LAUNCH_FAILED=$($_.Exception.GetType().Name)"
+              if (Test-Path -LiteralPath $launchStdout) {
+                $schtasksStdoutText = (Get-Content -LiteralPath $launchStdout -Raw).Trim()
+                Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_STDOUT=$schtasksStdoutText"
               }
-              Write-Host "G13_RUNTIME_AUTH_ON_TASK_STATE_AFTER_LAUNCH=$taskStateAtLaunch"
-              Write-Host "G13_RUNTIME_AUTH_ON_TASK_LAST_RUN_AFTER_LAUNCH=$taskLastRunAtLaunch"
-              Write-Host "G13_RUNTIME_AUTH_ON_TASK_LAST_RESULT_AFTER_LAUNCH=$taskLastResultAtLaunch"
+              if (Test-Path -LiteralPath $launchStderr) {
+                $schtasksStderrText = (Get-Content -LiteralPath $launchStderr -Raw).Trim()
+                Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_STDERR=$schtasksStderrText"
+              }
             }
-            # The request is only a launch attempt. Success requires the unique
-            # Auth ON marker to pass all identity/connectivity/no-order assertions.
             Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_REQUEST_RETURNED=true"
 
             $startedAt = Get-Date
@@ -367,23 +335,13 @@ jobs:
               Start-Sleep -Seconds 2
             }
             if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
-              try {
-                $scheduled = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-                $taskStateAtLaunch = [string]$scheduled.State
-                $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-                if ($taskInfo.LastRunTime) { $taskLastRunAtLaunch = $taskInfo.LastRunTime.ToString('o') }
-                $taskLastResultAtLaunch = [string]$taskInfo.LastTaskResult
-              } catch {
-                Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_AFTER_TIMEOUT_FAILED=$($_.Exception.GetType().Name)"
-              }
               $diag = [ordered]@{
                 schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
                 mode = 'AUTH_ON'
                 result_marker_present = $false
                 schtasks_exit_code = $launchExitCode
-                task_state_at_launch = $taskStateAtLaunch
-                task_last_run_at_launch = $taskLastRunAtLaunch
-                task_last_result_at_launch = $taskLastResultAtLaunch
+                schtasks_stdout = $schtasksStdoutText
+                schtasks_stderr = $schtasksStderrText
                 startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
                 probe_ex5_present = [bool](Test-Path -LiteralPath $scriptBinary -PathType Leaf)
                 kill_switch_state_is_deny = ((Test-Path -LiteralPath $switch -PathType Leaf) -and (Get-Content -LiteralPath $switch -Raw).Trim() -eq 'DENY')
