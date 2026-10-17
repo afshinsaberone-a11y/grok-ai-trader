@@ -110,7 +110,7 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert workflow.count('timeout-minutes: 5') == 2
     assert workflow.count("Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName)") == 2
     assert workflow.count("WaitForExit(15000)") == 2
-    assert workflow.count("WaitForExit(10000)") == 4
+    assert workflow.count("WaitForExit(10000)") == 6
     assert workflow.count('Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-') == 2
     assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-off.ini'" not in workflow
     assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-on.ini'" not in workflow
