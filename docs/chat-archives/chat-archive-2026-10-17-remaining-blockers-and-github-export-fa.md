@@ -302,3 +302,55 @@ https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/fix/g13-runtime-probe
 - شش کلید عمومی متمایز Ed25519، امضاکنندهٔ مستقل Grant، منابع مستقل Signal/Risk/Operator، registry پایدار و allowlist واقعی حساب Demo هنوز باید از منابع واقعی پیکربندی/تأیید شوند.
 - سطح دسترسی اتصال GitHub برای تغییر branch protection کافی نیست؛ باید مالک مخزن required checks، reviews و محدودیت direct push/bypass را از تنظیمات مدیریتی GitHub بررسی کند.
 - تا تکمیل شواهد مستقل و تأیید اپراتور، Kill Switch باید `DENY`، `DemoTradingAuthorized=false` و Live غیرفعال بمانند. هیچ سفارشی در این نوبت ارسال نشده است.
+
+
+## ۱۲. نتیجهٔ نهایی همین نوبت — PR #268 ادغام شد و زنجیره از نو آغاز شد
+
+### ۱۲.۱ اصلاح Runtime Probe در main
+
+- PR [#268](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/268) با روش squash ادغام شد.
+- merge/Squash commit و SHA فعلی main: `18806df5901a1cf139ec8ac40fe03f8f7b1209d8`.
+- فایل‌های اصلاح‌شده اکنون در main هستند: runtime probe v2، probeهای MQL5 Auth-Off/Auth-On، readiness gate و آزمون‌های قرارداد.
+- Legacy runtime probe v1 به push trigger پاسخ نمی‌دهد و هر دو نسخهٔ v1/v2 از قفل concurrency مشترک و غیرلغوکننده استفاده می‌کنند؛ این مانع تصاحب runner توسط workflow قدیمی را کاهش می‌دهد.
+- در v2، startup Script اکنون بدون پسوند `.ex5` نام‌گذاری می‌شود؛ فقط مسیر باینری `.ex5` دارد. Auth-Off/Auth-On هر دو timeout و پاک‌سازی محدود دارند و readiness نیازمند markerهای اتصال و هویت حساب است.
+
+### ۱۲.۲ نتیجهٔ دقیق اجرای runtime قبلی روی SHA قدیمی
+
+[Runtime Probe v2 run 39035696184](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39035696184) روی SHA قبلی `e5ebd56eef7d3e4f62e85b4888eb90fa69fddd98` با **failure** تمام شد:
+
+- هر دو Probe با MetaEditor با ۰ خطا و ۰ هشدار کامپایل شدند.
+- profile resolution، deploy و snapshot کردن Kill Switch موفق بودند.
+- Auth OFF با `G13_RUNTIME_AUTH_OFF_MARKER_MISSING` شکست خورد؛ Auth ON و مراحل بعدی اجرا نشدند.
+- لاگ تأیید کرد که startup مقدار `Script=G13_Safety_Probe_AuthOff_39035696184.ex5` را دریافت می‌کرد. فایل اصلاح‌شده این نام را extensionless می‌کند.
+- اجرای قبلی Kill Switch را `DENY` ثبت کرده بود؛ هیچ سفارشی ارسال نشد.
+
+این failure نتیجهٔ قدیمی و معتبر همان SHA است؛ پس از ادغام fix، نباید آن را به موفقیت تعبیر کرد. زنجیرهٔ تازه باید روی SHA جدید اجرا شود.
+
+### ۱۲.۳ زنجیرهٔ تازه روی SHA جاری main
+
+SHA مرجع جدید: `18806df5901a1cf139ec8ac40fe03f8f7b1209d8`.
+
+- [G13 Workflow Static Validation 39036904259](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036904259): **success**.
+- [Validation M15 39036911883](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036911883): در حال اجرا هنگام این ثبت.
+- [Robustness M15 39036913242](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036913242): در حال اجرا هنگام این ثبت.
+- [Python tests 39036904251](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036904251): در حال اجرا هنگام این ثبت.
+- [OOS Watchdog 39036904266](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036904266): موفقیت‌های Validation و Robustness را روی SHA جدید resolve می‌کند، سپس OOS → Promotion → Safety Audit → Compile/Parity → Runtime Probe → Preflight → Readiness را به ترتیب اجرا می‌کند.
+
+هنوز هیچ نتیجهٔ OOS، Promotion، Compile/Parity، Runtime Probe، Preflight یا Readiness روی SHA `18806df...` فرض نمی‌شود تا runهای همان SHA تکمیل شوند.
+
+### ۱۲.۴ آرشیو گفت‌وگو در GitHub
+
+- نسخهٔ اصلی آرشیو در main:  
+  https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/docs/chat-archives/chat-archive-2026-10-17-remaining-blockers-and-github-export-fa.md
+- این نسخهٔ تکمیلی، شامل وضعیت ادغام PR #268 و اجرای جدید main، روی شاخهٔ `docs/chat-archive-current-2026-10-17` است:  
+  https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/docs/chat-archive-current-2026-10-17/docs/chat-archives/chat-archive-2026-10-17-remaining-blockers-and-github-export-fa.md
+
+شاخهٔ مستندات جداست تا تغییر متن آرشیو SHA زنجیرهٔ جاری G13 را عوض نکند. این فایل یک آرشیو ساختاریافتهٔ فارسی است؛ secrets، private key، password یا token در آن قرار داده نشده است.
+
+### ۱۲.۵ موانع غیرقابل‌حل صرفاً با تغییر کد
+
+1. کلیدهای عمومی مستقل Ed25519، امضاکنندهٔ Grant، ارائه‌دهندگان مستقل Signal/Risk/Operator، registry پایدار و allowlist واقعی حساب Demo باید از صاحبان/سامانه‌های واقعی دریافت و پیکربندی شوند؛ مقدار ساختگی مجاز نیست.
+2. فعال‌بودن branch protection و required reviews/checks هنوز به‌صورت قابل‌اتکا تأیید نشده است؛ اتصال GitHub موجود برای تغییرات مدیریتی protection کافی نبود.
+3. Live disabled و Demo unauthorized باقی می‌مانند تا شواهد دقیق SHA جاری موفق شوند و مجوز مستقل واقعی فراهم شود.
+
+**وضعیت ایمنی:** هیچ سفارش معاملاتی در این نوبت ارسال نشد. Compile/Parity موفق، یا حتی Readiness موفق در آینده، به‌خودی‌خود مجوز Demo یا Live ایجاد نمی‌کند. Kill Switch باید `DENY` بماند، `DemoTradingAuthorized=false` و `live_trading_allowed=false` باقی بمانند.
