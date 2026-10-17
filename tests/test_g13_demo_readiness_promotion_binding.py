@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from research.optimization.g13_demo_readiness_gate_m15 import validate_preflight_binding, validate_promotion_binding
+from research.optimization.g13_demo_readiness_gate_m15 import (
+    validate_preflight_binding,
+    validate_promotion_binding,
+    validate_runtime_probe_identity,
+)
 
 
 def _write(tmp_path: Path, name: str, payload: dict) -> Path:
@@ -246,3 +250,43 @@ def test_runtime_probe_is_dispatch_only_to_preserve_main_mt5_ordering():
     assert "\n  push:" not in trigger_block
     assert "workflow_run:" not in trigger_block
 
+
+
+def _runtime_probe_identity(**overrides):
+    payload = {
+        "status": "PASS",
+        "account_identity_verified": "true",
+        "terminal_connected": "true",
+        "demo_account": "true",
+        "account_mode": "0",
+        "real_account_detected": "false",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_runtime_probe_identity_requires_verified_connected_demo_for_both_modes():
+    validate_runtime_probe_identity(_runtime_probe_identity(), _runtime_probe_identity())
+
+
+@pytest.mark.parametrize(
+    ("mode", "field", "value"),
+    [
+        ("auth_off", "account_identity_verified", "false"),
+        ("auth_off", "terminal_connected", "false"),
+        ("auth_off", "demo_account", "false"),
+        ("auth_off", "account_mode", "2"),
+        ("auth_off", "real_account_detected", "true"),
+        ("auth_on", "account_identity_verified", "false"),
+        ("auth_on", "terminal_connected", "false"),
+        ("auth_on", "demo_account", "false"),
+        ("auth_on", "account_mode", "2"),
+        ("auth_on", "real_account_detected", "true"),
+    ],
+)
+def test_runtime_probe_identity_rejects_unverified_modes(mode: str, field: str, value: str):
+    off = _runtime_probe_identity()
+    on = _runtime_probe_identity()
+    (off if mode == "auth_off" else on)[field] = value
+    with pytest.raises(AssertionError):
+        validate_runtime_probe_identity(off, on)
