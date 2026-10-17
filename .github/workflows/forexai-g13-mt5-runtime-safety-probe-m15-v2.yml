@@ -375,6 +375,64 @@ jobs:
               }
               throw 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING'
             }
+          function Write-G13ProbeMarkerSummary {
+            param(
+              [Parameter(Mandatory = $true)][ValidateSet('AUTH_OFF','AUTH_ON')][string]$Mode,
+              [Parameter(Mandatory = $true)][string]$MarkerPath
+            )
+            $allowedFields = @(
+              'status','probe','account_mode','identity_wait_seconds',
+              'account_identity_verified','account_login_present','account_server_present',
+              'demo_account','real_account_detected','authorization','kill_switch_allow',
+              'terminal_connected','execution_allowed','orders_submitted','probe_only'
+            )
+            $values = @{}
+            foreach ($line in Get-Content -LiteralPath $MarkerPath -ErrorAction Stop) {
+              $parts = [regex]::Split([string]$line, ',', 2)
+              if ($parts.Count -eq 2 -and $allowedFields -contains $parts[0]) {
+                $values[$parts[0]] = $parts[1].Trim()
+              }
+            }
+            $summary = [ordered]@{
+              schema_version = 'forexai.g13.runtime_probe_marker_summary.v1'
+              mode = $Mode
+              result_marker_present = [bool](Test-Path -LiteralPath $MarkerPath -PathType Leaf)
+              marker_status = $values['status']
+              account_mode = $values['account_mode']
+              identity_wait_seconds = $values['identity_wait_seconds']
+              account_identity_verified = $values['account_identity_verified']
+              account_login_present = $values['account_login_present']
+              account_server_present = $values['account_server_present']
+              terminal_connected = $values['terminal_connected']
+              demo_account = $values['demo_account']
+              real_account_detected = $values['real_account_detected']
+              authorization = $values['authorization']
+              kill_switch_allow = $values['kill_switch_allow']
+              execution_allowed = $values['execution_allowed']
+              orders_submitted = $values['orders_submitted']
+              probe_only = $values['probe_only']
+              raw_marker_exported = $false
+              account_login_exported = $false
+              account_server_exported = $false
+            }
+            $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13'
+            New-Item -ItemType Directory -Path $diagRoot -Force | Out-Null
+            $summaryPath = Join-Path $diagRoot ("g13-runtime-probe-marker-summary-" + $Mode.ToLowerInvariant() + ".json")
+            $summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $summaryPath -Encoding utf8
+            foreach ($key in @(
+              'status','identity_wait_seconds','account_identity_verified',
+              'account_login_present','account_server_present','terminal_connected',
+              'demo_account','real_account_detected','authorization',
+              'execution_allowed','orders_submitted','probe_only'
+            )) {
+              $value = $values[$key]
+              if ([string]::IsNullOrWhiteSpace([string]$value)) { $value = 'MISSING' }
+              Write-Host ("G13_RUNTIME_" + $Mode + "_MARKER_" + $key.ToUpperInvariant() + "=" + $value)
+            }
+            Write-Host ("G13_RUNTIME_" + $Mode + "_MARKER_SUMMARY_WRITTEN=true")
+          }
+          Write-G13ProbeMarkerSummary -Mode 'AUTH_OFF' -MarkerPath $done
+
             foreach ($assertion in @(
               @{ Pattern='^status,PASS$'; Error='G13_RUNTIME_AUTH_OFF_STATUS_INVALID' },
               @{ Pattern='^authorization,false$'; Error='G13_RUNTIME_AUTH_OFF_AUTHORIZATION_MISMATCH' },
@@ -599,6 +657,64 @@ jobs:
               }
               throw 'G13_RUNTIME_AUTH_ON_MARKER_MISSING'
             }
+          function Write-G13ProbeMarkerSummary {
+            param(
+              [Parameter(Mandatory = $true)][ValidateSet('AUTH_OFF','AUTH_ON')][string]$Mode,
+              [Parameter(Mandatory = $true)][string]$MarkerPath
+            )
+            $allowedFields = @(
+              'status','probe','account_mode','identity_wait_seconds',
+              'account_identity_verified','account_login_present','account_server_present',
+              'demo_account','real_account_detected','authorization','kill_switch_allow',
+              'terminal_connected','execution_allowed','orders_submitted','probe_only'
+            )
+            $values = @{}
+            foreach ($line in Get-Content -LiteralPath $MarkerPath -ErrorAction Stop) {
+              $parts = [regex]::Split([string]$line, ',', 2)
+              if ($parts.Count -eq 2 -and $allowedFields -contains $parts[0]) {
+                $values[$parts[0]] = $parts[1].Trim()
+              }
+            }
+            $summary = [ordered]@{
+              schema_version = 'forexai.g13.runtime_probe_marker_summary.v1'
+              mode = $Mode
+              result_marker_present = [bool](Test-Path -LiteralPath $MarkerPath -PathType Leaf)
+              marker_status = $values['status']
+              account_mode = $values['account_mode']
+              identity_wait_seconds = $values['identity_wait_seconds']
+              account_identity_verified = $values['account_identity_verified']
+              account_login_present = $values['account_login_present']
+              account_server_present = $values['account_server_present']
+              terminal_connected = $values['terminal_connected']
+              demo_account = $values['demo_account']
+              real_account_detected = $values['real_account_detected']
+              authorization = $values['authorization']
+              kill_switch_allow = $values['kill_switch_allow']
+              execution_allowed = $values['execution_allowed']
+              orders_submitted = $values['orders_submitted']
+              probe_only = $values['probe_only']
+              raw_marker_exported = $false
+              account_login_exported = $false
+              account_server_exported = $false
+            }
+            $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13'
+            New-Item -ItemType Directory -Path $diagRoot -Force | Out-Null
+            $summaryPath = Join-Path $diagRoot ("g13-runtime-probe-marker-summary-" + $Mode.ToLowerInvariant() + ".json")
+            $summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $summaryPath -Encoding utf8
+            foreach ($key in @(
+              'status','identity_wait_seconds','account_identity_verified',
+              'account_login_present','account_server_present','terminal_connected',
+              'demo_account','real_account_detected','authorization',
+              'execution_allowed','orders_submitted','probe_only'
+            )) {
+              $value = $values[$key]
+              if ([string]::IsNullOrWhiteSpace([string]$value)) { $value = 'MISSING' }
+              Write-Host ("G13_RUNTIME_" + $Mode + "_MARKER_" + $key.ToUpperInvariant() + "=" + $value)
+            }
+            Write-Host ("G13_RUNTIME_" + $Mode + "_MARKER_SUMMARY_WRITTEN=true")
+          }
+          Write-G13ProbeMarkerSummary -Mode 'AUTH_ON' -MarkerPath $done
+
             foreach ($assertion in @(
               @{ Pattern='^status,PASS$'; Error='G13_RUNTIME_AUTH_ON_STATUS_INVALID' },
               @{ Pattern='^authorization,true$'; Error='G13_RUNTIME_AUTH_ON_AUTHORIZATION_MISMATCH' },

@@ -83,3 +83,40 @@ def test_runtime_probe_uses_unique_result_marker_as_success_signal():
         "G13_RUNTIME_AUTH_ON_KILL_SWITCH_NOT_DENY",
     ):
         assert required in workflow
+
+def test_runtime_probe_waits_boundedly_for_account_identity_and_reports_only_redacted_flags():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    for probe_name in (
+        "research/optimization/G13_Safety_Probe_AuthOff.mq5",
+        "research/optimization/G13_Safety_Probe_AuthOn.mq5",
+    ):
+        probe = Path(probe_name).read_text(encoding="utf-8")
+        assert "bool WaitForConnectedAccountIdentity(const int timeout_seconds,int &waited_seconds)" in probe
+        assert "WaitForConnectedAccountIdentity(60,identity_wait_seconds)" in probe
+        assert "Sleep(1000);" in probe
+        assert 'FileWrite(h,"identity_wait_seconds,"+IntegerToString(identity_wait_seconds));' in probe
+        assert 'FileWrite(h,"account_login_present,"+(string)(account_login_present ? "true" : "false"));' in probe
+        assert 'FileWrite(h,"account_server_present,"+(string)(account_server_present ? "true" : "false"));' in probe
+        assert 'FileWrite(h,"orders_submitted,false")' in probe
+        assert 'FileWrite(h,"account_login,"' not in probe
+        assert 'FileWrite(h,"account_server,"' not in probe
+
+    for mode, step_name, next_name in (
+        ("AUTH_OFF", "Run Auth OFF probe", "Run Auth ON probe"),
+        ("AUTH_ON", "Run Auth ON probe", "Evaluate runtime evidence"),
+    ):
+        start = workflow.index(f"      - name: {step_name}\n")
+        end = workflow.index(f"      - name: {next_name}\n", start + 1)
+        step = workflow[start:end]
+        summary_call = f"Write-G13ProbeMarkerSummary -Mode '{mode}' -MarkerPath $done"
+        assert summary_call in step
+        assert step.index(summary_call) < step.index("foreach ($assertion in @(")
+        assert "account_identity_verified = $values['account_identity_verified']" in step
+        assert "account_login_present = $values['account_login_present']" in step
+        assert "account_server_present = $values['account_server_present']" in step
+        assert "raw_marker_exported = $false" in step
+        assert "account_login_exported = $false" in step
+        assert "account_server_exported = $false" in step
+        assert f"G13_RUNTIME_{mode}_MARKER_SUMMARY_WRITTEN=true" in step
+

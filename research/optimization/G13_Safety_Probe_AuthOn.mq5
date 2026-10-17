@@ -5,6 +5,24 @@
 #property strict
 #property version "1.00"
 
+bool WaitForConnectedAccountIdentity(const int timeout_seconds,int &waited_seconds)
+{
+   waited_seconds=0;
+   while(true)
+   {
+      const bool connected=(bool)TerminalInfoInteger(TERMINAL_CONNECTED);
+      const long account_login=AccountInfoInteger(ACCOUNT_LOGIN);
+      const string account_server=AccountInfoString(ACCOUNT_SERVER);
+      if(connected && account_login>0 && StringLen(account_server)>0)
+         return true;
+      if(waited_seconds>=timeout_seconds)
+         return false;
+      Sleep(1000);
+      waited_seconds++;
+   }
+   return false;
+}
+
 bool DemoKillSwitchAllowed()
 {
    int h=FileOpen("g13_demo_kill_switch.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
@@ -26,8 +44,10 @@ bool HasOtherG13Position(long current_magic)
    return false;
 }
 
-void WriteProbe(const string label,const long mode,const bool account_identity_verified,const bool auth,const bool kill_switch,const bool other,
-               const bool terminal_connected,const bool terminal_trade_allowed,const bool mql_trade_allowed,
+void WriteProbe(const string label,const long mode,const int identity_wait_seconds,
+               const bool account_identity_verified,const bool account_login_present,const bool account_server_present,
+               const bool auth,const bool kill_switch,const bool other,const bool terminal_connected,
+               const bool terminal_trade_allowed,const bool mql_trade_allowed,
                const bool account_trade_allowed,const bool account_trade_expert,
                const int symbol_trade_mode,const bool symbol_market,const bool symbol_sl,const bool symbol_tp,
                const long stops_level,const bool allowed)
@@ -38,7 +58,10 @@ void WriteProbe(const string label,const long mode,const bool account_identity_v
    FileWrite(h,"status,PASS");
    FileWrite(h,"probe,"+label);
    FileWrite(h,"account_mode,"+IntegerToString((int)mode));
+   FileWrite(h,"identity_wait_seconds,"+IntegerToString(identity_wait_seconds));
    FileWrite(h,"account_identity_verified,"+(string)(account_identity_verified ? "true" : "false"));
+   FileWrite(h,"account_login_present,"+(string)(account_login_present ? "true" : "false"));
+   FileWrite(h,"account_server_present,"+(string)(account_server_present ? "true" : "false"));
    FileWrite(h,"demo_account,"+(string)((mode==ACCOUNT_TRADE_MODE_DEMO && account_identity_verified) ? "true" : "false"));
    FileWrite(h,"real_account_detected,"+(string)((mode==ACCOUNT_TRADE_MODE_REAL && account_identity_verified) ? "true" : "false"));
    FileWrite(h,"authorization,"+(string)(auth ? "true" : "false"));
@@ -62,6 +85,10 @@ void WriteProbe(const string label,const long mode,const bool account_identity_v
 
 void OnStart()
 {
+   // Startup scripts can run before MT5 finishes reconnecting. Wait boundedly,
+   // but never infer an account identity if the terminal does not become ready.
+   int identity_wait_seconds=0;
+   const bool identity_ready=WaitForConnectedAccountIdentity(60,identity_wait_seconds);
    const long mode=AccountInfoInteger(ACCOUNT_TRADE_MODE);
    const bool authorized=true;
    const bool kill_switch=DemoKillSwitchAllowed();
@@ -69,7 +96,10 @@ void OnStart()
    const bool terminal_connected=(bool)TerminalInfoInteger(TERMINAL_CONNECTED);
    const long account_login=AccountInfoInteger(ACCOUNT_LOGIN);
    const string account_server=AccountInfoString(ACCOUNT_SERVER);
-   const bool account_identity_verified=terminal_connected && account_login>0 && StringLen(account_server)>0;
+   const bool account_login_present=account_login>0;
+   const bool account_server_present=StringLen(account_server)>0;
+   const bool account_identity_verified=identity_ready && terminal_connected &&
+                                        account_login_present && account_server_present;
    const bool terminal_trade_allowed=(bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED);
    const bool mql_trade_allowed=(bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
    const bool account_trade_allowed=(bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED);
@@ -97,7 +127,8 @@ void OnStart()
                       kill_switch &&
                       !other;
 
-   WriteProbe("auth_on",mode,account_identity_verified,authorized,kill_switch,other,
+   WriteProbe("auth_on",mode,identity_wait_seconds,account_identity_verified,
+              account_login_present,account_server_present,authorized,kill_switch,other,
               terminal_connected,terminal_trade_allowed,mql_trade_allowed,
               account_trade_allowed,account_trade_expert,
               symbol_trade_mode,symbol_market,symbol_sl,symbol_tp,stops_level,allowed);
