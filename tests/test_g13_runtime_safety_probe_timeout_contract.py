@@ -90,8 +90,8 @@ def test_scheduler_start_failure_captures_bounded_cli_and_task_state_diagnostics
     # Diagnostics must never flip a failed task launch into a passing runtime
     # probe: the start failure remains a terminating error and the marker check
     # remains the final source of success.
-    assert "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$($start.ExitCode)" in workflow
-    assert "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$($start.ExitCode)" in workflow
+    assert "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$startExitCode" in workflow
+    assert "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$startExitCode" in workflow
     assert "G13_RUNTIME_AUTH_OFF_MARKER_MISSING" in workflow
     assert "G13_RUNTIME_AUTH_ON_MARKER_MISSING" in workflow
 
@@ -117,3 +117,29 @@ def test_scheduler_output_diagnostics_tolerate_empty_files():
             r"Get-Content -LiteralPath \$(?:start|query)(?:Stdout|Stderr)Path -Raw\)\.Trim\(\)",
             step,
         )
+
+
+def test_scheduler_null_exit_code_fallback_requires_success_ack_and_marker():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    for name, next_name, mode in (
+        ("Run Auth OFF probe", "Run Auth ON probe", "OFF"),
+        ("Run Auth ON probe", "Evaluate runtime evidence", "ON"),
+    ):
+        step = _step(workflow, name, next_name)
+        assert "$start.Refresh()" in step
+        assert "$rawStartExitCode = $start.ExitCode" in step
+        assert "if ($null -ne $rawStartExitCode)" in step
+        assert (
+            "$startStdoutText -match '(?i)^SUCCESS:\\s+Attempted to run the scheduled task\\b'"
+            in step
+        )
+        assert f"G13_RUNTIME_AUTH_{mode}_TASK_START_EXIT_CODE_FALLBACK=SUCCESS_STDOUT" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_TASK_START_EXIT_CODE_UNAVAILABLE=true" in step
+        assert "if ($startExitCode -ne 0)" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_TASK_START_FAILED_EXIT_$startExitCode" in step
+        # Scheduler launch acknowledgement is not probe success. A run-unique
+        # marker and all subsequent identity / no-order assertions remain required.
+        assert f"G13_RUNTIME_AUTH_{mode}_MARKER_MISSING" in step
+        assert "terminal_connected,true" in step
+        assert "account_identity_verified,true" in step
+        assert "orders_submitted,false" in step
