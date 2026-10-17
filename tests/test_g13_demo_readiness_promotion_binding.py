@@ -395,3 +395,19 @@ def test_runtime_probe_mql5_sources_bind_demo_status_to_connected_account_identi
         assert "terminal_connected && account_login>0 && StringLen(account_server)>0" in source
         assert 'FileWrite(h,"account_identity_verified,' in source
         assert 'mode==ACCOUNT_TRADE_MODE_DEMO && account_identity_verified' in source
+
+
+def test_runtime_probe_workflow_is_denied_first_and_uses_isolated_portable_mt5():
+    workflow = Path(
+        ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "Enforce shared Kill Switch DENY" in workflow
+    assert "-SetDenyKillSwitch" in workflow
+    assert "Prepare run-unique isolated portable MT5 instance" in workflow
+    assert "G13_ISOLATED_TERMINAL_PATH" in workflow
+    assert workflow.count("/portable /config:") == 2
+    assert "Cleanup isolated portable MT5 runtime" in workflow
+    assert "G13_RUNTIME_AUTH_OFF_ACCOUNT_IDENTITY_UNVERIFIED" in workflow
+    assert "G13_RUNTIME_AUTH_ON_ACCOUNT_IDENTITY_UNVERIFIED" in workflow
+    assert "MT5_COMPILE_GUARD_TRUSTED_MAIN_SHA_MISMATCH" not in workflow
