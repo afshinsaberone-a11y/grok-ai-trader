@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from research.optimization.g13_demo_readiness_gate_m15 import validate_preflight_binding, validate_promotion_binding
+from research.optimization.g13_demo_readiness_gate_m15 import (
+    validate_preflight_binding,
+    validate_promotion_binding,
+    validate_runtime_probe_identity,
+)
 
 
 def _write(tmp_path: Path, name: str, payload: dict) -> Path:
@@ -234,6 +238,100 @@ def test_runtime_safety_probe_startup_attaches_script_to_explicit_chart():
     assert workflow.count("          Period=M15\n") == 2
     assert workflow.count("          ShutdownTerminal=1\n") == 2
 
+
+def test_mt5_runner_waits_for_exact_candidate_parity_before_diagnostic_compile():
+    parity_workflow = Path(
+        ".github/workflows/forexai-control-plane-pr-parity.yml"
+    ).read_text(encoding="utf-8")
+    compile_workflow = Path(
+        ".github/workflows/forexai-control-plane-mt5-compile-guard.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "group: forexai-control-plane-pr-real-data-parity-pull_request-" in parity_workflow
+    assert "forexai-g13-oos-watchdog-m15.yml/runs?branch=main&per_page=100" in parity_workflow
+    assert 'get("workflow_id")==377528976' in parity_workflow
+    assert "CONTROL_PLANE_MAIN_G13_WATCHDOG_COMPLETED" in parity_workflow
+    assert "CANDIDATE_SHA: ${{ github.event_name == 'pull_request'" in compile_workflow
+    assert 'get("workflow_id")==385709004' in compile_workflow
+    assert '"SUCCESS|"+str(latest["id"])' in compile_workflow
+    assert '"FAILED|"+str(latest["id"])' in compile_workflow
+    assert "MT5_COMPILE_GUARD_CANDIDATE_PARITY_FAILED" in compile_workflow
+    assert "MT5_COMPILE_GUARD_WAITING_FOR_CANDIDATE_PARITY" in compile_workflow
+    assert "MT5_COMPILE_GUARD_RUNNER_SLOT_ORDER=MAIN_PARITY_THEN_CANDIDATE_PARITY_THEN_DIAGNOSTIC_COMPILE" in compile_workflow
+    assert "timeout-minutes: 85" in compile_workflow
+
+def test_compile_guard_embedded_candidate_parity_resolver_executes_fail_closed_states():
+    import json
+    import subprocess
+    import sys
+
+    workflow = Path(
+        ".github/workflows/forexai-control-plane-mt5-compile-guard.yml"
+    ).read_text(encoding="utf-8")
+    marker = 'pr_state="$(printf \'%s\' "$pr_payload" | python -c \''
+    start = workflow.index(marker) + len(marker)
+    terminator = "' \"$candidate_sha\")\""
+    end = workflow.index(terminator, start)
+    resolver_code = workflow[start:end]
+
+    # Parsing alone catches shell-embedded Python syntax errors before a scarce
+    # Windows runner is ever requested.
+    compile(resolver_code, "<candidate-parity-resolver>", "exec")
+
+    target = "a" * 40
+    cases = [
+        (
+            "success",
+            [{
+                "id": 123,
+                "name": "ForexAI Control Plane PR Real-Data Parity",
+                "workflow_id": 385709004,
+                "event": "pull_request",
+                "head_sha": target,
+                "status": "completed",
+                "conclusion": "success",
+            }],
+            "SUCCESS|123",
+        ),
+        (
+            "failure",
+            [{
+                "id": 124,
+                "name": "ForexAI Control Plane PR Real-Data Parity",
+                "workflow_id": 385709004,
+                "event": "pull_request",
+                "head_sha": target,
+                "status": "completed",
+                "conclusion": "failure",
+            }],
+            "FAILED|124|failure",
+        ),
+        (
+            "pending",
+            [{
+                "id": 125,
+                "name": "ForexAI Control Plane PR Real-Data Parity",
+                "workflow_id": 385709004,
+                "event": "pull_request",
+                "head_sha": target,
+                "status": "in_progress",
+                "conclusion": None,
+            }],
+            "PENDING",
+        ),
+        ("not-started", [], "NOT_STARTED"),
+    ]
+    for _, workflow_runs, expected in cases:
+        result = subprocess.run(
+            [sys.executable, "-c", resolver_code, target],
+            input=json.dumps({"workflow_runs": workflow_runs}),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == expected
+
 def test_runtime_probe_is_dispatch_only_to_preserve_main_mt5_ordering():
     workflow = Path(
         ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
@@ -246,3 +344,54 @@ def test_runtime_probe_is_dispatch_only_to_preserve_main_mt5_ordering():
     assert "\n  push:" not in trigger_block
     assert "workflow_run:" not in trigger_block
 
+
+def _runtime_probe(*, connected: bool, identity: bool, authorization: bool) -> dict[str, str]:
+    demo = connected and identity
+    return {
+        "status": "PASS",
+        "account_identity_verified": "true" if identity else "false",
+        "terminal_connected": "true" if connected else "false",
+        "account_mode": "0",
+        "demo_account": "true" if demo else "false",
+        "real_account_detected": "false",
+        "authorization": "true" if authorization else "false",
+        "execution_allowed": "false",
+        "orders_submitted": "false",
+    }
+
+
+def test_runtime_identity_accepts_connected_verified_demo_only():
+    validate_runtime_probe_identity(
+        _runtime_probe(connected=True, identity=True, authorization=False),
+        _runtime_probe(connected=True, identity=True, authorization=True),
+    )
+
+
+@pytest.mark.parametrize(
+    ("connected", "identity"),
+    [
+        (False, False),
+        (False, True),
+        (True, False),
+    ],
+)
+def test_runtime_identity_rejects_offline_or_unverified_demo_defaults(connected: bool, identity: bool):
+    off = _runtime_probe(connected=connected, identity=identity, authorization=False)
+    on = _runtime_probe(connected=connected, identity=identity, authorization=True)
+    # Old offline MT5 instances returned account_mode=0 (the DEMO enum) even
+    # with no broker connection. That must never count as Demo account evidence.
+    with pytest.raises(AssertionError):
+        validate_runtime_probe_identity(off, on)
+
+
+def test_runtime_probe_mql5_sources_bind_demo_status_to_connected_account_identity():
+    for path in (
+        "research/optimization/G13_Safety_Probe_AuthOff.mq5",
+        "research/optimization/G13_Safety_Probe_AuthOn.mq5",
+    ):
+        source = Path(path).read_text(encoding="utf-8")
+        assert "AccountInfoInteger(ACCOUNT_LOGIN)" in source
+        assert "AccountInfoString(ACCOUNT_SERVER)" in source
+        assert "terminal_connected && account_login>0 && StringLen(account_server)>0" in source
+        assert 'FileWrite(h,"account_identity_verified,' in source
+        assert 'mode==ACCOUNT_TRADE_MODE_DEMO && account_identity_verified' in source

@@ -1,0 +1,398 @@
+name: ForexAI Control Plane MT5 Compile Guard
+
+on:
+  pull_request:
+    paths:
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'research/optimization/g13_mql5_generator_v2.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_g13_mql5_generator_v2.py'
+      - 'tools/forexai_resolve_exact_promotion_manifest_v1.ps1'
+      - '.github/workflows/forexai-control-plane-mt5-compile-guard.yml'
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Branch or commit SHA to compile"
+        required: true
+        default: 'feat/authoritative-capital-control-plane-v1'
+        type: string
+      mt5_root:
+        description: "Installed MT5 root folder"
+        required: true
+        default: 'C:\Program Files\MetaTrader 5'
+        type: string
+      terminal_path:
+        description: "MT5 terminal executable for resolving Common Files"
+        required: true
+        default: 'C:\Program Files\MetaTrader 5\terminal64.exe'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: forexai-control-plane-mt5-compile-guard
+  cancel-in-progress: true
+
+jobs:
+  # Resolve Promotion on GitHub-hosted infrastructure first. This prevents the
+  # sole Windows MT5 runner being occupied while the exact-main G13 chain runs.
+  resolve-promotion:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      target_sha: ${{ steps.resolve.outputs.target_sha }}
+      promotion_run_id: ${{ steps.resolve.outputs.promotion_run_id }}
+    steps:
+      - name: Wait for successful Promotion of exact current main SHA
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          candidate_sha="${CANDIDATE_SHA:-}"
+          deadline=$((SECONDS+75*60))
+          target_sha=""
+          promotion_id=""
+          parity_id=""
+          pr_parity_id=""
+          attempt=0
+
+          while (( SECONDS < deadline )); do
+            attempt=$((attempt+1))
+            current_sha="$(gh api "repos/$repo/commits/main" --jq .sha)"
+            [[ "$current_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'MT5_COMPILE_GUARD_MAIN_SHA_INVALID'; exit 1; }
+
+            if [[ "$target_sha" != "$current_sha" ]]; then
+              target_sha="$current_sha"
+              promotion_id=""
+              parity_id=""
+              pr_parity_id=""
+              echo "MT5_COMPILE_GUARD_TRACKING_CURRENT_MAIN_SHA=$target_sha"
+            fi
+
+            if [[ -z "$promotion_id" ]]; then
+              promotion_payload="$(gh api "repos/$repo/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&per_page=100")"
+              promotion_state="$(printf '%s' "$promotion_payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI G13 Final Promotion M15" and r.get("workflow_id")==356366824 and r.get("head_branch")=="main" and r.get("head_sha")==target]; ok=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; print(("SUCCESS|"+str(max(ok,key=lambda x:x["id"])["id"])) if ok else ("PENDING" if pending else "NOT_READY"))' "$target_sha")"
+              case "$promotion_state" in
+                SUCCESS\|*)
+                  promotion_id="${promotion_state#SUCCESS|}"
+                  echo "MT5_COMPILE_GUARD_EXACT_PROMOTION_READY run=$promotion_id sha=$target_sha"
+                  ;;
+                *)
+                  echo "MT5_COMPILE_GUARD_WAITING_FOR_EXACT_PROMOTION attempt=$attempt state=$promotion_state sha=$target_sha"
+                  sleep 15
+                  continue
+                  ;;
+              esac
+            fi
+
+            if [[ -z "$parity_id" ]]; then
+              parity_payload="$(gh api "repos/$repo/actions/workflows/forexai-g13-mt5-compile-parity.yml/runs?branch=main&per_page=100")"
+              parity_state="$(printf '%s' "$parity_payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI G13 MT5 Compile + Signal Parity" and r.get("workflow_id")==356474778 and r.get("head_branch")=="main" and r.get("head_sha")==target]; ok=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; print(("SUCCESS|"+str(max(ok,key=lambda x:x["id"])["id"])) if ok else ("PENDING" if pending else "NOT_READY"))' "$target_sha")"
+              case "$parity_state" in
+                SUCCESS\|*)
+                  parity_id="${parity_state#SUCCESS|}"
+                  echo "MT5_COMPILE_GUARD_EXACT_MAIN_PARITY_READY run=$parity_id sha=$target_sha"
+                  ;;
+                *)
+                  echo "MT5_COMPILE_GUARD_WAITING_FOR_EXACT_MAIN_PARITY attempt=$attempt state=$parity_state sha=$target_sha"
+                  sleep 15
+                  continue
+                  ;;
+              esac
+            fi
+
+            if [[ -n "$candidate_sha" && -z "$pr_parity_id" ]]; then
+              pr_payload="$(gh api "repos/$repo/actions/runs?head_sha=$candidate_sha&per_page=100")"
+              pr_state="$(printf '%s' "$pr_payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI Control Plane PR Real-Data Parity" and r.get("workflow_id")==385709004 and r.get("event")=="pull_request" and r.get("head_sha")==target]; latest=max(rs,key=lambda x:x["id"]) if rs else None; print("NOT_STARTED" if latest is None else ("PENDING" if latest.get("status")!="completed" else ("SUCCESS|"+str(latest["id"]) if latest.get("conclusion")=="success" else "FAILED|"+str(latest["id"])+"|"+str(latest.get("conclusion") or "unknown"))))' "$candidate_sha")"
+              case "$pr_state" in
+                SUCCESS\|*)
+                  pr_parity_id="${pr_state#SUCCESS|}"
+                  echo "MT5_COMPILE_GUARD_CANDIDATE_PARITY_READY run=$pr_parity_id sha=$candidate_sha"
+                  ;;
+                FAILED\|*)
+                  echo "MT5_COMPILE_GUARD_CANDIDATE_PARITY_FAILED state=$pr_state"
+                  exit 1
+                  ;;
+                *)
+                  echo "MT5_COMPILE_GUARD_WAITING_FOR_CANDIDATE_PARITY attempt=$attempt state=$pr_state"
+                  sleep 15
+                  continue
+                  ;;
+              esac
+            fi
+
+            # Never schedule the scarce Windows runner based on evidence for a
+            # SHA that stopped being current while the independent gates ran.
+            verify_sha="$(gh api "repos/$repo/commits/main" --jq .sha)"
+            if [[ "$verify_sha" != "$target_sha" ]]; then
+              echo "MT5_COMPILE_GUARD_MAIN_SHA_CHANGED_DURING_RESOLUTION old=$target_sha new=$verify_sha; restarting exact-SHA resolution"
+              target_sha=""
+              promotion_id=""
+              parity_id=""
+              pr_parity_id=""
+              continue
+            fi
+
+            echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+            echo "promotion_run_id=$promotion_id" >> "$GITHUB_OUTPUT"
+            echo "MT5_COMPILE_GUARD_PROMOTION_READY=true run=$promotion_id sha=$target_sha"
+            echo "MT5_COMPILE_GUARD_RUNNER_SLOT_ORDER=MAIN_PARITY_THEN_CANDIDATE_PARITY_THEN_DIAGNOSTIC_COMPILE"
+            exit 0
+          done
+
+          echo "MT5_COMPILE_GUARD_EXACT_SHA_EVIDENCE_WAIT_TIMEOUT"
+          exit 1
+
+  compile:
+    needs: resolve-promotion
+    # Never run fork-controlled code on the privileged self-hosted MT5 runner.
+    if: needs.resolve-promotion.result == 'success' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 35
+    env:
+      PYTHONUNBUFFERED: "1"
+      SOURCE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha) }}
+      TARGET_MAIN_SHA: ${{ needs.resolve-promotion.outputs.target_sha }}
+      MT5_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.mt5_root || 'C:\\Program Files\\MetaTrader 5' }}
+      TERMINAL_PATH: ${{ github.event_name == 'workflow_dispatch' && inputs.terminal_path || 'C:\\Program Files\\MetaTrader 5\\terminal64.exe' }}
+    steps:
+      - name: Checkout trusted main for MT5 safety resolver
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-promotion.outputs.target_sha }}
+
+      - name: Force Demo kill switch to DENY before compile
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
+          $resolved = @(& $resolver -TerminalPath $env:TERMINAL_PATH -SetDenyKillSwitch)
+          $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
+          if (-not $commonLine) { throw 'MT5_COMPILE_GUARD_COMMON_FILES_UNRESOLVED' }
+          $commonFiles = ([string]$commonLine).Substring('G13_MT5_COMMON_FILES='.Length)
+          if (-not (Test-Path -LiteralPath $commonFiles -PathType Container)) { throw 'MT5_COMPILE_GUARD_COMMON_FILES_MISSING' }
+          $switch = Join-Path $commonFiles 'g13_demo_kill_switch.txt'
+          if ((Get-Content -LiteralPath $switch -Raw) -ne 'DENY') { throw 'MT5_COMPILE_GUARD_INITIAL_DENY_UNVERIFIED' }
+          "FOREXAI_MT5_COMMON_FILES=$commonFiles" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'MT5_COMPILE_GUARD_INITIAL_DENY=VERIFIED'
+          Write-Output 'MT5_COMPILE_GUARD_NO_TRADING_ACTIONS=true'
+
+      - name: Verify pinned trusted main SHA before compile
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $trustedMainRoot = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+          $checkedOutSha = (& git -c "safe.directory=$trustedMainRoot" -C $trustedMainRoot rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $checkedOutSha -ne $env:TARGET_MAIN_SHA) {
+            throw 'MT5_COMPILE_GUARD_TRUSTED_MAIN_SHA_MISMATCH'
+          }
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $currentMain = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/commits/main" -Headers $headers
+          if ($currentMain.sha -ne $env:TARGET_MAIN_SHA) {
+            throw 'MT5_COMPILE_GUARD_MAIN_MOVED_AFTER_PROMOTION_RESOLUTION'
+          }
+          Write-Output "MT5_COMPILE_GUARD_TRUSTED_MAIN_SHA_VERIFIED=$checkedOutSha"
+
+      - name: Resolve Python runtime
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            (Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+            'C:\Users\Star\AppData\Local\Programs\Python\Python312\python.exe',
+            'C:\Users\Star\AppData\Local\Programs\Python\Python311\python.exe',
+            'C:\Program Files\Python312\python.exe',
+            'C:\Program Files\Python311\python.exe'
+          ) | Where-Object { $_ }
+          $pythonExe = $null
+          foreach ($candidate in $candidates) {
+            if (!(Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            try {
+              $version = (& $candidate -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>$null | Select-Object -Last 1).Trim()
+              if ($LASTEXITCODE -eq 0 -and $version -match '^3 (11|12|13)$') { $pythonExe = $candidate; break }
+            } catch { }
+          }
+          if (-not $pythonExe) { throw 'MT5_COMPILE_GUARD_PYTHON_NOT_FOUND' }
+          "PYTHON_EXE=$pythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $pythonExe -c "import pytest; print('MT5_COMPILE_GUARD_PYTEST=PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_PYTEST_NOT_INSTALLED' }
+
+      - name: Checkout candidate source to isolated workspace
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha) }}
+          path: control-plane-source
+
+      - name: Resolve exact current-main Promotion artifact
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((& git -c "safe.directory=$env:GITHUB_WORKSPACE" -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim() -ne $env:TARGET_MAIN_SHA) {
+            throw 'MT5_COMPILE_GUARD_PROMOTION_TARGET_SHA_MISMATCH'
+          }
+          $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
+          $resolver = Join-Path $source 'tools\\forexai_resolve_exact_promotion_manifest_v1.ps1'
+          & $resolver -SourceRoot $source
+
+      - name: Run generation contracts and generate candidate EAs
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
+          Push-Location -LiteralPath $source
+          try {
+            & $env:PYTHON_EXE -m pytest -q tests/test_g13_control_plane_ea_gate_v1.py tests/test_g13_mql5_generator_v2.py
+            if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_GENERATOR_TESTS_FAILED' }
+            $outDir = Join-Path $source 'artifacts\g13\mql5'
+            Remove-Item -LiteralPath $outDir -Recurse -Force -ErrorAction SilentlyContinue
+            & $env:PYTHON_EXE -m research.optimization.g13_mql5_generator_v2 --manifest artifacts/g13/g13-promotion-manifest-m15.json --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json --output-dir artifacts/g13/mql5
+            if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_GENERATION_FAILED' }
+            $files = @(Get-ChildItem -LiteralPath $outDir -File -Filter 'ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
+            $expectedCount = [int]$env:EXPECTED_G13_CANDIDATE_COUNT
+            if ($expectedCount -lt 1 -or $files.Count -ne $expectedCount) {
+              throw "MT5_COMPILE_GUARD_CANDIDATE_COUNT_MISMATCH:expected=$expectedCount actual=$($files.Count)"
+            }
+            "MT5_COMPILE_GUARD_GENERATED_COUNT=$($files.Count)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          } finally {
+            Pop-Location
+          }
+
+      - name: Run independent source-level execution safety audit on Control Plane EAs
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
+          Push-Location -LiteralPath $source
+          try {
+            $reportPath = 'artifacts/g13/g13-execution-safety-audit-m15.json'
+            & $env:PYTHON_EXE -m research.optimization.g13_execution_safety_audit_m15 --generator research/optimization/g13_mql5_generator_v2.py --manifest artifacts/g13/g13-promotion-manifest-m15.json --output-dir artifacts/g13/mql5 --report $reportPath
+            if ($LASTEXITCODE -ne 0) { throw 'MT5_COMPILE_GUARD_EXECUTION_SAFETY_AUDIT_FAILED' }
+            $audit = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+            $expectedCount = [int]$env:EXPECTED_G13_CANDIDATE_COUNT
+            $testerAllowed = @($audit.matrix | Where-Object { $_.is_tester -and $_.actual_allowed }).Count
+            $nonTesterAllowed = @($audit.matrix | Where-Object { -not $_.is_tester -and $_.actual_allowed }).Count
+            $sourceFailures = @($audit.sources | Where-Object { -not $_.pass }).Count
+            if ($audit.status -ne 'PASS' -or [int]$audit.scope.candidate_count -ne $expectedCount) {
+              throw 'MT5_COMPILE_GUARD_EXECUTION_SAFETY_AUDIT_STATUS_OR_COUNT_FAILED'
+            }
+            if ($audit.policy.live_trading_allowed -ne $false -or $audit.policy.demo_trading_default_authorized -ne $false) {
+              throw 'MT5_COMPILE_GUARD_EXECUTION_SAFETY_POLICY_FAILED'
+            }
+            if ($audit.matrix.Count -ne 1536 -or $testerAllowed -ne 768 -or $nonTesterAllowed -ne 1 -or $sourceFailures -ne 0) {
+              throw 'MT5_COMPILE_GUARD_EXECUTION_SAFETY_MATRIX_FAILED'
+            }
+            "MT5_CONTROL_PLANE_EXECUTION_SAFETY=PASS candidates=$expectedCount matrix=1536 tester_allowed=$testerAllowed non_tester_allowed=$nonTesterAllowed" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          } finally {
+            Pop-Location
+          }
+
+      - name: Compile generated EAs with MetaEditor without running any EA
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'control-plane-source'
+          $generated = Join-Path $source 'artifacts\g13\mql5'
+          $meta = Join-Path $env:MT5_ROOT 'metaeditor64.exe'
+          if (-not (Test-Path -LiteralPath $meta -PathType Leaf)) { throw 'MT5_COMPILE_GUARD_METAEDITOR_NOT_FOUND' }
+          $buildDir = Join-Path $generated '_control-plane-compile'
+          New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+          $files = @(Get-ChildItem -LiteralPath $generated -File -Filter 'ForexAI_G13_Candidate_*.mq5' | Sort-Object Name)
+          $expectedCount = [int]$env:EXPECTED_G13_CANDIDATE_COUNT
+          if ($expectedCount -lt 1 -or $files.Count -ne $expectedCount) {
+            throw "MT5_COMPILE_GUARD_CANDIDATE_COUNT_MISMATCH:expected=$expectedCount actual=$($files.Count)"
+          }
+          $results = @()
+          foreach ($file in $files) {
+            $src = Join-Path $buildDir $file.Name
+            $ex5 = [System.IO.Path]::ChangeExtension($src, '.ex5')
+            $log = [System.IO.Path]::ChangeExtension($src, '.log')
+            Copy-Item -LiteralPath $file.FullName -Destination $src -Force
+            Remove-Item -LiteralPath $ex5,$log -Force -ErrorAction SilentlyContinue
+            $proc = Start-Process -FilePath $meta -WorkingDirectory $buildDir -ArgumentList @("/compile:$src", '/log') -Wait -PassThru
+            # MetaEditor command-line /compile returns the number of successfully
+            # compiled source files, not the conventional 0-success process code.
+            # This loop compiles exactly one source per invocation, so success is 1.
+            # Still require clean diagnostics below and an actual EX5 output.
+            if ($proc.ExitCode -ne 1) {
+              throw "MT5_COMPILE_GUARD_COMPILE_COUNT_INVALID_$($file.Name):exit=$($proc.ExitCode)"
+            }
+            if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "MT5_COMPILE_GUARD_COMPILE_LOG_MISSING_$($file.Name)" }
+            $logText = Get-Content -LiteralPath $log -Raw
+            $match = [regex]::Match($logText, 'Result:\s*(\d+)\s+errors,\s*(\d+)\s+warnings')
+            if (-not $match.Success) { throw "MT5_COMPILE_GUARD_RESULT_UNPARSEABLE_$($file.Name)" }
+            $errors = [int]$match.Groups[1].Value
+            $warnings = [int]$match.Groups[2].Value
+            $results += [pscustomobject]@{ file=$file.Name; errors=$errors; warnings=$warnings; metaeditor_exit=$proc.ExitCode; ex5_exists=(Test-Path -LiteralPath $ex5 -PathType Leaf) }
+            Write-Output "MT5_COMPILE_GUARD_RESULT file=$($file.Name) errors=$errors warnings=$warnings exit=$($proc.ExitCode)"
+            if ($errors -ne 0 -or $warnings -ne 0) { throw "MT5_COMPILE_GUARD_NONZERO_DIAGNOSTICS_$($file.Name)" }
+            if (-not (Test-Path -LiteralPath $ex5 -PathType Leaf)) { throw "MT5_COMPILE_GUARD_EX5_MISSING_$($file.Name)" }
+          }
+          $report = Join-Path $generated 'control-plane-compile-report.json'
+          $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $report -Encoding utf8
+          "MT5_COMPILE_GUARD_RESULT=PASS count=$($results.Count)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      - name: Upload compile logs and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-control-plane-mt5-compile-${{ github.run_id }}
+          path: |
+            control-plane-source/artifacts/g13/mql5/_control-plane-compile/*
+            control-plane-source/artifacts/g13/mql5/control-plane-compile-report.json
+            control-plane-source/artifacts/g13/g13-execution-safety-audit-m15.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Final safety cleanup - keep DENY and remove one-shot tokens
+        if: always()
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $commonFiles = $env:FOREXAI_MT5_COMMON_FILES
+          if ([string]::IsNullOrWhiteSpace($commonFiles) -or -not (Test-Path -LiteralPath $commonFiles -PathType Container)) {
+            $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
+            try {
+              $resolved = @(& $resolver -TerminalPath $env:TERMINAL_PATH -SetDenyKillSwitch)
+              $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
+              if ($commonLine) { $commonFiles = ([string]$commonLine).Substring('G13_MT5_COMMON_FILES='.Length) }
+            } catch { }
+          }
+          $verified = $false
+          if (-not [string]::IsNullOrWhiteSpace($commonFiles) -and (Test-Path -LiteralPath $commonFiles -PathType Container)) {
+            $switch = Join-Path $commonFiles 'g13_demo_kill_switch.txt'
+            try {
+              Set-Content -LiteralPath $switch -Value 'DENY' -NoNewline -Encoding ascii
+              $verified = (Get-Content -LiteralPath $switch -Raw) -eq 'DENY'
+            } catch { $verified = $false }
+            Get-ChildItem -LiteralPath $commonFiles -File -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.Name -like 'ForexAI_Authorization_*_EURUSD.auth' -or
+                $_.Name -like 'ForexAI_G13_SignalIntent_*_EURUSD.json' -or
+                $_.Name -like 'ForexAI_G13_SignalIntent_*_EURUSD.json.tmp'
+              } | Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+          if (-not $verified) {
+            Write-Output 'MT5_COMPILE_GUARD_FINAL_DENY=UNVERIFIED'
+            throw 'MT5_COMPILE_GUARD_CLEANUP_DENY_VERIFICATION_FAILED'
+          }
+          Write-Output 'MT5_COMPILE_GUARD_FINAL_DENY=VERIFIED'

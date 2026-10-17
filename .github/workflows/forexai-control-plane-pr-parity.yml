@@ -1,0 +1,126 @@
+name: ForexAI Control Plane PR Real-Data Parity
+
+# Run the real EURUSD M15 Python/MQL5 signal-parity harness against the exact candidate SHA.
+# Promotion evidence is independently resolved from a successful main-SHA run.
+# The MQL5 harness is signal-only and never attaches an EA or submits orders.
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'research/optimization/g13_control_plane_ea_gate_v1.py'
+      - 'research/optimization/g13_mql5_generator_v2.py'
+      - 'research/optimization/g13_mql5_parity.py'
+      - 'research/optimization/g13_mql5_parity_harness_generator.py'
+      - 'research/optimization/g13_demo_readiness_gate_m15.py'
+      - 'research/optimization/g13_execution_safety_audit_m15.py'
+      - 'tools/forexai_control_plane_v1.py'
+      - 'tests/test_forexai_control_plane_v1.py'
+      - 'tests/test_g13_control_plane_ea_gate_v1.py'
+      - 'tests/test_g13_mql5_generator_v2.py'
+      - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
+      - '.github/workflows/forexai-g13-mql5-generation.yml'
+      - '.github/workflows/forexai-g13-workflow-lint.yml'
+      - '.github/workflows/forexai-control-plane-pr-parity.yml'
+      - '.github/workflows/forexai-g13-mt5-compile-parity.yml'
+      - '.github/workflows/forexai-control-plane-v1.yml'
+      - '.github/workflows/forexai-control-plane-contract.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+# Newer PR revisions supersede stale queued parity runs for this feature branch.
+concurrency:
+  group: forexai-control-plane-pr-real-data-parity-pull_request-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-main:
+    # Wait off-runner until official main-SHA G13 parity is complete. This
+    # avoids a PR diagnostic claiming the only Windows MT5 slot first.
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    outputs:
+      sha: ${{ steps.wait-main.outputs.sha }}
+    steps:
+      - name: Checkout current main for the Promotion SHA
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Record exact main SHA
+        id: main
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "PARITY_PROMOTION_TARGET_MAIN_SHA=$sha"
+
+      - name: Wait for official main-SHA G13 watchdog to finish all scarce-runner gates
+        id: wait-main
+        shell: bash
+        timeout-minutes: 50
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.main.outputs.sha }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          target_sha="$TARGET_SHA"
+          deadline=$((SECONDS+45*60))
+          attempt=0
+
+          while (( SECONDS < deadline )); do
+            attempt=$((attempt+1))
+            current_sha="$(gh api "repos/$repo/commits/main" --jq .sha)"
+            [[ "$current_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'CONTROL_PLANE_PARITY_MAIN_SHA_INVALID'; exit 1; }
+            if [[ "$current_sha" != "$target_sha" ]]; then
+              echo "CONTROL_PLANE_PARITY_MAIN_SHA_ADVANCED old=$target_sha new=$current_sha; restarting gate resolution"
+              target_sha="$current_sha"
+            fi
+
+            payload="$(gh api "repos/$repo/actions/workflows/forexai-g13-oos-watchdog-m15.yml/runs?branch=main&per_page=100")"
+            state="$(printf '%s' "$payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI G13 OOS Watchdog M15" and r.get("workflow_id")==377528976 and r.get("head_branch")=="main" and r.get("head_sha")==target]; latest=max(rs,key=lambda x:x["id"]) if rs else None; print(("COMPLETED|"+str(latest["id"])+"|"+str(latest.get("conclusion") or "unknown")) if latest and latest.get("status")=="completed" else ("PENDING" if latest else "NOT_STARTED"))' "$target_sha")"
+            case "$state" in
+              COMPLETED\|*)
+                verify_sha="$(gh api "repos/$repo/commits/main" --jq .sha)"
+                if [[ "$verify_sha" != "$target_sha" ]]; then
+                  echo "CONTROL_PLANE_PARITY_MAIN_SHA_ADVANCED_AFTER_WATCHDOG old=$target_sha new=$verify_sha; restarting gate resolution"
+                  target_sha="$verify_sha"
+                  sleep 2
+                  continue
+                fi
+                echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
+                echo "CONTROL_PLANE_MAIN_G13_WATCHDOG_COMPLETED=$state"
+                echo "CONTROL_PLANE_PARITY_STABLE_MAIN_SHA=$target_sha"
+                exit 0
+                ;;
+              PENDING|NOT_STARTED)
+                echo "CONTROL_PLANE_WAITING_FOR_MAIN_G13_WATCHDOG attempt=$attempt state=$state SHA=$target_sha"
+                sleep 15
+                ;;
+              *)
+                echo 'CONTROL_PLANE_MAIN_G13_WATCHDOG_STATE_INVALID'
+                exit 1
+                ;;
+            esac
+          done
+          echo 'CONTROL_PLANE_MAIN_G13_WATCHDOG_WAIT_TIMEOUT'
+          exit 1
+
+  real-data-parity:
+    needs: resolve-main
+    # Never execute PR-controlled workflow code from a fork on the privileged MT5 runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/forexai-g13-mt5-compile-parity.yml
+    with:
+      # github.sha is the synthetic merge ref for pull_request events. Use the head SHA instead.
+      candidate_source_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      promotion_target_sha: ${{ needs.resolve-main.outputs.sha }}
