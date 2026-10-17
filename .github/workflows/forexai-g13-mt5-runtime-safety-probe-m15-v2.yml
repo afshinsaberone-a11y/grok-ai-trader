@@ -184,6 +184,235 @@ jobs:
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
           $taskCreatedAt = (Get-Date).AddSeconds(-2)
           $schtasks = Join-Path $env:WINDIR 'System32\schtasks.exe'
+          function Write-G13ProbeStartupDiagnostic {
+            param([string]$Mode)
+            $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13'
+            New-Item -ItemType Directory -Path $diagRoot -Force | Out-Null
+            $taskState = 'QUERY_UNAVAILABLE'
+            $taskLastResult = $null
+            $taskLastRunTime = $null
+            $taskQueryExitCode = $null
+            $queryOut = Join-Path $env:RUNNER_TEMP ("g13-task-query-" + $Mode + "-" + $env:GITHUB_RUN_ID + ".txt")
+            $queryErr = Join-Path $env:RUNNER_TEMP ("g13-task-query-" + $Mode + "-" + $env:GITHUB_RUN_ID + ".err.txt")
+            try {
+              $queryProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Query','/TN',$taskName,'/V','/FO','LIST') -NoNewWindow -PassThru -RedirectStandardOutput $queryOut -RedirectStandardError $queryErr
+              if ($queryProcess.WaitForExit(10000)) {
+                $taskQueryExitCode = [int]$queryProcess.ExitCode
+                $queryText = if (Test-Path -LiteralPath $queryOut) { Get-Content -LiteralPath $queryOut -Raw -ErrorAction SilentlyContinue } else { '' }
+                if ($queryText -match '(?im)^Status:\s*(.+)          try {
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_REGISTER_BEGIN=true'
+            Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_REGISTERED=true'
+            $startProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            if (-not $startProcess.WaitForExit(15000)) {
+              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT'
+            }
+            if ($startProcess.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_OFF_TASK_START_FAILED' }
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_STARTED=true'
+            $taskStartedAt = Get-Date
+            $deadline = $taskStartedAt.AddSeconds(180)
+            $nextHeartbeat = 15
+            while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $done -PathType Leaf)) {
+              $elapsed = [int]((Get-Date) - $taskStartedAt).TotalSeconds
+              if ($elapsed -ge $nextHeartbeat) {
+                Write-Host "G13_RUNTIME_AUTH_OFF_WAITING_FOR_MARKER elapsed_seconds=$elapsed"
+                $nextHeartbeat += 15
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
+              Write-G13ProbeStartupDiagnostic -Mode 'AUTH_OFF'
+              throw 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING'
+            }
+            if (!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_STATUS_INVALID' }
+            if (!(Select-String -LiteralPath $done -Pattern '^authorization,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_AUTHORIZATION_MISMATCH' }
+            if (!(Select-String -LiteralPath $done -Pattern '^execution_allowed,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_MUST_BLOCK' }
+            if (!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_ORDER_INVARIANT_FAILED' }
+            Copy-Item -LiteralPath $done -Destination (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_off.done.txt') -Force
+            Write-Host 'MT5_AUTH_OFF_PROBE_OK'
+          }
+          finally {
+            foreach ($verb in @('/End','/Delete')) {
+              try {
+                $cleanupArgs = @($verb,'/TN',$taskName)
+                if ($verb -eq '/Delete') { $cleanupArgs += '/F' }
+                $cleanupProcess = Start-Process -FilePath $schtasks -ArgumentList $cleanupArgs -NoNewWindow -PassThru
+                if (-not $cleanupProcess.WaitForExit(10000)) {
+                  Stop-Process -Id $cleanupProcess.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb"
+                } else {
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_EXIT=$verb,$($cleanupProcess.ExitCode)"
+                }
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_ERROR=$verb"
+              }
+            }
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+          }
+
+) { $taskState = $Matches[1].Trim() }
+                if ($queryText -match '(?im)^Last Result:\s*(.+)          try {
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_REGISTER_BEGIN=true'
+            Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_REGISTERED=true'
+            $startProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            if (-not $startProcess.WaitForExit(15000)) {
+              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT'
+            }
+            if ($startProcess.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_OFF_TASK_START_FAILED' }
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_STARTED=true'
+            $taskStartedAt = Get-Date
+            $deadline = $taskStartedAt.AddSeconds(180)
+            $nextHeartbeat = 15
+            while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $done -PathType Leaf)) {
+              $elapsed = [int]((Get-Date) - $taskStartedAt).TotalSeconds
+              if ($elapsed -ge $nextHeartbeat) {
+                Write-Host "G13_RUNTIME_AUTH_OFF_WAITING_FOR_MARKER elapsed_seconds=$elapsed"
+                $nextHeartbeat += 15
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (!(Test-Path -LiteralPath $done -PathType Leaf)) { throw 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING' }
+            if (!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_STATUS_INVALID' }
+            if (!(Select-String -LiteralPath $done -Pattern '^authorization,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_AUTHORIZATION_MISMATCH' }
+            if (!(Select-String -LiteralPath $done -Pattern '^execution_allowed,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_MUST_BLOCK' }
+            if (!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_ORDER_INVARIANT_FAILED' }
+            Copy-Item -LiteralPath $done -Destination (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_off.done.txt') -Force
+            Write-Host 'MT5_AUTH_OFF_PROBE_OK'
+          }
+          finally {
+            foreach ($verb in @('/End','/Delete')) {
+              try {
+                $cleanupArgs = @($verb,'/TN',$taskName)
+                if ($verb -eq '/Delete') { $cleanupArgs += '/F' }
+                $cleanupProcess = Start-Process -FilePath $schtasks -ArgumentList $cleanupArgs -NoNewWindow -PassThru
+                if (-not $cleanupProcess.WaitForExit(10000)) {
+                  Stop-Process -Id $cleanupProcess.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb"
+                } else {
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_EXIT=$verb,$($cleanupProcess.ExitCode)"
+                }
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_ERROR=$verb"
+              }
+            }
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+          }
+
+) { $taskLastResult = $Matches[1].Trim() }
+                if ($queryText -match '(?im)^Last Run Time:\s*(.+)          try {
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_REGISTER_BEGIN=true'
+            Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_REGISTERED=true'
+            $startProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            if (-not $startProcess.WaitForExit(15000)) {
+              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT'
+            }
+            if ($startProcess.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_OFF_TASK_START_FAILED' }
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_STARTED=true'
+            $taskStartedAt = Get-Date
+            $deadline = $taskStartedAt.AddSeconds(180)
+            $nextHeartbeat = 15
+            while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $done -PathType Leaf)) {
+              $elapsed = [int]((Get-Date) - $taskStartedAt).TotalSeconds
+              if ($elapsed -ge $nextHeartbeat) {
+                Write-Host "G13_RUNTIME_AUTH_OFF_WAITING_FOR_MARKER elapsed_seconds=$elapsed"
+                $nextHeartbeat += 15
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (!(Test-Path -LiteralPath $done -PathType Leaf)) { throw 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING' }
+            if (!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_STATUS_INVALID' }
+            if (!(Select-String -LiteralPath $done -Pattern '^authorization,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_AUTHORIZATION_MISMATCH' }
+            if (!(Select-String -LiteralPath $done -Pattern '^execution_allowed,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_MUST_BLOCK' }
+            if (!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_OFF_ORDER_INVARIANT_FAILED' }
+            Copy-Item -LiteralPath $done -Destination (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_off.done.txt') -Force
+            Write-Host 'MT5_AUTH_OFF_PROBE_OK'
+          }
+          finally {
+            foreach ($verb in @('/End','/Delete')) {
+              try {
+                $cleanupArgs = @($verb,'/TN',$taskName)
+                if ($verb -eq '/Delete') { $cleanupArgs += '/F' }
+                $cleanupProcess = Start-Process -FilePath $schtasks -ArgumentList $cleanupArgs -NoNewWindow -PassThru
+                if (-not $cleanupProcess.WaitForExit(10000)) {
+                  Stop-Process -Id $cleanupProcess.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb"
+                } else {
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_EXIT=$verb,$($cleanupProcess.ExitCode)"
+                }
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_ERROR=$verb"
+              }
+            }
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+          }
+
+) { $taskLastRunTime = $Matches[1].Trim() }
+              } else {
+                Stop-Process -Id $queryProcess.Id -Force -ErrorAction SilentlyContinue
+                $taskState = 'QUERY_TIMEOUT'
+              }
+            } catch {
+              $taskState = 'QUERY_FAILED'
+            } finally {
+              Remove-Item -LiteralPath $queryOut,$queryErr -Force -ErrorAction SilentlyContinue
+            }
+
+            $dataRoot = Split-Path -Parent (Split-Path -Parent $env:MT5_SCRIPTS_ROOT)
+            $logDirs = @((Join-Path $dataRoot 'logs'), (Join-Path $dataRoot 'MQL5\Logs'))
+            $logFiles = @()
+            foreach ($logDir in $logDirs) {
+              if (Test-Path -LiteralPath $logDir -PathType Container) {
+                $logFiles += @(Get-ChildItem -LiteralPath $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue)
+              }
+            }
+            $recentLogs = @($logFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 3)
+            $logText = ''
+            foreach ($logFile in $recentLogs) {
+              try { $logText += ' ' + (Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction Stop) } catch { }
+            }
+            $probePath = Join-Path $env:MT5_SCRIPTS_ROOT $scriptRel
+            $terminalProcesses = @()
+            try { $terminalProcesses = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'terminal64.exe'" -ErrorAction Stop) } catch { }
+            $killSwitch = Join-Path $env:MT5_COMMON_FILES 'g13_demo_kill_switch.txt'
+            $killSwitchState = '__MISSING__'
+            if (Test-Path -LiteralPath $killSwitch -PathType Leaf) {
+              try { $killSwitchState = (Get-Content -LiteralPath $killSwitch -Raw -ErrorAction Stop).Trim() } catch { $killSwitchState = '__UNREADABLE__' }
+            }
+            $diag = [ordered]@{
+              schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
+              mode = $Mode
+              result_marker_present = [bool](Test-Path -LiteralPath $done -PathType Leaf)
+              startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
+              probe_ex5_present = [bool](Test-Path -LiteralPath $probePath -PathType Leaf)
+              probe_ex5_sha256 = if (Test-Path -LiteralPath $probePath -PathType Leaf) { (Get-FileHash -LiteralPath $probePath -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
+              common_files_directory_present = [bool](Test-Path -LiteralPath $env:MT5_COMMON_FILES -PathType Container)
+              kill_switch_state_is_deny = ($killSwitchState -eq 'DENY')
+              kill_switch_state_is_allow = ($killSwitchState -eq 'ALLOW')
+              scheduled_task_state = $taskState
+              scheduled_task_query_exit_code = $taskQueryExitCode
+              scheduled_task_last_result = $taskLastResult
+              scheduled_task_last_run_time = $taskLastRunTime
+              terminal_process_count = $terminalProcesses.Count
+              recent_terminal_log_count = $recentLogs.Count
+              recent_terminal_log_mentions_probe = [bool]($logText -match [regex]::Escape([System.IO.Path]::GetFileNameWithoutExtension($scriptRel)))
+              recent_terminal_log_mentions_script_failure = [bool]($logText -match '(?i)(failed to load|cannot load|script.{0,60}not found|failed.{0,60}open)')
+              recent_terminal_log_mentions_existing_instance = [bool]($logText -match '(?i)(already running|another instance|another copy)')
+              recent_terminal_log_mentions_config_failure = [bool]($logText -match '(?i)(config.{0,60}(failed|error|invalid)|invalid configuration)')
+              recent_terminal_log_mentions_login_failure = [bool]($logText -match '(?i)(authorization failed|invalid account|failed login|server not found)')
+              raw_terminal_logs_exported = $false
+              raw_task_query_exported = $false
+              raw_task_config_exported = $false
+              orders_expected = $false
+            }
+            $diagPath = Join-Path $diagRoot ("g13-runtime-probe-startup-diagnostic-" + $Mode + ".json")
+            $diag | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $diagPath -Encoding utf8
+            Write-Host ("G13_RUNTIME_" + $Mode + "_STARTUP_DIAGNOSTIC_WRITTEN=true")
+          }
           try {
             Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_REGISTER_BEGIN=true'
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
@@ -261,6 +490,232 @@ jobs:
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
           $taskCreatedAt = (Get-Date).AddSeconds(-2)
           $schtasks = Join-Path $env:WINDIR 'System32\schtasks.exe'
+          function Write-G13ProbeStartupDiagnostic {
+            param([string]$Mode)
+            $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13'
+            New-Item -ItemType Directory -Path $diagRoot -Force | Out-Null
+            $taskState = 'QUERY_UNAVAILABLE'
+            $taskLastResult = $null
+            $taskLastRunTime = $null
+            $taskQueryExitCode = $null
+            $queryOut = Join-Path $env:RUNNER_TEMP ("g13-task-query-" + $Mode + "-" + $env:GITHUB_RUN_ID + ".txt")
+            $queryErr = Join-Path $env:RUNNER_TEMP ("g13-task-query-" + $Mode + "-" + $env:GITHUB_RUN_ID + ".err.txt")
+            try {
+              $queryProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Query','/TN',$taskName,'/V','/FO','LIST') -NoNewWindow -PassThru -RedirectStandardOutput $queryOut -RedirectStandardError $queryErr
+              if ($queryProcess.WaitForExit(10000)) {
+                $taskQueryExitCode = [int]$queryProcess.ExitCode
+                $queryText = if (Test-Path -LiteralPath $queryOut) { Get-Content -LiteralPath $queryOut -Raw -ErrorAction SilentlyContinue } else { '' }
+                if ($queryText -match '(?im)^Status:\s*(.+)          try {
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_REGISTER_BEGIN=true'
+            Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_REGISTERED=true'
+            $startProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            if (-not $startProcess.WaitForExit(15000)) {
+              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT'
+            }
+            if ($startProcess.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_ON_TASK_START_FAILED' }
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_STARTED=true'
+            $taskStartedAt = Get-Date
+            $deadline = $taskStartedAt.AddSeconds(180)
+            $nextHeartbeat = 15
+            while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $done -PathType Leaf)) {
+              $elapsed = [int]((Get-Date) - $taskStartedAt).TotalSeconds
+              if ($elapsed -ge $nextHeartbeat) {
+                Write-Host "G13_RUNTIME_AUTH_ON_WAITING_FOR_MARKER elapsed_seconds=$elapsed"
+                $nextHeartbeat += 15
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
+              Write-G13ProbeStartupDiagnostic -Mode 'AUTH_ON'
+              throw 'G13_RUNTIME_AUTH_ON_MARKER_MISSING'
+            }
+            if (!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)) { throw 'G13_RUNTIME_AUTH_ON_STATUS_INVALID' }
+            if (!(Select-String -LiteralPath $done -Pattern '^authorization,true$' -Quiet)) { throw 'G13_RUNTIME_AUTH_ON_AUTHORIZATION_MISMATCH' }
+            if (!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_ON_ORDER_INVARIANT_FAILED' }
+            Copy-Item -LiteralPath $done -Destination (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_on.done.txt') -Force
+            Write-Host 'MT5_AUTH_ON_PROBE_OK'
+          }
+          finally {
+            foreach ($verb in @('/End','/Delete')) {
+              try {
+                $cleanupArgs = @($verb,'/TN',$taskName)
+                if ($verb -eq '/Delete') { $cleanupArgs += '/F' }
+                $cleanupProcess = Start-Process -FilePath $schtasks -ArgumentList $cleanupArgs -NoNewWindow -PassThru
+                if (-not $cleanupProcess.WaitForExit(10000)) {
+                  Stop-Process -Id $cleanupProcess.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb"
+                } else {
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_EXIT=$verb,$($cleanupProcess.ExitCode)"
+                }
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_ERROR=$verb"
+              }
+            }
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+          }
+
+) { $taskState = $Matches[1].Trim() }
+                if ($queryText -match '(?im)^Last Result:\s*(.+)          try {
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_REGISTER_BEGIN=true'
+            Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_REGISTERED=true'
+            $startProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            if (-not $startProcess.WaitForExit(15000)) {
+              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT'
+            }
+            if ($startProcess.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_ON_TASK_START_FAILED' }
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_STARTED=true'
+            $taskStartedAt = Get-Date
+            $deadline = $taskStartedAt.AddSeconds(180)
+            $nextHeartbeat = 15
+            while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $done -PathType Leaf)) {
+              $elapsed = [int]((Get-Date) - $taskStartedAt).TotalSeconds
+              if ($elapsed -ge $nextHeartbeat) {
+                Write-Host "G13_RUNTIME_AUTH_ON_WAITING_FOR_MARKER elapsed_seconds=$elapsed"
+                $nextHeartbeat += 15
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (!(Test-Path -LiteralPath $done -PathType Leaf)) { throw 'G13_RUNTIME_AUTH_ON_MARKER_MISSING' }
+            if (!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)) { throw 'G13_RUNTIME_AUTH_ON_STATUS_INVALID' }
+            if (!(Select-String -LiteralPath $done -Pattern '^authorization,true$' -Quiet)) { throw 'G13_RUNTIME_AUTH_ON_AUTHORIZATION_MISMATCH' }
+            if (!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_ON_ORDER_INVARIANT_FAILED' }
+            Copy-Item -LiteralPath $done -Destination (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_on.done.txt') -Force
+            Write-Host 'MT5_AUTH_ON_PROBE_OK'
+          }
+          finally {
+            foreach ($verb in @('/End','/Delete')) {
+              try {
+                $cleanupArgs = @($verb,'/TN',$taskName)
+                if ($verb -eq '/Delete') { $cleanupArgs += '/F' }
+                $cleanupProcess = Start-Process -FilePath $schtasks -ArgumentList $cleanupArgs -NoNewWindow -PassThru
+                if (-not $cleanupProcess.WaitForExit(10000)) {
+                  Stop-Process -Id $cleanupProcess.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb"
+                } else {
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_EXIT=$verb,$($cleanupProcess.ExitCode)"
+                }
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_ERROR=$verb"
+              }
+            }
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+          }
+
+) { $taskLastResult = $Matches[1].Trim() }
+                if ($queryText -match '(?im)^Last Run Time:\s*(.+)          try {
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_REGISTER_BEGIN=true'
+            Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_REGISTERED=true'
+            $startProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            if (-not $startProcess.WaitForExit(15000)) {
+              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT'
+            }
+            if ($startProcess.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_ON_TASK_START_FAILED' }
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_STARTED=true'
+            $taskStartedAt = Get-Date
+            $deadline = $taskStartedAt.AddSeconds(180)
+            $nextHeartbeat = 15
+            while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $done -PathType Leaf)) {
+              $elapsed = [int]((Get-Date) - $taskStartedAt).TotalSeconds
+              if ($elapsed -ge $nextHeartbeat) {
+                Write-Host "G13_RUNTIME_AUTH_ON_WAITING_FOR_MARKER elapsed_seconds=$elapsed"
+                $nextHeartbeat += 15
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (!(Test-Path -LiteralPath $done -PathType Leaf)) { throw 'G13_RUNTIME_AUTH_ON_MARKER_MISSING' }
+            if (!(Select-String -LiteralPath $done -Pattern '^status,PASS$' -Quiet)) { throw 'G13_RUNTIME_AUTH_ON_STATUS_INVALID' }
+            if (!(Select-String -LiteralPath $done -Pattern '^authorization,true$' -Quiet)) { throw 'G13_RUNTIME_AUTH_ON_AUTHORIZATION_MISMATCH' }
+            if (!(Select-String -LiteralPath $done -Pattern '^orders_submitted,false$' -Quiet)) { throw 'G13_RUNTIME_AUTH_ON_ORDER_INVARIANT_FAILED' }
+            Copy-Item -LiteralPath $done -Destination (Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\g13_safety_probe_auth_on.done.txt') -Force
+            Write-Host 'MT5_AUTH_ON_PROBE_OK'
+          }
+          finally {
+            foreach ($verb in @('/End','/Delete')) {
+              try {
+                $cleanupArgs = @($verb,'/TN',$taskName)
+                if ($verb -eq '/Delete') { $cleanupArgs += '/F' }
+                $cleanupProcess = Start-Process -FilePath $schtasks -ArgumentList $cleanupArgs -NoNewWindow -PassThru
+                if (-not $cleanupProcess.WaitForExit(10000)) {
+                  Stop-Process -Id $cleanupProcess.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb"
+                } else {
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_EXIT=$verb,$($cleanupProcess.ExitCode)"
+                }
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_ERROR=$verb"
+              }
+            }
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+          }
+
+) { $taskLastRunTime = $Matches[1].Trim() }
+              } else {
+                Stop-Process -Id $queryProcess.Id -Force -ErrorAction SilentlyContinue
+                $taskState = 'QUERY_TIMEOUT'
+              }
+            } catch {
+              $taskState = 'QUERY_FAILED'
+            } finally {
+              Remove-Item -LiteralPath $queryOut,$queryErr -Force -ErrorAction SilentlyContinue
+            }
+
+            $dataRoot = Split-Path -Parent (Split-Path -Parent $env:MT5_SCRIPTS_ROOT)
+            $logDirs = @((Join-Path $dataRoot 'logs'), (Join-Path $dataRoot 'MQL5\Logs'))
+            $logFiles = @()
+            foreach ($logDir in $logDirs) {
+              if (Test-Path -LiteralPath $logDir -PathType Container) {
+                $logFiles += @(Get-ChildItem -LiteralPath $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue)
+              }
+            }
+            $recentLogs = @($logFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 3)
+            $logText = ''
+            foreach ($logFile in $recentLogs) {
+              try { $logText += ' ' + (Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction Stop) } catch { }
+            }
+            $probePath = Join-Path $env:MT5_SCRIPTS_ROOT $scriptRel
+            $terminalProcesses = @()
+            try { $terminalProcesses = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'terminal64.exe'" -ErrorAction Stop) } catch { }
+            $killSwitch = Join-Path $env:MT5_COMMON_FILES 'g13_demo_kill_switch.txt'
+            $killSwitchState = '__MISSING__'
+            if (Test-Path -LiteralPath $killSwitch -PathType Leaf) {
+              try { $killSwitchState = (Get-Content -LiteralPath $killSwitch -Raw -ErrorAction Stop).Trim() } catch { $killSwitchState = '__UNREADABLE__' }
+            }
+            $diag = [ordered]@{
+              schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
+              mode = $Mode
+              result_marker_present = [bool](Test-Path -LiteralPath $done -PathType Leaf)
+              startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
+              probe_ex5_present = [bool](Test-Path -LiteralPath $probePath -PathType Leaf)
+              probe_ex5_sha256 = if (Test-Path -LiteralPath $probePath -PathType Leaf) { (Get-FileHash -LiteralPath $probePath -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
+              common_files_directory_present = [bool](Test-Path -LiteralPath $env:MT5_COMMON_FILES -PathType Container)
+              kill_switch_state_is_deny = ($killSwitchState -eq 'DENY')
+              kill_switch_state_is_allow = ($killSwitchState -eq 'ALLOW')
+              scheduled_task_state = $taskState
+              scheduled_task_query_exit_code = $taskQueryExitCode
+              scheduled_task_last_result = $taskLastResult
+              scheduled_task_last_run_time = $taskLastRunTime
+              terminal_process_count = $terminalProcesses.Count
+              recent_terminal_log_count = $recentLogs.Count
+              recent_terminal_log_mentions_probe = [bool]($logText -match [regex]::Escape([System.IO.Path]::GetFileNameWithoutExtension($scriptRel)))
+              recent_terminal_log_mentions_script_failure = [bool]($logText -match '(?i)(failed to load|cannot load|script.{0,60}not found|failed.{0,60}open)')
+              recent_terminal_log_mentions_existing_instance = [bool]($logText -match '(?i)(already running|another instance|another copy)')
+              recent_terminal_log_mentions_config_failure = [bool]($logText -match '(?i)(config.{0,60}(failed|error|invalid)|invalid configuration)')
+              recent_terminal_log_mentions_login_failure = [bool]($logText -match '(?i)(authorization failed|invalid account|failed login|server not found)')
+              raw_terminal_logs_exported = $false
+              raw_task_query_exported = $false
+              raw_task_config_exported = $false
+              orders_expected = $false
+            }
+            $diagPath = Join-Path $diagRoot ("g13-runtime-probe-startup-diagnostic-" + $Mode + ".json")
+            $diag | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $diagPath -Encoding utf8
+            Write-Host ("G13_RUNTIME_" + $Mode + "_STARTUP_DIAGNOSTIC_WRITTEN=true")
+          }
           try {
             Write-Host 'G13_RUNTIME_AUTH_ON_TASK_REGISTER_BEGIN=true'
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
