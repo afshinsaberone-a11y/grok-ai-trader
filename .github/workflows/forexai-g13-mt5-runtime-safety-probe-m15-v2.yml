@@ -428,7 +428,7 @@ jobs:
           $principal = New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive -RunLevel Limited
           $action = New-ScheduledTaskAction -Execute $terminal -Argument ('/config:"' + $config + '" /skipupdate')
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
-function Write-G13ProbeStartupDiagnostic {
+          function Write-G13ProbeStartupDiagnostic {
             param([Parameter(Mandatory = $true)][string]$Mode)
             $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13'
             New-Item -ItemType Directory -Path $diagRoot -Force | Out-Null
