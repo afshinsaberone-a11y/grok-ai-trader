@@ -674,12 +674,83 @@ jobs:
                 [System.StringComparison]::OrdinalIgnoreCase
               )
             } | Sort-Object CreationDate -Descending)
-          if ($interactiveProcesses.Count -lt 1) {
-            throw 'G13_INTERACTIVE_MT5_REQUIRED: no MT5 process exists in a logged-on interactive session; refusing Session 0 launch'
+
+          $interactiveProcess = $null
+          $owner = $null
+          if ($interactiveProcesses.Count -gt 0) {
+            # Prefer the actual MT5 process identity whenever its desktop instance is running.
+            $interactiveProcess = $interactiveProcesses[0]
+            $owner = Invoke-CimMethod -InputObject $interactiveProcess -MethodName GetOwner -ErrorAction SilentlyContinue
+            Write-Host 'G13_MT5_SESSION_RESOLUTION_SOURCE=existing_terminal'
+          } else {
+            # A logged-in desktop can be valid even when MT5 was closed. Resolve only the
+            # Explorer shell whose profile matches MT5_DATA_ROOT, then start the isolated
+            # portable terminal in that existing interactive logon. Never launch in Session 0.
+            $expectedProfileRoot = [System.IO.Path]::GetFullPath(
+              (Join-Path $env:MT5_DATA_ROOT '..\..\..\..\..')
+            ).TrimEnd('\')
+            $expectedProfiles = @(Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.LocalPath -and
+                [System.String]::Equals(
+                  [System.IO.Path]::GetFullPath([string]$_.LocalPath).TrimEnd('\'),
+                  $expectedProfileRoot,
+                  [System.StringComparison]::OrdinalIgnoreCase
+                )
+              })
+            if ($expectedProfiles.Count -ne 1) {
+              throw 'G13_INTERACTIVE_MT5_PROFILE_UNRESOLVED: configured MT5 data root has no unique Windows profile'
+            }
+
+            $explorerPath = [System.IO.Path]::GetFullPath((Join-Path $env:WINDIR 'explorer.exe'))
+            $desktopShells = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.SessionId -gt 0 -and $_.ExecutablePath -and
+                [System.IO.Path]::GetFullPath([string]$_.ExecutablePath).Equals(
+                  $explorerPath, [System.StringComparison]::OrdinalIgnoreCase
+                )
+              })
+            $matchingShells = @()
+            foreach ($shell in $desktopShells) {
+              $shellOwner = Invoke-CimMethod -InputObject $shell -MethodName GetOwner -ErrorAction SilentlyContinue
+              if ($null -eq $shellOwner -or $shellOwner.ReturnValue -ne 0 -or
+                  [string]::IsNullOrWhiteSpace([string]$shellOwner.User) -or
+                  $shellOwner.User -in @('SYSTEM','LOCAL SERVICE','NETWORK SERVICE')) {
+                continue
+              }
+              $shellAccount = "$($shellOwner.Domain)\$($shellOwner.User)"
+              try {
+                $shellSid = (New-Object System.Security.Principal.NTAccount($shellAccount)).Translate(
+                  [System.Security.Principal.SecurityIdentifier]
+                )
+              } catch {
+                continue
+              }
+              if ([string]::Equals(
+                    [string]$shellSid.Value,
+                    [string]$expectedProfiles[0].SID,
+                    [System.StringComparison]::OrdinalIgnoreCase
+                  )) {
+                $matchingShells += [PSCustomObject]@{ Process = $shell; Owner = $shellOwner }
+              }
+            }
+            $matchingSessions = @($matchingShells | ForEach-Object { [int]$_.Process.SessionId } | Sort-Object -Unique)
+            if ($matchingSessions.Count -ne 1) {
+              throw 'G13_INTERACTIVE_MT5_SESSION_REQUIRED: sign in to the configured MT5 desktop profile; refusing Session 0 launch'
+            }
+            $selectedShell = $matchingShells |
+              Where-Object { [int]$_.Process.SessionId -eq [int]$matchingSessions[0] } |
+              Sort-Object { [DateTime]$_.Process.CreationDate } -Descending |
+              Select-Object -First 1
+            $interactiveProcess = $selectedShell.Process
+            $owner = $selectedShell.Owner
+            Write-Host 'G13_MT5_SESSION_RESOLUTION_SOURCE=desktop_shell'
           }
-          $interactiveProcess = $interactiveProcesses[0]
-          $owner = Invoke-CimMethod -InputObject $interactiveProcess -MethodName GetOwner -ErrorAction SilentlyContinue
-          if (!$owner -or $owner.ReturnValue -ne 0 -or !$owner.User -or $owner.User -eq 'SYSTEM' -or $owner.User -eq 'LOCAL SERVICE' -or $owner.User -eq 'NETWORK SERVICE') {
+
+          if ($null -eq $interactiveProcess -or $null -eq $owner -or
+              $owner.ReturnValue -ne 0 -or
+              [string]::IsNullOrWhiteSpace([string]$owner.User) -or
+              $owner.User -in @('SYSTEM','LOCAL SERVICE','NETWORK SERVICE')) {
             throw 'G13_INTERACTIVE_MT5_OWNER_UNRESOLVED'
           }
           $account = "$($owner.Domain)\$($owner.User)"
