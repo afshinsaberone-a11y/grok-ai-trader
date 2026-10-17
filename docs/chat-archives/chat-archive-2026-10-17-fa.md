@@ -427,3 +427,42 @@ PR [#279](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/279) شاخ
 Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) همچنان باز است: ورودی‌های معتبر TradeLedger/envelope، admission امضاشدهٔ تازه، کلیدهای مورد اعتماد و منبع‌های مستقل Promotion/Signal/Risk/Operator هنوز باید از محیط‌های واقعی تأمین و تأیید شوند. هیچ کلید، attestation، reservation، Grant یا مجوزی جعل نشده است.
 
 حالت ایمنی حفظ شده: سفارش جدید ارسال نشده؛ Kill Switch باید `DENY` بماند؛ Demo تا تأیید مستقل مجوز فعال نمی‌شود و Live قفل است.
+
+
+---
+
+## ۱۱. تشخیص تازهٔ Runtime Safety Probe و اصلاح پیشنهادی — ۱۷ اکتبر ۲۰۲۶
+
+### زنجیرهٔ تأییدشده روی main
+
+SHA مبنای بررسی: `8473512292edfefc0ccc1a43c60981888e99a889`.
+
+- [Validation M15 — run 39058917146](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39058917146): موفق.
+- [Robustness M15 — run 39058918846](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39058918846): موفق.
+- [OOS M15 — run 39059462696](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39059462696): موفق.
+- [Final Promotion M15 — run 39059625184](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39059625184): موفق.
+- [Execution Safety Audit — run 39059708037](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39059708037): موفق.
+- [MT5 Compile + Signal Parity — run 39059748207](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39059748207): موفق.
+- [MT5 Runtime Safety Probe — run 39060169997](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39060169997): شکست پیش از آغاز Auth OFF/ON.
+
+### علت دقیق شکست
+
+لاگ مرحلهٔ `Resolve MT5 service paths` خطای `G13_MT5_TERMINAL_PROCESS_NOT_FOUND:C:\Program Files\MetaTrader 5\terminal64.exe` را ثبت کرد. در نتیجه، گام‌های Static no-order preflight، Compile safety probes، Deploy، Auth OFF و Auth ON همگی **skip** شدند. بنابراین این run هیچ نتیجه‌ای دربارهٔ موفق/ناموفق بودن Auth OFF/ON نداده و نباید آن را چنین تفسیر کرد.
+
+ریشهٔ فنی: `tools/resolve_mt5_common_files_v1.ps1` برای به‌دست‌آوردن مالک ترمینال، وجود process جاری `terminal64.exe` را لازم می‌داند؛ اما در زمان این run ترمینال بسته بود. گیتِ زنجیرهٔ بعدی نیز به‌درستی به علت نداشتن Runtime Safety موفق، Preflight و Readiness را اجرا نکرد: [OOS Watchdog — run 39058906274](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39058906274).
+
+### اصلاح ثبت‌شده برای بازبینی
+
+[PR #282 — بازیابی Runtime Safety Probe وقتی MT5 بسته است](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/282) روی شاخهٔ جداگانه ساخته شده است. فایل جدید `tools/resolve_mt5_runtime_profile_v1.ps1`:
+
+- وقتی هر process ترمینال وجود دارد، همچنان از resolver قبلی و کنترل‌های دقیق همان استفاده می‌کند.
+- فقط وقتی هیچ process ترمینال وجود ندارد، پروفایل دارای **هش دقیق پوشهٔ دادهٔ پیکربندی‌شده** را بررسی می‌کند؛ پوشه‌های Common Files و Scripts باید واقعی و موجود باشند.
+- مالک را از SID پروفایل و نشست تعاملی یکتای Explorer همان SID تعیین می‌کند؛ از APPDATA سرویس Runner، نام کاربری حدسی یا Session 0 استفاده نمی‌کند.
+- اگر چند پروفایل، نشست نامعتبر یا شواهد ناکافی باشد، fail-closed می‌ماند.
+- تست قرارداد برای fallback و اتصال آن به Runtime workflow اضافه شده است. آرشیو قبلی حذف یا بازنویسی نشده؛ این بخش به انتهای همان فایل افزوده شده است.
+
+### نتیجه و کار بعدی
+
+این تغییر فعلاً در PR است و هنوز به‌عنوان اصلاح ادغام‌شده یا Runtime PASS تلقی نمی‌شود. پس از بررسی/ادغام، به‌علت تغییر SHA باید زنجیرهٔ کامل شواهد روی `main` جدید دوباره اجرا شود؛ سپس Runtime Safety Probe باید واقعاً Auth OFF/ON، هویت حساب، Kill Switch `DENY` و `orders_submitted=false` را ثابت کند. شکست فعلی صرفاً پیش‌نیاز اجرای probe را نشان می‌دهد، نه این‌که خود probe پاس شده باشد.
+
+Control Plane و مجوز اجرای معامله هنوز به شواهد مستقل و پیکربندی واقعی نیاز دارند. هیچ سفارش معاملاتی ارسال نشده؛ این PR مجوز Demo را صادر نمی‌کند و Live را فعال نمی‌کند. سابقهٔ پیشین و لینک‌های تاریخی در این آرشیو حفظ شده‌اند.
