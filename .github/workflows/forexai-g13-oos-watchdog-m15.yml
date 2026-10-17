@@ -53,13 +53,17 @@ jobs:
           fi
           status=1
           for attempt in 1 2 3 4 5; do
-            output=$("$real_gh" "$@" 2>"$error_file")
+            # Never let one stalled GitHub API read hold the G13 chain indefinitely.
+            # Mutating requests are not retried here; this wrapper only handles read-only gh api calls.
+            output=$(timeout --signal=TERM --kill-after=5s 45s "$real_gh" "$@" 2>"$error_file")
             status=$?
             if [[ "$status" -eq 0 ]]; then
               printf '%s' "$output"
               exit 0
             fi
-            if ! grep -Eiq 'HTTP (429|500|502|503|504)|timed out|timeout|temporary failure|connection reset|unexpected EOF|EOF' "$error_file"; then
+            if [[ "$status" -eq 124 || "$status" -eq 137 ]]; then
+              echo "G13_GH_API_READ_TIMEOUT attempt=$attempt/5 timeout=45s" >&2
+            elif ! grep -Eiq 'HTTP (429|500|502|503|504)|timed out|timeout|temporary failure|connection reset|unexpected EOF|EOF' "$error_file"; then
               cat "$error_file" >&2
               exit "$status"
             fi
