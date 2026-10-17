@@ -28,6 +28,24 @@ def test_runtime_probe_uses_extensionless_mt5_startup_script_names():
     )
 
 
+
+def test_runtime_probe_resolves_configured_profile_when_mt5_is_closed():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    start = workflow.index("      - name: Resolve MT5 service paths\\n")
+    end = workflow.index("      - name: Static no-order preflight\\n", start)
+    step = workflow[start:end]
+
+    assert "$interactiveTerminals = @(Get-CimInstance Win32_Process -Filter \\"Name='terminal64.exe'\\"" in step
+    assert "$configuredDataRoot = [System.IO.Path]::GetFullPath($env:MT5_DATA_ROOT)" in step
+    assert "$desktopShells = @(Get-CimInstance Win32_Process -Filter \\"Name='explorer.exe'\\"" in step
+    assert "G13_MT5_CONFIGURED_DATA_ROOT_INVALID" in step
+    assert "G13_MT5_CONFIGURED_PROFILE_UNRESOLVED" in step
+    assert "G13_MT5_INTERACTIVE_DESKTOP_REQUIRED" in step
+    assert "G13_MT5_PROFILE_RESOLUTION_SOURCE=CONFIGURED_PROFILE_MATCHING_DESKTOP" in step
+    assert "SessionId -gt 0" in step
+    assert "AllowLiveTrading=0" not in step  # no configs are generated in the resolver itself
+
+
 def test_runtime_probe_requires_identity_verified_connected_demo_markers():
     workflow = WORKFLOW.read_text(encoding="utf-8")
     for required in (
