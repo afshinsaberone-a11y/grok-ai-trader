@@ -33,7 +33,8 @@ permissions:
 # Newer PR revisions supersede stale queued parity runs for this feature branch.
 concurrency:
   # A newer candidate commit supersedes any stale parity job for this branch.
-  group: forexai-control-plane-pr-real-data-parity-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  # Normalize push and pull_request into one branch group so a stale legacy push run is cancelled when the PR run replaces it.
+  group: forexai-control-plane-pr-real-data-parity-${{ (github.event_name == 'pull_request' && 'push') || github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
