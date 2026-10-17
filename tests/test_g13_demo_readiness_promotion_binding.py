@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from research.optimization.g13_demo_readiness_gate_m15 import validate_preflight_binding, validate_promotion_binding
+from research.optimization.g13_demo_readiness_gate_m15 import (
+    validate_preflight_binding,
+    validate_promotion_binding,
+    validate_runtime_probe_identity,
+)
 
 
 def _write(tmp_path: Path, name: str, payload: dict) -> Path:
@@ -339,3 +343,55 @@ def test_runtime_probe_is_dispatch_only_to_preserve_main_mt5_ordering():
     assert "  workflow_dispatch:\n" in trigger_block
     assert "\n  push:" not in trigger_block
     assert "workflow_run:" not in trigger_block
+
+
+def _runtime_probe(*, connected: bool, identity: bool, authorization: bool) -> dict[str, str]:
+    demo = connected and identity
+    return {
+        "status": "PASS",
+        "account_identity_verified": "true" if identity else "false",
+        "terminal_connected": "true" if connected else "false",
+        "account_mode": "0",
+        "demo_account": "true" if demo else "false",
+        "real_account_detected": "false",
+        "authorization": "true" if authorization else "false",
+        "execution_allowed": "false",
+        "orders_submitted": "false",
+    }
+
+
+def test_runtime_identity_accepts_connected_verified_demo_only():
+    validate_runtime_probe_identity(
+        _runtime_probe(connected=True, identity=True, authorization=False),
+        _runtime_probe(connected=True, identity=True, authorization=True),
+    )
+
+
+@pytest.mark.parametrize(
+    ("connected", "identity"),
+    [
+        (False, False),
+        (False, True),
+        (True, False),
+    ],
+)
+def test_runtime_identity_rejects_offline_or_unverified_demo_defaults(connected: bool, identity: bool):
+    off = _runtime_probe(connected=connected, identity=identity, authorization=False)
+    on = _runtime_probe(connected=connected, identity=identity, authorization=True)
+    # Old offline MT5 instances returned account_mode=0 (the DEMO enum) even
+    # with no broker connection. That must never count as Demo account evidence.
+    with pytest.raises(AssertionError):
+        validate_runtime_probe_identity(off, on)
+
+
+def test_runtime_probe_mql5_sources_bind_demo_status_to_connected_account_identity():
+    for path in (
+        "research/optimization/G13_Safety_Probe_AuthOff.mq5",
+        "research/optimization/G13_Safety_Probe_AuthOn.mq5",
+    ):
+        source = Path(path).read_text(encoding="utf-8")
+        assert "AccountInfoInteger(ACCOUNT_LOGIN)" in source
+        assert "AccountInfoString(ACCOUNT_SERVER)" in source
+        assert "terminal_connected && account_login>0 && StringLen(account_server)>0" in source
+        assert 'FileWrite(h,"account_identity_verified,' in source
+        assert 'mode==ACCOUNT_TRADE_MODE_DEMO && account_identity_verified' in source
