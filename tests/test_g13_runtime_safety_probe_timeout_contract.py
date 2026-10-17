@@ -119,16 +119,14 @@ def test_scheduler_output_diagnostics_tolerate_empty_files():
         for variable, path in (
             ("startStdoutText", "startStdoutPath"),
             ("startStderrText", "startStderrPath"),
-            ("queryStdoutText", "queryStdoutPath"),
-            ("queryStderrText", "queryStderrPath"),
         ):
             assert f"${variable} = Get-TrimmedTextOrEmpty -Path ${path}" in step
+        assert "$queryText = Get-TrimmedTextOrEmpty -Path $queryOut" in step
         assert "if ($null -eq $raw) { return '' }" in step
         assert not __import__("re").search(
-            r"Get-Content -LiteralPath \$(?:start|query)(?:Stdout|Stderr)Path -Raw\)\.Trim\(\)",
+            r"Get-Content -LiteralPath $(?:start|query)(?:Stdout|Stderr)Path -Raw\)\.Trim\(\)",
             step,
         )
-
 
 def test_scheduler_null_exit_code_fallback_requires_success_ack_and_marker():
     workflow = WORKFLOW.read_text(encoding="utf-8")
