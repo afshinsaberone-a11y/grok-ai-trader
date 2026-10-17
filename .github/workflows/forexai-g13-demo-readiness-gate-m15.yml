@@ -266,6 +266,8 @@ jobs:
           assert p['safety']['non_tester_allowed_states']==1
           assert p['evidence']['parity_status']=='PASS'
           assert p['evidence']['parity_passed_count'] >= 1
+          assert p['runtime']['account_identity_verified'] is True
+          assert p['runtime']['terminal_connected'] is True
           assert p['runtime']['demo_account'] is True
           assert p['runtime']['authorization_off_blocks'] is True
           assert p['runtime']['orders_submitted'] is False
