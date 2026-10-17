@@ -63,7 +63,7 @@ def test_missing_marker_emits_redacted_startup_diagnostics():
         next_name = "Run Auth ON probe" if mode == "AUTH_OFF" else "Evaluate runtime evidence"
         step = _step(workflow, step_name, next_name)
         assert "schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'" in step
-        assert f"mode = '{mode}'" in step
+        assert f"Write-G13ProbeStartupDiagnostic -Mode '{mode}'" in step
         assert f"G13_RUNTIME_{mode}_MARKER_MISSING" in step
         assert "startup_config_present =" in step
         assert "startup_config_contains_expected_script =" in step
