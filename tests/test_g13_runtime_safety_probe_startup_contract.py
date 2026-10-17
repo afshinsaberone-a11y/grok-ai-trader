@@ -63,7 +63,13 @@ def test_runtime_probe_uses_unique_result_marker_as_success_signal():
         assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_STDOUT=$startStdoutText" in workflow
         assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_STDERR=$startStderrText" in workflow
         assert f"G13_RUNTIME_AUTH_{mode}_MARKER_MISSING" in workflow
-        assert f"TASK_START_FAILED_EXIT_$startExitCode" not in workflow
+        missing_marker_idx = workflow.index(f"Write-Host 'G13_RUNTIME_AUTH_{mode}_MARKER_MISSING=true'")
+        launch_failure_idx = workflow.index(
+            f'throw "G13_RUNTIME_AUTH_{mode}_TASK_START_FAILED_EXIT_$startExitCode"'
+        )
+        # A nonzero launcher is classified as a failure only after the full
+        # marker wait expires; it cannot short-circuit a real probe result.
+        assert missing_marker_idx < launch_failure_idx
 
     # A launcher response can never replace the marker or the no-order / identity checks.
     for required in (
