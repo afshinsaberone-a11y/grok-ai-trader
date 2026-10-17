@@ -42,3 +42,18 @@ def test_compile_retry_state_race_is_not_misclassified_as_a_completed_failure():
     assert "failed_observed_conclusion=" in workflow
     assert "G13_COMPILE_PARITY_FAILURE_STATE_CHANGED=true" in workflow
     assert 'if [[ "$failed_observed_status" != "completed" || "$failed_observed_conclusion" != "failure" ]]; then' in workflow
+
+
+def test_watchdog_refreshes_runtime_probe_before_preflight_and_binds_exact_sha():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    dispatch = workflow.index("Dispatch exact MT5 Runtime Safety Probe after successful parity")
+    resolve = workflow.index("Resolve exact successful MT5 Runtime Safety Probe", dispatch)
+    preflight = workflow.index("Dispatch exact Controlled Demo Package Preflight", resolve)
+    assert dispatch < resolve < preflight
+    assert "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml/dispatches" in workflow
+    assert "G13_RUNTIME_SAFETY_BASELINE_ID=$runtime_baseline_id" in workflow
+    assert "G13_RUNTIME_SAFETY_SUCCESS_RESOLVED=true" in workflow
+    assert 'echo "RUNTIME_SAFETY_RUN_ID=$runtime_run_id" >> "$GITHUB_ENV"' in workflow
+    assert 'r.get("head_sha")==target' in workflow
+    assert 'r.get("event")=="workflow_dispatch"' in workflow
