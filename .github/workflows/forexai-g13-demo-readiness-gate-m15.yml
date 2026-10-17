@@ -94,7 +94,7 @@ jobs:
             promotion_id="${MANUAL_PROMOTION_RUN_ID}"
             preflight_id="${MANUAL_PREFLIGHT_RUN_ID}"
           else
-            runtime_id="$(latest_success "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml")"
+            runtime_id="$(latest_success_exact "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml" "$MAIN_SHA")"
             safety_id="$(latest_success_exact "forexai-g13-execution-safety-audit-m15.yml" "$MAIN_SHA")"
             parity_id="$(latest_success_exact "forexai-g13-mt5-compile-parity.yml" "$MAIN_SHA")"
             promotion_id="$(latest_success_exact "forexai-g13-promotion-m15.yml" "$MAIN_SHA")"
@@ -115,20 +115,20 @@ jobs:
             json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")"
             python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success", (x["id"],x["conclusion"]); assert x["head_branch"]=="main", (x["id"],x["head_branch"]); print(x["id"],x["head_sha"])' <<< "$json"
             sha="$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<< "$json")"
-            if [ "$key" = "SAFETY" ] || [ "$key" = "PROMOTION" ] || [ "$key" = "PARITY" ] || [ "$key" = "PREFLIGHT" ]; then
+            if [ "$key" = "RUNTIME" ] || [ "$key" = "SAFETY" ] || [ "$key" = "PROMOTION" ] || [ "$key" = "PARITY" ] || [ "$key" = "PREFLIGHT" ]; then
               [ "$sha" = "$MAIN_SHA" ] || { echo "$key run head SHA mismatch: $sha != $MAIN_SHA"; exit 1; }
             fi
             echo "${key}_HEAD_SHA=$sha" >> "$GITHUB_ENV"
             echo "${key}_RUN_ID=$id" >> "$GITHUB_ENV"
           done
 
-          # Static validation need not rerun for an unrelated commit (for example,
-          # a chat archive update). Bind the last successful main-branch run, then
-          # verify below that no linted G13 sources/workflows changed since it.
+          # Reuse the latest successful main lint for unrelated commits only.
+          # The freshness step below proves its SHA is an ancestor and every
+          # audited G13/code/test/tool path is unchanged since that run.
           lint_id="$(latest_success "forexai-g13-workflow-lint.yml")"
           echo "LINT_RUN_ID=$lint_id" >> "$GITHUB_ENV"
           lint_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$lint_id")"
-          lint_sha="$(python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success"; assert x["head_branch"]=="main"; print(x["head_sha"])' <<< "$lint_json")"
+          lint_sha="$(python -c 'import json,sys; x=json.load(sys.stdin); assert x["conclusion"]=="success" and x["head_branch"]=="main"; print(x["head_sha"])' <<< "$lint_json")"
           [ -n "$lint_sha" ] || { echo "STATIC_VALIDATION_HEAD_SHA_MISSING"; exit 1; }
           echo "LINT_HEAD_SHA=$lint_sha" >> "$GITHUB_ENV"
           echo "STATIC_VALIDATION_BOUND_TO_SHA=$lint_sha CURRENT_MAIN_SHA=$MAIN_SHA"
@@ -207,10 +207,8 @@ jobs:
             echo "STATIC_VALIDATION_SHA_NOT_ANCESTOR_OF_CURRENT_MAIN"
             exit 1
           }
-          # The static linter audits these source/workflow families. Reuse its
-          # success only if none of those families changed after the lint run.
-          # This is fail-closed but avoids requiring a redundant dispatch for a
-          # main commit that only adds unrelated documentation/archive material.
+          # Only unrelated commits may reuse this lint. Any changes anywhere
+          # in the audited G13/code/test/tool trees force a fresh successful lint.
           git diff --quiet "$LINT_HEAD_SHA" -- \
             .github/workflows \
             .github/actionlint.yaml \

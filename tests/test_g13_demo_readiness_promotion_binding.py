@@ -192,20 +192,18 @@ def test_preflight_candidate_hash_mismatch_fails():
         )
 
 
-def test_static_lint_freshness_is_sha_and_source_bound():
+def test_static_lint_freshness_reuses_only_unchanged_ancestor():
     workflow = Path(
         ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
     ).read_text(encoding="utf-8")
 
-    # Reuse an older successful lint only when it is on main, is an ancestor,
-    # and the audited G13/source/test areas have not changed since that run.
     assert 'latest_success "forexai-g13-workflow-lint.yml"' in workflow
     assert 'latest_success_exact "forexai-g13-workflow-lint.yml" "$MAIN_SHA"' not in workflow
     assert 'git merge-base --is-ancestor "$LINT_HEAD_SHA" "$MAIN_HEAD_SHA"' in workflow
-    freshness_start = workflow.index("      - name: Verify static validation freshness")
-    freshness_end = workflow.index("      - name: Run readiness gate", freshness_start)
-    freshness = workflow[freshness_start:freshness_end]
-    for path_fragment in (
+    start = workflow.index("      - name: Verify static validation freshness")
+    end = workflow.index("      - name: Run readiness gate", start)
+    freshness = workflow[start:end]
+    for audited_path in (
         ".github/workflows",
         ".github/actionlint.yaml",
         "research/optimization",
@@ -213,7 +211,16 @@ def test_static_lint_freshness_is_sha_and_source_bound():
         "tests",
         "tools",
     ):
-        assert path_fragment in freshness
+        assert audited_path in freshness
+
+
+def test_readiness_requires_runtime_probe_from_exact_current_main_sha():
+    workflow = Path(
+        ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
+    ).read_text(encoding="utf-8")
+
+    assert 'runtime_id="$(latest_success_exact "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml" "$MAIN_SHA")"' in workflow
+    assert 'if [ "$key" = "RUNTIME" ] || [ "$key" = "SAFETY" ]' in workflow
 
 
 def test_mt5_runner_waits_for_exact_candidate_parity_before_diagnostic_compile():
@@ -224,8 +231,6 @@ def test_mt5_runner_waits_for_exact_candidate_parity_before_diagnostic_compile()
         ".github/workflows/forexai-control-plane-mt5-compile-guard.yml"
     ).read_text(encoding="utf-8")
 
-    # PR-only parity shares one stable branch group so a new head cancels stale
-    # PR parity jobs, while the hosted compile resolver waits before using MT5.
     assert "group: forexai-control-plane-pr-real-data-parity-pull_request-" in parity_workflow
     assert "CANDIDATE_SHA: ${{ github.event_name == 'pull_request'" in compile_workflow
     assert 'get("workflow_id")==385709004' in compile_workflow
