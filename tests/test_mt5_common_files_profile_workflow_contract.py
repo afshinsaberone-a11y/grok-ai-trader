@@ -101,6 +101,12 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert "$appData = $env:APPDATA" not in workflow
     assert '"G13_MT5_INTERACTIVE_ACCOUNT=$interactiveAccount" | Out-File $env:GITHUB_ENV' in workflow
     assert "MT5_PROFILE_RESOLUTION=PASS" in workflow
+    assert "MT5_DATA_ROOT: 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075'" in workflow
+    assert "$interactiveTerminals = @(Get-CimInstance Win32_Process -Filter \"Name='terminal64.exe'\"" in workflow
+    assert "$desktopShells = @(Get-CimInstance Win32_Process -Filter \"Name='explorer.exe'\"" in workflow
+    assert "G13_MT5_PROFILE_RESOLUTION_SOURCE=CONFIGURED_PROFILE_MATCHING_DESKTOP" in workflow
+    assert "G13_MT5_INTERACTIVE_DESKTOP_REQUIRED" in workflow
+    assert "$env:MT5_DATA_ROOT" in workflow
     # Runtime scripts must run in the terminal owner's logged-on interactive
     # session, not Session 0; both configs retain no-live/no-order invariants.
     assert workflow.count("New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive") == 2
