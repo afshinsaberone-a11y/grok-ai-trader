@@ -107,6 +107,15 @@ jobs:
             local workflow_file="$1"
             local body="$2"
             local status
+            local current_main
+            # Workflow dispatch accepts a branch ref, not an immutable commit SHA.
+            # Recheck immediately before every dispatch so a stale watchdog cannot
+            # enqueue work against a newer main head.
+            current_main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+            if [[ "$current_main" != "$GITHUB_SHA" ]]; then
+              echo "G13_DISPATCH_STALE_SHA=true WORKFLOW=$workflow_file CURRENT_MAIN=$current_main TARGET_SHA=$GITHUB_SHA"
+              exit 1
+            fi
             status="$(curl -sS -o /tmp/dispatch-response.txt -w '%{http_code}' \
               -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
@@ -167,6 +176,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # A previous-SHA watchdog must not dispatch OOS against the current branch
+          # after main has moved. Snapshot the baseline so only this invocation's OOS
+          # run can satisfy the following resolver.
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current_main" == "$GITHUB_SHA" ]] || {
+            echo "G13_OOS_DISPATCH_STALE_SHA=true CURRENT_MAIN=$current_main TARGET_SHA=$GITHUB_SHA"
+            exit 1
+          }
+          oos_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-oos-m15-current.yml/runs?branch=main&per_page=50")"
+          oos_baseline_id="$(printf '%s' "$oos_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs", []); print(max((int(r.get("id",0)) for r in rs),default=0))')"
+          echo "G13_OOS_BASELINE_ID=$oos_baseline_id"
+          echo "G13_OOS_BASELINE_ID=$oos_baseline_id" >> "$GITHUB_ENV"
           status="$(curl -sS -o /tmp/dispatch-response.txt -w '%{http_code}' \
             -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
@@ -189,7 +210,7 @@ jobs:
           oos_run_id=""
           for attempt in $(seq 1 120); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-oos-m15-current.yml/runs?branch=main&per_page=50")"
-            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("name")=="ForexAI G13 OOS M15 Current" and r.get("head_branch")=="main" and r.get("head_sha")==target]; success=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
+            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" BASELINE_ID="$G13_OOS_BASELINE_ID" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; baseline=int(os.environ["BASELINE_ID"]); rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if int(r.get("id",0))>baseline and r.get("name")=="ForexAI G13 OOS M15 Current" and r.get("head_branch")=="main" and r.get("head_sha")==target]; success=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
             case "$state" in
               SUCCESS\|*)
                 oos_run_id="${state#SUCCESS|}"
@@ -225,6 +246,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current_main" == "$GITHUB_SHA" ]] || {
+            echo "G13_PROMOTION_DISPATCH_STALE_SHA=true CURRENT_MAIN=$current_main TARGET_SHA=$GITHUB_SHA"
+            exit 1
+          }
           payload='{"ref":"main"}'
           status="$(curl -sS -o /tmp/dispatch-response.txt -w '%{http_code}' -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
@@ -339,7 +365,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"promotion_run_id":sys.argv[1]}}))' "$PROMOTION_RUN_ID")"
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current_main" == "$GITHUB_SHA" ]] || {
+            echo "G13_COMPILE_PARITY_DISPATCH_STALE_SHA=true CURRENT_MAIN=$current_main TARGET_SHA=$GITHUB_SHA"
+            exit 1
+          }
+          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"promotion_run_id":sys.argv[1]}})' "$PROMOTION_RUN_ID")"
           status="$(curl -sS -o /tmp/dispatch-response.txt -w '%{http_code}' \
             -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
