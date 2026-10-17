@@ -50,3 +50,32 @@ def test_runtime_probe_requires_identity_verified_connected_demo_markers():
         assert "account_identity_verified" in probe
         assert "terminal_connected" in probe
         assert 'FileWrite(h,"orders_submitted,false")' in probe
+
+
+
+def test_runtime_probe_uses_unique_result_marker_as_success_signal():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    for mode in ("OFF", "ON"):
+        # A non-zero schtasks exit is diagnostic only. It must not abort the
+        # run before the run-specific MQL5 marker and safety checks are observed.
+        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_EXIT_NONZERO" in workflow
+        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_STDOUT=$startStdoutText" in workflow
+        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_STDERR=$startStderrText" in workflow
+        assert f"G13_RUNTIME_AUTH_{mode}_MARKER_MISSING" in workflow
+        assert f"TASK_START_FAILED_EXIT_$startExitCode" not in workflow
+
+    # A launcher response can never replace the marker or the no-order / identity checks.
+    for required in (
+        "G13_RUNTIME_AUTH_OFF_ACCOUNT_IDENTITY_UNVERIFIED",
+        "G13_RUNTIME_AUTH_OFF_TERMINAL_DISCONNECTED",
+        "G13_RUNTIME_AUTH_OFF_DEMO_ACCOUNT_UNVERIFIED",
+        "G13_RUNTIME_AUTH_OFF_ORDER_INVARIANT_FAILED",
+        "G13_RUNTIME_AUTH_ON_ACCOUNT_IDENTITY_UNVERIFIED",
+        "G13_RUNTIME_AUTH_ON_TERMINAL_DISCONNECTED",
+        "G13_RUNTIME_AUTH_ON_DEMO_ACCOUNT_UNVERIFIED",
+        "G13_RUNTIME_AUTH_ON_ORDER_INVARIANT_FAILED",
+        "G13_RUNTIME_AUTH_OFF_KILL_SWITCH_NOT_DENY",
+        "G13_RUNTIME_AUTH_ON_KILL_SWITCH_NOT_DENY",
+    ):
+        assert required in workflow
