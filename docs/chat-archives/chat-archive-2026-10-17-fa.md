@@ -504,3 +504,31 @@ Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) �
 پس از ادغام هر تغییر در `main`، شواهد قبلی روی SHA تازه قابل استفاده نیستند؛ Watchdog باید Validation تا Runtime/Preflight/Readiness را مجدداً برای commit جدید اجرا کند. موفقیت Compile/Parity، به‌تنهایی مجوز Demo یا Live نیست. Runtime Safety، Preflight و Readiness باید روی همان SHA تکمیل شوند و Capital Firewall همچنان به grant و attestationهای مستقل واقعی نیاز دارد.
 
 هیچ سفارشی ارسال نشده و Live قفل است.
+
+
+---
+
+## پیگیری تازه — Runtime Safety: آماده‌شدن هویت حساب و گزارش امن (۱۷ اکتبر ۲۰۲۶)
+
+این بخش append-only است؛ تمام محتوای قبلی آرشیو، از جمله فهرست پیوندها و بخش‌های قبلی پیگیری، بدون حذف و بازنویسی حفظ شده است.
+
+### شواهد واقعی
+روی SHA `b01c711ec442ff87dc3aae2fcc4ee9b83e7babb7`، [Compile + Signal Parity run 39062463680](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39062463680) موفق شد: harness واقعی MQL5، ورودی دادهٔ EURUSD M15، مقایسهٔ fail-closed Python/MQL5، ساخت immutable Demo package manifest و بارگذاری artifact همگی PASS شدند.
+
+در [Runtime Safety Probe run 39062958335](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39062958335)، پروفایل MT5 حل شد؛ دو probe بدون سفارش‌گذاری کامپایل و deploy شدند؛ Task Scheduler پاسخ موفق داد و marker Auth OFF ایجاد شد. شکست سپس در شرط `G13_RUNTIME_AUTH_OFF_ACCOUNT_IDENTITY_UNVERIFIED` رخ داد. Auth ON عمداً اجرا نشد. Artifact همان اجرا تأیید می‌کند که snapshot Kill Switch برابر `DENY` بود. هیچ سفارش ارسال نشد.
+
+کد MQL5 قبلی در `OnStart()` فقط یک‌بار `TERMINAL_CONNECTED`، `ACCOUNT_LOGIN` و `ACCOUNT_SERVER` را در لحظهٔ آغاز می‌خواند؛ اگر ترمینال هنوز در حال وصل‌شدن بود، marker هویت نامعتبر ایجاد می‌شد. این شواهد **ثابت نمی‌کند** علت تنها تأخیر اتصال بوده؛ به همین دلیل PR جدید علاوه بر انتظار محدود، مؤلفه‌های تشخیصی را هم در marker ثبت می‌کند.
+
+### اصلاح پیشنهادی در PR #286
+در [PR #286](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/286):
+- هر دو probe حداکثر ۶۰ ثانیه برای اتصال واقعی و وجود login/server صبر می‌کنند؛ سپس identity را دوباره بررسی می‌کنند. پس از timeout، هویت جعلی یا پیش‌فرض ایجاد نمی‌شود و gate همچنان fail-closed است.
+- marker فقط این پرچم‌ها را اضافه می‌کند: `identity_wait_seconds`, `account_login_present`, `account_server_present`. مقادیر واقعی login و server در marker و artifact نوشته نمی‌شوند.
+- Workflow پیش از assertionهای اجباری یک خلاصهٔ JSON امن تولید می‌کند تا حتی اگر marker موجود اما هویت نامعتبر باشد، وضعیت `terminal_connected`، پرچم‌های identity، Demo/Real و `orders_submitted` قابل بررسی باشد.
+- `AllowLiveTrading=0`, `orders_submitted,false`, `DENY` و بررسی‌های Auth OFF/ON دست‌نخورده‌اند.
+
+در سر PR، CI ایستای workflow سبز شده و Python tests/Agent Runtime/Repair Loop نیز در حال تکمیل بودند؛ **این اصلاح هنوز روی Runner عملیاتی اثبات نشده است**. پس از ادغام، باید یک اجرای تازهٔ exact-SHA روی Windows markerها و هر دو Auth OFF/ON را PASS کند، سپس Package Preflight و Readiness دوباره اجرا شوند.
+
+### موانع مستقل مجوز
+Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) همچنان منبع پیگیری موانع واقعی Control Plane است: admission امضاشدهٔ تازه، TradeLedger، authenticated envelope، secret محافظت‌شده، provider/Grant signer مستقل، Signal و Risk/Reservation attestation و Human Approval واقعی. هیچ‌کدام از این منابع با کد آزمایشی یا JSON ساختگی جایگزین نشده‌اند.
+
+هیچ سفارش جدیدی ارسال نشده است. Kill Switch باید `DENY` بماند، Demo تا اخذ authority و readiness معتبر غیرفعال باشد و Live همچنان قفل بماند.
