@@ -429,7 +429,11 @@ jobs:
               if ([string]::IsNullOrWhiteSpace([string]$value)) { $value = 'MISSING' }
               Write-Host ("G13_RUNTIME_" + $Mode + "_MARKER_" + $key.ToUpperInvariant() + "=" + $value)
             }
-            Write-Host ("G13_RUNTIME_" + $Mode + "_MARKER_SUMMARY_WRITTEN=true")
+            if ($Mode -eq 'AUTH_OFF') {
+              Write-Host 'G13_RUNTIME_AUTH_OFF_MARKER_SUMMARY_WRITTEN=true'
+            } else {
+              Write-Host 'G13_RUNTIME_AUTH_ON_MARKER_SUMMARY_WRITTEN=true'
+            }
           }
           Write-G13ProbeMarkerSummary -Mode 'AUTH_OFF' -MarkerPath $done
 
@@ -711,7 +715,11 @@ jobs:
               if ([string]::IsNullOrWhiteSpace([string]$value)) { $value = 'MISSING' }
               Write-Host ("G13_RUNTIME_" + $Mode + "_MARKER_" + $key.ToUpperInvariant() + "=" + $value)
             }
-            Write-Host ("G13_RUNTIME_" + $Mode + "_MARKER_SUMMARY_WRITTEN=true")
+            if ($Mode -eq 'AUTH_OFF') {
+              Write-Host 'G13_RUNTIME_AUTH_OFF_MARKER_SUMMARY_WRITTEN=true'
+            } else {
+              Write-Host 'G13_RUNTIME_AUTH_ON_MARKER_SUMMARY_WRITTEN=true'
+            }
           }
           Write-G13ProbeMarkerSummary -Mode 'AUTH_ON' -MarkerPath $done
 
