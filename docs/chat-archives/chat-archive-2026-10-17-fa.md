@@ -483,3 +483,24 @@ Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) �
 در `main` با SHA `b01c711ec442ff87dc3aae2fcc4ee9b83e7babb7`، OOS M15، Final Promotion و Execution Safety Audit موفق شده‌اند. اجرای Compile + Signal Parity `39062463680` به مرحلهٔ پاکسازی ترمینال ایزوله رسیده بود؛ تا ثبت conclusion نهایی آن، Parity را نهایی فرض نکنید. Runtime Safety، Package Preflight و Readiness باید پس از آن اجرا شوند.
 
 حتی با موفقیت تمام این مراحل، مجوز واقعی یک سیگنال Demo هنوز به چهار attestation مستقل امضاشده، grant امضاشده از Capital Firewall، کلیدهای عمومی معتبر، سرویس provider مورداعتماد و registry پایدار issuance نیاز دارد. نبود این اجزا باید BLOCKED بماند. هیچ سابقهٔ چتی حذف نشده و هیچ سفارش معاملاتی با این اصلاحات ارسال نشده است؛ Live همچنان قفل است.
+
+
+---
+
+## ۱۳. رفع گیرکردن Watchdog در خواندن GitHub API — ۱۷ اکتبر ۲۰۲۶
+
+این بخش به‌صورت append-only اضافه شده؛ هیچ‌کدام از بخش‌ها یا لینک‌های قبلی آرشیو حذف نشده‌اند.
+
+### علت
+
+روی `main` با SHA `b01c711ec442ff87dc3aae2fcc4ee9b83e7babb7`، Validation، Robustness، OOS، Promotion و Execution Safety موفق شدند و Compile + Signal Parity نیز در نهایت با conclusion برابر با `success` کامل شد: [run 39062463680](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39062463680). مراحل Python/MQL5 signal parity و ساخت immutable Demo package manifest موفق بودند و artifact اجباری `g13-mt5-compile-parity-39062463680` با digest SHA-256 در GitHub ذخیره شد.
+
+با وجود این، [OOS Watchdog run 39061426513](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39061426513) هنوز در گام `Resolve exact successful MT5 Compile + Signal Parity` می‌ماند و Runtime Safety را dispatch نمی‌کرد. بررسی Workflow نشان داد wrapper خواندن‌های `gh api` را retry می‌کند، اما دستور واقعی `gh api` مهلت زمانی سخت نداشت. یک درخواست شبکهٔ گیرکرده می‌توانست کل زنجیره را بدون رسیدن به منطق success/failure نگه دارد.
+
+### اصلاح در PR #284
+
+در [PR #284](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/284)، wrapper خواندن‌های API را به اجرای `timeout` با سقف ۴۵ ثانیه، kill grace پنج ثانیه و حداکثر پنج تلاش تغییر داد. timeout قابل retry است؛ پس از اتمام تلاش‌ها، Workflow باید با کد خطای روشن متوقف شود. درخواست‌های تغییردهندهٔ وضعیت در retry loop قرار نمی‌گیرند. تست قرارداد جدید این رفتار را قفل می‌کند.
+
+پس از ادغام هر تغییر در `main`، شواهد قبلی روی SHA تازه قابل استفاده نیستند؛ Watchdog باید Validation تا Runtime/Preflight/Readiness را مجدداً برای commit جدید اجرا کند. موفقیت Compile/Parity، به‌تنهایی مجوز Demo یا Live نیست. Runtime Safety، Preflight و Readiness باید روی همان SHA تکمیل شوند و Capital Firewall همچنان به grant و attestationهای مستقل واقعی نیاز دارد.
+
+هیچ سفارشی ارسال نشده و Live قفل است.
