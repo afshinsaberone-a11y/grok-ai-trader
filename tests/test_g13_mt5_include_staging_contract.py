@@ -67,7 +67,11 @@ def test_g13_parity_uses_run_scoped_portable_terminal_in_interactive_session():
     )[0]
 
     assert "$portableRoot = Join-Path $env:RUNNER_TEMP" in step
-    assert "G13_INTERACTIVE_MT5_REQUIRED" in step
+    assert "$desktopShells = @(Get-CimInstance Win32_Process -Filter \"Name='explorer.exe'\"" in step
+    assert "$expectedProfileRoot = [System.IO.Path]::GetFullPath(" in step
+    assert "G13_INTERACTIVE_MT5_SESSION_REQUIRED" in step
+    assert "refusing Session 0 launch" in step
+    assert "G13_MT5_SESSION_RESOLUTION_SOURCE=desktop_shell" in step
     assert "$_.SessionId -gt 0" in step
     assert "Invoke-CimMethod -InputObject $interactiveProcess -MethodName GetOwner" in step
     assert "MQL5\\Profiles" in step
