@@ -460,3 +460,26 @@ Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) �
 مستندات `docs/CONTROL_PLANE_ADMISSION_PROVIDER_V1.md` و `docs/G13_CAPITAL_FIREWALL_PROMOTION_ATTESTOR_V1.md` الزام می‌کنند که یک مجوز یک‌سیگنالی Demo از Capital Firewall مستقل و امضاشده باشد و چهار منبع مستقلِ Promotion evidence، Signal، Risk/Reservation و Operator Approval، attestationهای امضاشدهٔ Ed25519 ارائه کنند. کلیدهای خصوصی باید در منابع مستقل باقی بمانند؛ provider باید روی میزبان مورداعتماد جداگانه با SQLite issuance registry پایدار کار کند. نبودن grant، کلید عمومی، منبع مستقل یا registry باید BLOCKED بماند؛ نباید خودمان grant، سیگنال، شناسهٔ حساب یا دادهٔ شواهد را جعل کنیم. گزارش Readiness قبلی صریحاً `demo_trading_allowed=false` و `live_trading_allowed=false` داشت.
 
 هیچ سفارش معاملاتی توسط این اصلاحات ارسال نشده است. Live همچنان قفل است. پس از سبز شدن CI، گیت‌های G13 باید با SHA دقیق جدید روی main دوباره اجرا شوند؛ سپس فقط در صورت فراهم بودن منابع امضاشدهٔ واقعی و تأیید انسانی مستقل می‌توان مسیر کنترل‌شدهٔ یک معاملهٔ Demo را ارزیابی کرد.
+
+
+---
+
+## ۱۲. مانع جداگانهٔ Capital Firewall Preflight — ۱۷ اکتبر ۲۰۲۶
+
+این بخش به انتهای آرشیو افزوده شده و هیچ بخش قبلی حذف یا بازنویسی نشده است.
+
+### علت
+
+حتی پس از اضافه‌شدن fallback ترمینال بسته به مسیر اصلی G13 در commit `f80ec7d`، دو Workflow دستیِ `ForexAI Capital Firewall Authorization Preflight` و `ForexAI Control Plane Producer v1` هنوز مستقیماً از `resolve_mt5_common_files_v1.ps1` استفاده می‌کردند. این resolver برای تشخیص مالک، فرایند جاری `terminal64.exe` را لازم دارد؛ در نتیجه وقتی Compile/Parity ترمینال ایزوله را می‌بندد، preflight مجوز ممکن است پیش از رسیدن به بررسی Ledger/Envelope/Admission Request مسدود شود.
+
+### اصلاح در دست بازبینی
+
+[PR #284](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/284) یک wrapper مشترک `tools/resolve_mt5_profile_or_desktop_v1.ps1` اضافه می‌کند. ابتدا resolver اصلی اجرا می‌شود؛ فقط خطای دقیق «فرایند MT5 پیدا نشد» اجازهٔ fallback به `resolve_mt5_interactive_profile_v1.ps1` می‌دهد. مسیر دادهٔ MT5 باید با هش تنظیم‌شده منطبق باشد و SID/نشست یکتای Explorer تعاملی همان پروفایل تأیید شود. خطای مسیر، دسترسی، ابهام پروفایل یا نشست غایب همچنان fail-closed است.
+
+در حالت fallback، Wrapper مسیر Common Files را با ریشهٔ دادهٔ دقیق تطبیق می‌دهد؛ برای Workflowهایی که `-SetDenyKillSwitch` دارند، `g13_demo_kill_switch.txt` را روی `DENY` می‌نویسد و می‌خواند تا مقدار تأیید شود، سپس دسترسی نوشتن را با فایل موقت بررسی می‌کند. این مسیر ترمینال را باز نمی‌کند، مجوز یا فایل Authorization صادر نمی‌کند و سفارش نمی‌فرستد. تست‌های Python، G13 Static Validation و Repair Loop روی SHA شاخهٔ `0da47529a1f5467a8bf2191f1a79eddbe5b96b36` سبز شدند؛ تست‌ها پس از آخرین اصلاح Workflow نیز دوباره اجرا شدند.
+
+### وضعیت زنجیرهٔ اصلی و محدودیت
+
+در `main` با SHA `b01c711ec442ff87dc3aae2fcc4ee9b83e7babb7`، OOS M15، Final Promotion و Execution Safety Audit موفق شده‌اند. اجرای Compile + Signal Parity `39062463680` به مرحلهٔ پاکسازی ترمینال ایزوله رسیده بود؛ تا ثبت conclusion نهایی آن، Parity را نهایی فرض نکنید. Runtime Safety، Package Preflight و Readiness باید پس از آن اجرا شوند.
+
+حتی با موفقیت تمام این مراحل، مجوز واقعی یک سیگنال Demo هنوز به چهار attestation مستقل امضاشده، grant امضاشده از Capital Firewall، کلیدهای عمومی معتبر، سرویس provider مورداعتماد و registry پایدار issuance نیاز دارد. نبود این اجزا باید BLOCKED بماند. هیچ سابقهٔ چتی حذف نشده و هیچ سفارش معاملاتی با این اصلاحات ارسال نشده است؛ Live همچنان قفل است.
