@@ -150,9 +150,9 @@ def test_runtime_profile_resolver_can_recover_when_mt5_is_closed_without_using_r
     assert "MQL5\\Scripts" in helper
     assert "GetOwnerSid" in helper
     assert "[int]$shell.SessionId -le 0" in helper
-    assert "[string]$profile.Sid" in helper
+    assert "[string]$mt5Profile.Sid" in helper
     assert "G13_MT5_CLOSED_TERMINAL_PROFILE_UNRESOLVED" in helper
     assert "G13_INTERACTIVE_MT5_SESSION_REQUIRED" in helper
     assert "G13_MT5_SESSION_RESOLUTION_SOURCE=desktop_shell_profile" in helper
-    assert "APPDATA=$($profile.AppData)" in helper
+    assert "APPDATA=$($mt5Profile.AppData)" in helper
     assert "$env:APPDATA" not in helper
