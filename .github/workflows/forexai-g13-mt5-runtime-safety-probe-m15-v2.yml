@@ -348,6 +348,12 @@ jobs:
             }
             if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
               Write-G13ProbeStartupDiagnostic -Mode 'AUTH_OFF'
+              Write-Host 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING=true'
+              # Classify a nonzero launcher status only after the full marker wait.
+              # A real marker is still the only route to the assertions/pass path.
+              if ($startExitCode -ne 0) {
+                throw "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$startExitCode"
+              }
               throw 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING'
             }
             foreach ($assertion in @(
@@ -566,6 +572,12 @@ jobs:
             }
             if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
               Write-G13ProbeStartupDiagnostic -Mode 'AUTH_ON'
+              Write-Host 'G13_RUNTIME_AUTH_ON_MARKER_MISSING=true'
+              # Classify a nonzero launcher status only after the full marker wait.
+              # A real marker is still the only route to the assertions/pass path.
+              if ($startExitCode -ne 0) {
+                throw "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$startExitCode"
+              }
               throw 'G13_RUNTIME_AUTH_ON_MARKER_MISSING'
             }
             foreach ($assertion in @(
