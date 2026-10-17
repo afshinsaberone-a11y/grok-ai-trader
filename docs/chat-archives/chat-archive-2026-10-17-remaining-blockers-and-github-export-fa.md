@@ -231,3 +231,70 @@ SHA جاری main: `e5ebd56eef7d3e4f62e85b4888eb90fa69fddd98`.
 6. بررسی و فعال‌سازی branch protection/required checks توسط مالک دارای مجوز مدیریتی؛ اتصال GitHub فعلی در endpoint حفاظت branch خطای 403 برگرداند و اجازهٔ تنظیم آن را نمی‌دهد.
 
 **حالت ایمنی:** هیچ سفارشی در این نوبت ارسال نشده؛ Kill Switch باید `DENY`، `DemoTradingAuthorized=false` و Live غیرفعال بمانند.
+
+
+---
+
+## ۱۱. ادامهٔ همین گفت‌وگو: اصلاح Runtime Probe و آرشیو در GitHub — ۱۷ اکتبر ۲۰۲۶
+
+### پیام‌های کاربر در این نوبت
+- «موانع باقی مونده برو برطرف کن»
+- «محتوای چت رو تبدبل به فایل کن و توی گیت هاب بگذار»
+
+این بخش وضعیت تازه را به آرشیو اضافه می‌کند. سند همچنان یک آرشیو عملیاتی ساختاریافته است، نه رونویسی کلمه‌به‌کلمهٔ تمام تاریخچه. هیچ secret، token، private key، رمز یا اطلاعات احراز هویت واقعی در آن ذخیره نمی‌شود.
+
+### ۱۱.۱ آخرین وضعیت قبل از اصلاح
+SHA اصلیِ بررسی‌شده پیش از patch: \`3115833c4f0067edfb29c2bffd420c36e8460827\`.
+
+روی همان SHA این مراحل موفق گزارش شده بودند:
+- [Validation M15 — 39046539414](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046539414)
+- [Robustness M15 — 39046540828](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046540828)
+- [OOS M15 — 39046931851](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046931851)
+- [Final Promotion M15 — 39047043845](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39047043845)
+- [Execution Safety Audit — 39047124740](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39047124740)
+- [MT5 Compile + Signal Parity — 39047169194](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39047169194)
+
+بااین‌حال [Runtime Safety Probe — 39047628826](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39047628826) شکست خورد؛ بنابراین زنجیره تا Readiness کامل نبود و [OOS Watchdog — 39046532669](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046532669) نتوانست آن را تکمیل کند.
+
+### ۱۱.۲ علت دقیق شکست Runtime Probe
+در Auth-Off، log نشان می‌داد که Task Scheduler خروجی زیر را برگردانده است: \`SUCCESS: Attempted to run the scheduled task ...\`. با وجود این، مقدار ثبت‌شده برای \`$start.ExitCode\` خالی بود و شرط workflow آن را ناموفق تلقی کرد؛ خطای نهایی \`G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_\` بود. Auth-On به‌دلیل fail شدن Auth-Off اجرا نشد.
+
+این نشانه، یک مشکل در دریافت/caching کد خروجی فرایند \`schtasks.exe\` بود؛ به‌خودی‌خود اثبات نمی‌کرد که marker واقعی MQL5 تولید شده یا حساب MT5 متصل است. بنابراین اصلاح نباید marker، اتصال ترمینال یا اثبات Demo بودن حساب را دور بزند.
+
+### ۱۱.۳ اصلاح ثبت‌شده روی main
+دو commit جدید ثبت شدند:
+
+1. [\`2113b19c654400bf06076fe471e5e28a53a3d250\`](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/2113b19c654400bf06076fe471e5e28a53a3d250) — اصلاح \`.github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml\`.
+2. [\`a52a0d7e984b7d543d848d1897b0f009c4fec577\`](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/a52a0d7e984b7d543d848d1897b0f009c4fec577) — افزودن regression test به \`tests/test_g13_runtime_safety_probe_timeout_contract.py\`.
+
+در کد جدید:
+- پس از \`WaitForExit\`، وضعیت فرایند refresh و کد خروجی خوانده می‌شود.
+- فقط اگر کد خروجی در دسترس نباشد و stdout دقیقاً با پیام Task Scheduler مبنی بر پذیرش اجرای task مطابقت داشته باشد، آن پیام به‌عنوان تأیید پذیرش درخواست اجرا استفاده می‌شود.
+- اگر کد خروجی موجود و غیرصفر باشد، یا پیام معتبرِ پذیرش اجرا موجود نباشد، workflow همچنان fail می‌شود.
+- این fallback فقط پذیرش درخواست Task Scheduler را نشان می‌دهد؛ آن را PASS شدن Probe تلقی نمی‌کند. Marker یکتای MQL5، \`terminal_connected=true\`، \`account_identity_verified=true\`، \`demo_account=true\`، \`orders_submitted=false\` و Kill Switch برابر \`DENY\` همچنان اجباری‌اند.
+
+### ۱۱.۴ CI پس از اصلاح
+SHA فعلی main در آخرین بررسی: \`a52a0d7e984b7d543d848d1897b0f009c4fec577\`.
+
+- [G13 Workflow Static Validation — 39048415069](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048415069): **success** روی همین SHA.
+- [Agent Runtime Check — 39048415125](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048415125): **success** روی همین SHA.
+- [Full Python tests — 39048415067](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048415067): هنگام آخرین بررسی در حال اجرا بود.
+- [OOS Watchdog — 39048414992](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048414992): هنگام آخرین بررسی در حال resolve کردن Validation و Robustness دقیقاً برای همین SHA بود.
+- [Readiness — 39048416492](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048416492): \`skipped\`؛ در آن لحظه Preflight موفق متصل به SHA جاری هنوز ثبت نشده بود. این نتیجه نباید به‌عنوان Readiness موفق تفسیر شود.
+
+یک اجرای Static Validation قدیمی‌تر، [39048392991](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39048392991)، روی SHA واسط \`2113b19...\` به‌دلیل assertion قدیمیِ تست خروجی شکست خورد. تست در commit بعدی \`a52a0d7...\` همگام شد. نتیجهٔ تست/Watchdog جدید باید بر اساس SHA فعلی خوانده شود؛ نتایج runهای SHA واسط جایگزین آن نیستند.
+
+### ۱۱.۵ فایل آرشیو و وضعیت PR
+- این آرشیو در شاخهٔ \`feat/authoritative-capital-control-plane-v1\` و در [PR #227](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227) نگه‌داری می‌شود.
+- آخرین head شناخته‌شدهٔ PR هنگام ثبت این الحاقیه: \`13f10d55cb511840f51061981a7b12028e79a1b7\`؛ PR همچنان Draft و ادغام‌نشده است.
+- \`main\` هنوز محافظت‌شده نیست؛ API شاخه \`protected=false\` گزارش کرده است. من امکان فعال‌کردن تنظیمات مدیریتی branch protection با اتصال فعلی را ندارم.
+- Runtime fix بالا مستقیماً روی \`main\` ثبت شده تا زنجیرهٔ جاری دوباره روی SHA تازه شروع شود. این تغییر مجوز معامله نمی‌دهد.
+
+### ۱۱.۶ موانع باقی‌مانده
+1. نتیجهٔ نهایی Full Python tests و زنجیرهٔ G13 جدید روی SHA \`a52a0d7...\` باید تأیید شود.
+2. Runtime Safety Probe تازه باید واقعاً marker معتبر Auth-Off/Auth-On تولید کند و هویت حساب Demo متصل را اثبات کند؛ fallback کد خروجی، این مدرک را جایگزین نمی‌کند.
+3. سپس Compile/Parity، Safety Audit، Controlled Demo Package Preflight و Readiness باید برای SHA دقیق فعلی و artifactهای همان SHA موفق شوند.
+4. شش کلید عمومی متمایز Ed25519، امضاکنندهٔ واقعی Grant، منابع معتبر Signal و Risk/رزرو سرمایه، تأیید اپراتور، registry پایدار، secretهای واقعی و allowlist حساب Demo باید از صاحبان حقیقی‌شان تأمین شوند.
+5. branch protection، required checks، review اجباری و محدودیت direct push/bypass نیاز به دسترسی مدیریتی واقعی GitHub دارد.
+
+**سیاست ثابت:** هیچ سفارش معاملاتی در این اصلاح ارسال نشده؛ Kill Switch باید \`DENY\`، \`DemoTradingAuthorized=false\` و Live غیرفعال بماند تا Runtime Probe و Readiness روی SHA جاری موفق شوند و مراجع مستقل واقعی تأیید شوند.
