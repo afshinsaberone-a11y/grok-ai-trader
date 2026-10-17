@@ -633,6 +633,9 @@ jobs:
               "symbol_tp_allowed",
               "stops_level_points",
               "real_account_detected",
+              "account_identity_verified",
+              "AccountInfoInteger(ACCOUNT_LOGIN)",
+              "AccountInfoString(ACCOUNT_SERVER)",
           ]
           for probe_name in [
               "research/optimization/G13_Safety_Probe_AuthOff.mq5",
