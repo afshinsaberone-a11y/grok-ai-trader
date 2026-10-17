@@ -142,3 +142,17 @@ def test_oos_resolver_only_accepts_run_started_after_this_dispatch_baseline():
     assert 'int(r.get("id",0))>baseline' in resolve
     assert 'r.get("head_sha")==target' in resolve
     assert 'r.get("head_branch")=="main"' in resolve
+
+
+
+def test_watchdog_bounds_stalled_github_api_reads_and_retries_them():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert 'timeout --signal=TERM --kill-after=5s 45s "$real_gh" "$@"' in workflow
+    assert '[[ "$status" -eq 124 || "$status" -eq 137 ]]' in workflow
+    assert 'G13_GH_API_READ_TIMEOUT attempt=$attempt/5 timeout=45s' in workflow
+    assert "for attempt in 1 2 3 4 5; do" in workflow
+    assert "G13_GH_API_READ_RETRY_EXHAUSTED attempts=5" in workflow
+    # Only read-only API calls enter the wrapper's retry loop; writes bypass it.
+    assert 'if [[ "$retryable" != "1" ]]; then' in workflow
+    assert 'if [[ "$arg" == "--method" || "$arg" == "-X" ]]; then' in workflow
