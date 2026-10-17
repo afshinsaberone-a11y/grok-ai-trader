@@ -19,5 +19,5 @@ def test_legacy_runtime_probe_is_manual_only():
 def test_legacy_and_v2_runtime_probes_share_non_cancelling_runner_lock():
     for path in (LEGACY_V1, CURRENT_V2):
         workflow = path.read_text(encoding="utf-8")
-        assert "group: g13-mt5-runtime-probe-shared" in workflow
+        assert "group: g13-mt5-runtime-safety-probe-shared" in workflow
         assert "cancel-in-progress: false" in workflow
