@@ -427,3 +427,36 @@ PR [#279](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/279) شاخ
 Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) همچنان باز است: ورودی‌های معتبر TradeLedger/envelope، admission امضاشدهٔ تازه، کلیدهای مورد اعتماد و منبع‌های مستقل Promotion/Signal/Risk/Operator هنوز باید از محیط‌های واقعی تأمین و تأیید شوند. هیچ کلید، attestation، reservation، Grant یا مجوزی جعل نشده است.
 
 حالت ایمنی حفظ شده: سفارش جدید ارسال نشده؛ Kill Switch باید `DENY` بماند؛ Demo تا تأیید مستقل مجوز فعال نمی‌شود و Live قفل است.
+
+
+---
+
+## ۱۱. پیگیری مانع Runtime Safety و وضعیت مجوز Demo — ۱۷ اکتبر ۲۰۲۶
+
+این بخش به آرشیو اضافه شده است؛ بخش‌ها و سابقهٔ قبلی دست‌نخورده‌اند. آرشیو، خلاصهٔ بازسازی‌شده است و ادعای خروجی کلمه‌به‌کلمهٔ تمام چت‌ها نیست.
+
+### زنجیرهٔ قبلی G13 روی SHA برابر با `8473512292edfefc0ccc1a43c60981888e99a889`
+
+- [Validation M15 — run 39058917146](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39058917146): موفق.
+- [Robustness M15 — run 39058918846](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39058918846): موفق.
+- [OOS M15 — run 39059462696](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39059462696): موفق.
+- [Final Promotion M15 — run 39059625184](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39059625184): موفق.
+- [Execution Safety Audit — run 39059708037](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39059708037): موفق.
+- [MT5 Compile + Signal Parity — run 39059748207](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39059748207): موفق.
+- [Runtime Safety Probe — run 39060169997](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39060169997): ناموفق پیش از اجرای Auth OFF/ON؛ خطای دقیق `G13_MT5_TERMINAL_PROCESS_NOT_FOUND`. آزمایش‌های ایمنی اجرا نشده بودند، پس این run دربارهٔ نتیجهٔ Auth OFF/ON چیزی اثبات نمی‌کرد.
+
+### تغییرات جدید روی main
+
+در commit [f80ec7d](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/f80ec7d2b9689aab650522105f35a16f976e7c17)، Workflow برای وضعیت مشخصی که ترمینال پس از Compile/Parity بسته شده است، یک fallback محدود اضافه شد: اگر و فقط اگر resolver قبلی خطای «فرایند MT5 موجود نیست» بدهد، پروفایل دادهٔ پیکربندی‌شده و نشست Explorer تعاملی آن بررسی می‌شود. resolver جایگزین نباید MT5 را اجرا کند؛ مسیر نامشخص یا نشست غیرتعاملی همچنان مسدود می‌ماند. زنجیرهٔ جدید از جمله [OOS M15 Current — run 39061139220](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39061139220) پس از این commit شروع شده است؛ تا زمانی که Runtime Probe و گیت‌های بعدی روی SHA جدید واقعاً موفق نشوند، حل قطعی مانع اجرا اعلام نمی‌شود.
+
+### مانع بعدی کشف‌شده: کد خروج `schtasks.exe`
+
+در Workflow قدیمی، حتی اگر Task Scheduler پیام شروع را برگرداند، کد خروج wrapper غیرصفر می‌توانست قبل از مشاهدهٔ marker یکتای MQL5 باعث توقف شود. پیاده‌سازی جدید باید خطای wrapper را صرفاً تشخیصی بگیرد، marker را تا timeout کامل انتظار بکشد و فقط در نبود marker شکست دهد. marker معتبر نیز به تنهایی کافی نیست: هویت حساب، اتصال ترمینال، حساب Demo واقعی، رفتار Auth OFF/ON، Kill Switch برابر `DENY` و `orders_submitted=false` باید همگی تأیید شوند.
+
+این اصلاح در شاخهٔ [fix/g13-runtime-probe-marker-first-20261017](https://github.com/afshinsaberone-a11y/grok-ai-trader/tree/fix/g13-runtime-probe-marker-first-20261017) در حال اعتبارسنجی است؛ تا قبل از پاس شدن تست‌های فعلی و اجرای واقعی Runtime روی runner ویندوز، آن را PASS یا ادغام‌شده فرض نکنید.
+
+### موانع مستقل مجوز سرمایه که با اصلاح Workflow خودبه‌خود حل نمی‌شوند
+
+مستندات `docs/CONTROL_PLANE_ADMISSION_PROVIDER_V1.md` و `docs/G13_CAPITAL_FIREWALL_PROMOTION_ATTESTOR_V1.md` الزام می‌کنند که یک مجوز یک‌سیگنالی Demo از Capital Firewall مستقل و امضاشده باشد و چهار منبع مستقلِ Promotion evidence، Signal، Risk/Reservation و Operator Approval، attestationهای امضاشدهٔ Ed25519 ارائه کنند. کلیدهای خصوصی باید در منابع مستقل باقی بمانند؛ provider باید روی میزبان مورداعتماد جداگانه با SQLite issuance registry پایدار کار کند. نبودن grant، کلید عمومی، منبع مستقل یا registry باید BLOCKED بماند؛ نباید خودمان grant، سیگنال، شناسهٔ حساب یا دادهٔ شواهد را جعل کنیم. گزارش Readiness قبلی صریحاً `demo_trading_allowed=false` و `live_trading_allowed=false` داشت.
+
+هیچ سفارش معاملاتی توسط این اصلاحات ارسال نشده است. Live همچنان قفل است. پس از سبز شدن CI، گیت‌های G13 باید با SHA دقیق جدید روی main دوباره اجرا شوند؛ سپس فقط در صورت فراهم بودن منابع امضاشدهٔ واقعی و تأیید انسانی مستقل می‌توان مسیر کنترل‌شدهٔ یک معاملهٔ Demo را ارزیابی کرد.
