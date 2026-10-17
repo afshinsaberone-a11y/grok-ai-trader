@@ -98,12 +98,15 @@ def test_scheduler_start_failure_is_diagnostic_until_marker_timeout():
         assert "Remove-Item -LiteralPath $startStdoutPath,$startStderrPath" in step
         assert "raw_task_config_exported = $false" in step
 
-    # A launcher status cannot replace the unique result marker or bypass
-    # account, Demo, no-order, and kill-switch checks.
-    assert "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$startExitCode" not in workflow
-    assert "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$startExitCode" not in workflow
-    assert "G13_RUNTIME_AUTH_OFF_MARKER_MISSING" in workflow
-    assert "G13_RUNTIME_AUTH_ON_MARKER_MISSING" in workflow
+    # A nonzero launcher status may fail only after the marker wait. A valid
+    # marker proceeds to account, Demo, no-order, and kill-switch assertions.
+    for mode in ("OFF", "ON"):
+        missing_marker_idx = workflow.index(f"Write-Host 'G13_RUNTIME_AUTH_{mode}_MARKER_MISSING=true'")
+        launch_failure_idx = workflow.index(
+            f'throw "G13_RUNTIME_AUTH_{mode}_TASK_START_FAILED_EXIT_$startExitCode"'
+        )
+        assert missing_marker_idx < launch_failure_idx
+        assert f"G13_RUNTIME_AUTH_{mode}_MARKER_MISSING" in workflow
 
 def test_scheduler_output_diagnostics_tolerate_empty_files():
     workflow = WORKFLOW.read_text(encoding="utf-8")
