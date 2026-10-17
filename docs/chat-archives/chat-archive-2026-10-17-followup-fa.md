@@ -63,11 +63,13 @@ SHA هدف زنجیره: **1cd8ed8087c56708f714850155ae6adaa543b157**
 | Final Promotion | [39042429636](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39042429636) | موفق |
 | Execution Safety Audit | [39042517256](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39042517256) | موفق |
 | MT5 Compile + Signal Parity | [39042559322](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39042559322) | موفق |
-| MT5 Runtime Safety Probe v2 | [39043468040](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39043468040) | تلاش اول لغو شد؛ تلاش مجدد صف‌بندی شد |
+| MT5 Runtime Safety Probe v2 | [39043468040](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39043468040) | تلاش دوم شکست خورد؛ علت کد تشخیصی null؛ اصلاح در [PR #277](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/277) منتظر CI است |
 | OOS Watchdog | [39041776921](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39041776921) | شکست خورد هنگام Resolve کردن Runtime Safety |
 | Demo Readiness Gate | [39041805975](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39041805975) | Skip شد؛ زنجیره پیش‌نیاز کامل نشد |
 
-در بررسی اخیر، اجرای اول Runtime Safety Probe یک job لغوشده با runner تخصیص‌نیافته داشت و هیچ step اجرا نشده بود. آن را به‌اشتباه «خطای تست» یا «قبولی» تلقی نکردیم؛ job لغوشده با شناسهٔ جدید **117435213284** مجدداً در GitHub Actions درخواست شد و هنگام آخرین بررسی به وضعیت **in_progress** رسیده و runner آن **FOREXAI-WINDOWS-MT5** بود. نتیجهٔ نهایی این تلاش هنوز در لحظهٔ ثبت اولیهٔ این آرشیو تأیید نشده است.
+اجرای اول Runtime Safety Probe یک job لغوشده با runner تخصیص‌نیافته داشت. تلاش مجدد با job **117435213284** به runner **FOREXAI-WINDOWS-MT5** رسید، مالک ترمینال تعاملی را روی حساب **DESKTOP-GL1KKJH\\Star** یافت، هر دو Probe را با **۰ خطا و ۰ هشدار** کامپایل کرد و هر دو باینری را مستقر کرد. سپس workflow در مرحلهٔ Auth OFF probe هنگام خواندن فایل stderr خالی خطای PowerShell نوع **InvokeMethodOnNull** گرفت؛ علت، فراخوانی `.Trim()` روی خروجی null از `Get-Content -Raw` بود. این شکست را به‌عنوان PASS ثبت نکردیم.
+
+اصلاح روی [PR #277](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/277) قرار دارد: reader امن برای فایل‌های stdout/stderr خالی در هر دو مرحلهٔ Auth OFF و Auth ON، به‌همراه تست رگرسیون. هنگام به‌روزرسانی این آرشیو، تست‌های PR هنوز در جریان بودند؛ نتیجهٔ آن‌ها را تا اتمام CI نباید موفق فرض کرد.
 
 - [اجرای Runtime Safety Probe و تلاش مجدد](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39043468040)
 - [OOS Watchdog شکست‌خورده](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39041776921)
