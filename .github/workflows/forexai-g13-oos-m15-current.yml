@@ -15,8 +15,19 @@ name: ForexAI G13 OOS M15 Current
 # Trigger: rerun official OOS on repaired trusted-UTC heredoc
 on:
   workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: "Exact main SHA whose Validation/Robustness passed and whose OOS is being dispatched"
+        required: true
+        type: string
+      watchdog_run_id:
+        description: "The exact G13 OOS Watchdog run dispatching this OOS evaluation"
+        required: true
+        type: string
 concurrency:
-  group: g13-oos-m15-current-${{ github.sha }}
+  # Key by the invoking watchdog, not merely github.sha. Stale watchdogs must not
+  # cancel a valid OOS evaluation for a newer invocation.
+  group: g13-oos-m15-current-${{ github.event.inputs.expected_main_sha }}-${{ github.event.inputs.watchdog_run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -29,6 +40,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
+      - name: Verify exact watchdog invocation and current main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+          WATCHDOG_RUN_ID: ${{ inputs.watchdog_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'G13_OOS_EXPECTED_MAIN_SHA_INVALID'
+            exit 1
+          }
+          [[ "$WATCHDOG_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo 'G13_OOS_WATCHDOG_RUN_ID_INVALID'
+            exit 1
+          }
+          [[ "$GITHUB_SHA" == "$EXPECTED_MAIN_SHA" ]] || {
+            echo "G13_OOS_RUN_SHA_MISMATCH RUN_SHA=$GITHUB_SHA EXPECTED=$EXPECTED_MAIN_SHA"
+            exit 1
+          }
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current_main" == "$EXPECTED_MAIN_SHA" ]] || {
+            echo "G13_OOS_MAIN_MOVED_BEFORE_START CURRENT_MAIN=$current_main EXPECTED=$EXPECTED_MAIN_SHA"
+            exit 1
+          }
+          watchdog_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WATCHDOG_RUN_ID")"
+          printf '%s' "$watchdog_json" | EXPECTED_SHA="$EXPECTED_MAIN_SHA" python -c 'import json,os,sys; r=json.load(sys.stdin); expected=os.environ["EXPECTED_SHA"]; assert r.get("name")=="ForexAI G13 OOS Watchdog M15",r.get("name"); assert r.get("head_branch")=="main",r.get("head_branch"); assert r.get("head_sha")==expected,(r.get("head_sha"),expected); assert r.get("status") in {"queued","in_progress"},r.get("status"); print("G13_OOS_WATCHDOG_INVOCATION_VERIFIED",r.get("id"),expected)'
+          echo "G13_OOS_DISPATCH_BINDING_VALID=true EXPECTED_SHA=$EXPECTED_MAIN_SHA WATCHDOG_RUN_ID=$WATCHDOG_RUN_ID"
+
       - name: Checkout
         uses: actions/checkout@v4
 
