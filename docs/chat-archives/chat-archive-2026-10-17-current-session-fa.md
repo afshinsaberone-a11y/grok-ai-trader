@@ -167,3 +167,21 @@ PR #227 در آخرین مقایسه با main وضعیت `diverged` داشت، 
 - مرجع‌های مستقل واقعی (شش کلید Ed25519، Grant signer، Signal/Risk/Operator authorities، registry پایدار، HMAC secret و allowlist حساب Demo) همچنان به پیکربندی و شواهد صاحبان واقعی نیاز دارند. این‌ها با CI یا آرشیو قابل جعل یا خودکارشدن نیستند.
 
 تا زمانی که این موارد واقعاً تأیید نشوند، Kill Switch باید `DENY` بماند، `DemoTradingAuthorized=false` باشد و Live غیرفعال بماند.
+
+
+---
+
+## آخرین پیگیری در همین مکالمه — پس از ادغام PR #272
+
+- PR اصلاح artifact [#272](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/272) با موفقیت squash-merge شد.
+- Commit جدید main: `3d71b856fefb1cb312357486927cf81e73c9e832`.
+- تغییر در main: بارگذاری diagnostics تکمیلی اکنون در صورت خطای موقت fail نمی‌کند و هشدار چاپ می‌کند؛ artifact اصلی Compile + Parity همچنان اجباری است.
+- [Workflow Static Validation روی main](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039583565) موفق شده است.
+- OOS Watchdog جدید [39039583674](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039583674) در حال اجرای زنجیرهٔ دقیق SHA جدید است و منتظر Validation/Robustness است. اجراهای Validation [39039591498](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039591498) و Robustness [39039592921](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39039592921) در آخرین snapshot در حال اجرا بودند.
+- این اجرای تازه هنوز Compile/Parity، Runtime Safety Probe، Controlled Demo Preflight یا Readiness را تکمیل نکرده است. نباید نتایج قدیمی SHA قبلی را به‌عنوان قبولی SHA جدید تلقی کرد.
+
+PR آرشیو [#271](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/271) از قبل به SHA قبلی main وصل شده بود؛ خود فایل آرشیو همچنان در GitHub branch قابل مشاهده است. پیش از ادغام آن PR باید شاخه با main تازه sync و mergeability دوباره تأیید شود.
+
+PR بزرگ Control Plane [#227](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227) هنوز Draft/unmerged و از نظر تاریخچه با main واگراست؛ تغییرات هم‌پوشان Runtime Safety/Readiness باید با بازبینی حل شوند. کلیدهای مستقل و مراجع واقعی سرمایه/Signal/Risk/Operator هم همچنان پیش‌نیاز بیرونی‌اند.
+
+تا PASS شدن کل زنجیره روی SHA جدید main و راستی‌آزمایی مراجع مستقل، Kill Switch باید `DENY` بماند، `DemoTradingAuthorized=false` باشد و Live غیرفعال بماند.
