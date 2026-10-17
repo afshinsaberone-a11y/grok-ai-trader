@@ -410,6 +410,17 @@ jobs:
             $fullRoot = [System.IO.Path]::GetFullPath($portableRoot)
             $prefix = $portableBase.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
             if (-not $fullRoot.StartsWith($prefix,[System.StringComparison]::OrdinalIgnoreCase)) { throw 'G13_MT5_ISOLATED_CLEANUP_PATH_OUTSIDE_ALLOWLIST' }
+            # Stop only the terminal process whose exact executable path is inside this run's isolated root.
+            $expectedTerminal = [System.IO.Path]::GetFullPath((Join-Path $fullRoot 'terminal64.exe'))
+            $isolatedProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+              -not [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath) -and
+              [string]::Equals([System.IO.Path]::GetFullPath([string]$_.ExecutablePath),$expectedTerminal,[System.StringComparison]::OrdinalIgnoreCase)
+            })
+            foreach ($proc in $isolatedProcesses) {
+              try { Stop-Process -Id ([int]$proc.ProcessId) -Force -ErrorAction Stop }
+              catch { throw 'G13_MT5_ISOLATED_PROCESS_STOP_FAILED' }
+            }
+            if ($isolatedProcesses.Count -gt 0) { Start-Sleep -Seconds 2 }
             if (Test-Path -LiteralPath $fullRoot) { Remove-Item -LiteralPath $fullRoot -Recurse -Force }
             Write-Host 'G13_MT5_ISOLATED_CLEANUP=PASS'
           }
