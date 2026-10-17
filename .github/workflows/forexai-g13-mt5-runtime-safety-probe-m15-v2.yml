@@ -160,7 +160,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
-          $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\probe-auth-off.ini'
+          $config = Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-off-$($env:GITHUB_RUN_ID).ini"
           $done = Join-Path $env:MT5_COMMON_FILES 'g13_safety_probe_auth_off.done.txt'
           Remove-Item -LiteralPath $done -Force -ErrorAction SilentlyContinue
           $scriptRel = $env:G13_AUTH_OFF_SCRIPT
@@ -210,13 +210,14 @@ jobs:
           finally {
             try { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue } catch { }
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
           }
 
       - name: Run Auth ON probe
         run: |
           $ErrorActionPreference = 'Stop'
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
-          $config = Join-Path $env:GITHUB_WORKSPACE 'artifacts\g13\probe-auth-on.ini'
+          $config = Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-on-$($env:GITHUB_RUN_ID).ini"
           $done = Join-Path $env:MT5_COMMON_FILES 'g13_safety_probe_auth_on.done.txt'
           Remove-Item -LiteralPath $done -Force -ErrorAction SilentlyContinue
           $scriptRel = $env:G13_AUTH_ON_SCRIPT
@@ -265,6 +266,7 @@ jobs:
           finally {
             try { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue } catch { }
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
           }
 
       - name: Evaluate runtime evidence
