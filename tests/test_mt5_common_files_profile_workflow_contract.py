@@ -93,8 +93,8 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
         / ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
     ).read_text(encoding="utf-8")
 
-    assert "tools\\resolve_mt5_common_files_v1.ps1" in workflow
-    assert "$resolved = @(& $resolver -TerminalPath $terminal)" in workflow
+    assert "tools\\resolve_mt5_runtime_profile_v1.ps1" in workflow
+    assert "$resolved = @(& $resolver -TerminalPath $terminal -DataDirectoryName 'D0E8209F77C8CF37AD8BF550E51FF075')" in workflow
     assert "^G13_MT5_COMMON_FILES=" in workflow
     assert "^G13_MT5_TERMINAL_OWNER=" in workflow
     assert "$appData = $common -replace" in workflow
@@ -133,3 +133,26 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb" in workflow
     assert "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb" in workflow
     assert "$proc=Start-Process" not in workflow
+
+
+
+def test_runtime_profile_resolver_can_recover_when_mt5_is_closed_without_using_runner_profile():
+    helper = (
+        ROOT / "tools/resolve_mt5_runtime_profile_v1.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "resolve_mt5_common_files_v1.ps1" in helper
+    assert '$terminalProcesses = @(' in helper
+    assert "if ($terminalProcesses.Count -gt 0)" in helper
+    assert "$DataDirectoryName" in helper
+    assert "Win32_UserProfile" in helper
+    assert "MetaQuotes\\Terminal\\$DataDirectoryName" in helper
+    assert "MQL5\\Scripts" in helper
+    assert "GetOwnerSid" in helper
+    assert "[int]$shell.SessionId -le 0" in helper
+    assert "[string]$mt5Profile.SID" in helper
+    assert "G13_MT5_CLOSED_TERMINAL_PROFILE_UNRESOLVED" in helper
+    assert "G13_INTERACTIVE_MT5_SESSION_REQUIRED" in helper
+    assert "G13_MT5_SESSION_RESOLUTION_SOURCE=desktop_shell_profile" in helper
+    assert "APPDATA=$($mt5Profile.AppData)" in helper
+    assert "$env:APPDATA" not in helper
