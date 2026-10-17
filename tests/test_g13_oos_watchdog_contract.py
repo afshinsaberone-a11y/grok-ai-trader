@@ -57,3 +57,24 @@ def test_watchdog_refreshes_runtime_probe_before_preflight_and_binds_exact_sha()
     assert 'echo "RUNTIME_SAFETY_RUN_ID=$runtime_run_id" >> "$GITHUB_ENV"' in workflow
     assert 'r.get("head_sha")==target' in workflow
     assert 'r.get("event")=="workflow_dispatch"' in workflow
+
+
+def test_control_plane_mt5_waiters_re_resolve_when_main_sha_advances():
+    compile_guard = (
+        Path(".github/workflows/forexai-control-plane-mt5-compile-guard.yml")
+        .read_text(encoding="utf-8")
+    )
+    candidate_parity = (
+        Path(".github/workflows/forexai-control-plane-pr-parity.yml")
+        .read_text(encoding="utf-8")
+    )
+
+    # A moving main branch should restart exact-SHA resolution instead of
+    # failing immediately or continuing with Promotion/Parity from a stale SHA.
+    assert "MT5_COMPILE_GUARD_TRACKING_CURRENT_MAIN_SHA" in compile_guard
+    assert "MT5_COMPILE_GUARD_MAIN_SHA_CHANGED_DURING_RESOLUTION" in compile_guard
+    assert 'verify_sha="$(gh api "repos/$repo/commits/main" --jq .sha)"' in compile_guard
+    assert 'sha: ${{ steps.wait-main.outputs.sha }}' in candidate_parity
+    assert "CONTROL_PLANE_PARITY_MAIN_SHA_ADVANCED" in candidate_parity
+    assert "CONTROL_PLANE_PARITY_STABLE_MAIN_SHA" in candidate_parity
+    assert "steps.wait-main.outputs.sha" in candidate_parity
