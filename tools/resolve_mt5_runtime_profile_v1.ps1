@@ -13,7 +13,6 @@ $ErrorActionPreference = 'Stop'
 if (-not (Test-Path -LiteralPath $TerminalPath -PathType Leaf)) {
     throw 'G13_MT5_TERMINAL_EXECUTABLE_NOT_FOUND'
 }
-$expectedExe = [System.IO.Path]::GetFullPath($TerminalPath)
 $commonResolver = Join-Path $PSScriptRoot 'resolve_mt5_common_files_v1.ps1'
 if (-not (Test-Path -LiteralPath $commonResolver -PathType Leaf)) {
     throw 'G13_MT5_COMMON_FILES_RESOLVER_MISSING'
@@ -37,13 +36,13 @@ if ($terminalProcesses.Count -gt 0) {
 # the exact configured MT5 data-directory hash; never fall back to runner
 # APPDATA, a guessed username, or Session 0.
 $matchingProfiles = @()
-foreach ($profile in @(Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue)) {
-    if ([string]::IsNullOrWhiteSpace([string]$profile.SID) -or
-        [string]::IsNullOrWhiteSpace([string]$profile.LocalPath)) {
+foreach ($mt5Profile in @(Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue)) {
+    if ([string]::IsNullOrWhiteSpace([string]$mt5Profile.SID) -or
+        [string]::IsNullOrWhiteSpace([string]$mt5Profile.LocalPath)) {
         continue
     }
 
-    $appData = Join-Path ([string]$profile.LocalPath) 'AppData\Roaming'
+    $appData = Join-Path ([string]$mt5Profile.LocalPath) 'AppData\Roaming'
     $dataRoot = Join-Path $appData ("MetaQuotes\Terminal\$DataDirectoryName")
     $commonFiles = Join-Path $appData 'MetaQuotes\Terminal\Common\Files'
     $scriptsRoot = Join-Path $dataRoot 'MQL5\Scripts'
@@ -51,7 +50,7 @@ foreach ($profile in @(Get-CimInstance Win32_UserProfile -ErrorAction SilentlyCo
         (Test-Path -LiteralPath $commonFiles -PathType Container) -and
         (Test-Path -LiteralPath $scriptsRoot -PathType Container)) {
         $matchingProfiles += [PSCustomObject]@{
-            Sid         = [string]$profile.SID
+            Sid         = [string]$mt5Profile.SID
             AppData     = [System.IO.Path]::GetFullPath($appData)
             DataRoot    = [System.IO.Path]::GetFullPath($dataRoot)
             CommonFiles = [System.IO.Path]::GetFullPath($commonFiles)
@@ -61,7 +60,7 @@ foreach ($profile in @(Get-CimInstance Win32_UserProfile -ErrorAction SilentlyCo
 if ($matchingProfiles.Count -ne 1) {
     throw 'G13_MT5_CLOSED_TERMINAL_PROFILE_UNRESOLVED'
 }
-$profile = $matchingProfiles[0]
+$mt5Profile = $matchingProfiles[0]
 
 $explorerPath = [System.IO.Path]::GetFullPath((Join-Path $env:WINDIR 'explorer.exe'))
 $matchingShells = @()
@@ -86,7 +85,7 @@ foreach ($shell in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'"
     if ($null -eq $sidResult -or $sidResult.ReturnValue -ne 0 -or
         [string]::IsNullOrWhiteSpace([string]$sidResult.Sid) -or
         -not [System.String]::Equals(
-            [string]$sidResult.Sid, [string]$profile.Sid,
+            [string]$sidResult.Sid, [string]$mt5Profile.Sid,
             [System.StringComparison]::OrdinalIgnoreCase
         ) -or
         $null -eq $ownerResult -or $ownerResult.ReturnValue -ne 0 -or
@@ -121,10 +120,10 @@ if ([string]::IsNullOrWhiteSpace($account)) {
     throw 'G13_INTERACTIVE_MT5_OWNER_UNRESOLVED'
 }
 
-Write-Output "APPDATA=$($profile.AppData)"
-Write-Output "FOREXAI_MT5_COMMON_FILES=$($profile.CommonFiles)"
+Write-Output "APPDATA=$($mt5Profile.AppData)"
+Write-Output "FOREXAI_MT5_COMMON_FILES=$($mt5Profile.CommonFiles)"
 Write-Output 'G13_MT5_PROFILE_RESOLVED=true'
 Write-Output "G13_MT5_TERMINAL_OWNER=$account"
 Write-Output 'G13_MT5_TERMINAL_PIDS=DESKTOP_SHELL_PROFILE_FALLBACK'
-Write-Output "G13_MT5_COMMON_FILES=$($profile.CommonFiles)"
+Write-Output "G13_MT5_COMMON_FILES=$($mt5Profile.CommonFiles)"
 Write-Output 'G13_MT5_SESSION_RESOLUTION_SOURCE=desktop_shell_profile'
