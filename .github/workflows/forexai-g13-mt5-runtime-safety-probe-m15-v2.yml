@@ -212,11 +212,31 @@ jobs:
             $startStderrText = Get-TrimmedTextOrEmpty -Path $startStderrPath
             if ($startStdoutText.Length -gt 2000) { $startStdoutText = $startStdoutText.Substring(0,2000) }
             if ($startStderrText.Length -gt 2000) { $startStderrText = $startStderrText.Substring(0,2000) }
-            Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_EXIT_CODE=$($start.ExitCode)"
+            # Some Windows/PowerShell runner combinations expose a null cached
+            # ExitCode even after WaitForExit succeeds. Refresh and read the process
+            # result, and only use the exact schtasks SUCCESS acknowledgement as a
+            # launch fallback. The run-unique MQL5 marker and safety assertions below
+            # remain mandatory; this does not count as a successful probe by itself.
+            $start.Refresh()
+            $startExitCode = $null
+            try {
+              $rawStartExitCode = $start.ExitCode
+              if ($null -ne $rawStartExitCode) { $startExitCode = [int]$rawStartExitCode }
+            } catch {}
+            if ($null -eq $startExitCode) {
+              if ($startStdoutText -match '(?i)^SUCCESS:\s+Attempted to run the scheduled task\b') {
+                $startExitCode = 0
+                Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_START_EXIT_CODE_FALLBACK=SUCCESS_STDOUT'
+              } else {
+                $startExitCode = -1
+                Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_START_EXIT_CODE_UNAVAILABLE=true'
+              }
+            }
+            Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_EXIT_CODE=$startExitCode"
             Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_STDOUT=$startStdoutText"
             Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_STDERR=$startStderrText"
             Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
-            if ($start.ExitCode -ne 0) {
+            if ($startExitCode -ne 0) {
               $queryStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_off-task-query.stdout.txt"
               $queryStderrPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_off-task-query.stderr.txt"
               Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
@@ -239,7 +259,7 @@ jobs:
               } finally {
                 Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
               }
-              throw "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$($start.ExitCode)"
+              throw "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$startExitCode"
             }
             Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_STARTED=true'
 
@@ -348,11 +368,31 @@ jobs:
             $startStderrText = Get-TrimmedTextOrEmpty -Path $startStderrPath
             if ($startStdoutText.Length -gt 2000) { $startStdoutText = $startStdoutText.Substring(0,2000) }
             if ($startStderrText.Length -gt 2000) { $startStderrText = $startStderrText.Substring(0,2000) }
-            Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_EXIT_CODE=$($start.ExitCode)"
+            # Some Windows/PowerShell runner combinations expose a null cached
+            # ExitCode even after WaitForExit succeeds. Refresh and read the process
+            # result, and only use the exact schtasks SUCCESS acknowledgement as a
+            # launch fallback. The run-unique MQL5 marker and safety assertions below
+            # remain mandatory; this does not count as a successful probe by itself.
+            $start.Refresh()
+            $startExitCode = $null
+            try {
+              $rawStartExitCode = $start.ExitCode
+              if ($null -ne $rawStartExitCode) { $startExitCode = [int]$rawStartExitCode }
+            } catch {}
+            if ($null -eq $startExitCode) {
+              if ($startStdoutText -match '(?i)^SUCCESS:\s+Attempted to run the scheduled task\b') {
+                $startExitCode = 0
+                Write-Host 'G13_RUNTIME_AUTH_ON_TASK_START_EXIT_CODE_FALLBACK=SUCCESS_STDOUT'
+              } else {
+                $startExitCode = -1
+                Write-Host 'G13_RUNTIME_AUTH_ON_TASK_START_EXIT_CODE_UNAVAILABLE=true'
+              }
+            }
+            Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_EXIT_CODE=$startExitCode"
             Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_STDOUT=$startStdoutText"
             Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_STDERR=$startStderrText"
             Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
-            if ($start.ExitCode -ne 0) {
+            if ($startExitCode -ne 0) {
               $queryStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-query.stdout.txt"
               $queryStderrPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-query.stderr.txt"
               Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
@@ -375,7 +415,7 @@ jobs:
               } finally {
                 Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
               }
-              throw "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$($start.ExitCode)"
+              throw "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$startExitCode"
             }
             Write-Host 'G13_RUNTIME_AUTH_ON_TASK_STARTED=true'
 
