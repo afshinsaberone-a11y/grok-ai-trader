@@ -133,3 +133,33 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb" in workflow
     assert "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb" in workflow
     assert "$proc=Start-Process" not in workflow
+
+
+def test_runtime_probe_falls_back_to_exact_desktop_profile_when_mt5_is_closed():
+    workflow = (
+        ROOT
+        / ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
+    ).read_text(encoding="utf-8")
+    resolver = (
+        ROOT / "tools/resolve_mt5_interactive_profile_v1.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "MT5_DATA_ROOT: 'C:\\Users\\Star\\AppData\\Roaming\\MetaQuotes\\Terminal\\D0E8209F77C8CF37AD8BF550E51FF075'" in workflow
+    assert "G13_MT5_TERMINAL_PROCESS_NOT_FOUND:" in workflow
+    assert "resolve_mt5_interactive_profile_v1.ps1" in workflow
+    assert "$resolved = @(& $resolver -TerminalPath $terminal)" in workflow
+    assert "$resolved = @(& $desktopResolver -DataRoot $env:MT5_DATA_ROOT)" in workflow
+
+    assert "G13_MT5_CONFIGURED_PROFILE_UNRESOLVED" in resolver
+    assert "G13_MT5_INTERACTIVE_SESSION_REQUIRED" in resolver
+    assert "Win32_UserProfile" in resolver
+    assert "GetOwnerSid" not in resolver  # the explicit Explorer owner SID is checked directly
+    assert "GetOwner" in resolver
+    assert "SecurityIdentifier" in resolver
+    assert "G13_MT5_COMMON_FILES=" in resolver
+    assert "G13_MT5_TERMINAL_OWNER=" in resolver
+    assert "SessionId -gt 0" in resolver
+    assert "AllowLiveTrading" not in resolver
+    assert "SetDenyKillSwitch" not in resolver
+    assert "Start-Process" not in resolver
+    assert "OrderSend" not in resolver
