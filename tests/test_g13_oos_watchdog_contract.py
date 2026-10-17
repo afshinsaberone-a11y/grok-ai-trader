@@ -81,3 +81,61 @@ def test_supplementary_parity_diagnostics_upload_is_nonblocking_but_core_evidenc
     assert "steps.upload-mt5-parity-diagnostics.outcome == 'failure'" in workflow
     assert "g13-mt5-compile-parity-" in required_evidence
     assert "continue-on-error: true" not in required_evidence
+
+
+def _workflow_step(workflow: str, name: str, next_name: str) -> str:
+    start = workflow.index(f"      - name: {name}\n")
+    end = workflow.index(f"      - name: {next_name}\n", start + 1)
+    return workflow[start:end]
+
+
+def test_watchdog_rechecks_main_sha_immediately_before_dispatches():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    steps = (
+        (
+            "Dispatch exact Validation and Robustness producers",
+            "Resolve exact successful Validation and Robustness",
+            "G13_DISPATCH_STALE_SHA=true",
+        ),
+        (
+            "Dispatch official OOS only after source evidence is ready",
+            "Resolve exact successful OOS",
+            "G13_OOS_DISPATCH_STALE_SHA=true",
+        ),
+        (
+            "Dispatch exact Promotion after successful OOS",
+            "Resolve exact successful Promotion",
+            "G13_PROMOTION_DISPATCH_STALE_SHA=true",
+        ),
+        (
+            "Dispatch exact MT5 Compile + Signal Parity",
+            "Resolve exact successful MT5 Compile + Signal Parity",
+            "G13_COMPILE_PARITY_DISPATCH_STALE_SHA=true",
+        ),
+    )
+    for name, next_name, guard in steps:
+        section = _workflow_step(workflow, name, next_name)
+        assert 'gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha' in section
+        assert '[[ "$current_main" != "$GITHUB_SHA" ]]' in section
+        assert guard in section
+        assert "exit 1" in section
+
+
+def test_oos_resolver_only_accepts_run_started_after_this_dispatch_baseline():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    dispatch = _workflow_step(
+        workflow,
+        "Dispatch official OOS only after source evidence is ready",
+        "Resolve exact successful OOS",
+    )
+    resolve = _workflow_step(
+        workflow,
+        "Resolve exact successful OOS",
+        "Dispatch exact Promotion after successful OOS",
+    )
+    assert "G13_OOS_BASELINE_ID=$oos_baseline_id" in dispatch
+    assert 'echo "G13_OOS_BASELINE_ID=$oos_baseline_id" >> "$GITHUB_ENV"' in dispatch
+    assert 'BASELINE_ID="$G13_OOS_BASELINE_ID"' in resolve
+    assert 'int(r.get("id",0))>baseline' in resolve
+    assert 'r.get("head_sha")==target' in resolve
+    assert 'r.get("head_branch")=="main"' in resolve
