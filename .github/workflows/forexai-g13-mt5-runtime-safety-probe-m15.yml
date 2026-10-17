@@ -3,12 +3,14 @@ name: ForexAI G13 MT5 Runtime Safety Probe M15
 # Runtime environment probe only. It never submits an order.
 # The probe must observe a DEMO account before Demo execution is considered.
 on:
+  # Legacy manual-only probe; the official watchdog uses v2 after exact-SHA parity.
+  # Do not auto-run this stale workflow on pushes to PR branches.
   workflow_dispatch:
-  push:
-    paths:
-      - research/optimization/G13_Safety_Probe_AuthOff.mq5
-      - research/optimization/G13_Safety_Probe_AuthOn.mq5
-      - .github/workflows/forexai-g13-mt5-runtime-safety-probe-m15.yml
+
+concurrency:
+  # Serialize the legacy probe and v2 against the single MT5 terminal/runner.
+  group: g13-mt5-runtime-safety-probe-shared
+  cancel-in-progress: false
 
 permissions:
   contents: read
