@@ -125,6 +125,17 @@ if ($matchingProcesses.Count -lt 1) {
     throw 'G13_MT5_TERMINAL_PROCESS_PATH_MISMATCH'
 }
 
+# When the runner service is running as LocalSystem, a stale Session 0
+# terminal can coexist with the actual user-session MT5. Prefer the active
+# interactive-session instance for Common\Files and script deployment. Do
+# not merge paths from two different users; ambiguity below still fails closed.
+$interactiveProcesses = @(
+    $matchingProcesses | Where-Object { [int]$_.SessionId -gt 0 }
+)
+if ($interactiveProcesses.Count -gt 0) {
+    $matchingProcesses = $interactiveProcesses
+}
+
 $resolvedOwners = @()
 foreach ($process in $matchingProcesses) {
     $sidResult = Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid
