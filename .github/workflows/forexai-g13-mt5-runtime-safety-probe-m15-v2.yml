@@ -181,6 +181,7 @@ jobs:
           $principal = New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive -RunLevel Limited
           $action = New-ScheduledTaskAction -Execute $terminal -Argument ('/config:"' + $config + '" /skipupdate')
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
+          $taskCreatedAt = (Get-Date).AddSeconds(-2)
           try {
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
             Start-ScheduledTask -TaskName $taskName
@@ -190,7 +191,11 @@ jobs:
               $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
               if ($task -and $task.State -eq 'Ready') {
                 $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
-                if ($info -and $info.LastTaskResult -ne 0) { throw 'G13_RUNTIME_AUTH_OFF_TASK_FAILED' }
+                # LastTaskResult before LastRunTime advances is stale/default;
+                # only evaluate a result after Task Scheduler records this run.
+                if ($info -and $info.LastRunTime -gt $taskCreatedAt -and $info.LastTaskResult -ne 0) {
+                  throw 'G13_RUNTIME_AUTH_OFF_TASK_FAILED'
+                }
               }
               Start-Sleep -Seconds 2
             }
@@ -232,6 +237,7 @@ jobs:
           $principal = New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive -RunLevel Limited
           $action = New-ScheduledTaskAction -Execute $terminal -Argument ('/config:"' + $config + '" /skipupdate')
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
+          $taskCreatedAt = (Get-Date).AddSeconds(-2)
           try {
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
             Start-ScheduledTask -TaskName $taskName
@@ -241,7 +247,11 @@ jobs:
               $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
               if ($task -and $task.State -eq 'Ready') {
                 $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
-                if ($info -and $info.LastTaskResult -ne 0) { throw 'G13_RUNTIME_AUTH_ON_TASK_FAILED' }
+                # Ignore Task Scheduler's pre-run/default result until the
+                # LastRunTime proves this one-shot task actually executed.
+                if ($info -and $info.LastRunTime -gt $taskCreatedAt -and $info.LastTaskResult -ne 0) {
+                  throw 'G13_RUNTIME_AUTH_ON_TASK_FAILED'
+                }
               }
               Start-Sleep -Seconds 2
             }
