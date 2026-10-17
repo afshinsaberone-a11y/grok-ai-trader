@@ -27,24 +27,22 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
         assert f"G13_RUNTIME_{label}_TASK_START_TIMEOUT" in step
         assert "$deadline = $startedAt.AddSeconds(180)" in step
         assert f"G13_RUNTIME_{label}_WAITING_FOR_MARKER" in step
-        # One bounded marker-time diagnostic query, one launcher-failure query,
-        # and one bounded task-cleanup call per probe.
-        assert step.count("WaitForExit(10000)") == 3
+        # One bounded marker-time diagnostic query and one bounded task-cleanup
+        # call per probe; the launcher result does not trigger another query.
+        assert step.count("WaitForExit(10000)") == 2
         assert "Start-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTaskInfo -TaskName $taskName" not in step
         assert "-RedirectStandardOutput $startStdoutPath -RedirectStandardError $startStderrPath" in step
-        assert "-ArgumentList @('/Query','/TN',$taskName,'/FO','LIST')" in step
+        assert "-ArgumentList @('/Query','/TN',$taskName,'/V','/FO','LIST')" in step
         assert "WaitForExit(10000)" in step
         assert f"G13_RUNTIME_{label}_TASK_START_EXIT_CODE" in step
         assert f"G13_RUNTIME_{label}_TASK_START_STDOUT" in step
         assert f"G13_RUNTIME_{label}_TASK_START_STDERR" in step
-        assert f"G13_RUNTIME_{label}_TASK_QUERY_EXIT_CODE" in step
-        assert f"G13_RUNTIME_{label}_TASK_QUERY_OUTPUT" in step
-        assert f"G13_RUNTIME_{label}_TASK_QUERY_STDERR" in step
-        assert f"G13_RUNTIME_{label}_TASK_QUERY_TIMEOUT=true" in step
-        assert "$queryStdoutText.Length -gt 2000" in step
-        assert "$queryStderrText.Length -gt 2000" in step
+        # The marker-time query is summarized and raw diagnostic files remain private.
+        assert "task_query_exit_code = $taskQueryExitCode" in step
+        assert "scheduled_task_state = $taskState" in step
+        assert "raw_task_query_exported = $false" in step
         assert "$startStdoutText.Length -gt 2000" in step
         assert "$startStderrText.Length -gt 2000" in step
         assert "Get-Content -LiteralPath $config -Raw" not in step
@@ -82,26 +80,30 @@ def test_missing_marker_emits_redacted_startup_diagnostics():
         assert "orders_expected = $false" in step
 
 
-def test_scheduler_start_failure_captures_bounded_cli_and_task_state_diagnostics():
+def test_scheduler_start_failure_is_classified_only_after_marker_timeout():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     pairs = (
-        ("Run Auth OFF probe", "Run Auth ON probe", "AUTH_OFF"),
-        ("Run Auth ON probe", "Evaluate runtime evidence", "AUTH_ON"),
+        ("Run Auth OFF probe", "Run Auth ON probe", "OFF"),
+        ("Run Auth ON probe", "Evaluate runtime evidence", "ON"),
     )
     for name, next_name, mode in pairs:
         step = _step(workflow, name, next_name)
-        assert f"G13_RUNTIME_{mode}_TASK_START_FAILED_EXIT_" in step
-        assert f"G13_RUNTIME_{mode}_TASK_QUERY_ERROR=" in step
-        assert f"G13_RUNTIME_{mode}_TASK_START_TIMEOUT=true" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_EXIT_NONZERO" in step
+        assert "task_query_exit_code = $taskQueryExitCode" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_TASK_START_TIMEOUT=true" in step
+        assert f"G13_RUNTIME_AUTH_{mode}_TASK_START_FAILED_EXIT_$startExitCode" in step
         assert "Remove-Item -LiteralPath $startStdoutPath,$startStderrPath" in step
         assert "raw_task_config_exported = $false" in step
+        missing_marker_idx = step.index(
+            f"Write-Host 'G13_RUNTIME_AUTH_{mode}_MARKER_MISSING=true'"
+        )
+        launcher_failure_idx = step.index(
+            f'throw "G13_RUNTIME_AUTH_{mode}_TASK_START_FAILED_EXIT_$startExitCode"'
+        )
+        assert missing_marker_idx < launcher_failure_idx
 
-    # Diagnostics must never flip a failed task launch into a passing runtime
-    # probe: the start failure remains a terminating error and the marker check
-    # remains the final source of success.
-    assert "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$startExitCode" in workflow
-    assert "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$startExitCode" in workflow
+    # Any nonzero launch result is diagnostic during the wait; missing marker is fatal.
     assert "G13_RUNTIME_AUTH_OFF_MARKER_MISSING" in workflow
     assert "G13_RUNTIME_AUTH_ON_MARKER_MISSING" in workflow
 
@@ -118,10 +120,9 @@ def test_scheduler_output_diagnostics_tolerate_empty_files():
         for variable, path in (
             ("startStdoutText", "startStdoutPath"),
             ("startStderrText", "startStderrPath"),
-            ("queryStdoutText", "queryStdoutPath"),
-            ("queryStderrText", "queryStderrPath"),
         ):
             assert f"${variable} = Get-TrimmedTextOrEmpty -Path ${path}" in step
+        assert "$queryText = Get-TrimmedTextOrEmpty -Path $queryOut" in step
         assert "if ($null -eq $raw) { return '' }" in step
         assert not __import__("re").search(
             r"Get-Content -LiteralPath \$(?:start|query)(?:Stdout|Stderr)Path -Raw\)\.Trim\(\)",

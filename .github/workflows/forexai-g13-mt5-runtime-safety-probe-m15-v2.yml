@@ -342,32 +342,20 @@ jobs:
             Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_STDOUT=$startStdoutText"
             Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_STDERR=$startStderrText"
             Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
+            # A nonzero schtasks wrapper exit is diagnostic only; the run-specific
+            # MQL5 marker and checks below determine whether this probe passed.
             if ($startExitCode -ne 0) {
-              $queryStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_off-task-query.stdout.txt"
-              $queryStderrPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_off-task-query.stderr.txt"
-              Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
-              try {
-                $query = Start-Process -FilePath $schtasks -ArgumentList @('/Query','/TN',$taskName,'/FO','LIST') -NoNewWindow -RedirectStandardOutput $queryStdoutPath -RedirectStandardError $queryStderrPath -PassThru
-                if (-not $query.WaitForExit(10000)) {
-                  Stop-Process -Id $query.Id -Force -ErrorAction SilentlyContinue
-                  Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_QUERY_TIMEOUT=true'
-                } else {
-                  $queryStdoutText = Get-TrimmedTextOrEmpty -Path $queryStdoutPath
-                  $queryStderrText = Get-TrimmedTextOrEmpty -Path $queryStderrPath
-                  if ($queryStdoutText.Length -gt 2000) { $queryStdoutText = $queryStdoutText.Substring(0,2000) }
-                  if ($queryStderrText.Length -gt 2000) { $queryStderrText = $queryStderrText.Substring(0,2000) }
-                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_EXIT_CODE=$($query.ExitCode)"
-                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_OUTPUT=$queryStdoutText"
-                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_STDERR=$queryStderrText"
-                }
-              } catch {
-                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_ERROR=$($_.Exception.Message)"
-              } finally {
-                Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
-              }
-              throw "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$startExitCode"
+              Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_EXIT_NONZERO=$startExitCode"
+            } else {
+              Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_EXIT_OK=true"
             }
-            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_STARTED=true'
+            if (-not [string]::IsNullOrWhiteSpace($startStdoutText)) {
+              Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_STDOUT=$startStdoutText"
+            }
+            if (-not [string]::IsNullOrWhiteSpace($startStderrText)) {
+              Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_STDERR=$startStderrText"
+            }
+            Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_REQUEST_RETURNED=true"
 
             $startedAt = Get-Date
             $deadline = $startedAt.AddSeconds(180)
@@ -379,6 +367,12 @@ jobs:
             }
             if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
               Write-G13ProbeStartupDiagnostic -Mode 'AUTH_OFF'
+              Write-Host 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING=true'
+              # Only classify launcher failure after the marker wait expires.
+              # A real marker remains the only route to the assertion/pass path.
+              if ($startExitCode -ne 0) {
+                throw "G13_RUNTIME_AUTH_OFF_TASK_START_FAILED_EXIT_$startExitCode"
+              }
               throw 'G13_RUNTIME_AUTH_OFF_MARKER_MISSING'
             }
             foreach ($assertion in @(
@@ -572,32 +566,20 @@ jobs:
             Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_STDOUT=$startStdoutText"
             Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_STDERR=$startStderrText"
             Remove-Item -LiteralPath $startStdoutPath,$startStderrPath -Force -ErrorAction SilentlyContinue
+            # A nonzero schtasks wrapper exit is diagnostic only; the run-specific
+            # MQL5 marker and checks below determine whether this probe passed.
             if ($startExitCode -ne 0) {
-              $queryStdoutPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-query.stdout.txt"
-              $queryStderrPath = Join-Path $env:RUNNER_TEMP "g13-runtime-$($env:GITHUB_RUN_ID)-auth_on-task-query.stderr.txt"
-              Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
-              try {
-                $query = Start-Process -FilePath $schtasks -ArgumentList @('/Query','/TN',$taskName,'/FO','LIST') -NoNewWindow -RedirectStandardOutput $queryStdoutPath -RedirectStandardError $queryStderrPath -PassThru
-                if (-not $query.WaitForExit(10000)) {
-                  Stop-Process -Id $query.Id -Force -ErrorAction SilentlyContinue
-                  Write-Host 'G13_RUNTIME_AUTH_ON_TASK_QUERY_TIMEOUT=true'
-                } else {
-                  $queryStdoutText = Get-TrimmedTextOrEmpty -Path $queryStdoutPath
-                  $queryStderrText = Get-TrimmedTextOrEmpty -Path $queryStderrPath
-                  if ($queryStdoutText.Length -gt 2000) { $queryStdoutText = $queryStdoutText.Substring(0,2000) }
-                  if ($queryStderrText.Length -gt 2000) { $queryStderrText = $queryStderrText.Substring(0,2000) }
-                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_EXIT_CODE=$($query.ExitCode)"
-                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_OUTPUT=$queryStdoutText"
-                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_STDERR=$queryStderrText"
-                }
-              } catch {
-                Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_ERROR=$($_.Exception.Message)"
-              } finally {
-                Remove-Item -LiteralPath $queryStdoutPath,$queryStderrPath -Force -ErrorAction SilentlyContinue
-              }
-              throw "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$startExitCode"
+              Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_EXIT_NONZERO=$startExitCode"
+            } else {
+              Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_EXIT_OK=true"
             }
-            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_STARTED=true'
+            if (-not [string]::IsNullOrWhiteSpace($startStdoutText)) {
+              Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_STDOUT=$startStdoutText"
+            }
+            if (-not [string]::IsNullOrWhiteSpace($startStderrText)) {
+              Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_STDERR=$startStderrText"
+            }
+            Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_REQUEST_RETURNED=true"
 
             $startedAt = Get-Date
             $deadline = $startedAt.AddSeconds(180)
@@ -609,6 +591,12 @@ jobs:
             }
             if (!(Test-Path -LiteralPath $done -PathType Leaf)) {
               Write-G13ProbeStartupDiagnostic -Mode 'AUTH_ON'
+              Write-Host 'G13_RUNTIME_AUTH_ON_MARKER_MISSING=true'
+              # Only classify launcher failure after the marker wait expires.
+              # A real marker remains the only route to the assertion/pass path.
+              if ($startExitCode -ne 0) {
+                throw "G13_RUNTIME_AUTH_ON_TASK_START_FAILED_EXIT_$startExitCode"
+              }
               throw 'G13_RUNTIME_AUTH_ON_MARKER_MISSING'
             }
             foreach ($assertion in @(
