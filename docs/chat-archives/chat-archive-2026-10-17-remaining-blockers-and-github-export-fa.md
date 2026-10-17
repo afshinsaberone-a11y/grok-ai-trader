@@ -302,3 +302,55 @@ https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/fix/g13-runtime-probe
 - شش کلید عمومی متمایز Ed25519، امضاکنندهٔ مستقل Grant، منابع مستقل Signal/Risk/Operator، registry پایدار و allowlist واقعی حساب Demo هنوز باید از منابع واقعی پیکربندی/تأیید شوند.
 - سطح دسترسی اتصال GitHub برای تغییر branch protection کافی نیست؛ باید مالک مخزن required checks، reviews و محدودیت direct push/bypass را از تنظیمات مدیریتی GitHub بررسی کند.
 - تا تکمیل شواهد مستقل و تأیید اپراتور، Kill Switch باید `DENY`، `DemoTradingAuthorized=false` و Live غیرفعال بمانند. هیچ سفارشی در این نوبت ارسال نشده است.
+
+
+
+## ۱۲. به‌روزرسانی آخرین بررسی موانع و ادامهٔ آرشیو — ۱۷ اکتبر ۲۰۲۶
+
+این بخش وضعیت جدید را به بخش‌های قبلی اضافه می‌کند؛ وضعیت‌های قبلی حذف یا بازنویسی نشده‌اند. نتیجه‌های هر اجرا فقط برای SHA ذکرشده معتبرند.
+
+### ۱۲.۱ SHA و شواهد رسمی G13 روی main
+
+SHA فعلی هنگام این بررسی: `18806df5901a1cf139ec8ac40fe03f8f7b1209d8`.
+
+| گیت | اجرا | نتیجه در آخرین بررسی |
+|---|---|---|
+| Workflow Static Validation | [39036904259](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036904259) | success |
+| Validation M15 | [39036911883](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036911883) | success |
+| Robustness M15 | [39036913242](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036913242) | success |
+| OOS M15 | [39037575183](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39037575183) | success |
+| Final Promotion M15 | [39037724385](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39037724385) | success |
+| Execution Safety Audit M15 | [39037800549](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39037800549) | success |
+| MT5 Compile + Signal Parity | [39037836658](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39037836658) | in progress؛ نتیجهٔ نهایی هنوز تأیید نشده است |
+| Runtime Safety Probe v2 روی همین SHA | هنوز موفقیتی برای همین SHA مشاهده نشده | باید پس از Compile/Parity دقیق اجرا و نتیجه بررسی شود |
+| Controlled Demo Package Preflight / Readiness روی همین SHA | هنوز موفقیتی برای همین SHA مشاهده نشده | در انتظار گیت‌های بالادستی |
+
+[OOS Watchdog run 39036904266](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036904266) در آخرین مشاهده در مرحلهٔ resolve کردن نتیجهٔ exact-SHA Compile/Parity قرار داشت. پس از این مرحله باید Runtime Safety Probe، Preflight و Readiness برای همان SHA به‌ترتیب تأیید شوند. اجرای Readiness قدیمی [39036928583](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39036928583) با وضعیت `skipped`، شاهد موفقیت Readiness نیست.
+
+### ۱۲.۲ رفع اشکال Runtime Probe و آنچه هنوز اثبات نشده
+
+[Runtime Safety Probe run 39035696184](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39035696184) روی SHA قدیمی `e5ebd56eef7d3e4f62e85b4888eb90fa69fddd98` در مرحلهٔ Auth OFF با `G13_RUNTIME_AUTH_OFF_MARKER_MISSING` شکست خورد. لاگ نشان می‌دهد probeها با MetaEditor با صفر خطا و صفر هشدار کامپایل و deploy شدند، اما طی مهلت اجرای probe فایل marker ایجاد نشد. بنابراین شکست از مرحلهٔ اجرای/راه‌اندازی runtime یا تبادل marker است؛ لاگ آن اجرا به‌تنهایی یک علت قطعی واحد را ثابت نمی‌کند.
+
+اصلاح مربوط به نام Script بدون پسوند، کنترل `account_identity_verified`، `terminal_connected` و هویت حساب Demo در [PR #268](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/268) ادغام شده است. SHA فعلی main از آن ادغام جدیدتر است، بنابراین اجرای شکست‌خوردهٔ `e5ebd56...` نباید به‌عنوان نتیجهٔ کد فعلی گزارش شود. معیار بعدی فقط یک Runtime Probe تازه روی SHA دقیق `18806df...` است؛ تا آن اجرا موفق نشود، اتصال واقعی به Demo تأیید نشده است.
+
+### ۱۲.۳ PRهای باز و وضعیت آرشیو
+
+- [PR #227 — Capital Control Plane v1](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/227) همچنان Open/Draft و unmerged است؛ head ثبت‌شده `f4490d2ca2cd6dfcfd1788dc99933a64cb1f99f5` است و با SHA جدید main برابر نیست. این PR مجموعه‌ای بزرگ از تغییرهای Control Plane و فایل آرشیو دارد؛ نباید بدون sync، بازبینی و CI مربوط به head فعلی آن merge تلقی شود.
+- [PR #267 — Runtime Probe timeout/diagnostics](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/267) همچنان Open/Draft و بر پایهٔ SHA قدیمی‌تری است. بهبودهای diagnostic آن می‌توانند در صورت نیاز برای تشخیص marker مفقود استفاده شوند، اما خود PR به‌عنوان اصلاح ادغام‌شده گزارش نمی‌شود.
+- [PR #268](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/268) ادغام شده است؛ شواهد تازهٔ Runtime Probe روی main همچنان لازم است.
+- endpoint متادیتای GitHub در آخرین بررسی `protected=false` برای شاخهٔ `main` برگرداند. پس فعال‌بودن branch protection/required checks اثبات نشده است و باید توسط صاحب دارای دسترسی مدیریتی تنظیم و تأیید شود.
+- این بایگانی در یک شاخهٔ مستنداتی جداگانه نگه‌داری می‌شود تا SHA اصلی مورد استفادهٔ شواهد G13 با یک تغییر صرفاً مستنداتی عوض نشود.
+
+### ۱۲.۴ موانع عملیاتی که از روی کد یا CI قابل‌جعل/حل کامل نیستند
+
+1. شش کلید عمومی مستقل و متمایز Ed25519 و مالکیت/دسترسی واقعی صادرکنندهٔ Grant، منابع Signal و Risk و اپراتور باید از مراجع واقعی تأمین و اعتبارسنجی شوند.
+2. registry پایدار صدور، ledger، runtime secret مستقل و allowlist دقیق حساب Demo باید روی میزبان/سرویس واقعی پیکربندی شوند؛ وجود فایل در مخزن این موضوع را ثابت نمی‌کند.
+3. اتصال MT5 به حساب Demo واقعی، تطبیق هویت حساب با مجوز، تعامل سرویس Windows با نشست کاربر و نتیجهٔ Auth OFF/ON باید با artifact تازهٔ همان SHA ثابت شود.
+4. شاخهٔ `main` باید توسط مالک مخزن با required checks، review اجباری، dismiss شدن approval کهنه و محدودیت direct push/bypass محافظت شود.
+
+### ۱۲.۵ وضعیت ایمنی و تصمیم ادامه
+
+- Compile/Parity و Readiness فقط روی SHA و artifactهای دقیق همان اجرا پذیرفته می‌شوند؛ هیچ نتیجه‌ای از SHA قبلی به SHA جدید منتقل نمی‌شود.
+- Kill Switch باید `DENY` بماند؛ `DemoTradingAuthorized=false` و `live_trading_allowed=false` تا زمانی که مجوز مستقل و تأیید صریح اپراتور معتبر شود.
+- در این بررسی هیچ سفارش معاملاتی ارسال نشد و هیچ Grant، امضا، کلید، داده یا تأیید انسانی ساختگی ساخته نشد.
+- گام فوری: تکمیل [Compile + Signal Parity run 39037836658](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39037836658)، سپس تأیید Runtime Safety Probe تازه و Preflight/Readiness روی همان SHA.
