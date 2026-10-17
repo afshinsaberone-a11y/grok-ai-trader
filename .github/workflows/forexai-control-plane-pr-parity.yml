@@ -59,8 +59,10 @@ concurrency:
 
 jobs:
   resolve-main:
+    # Wait off-runner until official main-SHA G13 parity is complete. This
+    # avoids a PR diagnostic claiming the only Windows MT5 slot first.
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 35
     outputs:
       sha: ${{ steps.main.outputs.sha }}
     steps:
@@ -79,6 +81,42 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "PARITY_PROMOTION_TARGET_MAIN_SHA=$sha"
+
+      - name: Wait for official main-SHA Compile and Parity run to complete
+        shell: bash
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.main.outputs.sha }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          target_sha="$TARGET_SHA"
+          for attempt in $(seq 1 100); do
+            current_sha="$(gh api "repos/$repo/commits/main" --jq .sha)"
+            if [[ "$current_sha" != "$target_sha" ]]; then
+              echo "CONTROL_PLANE_PARITY_MAIN_SHA_MOVED=$target_sha CURRENT=$current_sha"
+              exit 1
+            fi
+            payload="$(gh api "repos/$repo/actions/workflows/forexai-g13-mt5-compile-parity.yml/runs?branch=main&per_page=100")"
+            state="$(printf '%s' "$payload" | python -c 'import json,sys; target=sys.argv[1]; rs=json.load(sys.stdin).get("workflow_runs",[]); rs=[r for r in rs if r.get("name")=="ForexAI G13 MT5 Compile + Signal Parity" and r.get("workflow_id")==356474778 and r.get("head_branch")=="main" and r.get("head_sha")==target]; latest=max(rs,key=lambda x:x["id"]) if rs else None; print(("COMPLETED|"+str(latest["id"])+"|"+str(latest.get("conclusion") or "unknown")) if latest and latest.get("status")=="completed" else ("PENDING" if latest else "NOT_STARTED"))' "$target_sha")"
+            case "$state" in
+              COMPLETED\|*)
+                echo "CONTROL_PLANE_PARITY_MAIN_RUN_COMPLETED=$state"
+                exit 0
+                ;;
+              PENDING|NOT_STARTED)
+                echo "CONTROL_PLANE_PARITY_WAITING_FOR_MAIN_RUN attempt=$attempt state=$state"
+                sleep 15
+                ;;
+              *)
+                echo 'CONTROL_PLANE_PARITY_MAIN_RUN_STATE_INVALID'
+                exit 1
+                ;;
+            esac
+          done
+          echo 'CONTROL_PLANE_PARITY_MAIN_RUN_WAIT_TIMEOUT'
+          exit 1
 
   real-data-parity:
     needs: resolve-main
