@@ -243,3 +243,76 @@ def test_mt5_runner_waits_for_exact_candidate_parity_before_diagnostic_compile()
     assert "MT5_COMPILE_GUARD_WAITING_FOR_CANDIDATE_PARITY" in compile_workflow
     assert "MT5_COMPILE_GUARD_RUNNER_SLOT_ORDER=MAIN_PARITY_THEN_CANDIDATE_PARITY_THEN_DIAGNOSTIC_COMPILE" in compile_workflow
     assert "timeout-minutes: 85" in compile_workflow
+
+def test_compile_guard_embedded_candidate_parity_resolver_executes_fail_closed_states():
+    import json
+    import subprocess
+    import sys
+
+    workflow = Path(
+        ".github/workflows/forexai-control-plane-mt5-compile-guard.yml"
+    ).read_text(encoding="utf-8")
+    marker = 'pr_state="$(printf \'%s\' "$pr_payload" | python -c \''
+    start = workflow.index(marker) + len(marker)
+    terminator = "' \"$CANDIDATE_SHA\")\""
+    end = workflow.index(terminator, start)
+    resolver_code = workflow[start:end]
+
+    # Parsing alone catches shell-embedded Python syntax errors before a scarce
+    # Windows runner is ever requested.
+    compile(resolver_code, "<candidate-parity-resolver>", "exec")
+
+    target = "a" * 40
+    cases = [
+        (
+            "success",
+            [{
+                "id": 123,
+                "name": "ForexAI Control Plane PR Real-Data Parity",
+                "workflow_id": 385709004,
+                "event": "pull_request",
+                "head_sha": target,
+                "status": "completed",
+                "conclusion": "success",
+            }],
+            "SUCCESS|123",
+        ),
+        (
+            "failure",
+            [{
+                "id": 124,
+                "name": "ForexAI Control Plane PR Real-Data Parity",
+                "workflow_id": 385709004,
+                "event": "pull_request",
+                "head_sha": target,
+                "status": "completed",
+                "conclusion": "failure",
+            }],
+            "FAILED|124|failure",
+        ),
+        (
+            "pending",
+            [{
+                "id": 125,
+                "name": "ForexAI Control Plane PR Real-Data Parity",
+                "workflow_id": 385709004,
+                "event": "pull_request",
+                "head_sha": target,
+                "status": "in_progress",
+                "conclusion": None,
+            }],
+            "PENDING",
+        ),
+        ("not-started", [], "NOT_STARTED"),
+    ]
+    for _, workflow_runs, expected in cases:
+        result = subprocess.run(
+            [sys.executable, "-c", resolver_code, target],
+            input=json.dumps({"workflow_runs": workflow_runs}),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == expected
+
