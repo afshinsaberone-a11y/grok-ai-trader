@@ -93,7 +93,7 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
         / ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
     ).read_text(encoding="utf-8")
 
-    assert "tools\\\\resolve_mt5_common_files_v1.ps1" in workflow
+    assert "tools\\resolve_mt5_common_files_v1.ps1" in workflow
     assert "$resolved = @(& $resolver -TerminalPath $terminal)" in workflow
     assert "^G13_MT5_COMMON_FILES=" in workflow
     assert "$appData = $common -replace" in workflow
