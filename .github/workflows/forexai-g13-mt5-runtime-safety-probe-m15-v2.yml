@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 20
     env:
       MT5_ROOT: 'C:\Program Files\MetaTrader 5'
+      MT5_DATA_ROOT: 'C:\Users\Star\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,7 +49,25 @@ jobs:
           # cannot reliably start the user's EURUSD M15 startup script.
           $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_common_files_v1.ps1'
           if (!(Test-Path -LiteralPath $resolver -PathType Leaf)) { throw 'G13_MT5_PROFILE_RESOLVER_MISSING' }
-          $resolved = @(& $resolver -TerminalPath $terminal)
+          $resolved = @()
+          $resolverError = ''
+          try {
+            $resolved = @(& $resolver -TerminalPath $terminal)
+          } catch {
+            $resolverError = [string]$_.Exception.Message
+          }
+          if ($resolverError -match 'G13_MT5_TERMINAL_PROCESS_NOT_FOUND:') {
+            # The prior Compile/Parity job intentionally removes its isolated
+            # terminal. Resolve the configured profile from its data root and
+            # require one matching interactive Explorer session, not a running MT5.
+            $desktopResolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_interactive_profile_v1.ps1'
+            if (!(Test-Path -LiteralPath $desktopResolver -PathType Leaf)) {
+              throw 'G13_MT5_INTERACTIVE_PROFILE_RESOLVER_MISSING'
+            }
+            $resolved = @(& $desktopResolver -DataRoot $env:MT5_DATA_ROOT)
+          } elseif ($resolverError) {
+            throw $resolverError
+          }
           $commonLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_COMMON_FILES=' } | Select-Object -Last 1
           $ownerLine = $resolved | Where-Object { ([string]$_) -match '^G13_MT5_TERMINAL_OWNER=' } | Select-Object -Last 1
           if (-not $commonLine) { throw 'G13_MT5_COMMON_FILES_UNRESOLVED' }
