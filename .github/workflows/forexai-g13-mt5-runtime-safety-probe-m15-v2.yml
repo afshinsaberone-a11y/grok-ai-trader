@@ -191,10 +191,29 @@ jobs:
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
           try {
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
-            $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            $launchStdout = Join-Path $env:RUNNER_TEMP "g13-auth-off-schtasks-$($env:GITHUB_RUN_ID).stdout.txt"
+            $launchStderr = Join-Path $env:RUNNER_TEMP "g13-auth-off-schtasks-$($env:GITHUB_RUN_ID).stderr.txt"
+            Remove-Item -LiteralPath $launchStdout,$launchStderr -Force -ErrorAction SilentlyContinue
+            $launchExitCode = -1
+            $schtasksStdoutText = ''
+            $schtasksStderrText = ''
+            $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru -RedirectStandardOutput $launchStdout -RedirectStandardError $launchStderr
             if (-not $start.WaitForExit(15000)) { Stop-Process -Id $start.Id -Force -ErrorAction SilentlyContinue; throw 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT' }
-            if ($start.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_OFF_TASK_START_FAILED' }
-            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_STARTED=true'
+            $launchExitCode = [int]$start.ExitCode
+            if ($launchExitCode -ne 0) {
+              # Avoid Task Scheduler module queries because they can block on
+              # this host. A launcher result is diagnostic, not a runtime pass.
+              Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_EXIT_NONZERO=$launchExitCode"
+              if (Test-Path -LiteralPath $launchStdout) {
+                $schtasksStdoutText = (Get-Content -LiteralPath $launchStdout -Raw).Trim()
+                Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_STDOUT=$schtasksStdoutText"
+              }
+              if (Test-Path -LiteralPath $launchStderr) {
+                $schtasksStderrText = (Get-Content -LiteralPath $launchStderr -Raw).Trim()
+                Write-Host "G13_RUNTIME_AUTH_OFF_SCHTASKS_STDERR=$schtasksStderrText"
+              }
+            }
+            Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_REQUEST_RETURNED=true"
 
             $startedAt = Get-Date
             $deadline = $startedAt.AddSeconds(180)
@@ -209,6 +228,9 @@ jobs:
                 schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
                 mode = 'AUTH_OFF'
                 result_marker_present = $false
+                schtasks_exit_code = $launchExitCode
+                schtasks_stdout = $schtasksStdoutText
+                schtasks_stderr = $schtasksStderrText
                 startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
                 probe_ex5_present = [bool](Test-Path -LiteralPath $scriptBinary -PathType Leaf)
                 kill_switch_state_is_deny = ((Test-Path -LiteralPath $switch -PathType Leaf) -and (Get-Content -LiteralPath $switch -Raw).Trim() -eq 'DENY')
@@ -280,10 +302,29 @@ jobs:
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
           try {
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
-            $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            $launchStdout = Join-Path $env:RUNNER_TEMP "g13-auth-on-schtasks-$($env:GITHUB_RUN_ID).stdout.txt"
+            $launchStderr = Join-Path $env:RUNNER_TEMP "g13-auth-on-schtasks-$($env:GITHUB_RUN_ID).stderr.txt"
+            Remove-Item -LiteralPath $launchStdout,$launchStderr -Force -ErrorAction SilentlyContinue
+            $launchExitCode = -1
+            $schtasksStdoutText = ''
+            $schtasksStderrText = ''
+            $start = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru -RedirectStandardOutput $launchStdout -RedirectStandardError $launchStderr
             if (-not $start.WaitForExit(15000)) { Stop-Process -Id $start.Id -Force -ErrorAction SilentlyContinue; throw 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT' }
-            if ($start.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_ON_TASK_START_FAILED' }
-            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_STARTED=true'
+            $launchExitCode = [int]$start.ExitCode
+            if ($launchExitCode -ne 0) {
+              # Avoid Task Scheduler module queries because they can block on
+              # this host. A launcher result is diagnostic, not a runtime pass.
+              Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_EXIT_NONZERO=$launchExitCode"
+              if (Test-Path -LiteralPath $launchStdout) {
+                $schtasksStdoutText = (Get-Content -LiteralPath $launchStdout -Raw).Trim()
+                Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_STDOUT=$schtasksStdoutText"
+              }
+              if (Test-Path -LiteralPath $launchStderr) {
+                $schtasksStderrText = (Get-Content -LiteralPath $launchStderr -Raw).Trim()
+                Write-Host "G13_RUNTIME_AUTH_ON_SCHTASKS_STDERR=$schtasksStderrText"
+              }
+            }
+            Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_REQUEST_RETURNED=true"
 
             $startedAt = Get-Date
             $deadline = $startedAt.AddSeconds(180)
@@ -298,6 +339,9 @@ jobs:
                 schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'
                 mode = 'AUTH_ON'
                 result_marker_present = $false
+                schtasks_exit_code = $launchExitCode
+                schtasks_stdout = $schtasksStdoutText
+                schtasks_stderr = $schtasksStderrText
                 startup_config_present = [bool](Test-Path -LiteralPath $config -PathType Leaf)
                 probe_ex5_present = [bool](Test-Path -LiteralPath $scriptBinary -PathType Leaf)
                 kill_switch_state_is_deny = ((Test-Path -LiteralPath $switch -PathType Leaf) -and (Get-Content -LiteralPath $switch -Raw).Trim() -eq 'DENY')
