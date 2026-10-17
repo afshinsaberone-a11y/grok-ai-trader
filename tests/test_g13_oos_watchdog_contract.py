@@ -57,3 +57,27 @@ def test_watchdog_refreshes_runtime_probe_before_preflight_and_binds_exact_sha()
     assert 'echo "RUNTIME_SAFETY_RUN_ID=$runtime_run_id" >> "$GITHUB_ENV"' in workflow
     assert 'r.get("head_sha")==target' in workflow
     assert 'r.get("event")=="workflow_dispatch"' in workflow
+
+
+def test_supplementary_parity_diagnostics_upload_is_nonblocking_but_core_evidence_is_required():
+    workflow = Path(
+        ".github/workflows/forexai-g13-mt5-compile-parity.yml"
+    ).read_text(encoding="utf-8")
+
+    diagnostics_start = workflow.index("      - name: Upload MT5 parity diagnostics")
+    evidence_start = workflow.index(
+        "      - name: Upload compile + parity evidence", diagnostics_start
+    )
+    diagnostics = workflow[diagnostics_start:evidence_start]
+    evidence_end = workflow.index(
+        "      - name: Cleanup isolated MT5 portable runtime", evidence_start
+    )
+    required_evidence = workflow[evidence_start:evidence_end]
+
+    # Supplementary diagnostic logs may hit transient GitHub API ECONNRESET.
+    # The required compile/parity evidence must remain blocking.
+    assert "id: upload-mt5-parity-diagnostics" in diagnostics
+    assert "continue-on-error: true" in diagnostics
+    assert "steps.upload-mt5-parity-diagnostics.outcome == 'failure'" in workflow
+    assert "g13-mt5-compile-parity-" in required_evidence
+    assert "continue-on-error: true" not in required_evidence
