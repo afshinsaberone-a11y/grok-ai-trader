@@ -162,6 +162,14 @@ jobs:
         timeout-minutes: 5
         run: |
           $ErrorActionPreference = 'Stop'
+          function Get-TrimmedTextOrEmpty {
+            param([Parameter(Mandatory = $true)][string]$Path)
+            if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
+            $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
+            if ($null -eq $raw) { return '' }
+            return ([string]$raw).Trim()
+          }
+
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
           $config = Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-off-$($env:GITHUB_RUN_ID).ini"
           $done = Join-Path $env:MT5_COMMON_FILES 'g13_safety_probe_auth_off.done.txt'
@@ -200,8 +208,8 @@ jobs:
               Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT=true'
               throw 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT'
             }
-            $startStdoutText = if (Test-Path -LiteralPath $startStdoutPath) { (Get-Content -LiteralPath $startStdoutPath -Raw).Trim() } else { '' }
-            $startStderrText = if (Test-Path -LiteralPath $startStderrPath) { (Get-Content -LiteralPath $startStderrPath -Raw).Trim() } else { '' }
+            $startStdoutText = Get-TrimmedTextOrEmpty -Path $startStdoutPath
+            $startStderrText = Get-TrimmedTextOrEmpty -Path $startStderrPath
             if ($startStdoutText.Length -gt 2000) { $startStdoutText = $startStdoutText.Substring(0,2000) }
             if ($startStderrText.Length -gt 2000) { $startStderrText = $startStderrText.Substring(0,2000) }
             Write-Host "G13_RUNTIME_AUTH_OFF_TASK_START_EXIT_CODE=$($start.ExitCode)"
@@ -218,8 +226,8 @@ jobs:
                   Stop-Process -Id $query.Id -Force -ErrorAction SilentlyContinue
                   Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_QUERY_TIMEOUT=true'
                 } else {
-                  $queryStdoutText = if (Test-Path -LiteralPath $queryStdoutPath) { (Get-Content -LiteralPath $queryStdoutPath -Raw).Trim() } else { '' }
-                  $queryStderrText = if (Test-Path -LiteralPath $queryStderrPath) { (Get-Content -LiteralPath $queryStderrPath -Raw).Trim() } else { '' }
+                  $queryStdoutText = Get-TrimmedTextOrEmpty -Path $queryStdoutPath
+                  $queryStderrText = Get-TrimmedTextOrEmpty -Path $queryStderrPath
                   if ($queryStdoutText.Length -gt 2000) { $queryStdoutText = $queryStdoutText.Substring(0,2000) }
                   if ($queryStderrText.Length -gt 2000) { $queryStderrText = $queryStderrText.Substring(0,2000) }
                   Write-Host "G13_RUNTIME_AUTH_OFF_TASK_QUERY_EXIT_CODE=$($query.ExitCode)"
@@ -290,6 +298,14 @@ jobs:
         timeout-minutes: 5
         run: |
           $ErrorActionPreference = 'Stop'
+          function Get-TrimmedTextOrEmpty {
+            param([Parameter(Mandatory = $true)][string]$Path)
+            if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
+            $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
+            if ($null -eq $raw) { return '' }
+            return ([string]$raw).Trim()
+          }
+
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
           $config = Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-on-$($env:GITHUB_RUN_ID).ini"
           $done = Join-Path $env:MT5_COMMON_FILES 'g13_safety_probe_auth_on.done.txt'
@@ -328,8 +344,8 @@ jobs:
               Write-Host 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT=true'
               throw 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT'
             }
-            $startStdoutText = if (Test-Path -LiteralPath $startStdoutPath) { (Get-Content -LiteralPath $startStdoutPath -Raw).Trim() } else { '' }
-            $startStderrText = if (Test-Path -LiteralPath $startStderrPath) { (Get-Content -LiteralPath $startStderrPath -Raw).Trim() } else { '' }
+            $startStdoutText = Get-TrimmedTextOrEmpty -Path $startStdoutPath
+            $startStderrText = Get-TrimmedTextOrEmpty -Path $startStderrPath
             if ($startStdoutText.Length -gt 2000) { $startStdoutText = $startStdoutText.Substring(0,2000) }
             if ($startStderrText.Length -gt 2000) { $startStderrText = $startStderrText.Substring(0,2000) }
             Write-Host "G13_RUNTIME_AUTH_ON_TASK_START_EXIT_CODE=$($start.ExitCode)"
@@ -346,8 +362,8 @@ jobs:
                   Stop-Process -Id $query.Id -Force -ErrorAction SilentlyContinue
                   Write-Host 'G13_RUNTIME_AUTH_ON_TASK_QUERY_TIMEOUT=true'
                 } else {
-                  $queryStdoutText = if (Test-Path -LiteralPath $queryStdoutPath) { (Get-Content -LiteralPath $queryStdoutPath -Raw).Trim() } else { '' }
-                  $queryStderrText = if (Test-Path -LiteralPath $queryStderrPath) { (Get-Content -LiteralPath $queryStderrPath -Raw).Trim() } else { '' }
+                  $queryStdoutText = Get-TrimmedTextOrEmpty -Path $queryStdoutPath
+                  $queryStderrText = Get-TrimmedTextOrEmpty -Path $queryStderrPath
                   if ($queryStdoutText.Length -gt 2000) { $queryStdoutText = $queryStdoutText.Substring(0,2000) }
                   if ($queryStderrText.Length -gt 2000) { $queryStderrText = $queryStderrText.Substring(0,2000) }
                   Write-Host "G13_RUNTIME_AUTH_ON_TASK_QUERY_EXIT_CODE=$($query.ExitCode)"
