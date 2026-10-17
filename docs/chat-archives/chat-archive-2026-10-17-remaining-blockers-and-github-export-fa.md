@@ -93,3 +93,14 @@ PR: [feat(g13): create authoritative Capital Control Plane v1](https://github.co
 - Parity و Preflight فقط روی SHA و artifact دقیق همان زنجیره معتبرند.
 - تا وقتی Readiness روی SHA جاری موفق نشده و مراجع مستقل واقعی تأیید نشده‌اند، مجوز Demo صادر نشود؛ Live همواره غیرفعال بماند.
 - هیچ اعتبارنامه، کلید عمومی، امضا، حساب یا مجوزی داخل این آرشیو ذخیره نشده است.
+
+
+## الحاقیهٔ راستی‌آزمایی CI — ۱۷ اکتبر ۲۰۲۶
+
+پس از تهیهٔ متن اولیهٔ این آرشیو، نتایج واقعی GitHub به‌روزرسانی شدند:
+
+- [G13 Workflow Static Validation — run 39032761597](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39032761597) موفق شد روی کد runtime workflow با SHA برابر با 2bd93863ec5972665b31cfaa997ba1ef27062c14. این تست شامل کنترل ساختاری workflow بازسازی‌شده است.
+- [Full Python tests — run 39032855568](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39032855568) موفق شد روی commit آرشیو e5326ff81d44e88674e13961ee82506ce1c7008f.
+- این قبولی‌ها، تست‌های ایستا/پایتون هستند؛ **Runtime Safety Probe واقعی روی main هنوز موفق نشده است**. آخرین اجرای تأییدشده همچنان [39030848129](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39030848129) است که در Auth-Off به‌دلیل نبودن marker شکست خورد.
+- آخرین کد اصلاح runtime در شاخهٔ PR است؛ تا زمان اجرای موفق روی main، Readiness و مجوز معامله تأییدشده محسوب نمی‌شوند.
+- این آرشیو در PR #227 قرار دارد و به main ادغام نشده است.
