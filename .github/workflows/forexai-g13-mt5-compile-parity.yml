@@ -318,6 +318,11 @@ jobs:
           if (!(Test-Path -LiteralPath $terminal -PathType Leaf)) { throw "MT5 terminal not found: $terminal" }
           if (!(Test-Path -LiteralPath $data -PathType Container)) { throw "MT5 data root not found: $data" }
           if (!(Test-Path -LiteralPath $experts -PathType Container)) { throw "MT5 Experts folder not found: $experts" }
+          # Resolve profile identity once in the preflight step. The execution
+          # step receives only this derived root and never accesses MT5_DATA_ROOT,
+          # which must not be used as a destination for candidate Expert files.
+          $profileRoot = [System.IO.Path]::GetFullPath((Join-Path $data '..\..\..\..\..')).TrimEnd('\')
+          "G13_MT5_PROFILE_ROOT=$profileRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "METAEDITOR=$meta"
           Write-Host "TERMINAL=$terminal"
           Write-Host "MT5_DATA_ROOT=$data"
@@ -687,7 +692,7 @@ jobs:
             # Explorer shell whose profile matches MT5_DATA_ROOT, then start the isolated
             # portable terminal in that existing interactive logon. Never launch in Session 0.
             $expectedProfileRoot = [System.IO.Path]::GetFullPath(
-              (Join-Path $env:MT5_DATA_ROOT '..\..\..\..\..')
+              $env:G13_MT5_PROFILE_ROOT
             ).TrimEnd('\')
             $expectedProfiles = @(Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
               Where-Object {
