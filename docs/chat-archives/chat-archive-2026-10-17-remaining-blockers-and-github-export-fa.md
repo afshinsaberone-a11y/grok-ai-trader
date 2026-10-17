@@ -345,3 +345,15 @@ SHA جاری main در این بررسی: \`b60f950694b8366b4f1d330768c2fd8ae9bf
 - [OOS Watchdog — 39049219879](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219879): در حال resolve کردن Validation/Robustness همین SHA؛ مراحل downstream هنوز باید نتیجه دهند.
 
 اجرای موفق OOS روی SHA قبلی، هرچند معتبر برای خودش بود، **شواهد زنجیرهٔ جاری نیست**. تا کامل‌شدن Validation/Robustness و dispatch OOS تازهٔ همین SHA، سپس Promotion/Safety/Compile-Parity/Runtime Probe/Preflight/Readiness، وضعیت Demo آمادۀ اجرا اعلام نمی‌شود.
+
+
+### ۱۱.۱۰ نتیجهٔ Validation روی SHA نهایی فعلی — ۱۷ اکتبر ۲۰۲۶، ۱۶:۲۹ UTC
+
+برای SHA \`b60f950694b8366b4f1d330768c2fd8ae9bffa34\`:
+
+- [Validation M15 — 39049247886](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049247886): اکنون **success**؛ دانلود و اعتبارسنجی دادهٔ واقعی EURUSD M15، مرز OOS، handoff، Gate و upload evidence همه موفق‌اند.
+- [Robustness M15 — 39049249741](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049249741): هنوز در مرحلهٔ محاسبهٔ اصلی Robustness است؛ هنوز نتیجهٔ نهایی اعلام نشده.
+- [OOS Watchdog — 39049219879](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219879): در حال resolve کردن نتیجهٔ دقیق Robustness همین SHA است.
+- [Static Validation — 39049219949](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219949)، [Full Python tests — 39049219925](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219925) و [Agent Runtime — 39049219868](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219868): همگی **success** روی همین SHA.
+
+این هنوز موفقیت کامل G13 نیست؛ زنجیره باید از Robustness به بعد OOS، Promotion، Safety Audit، Compile/Parity، Runtime Safety Probe، Preflight و Readiness را برای همین SHA تکمیل کند.
