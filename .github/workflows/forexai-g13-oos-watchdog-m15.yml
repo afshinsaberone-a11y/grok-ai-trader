@@ -370,7 +370,7 @@ jobs:
             echo "G13_COMPILE_PARITY_DISPATCH_STALE_SHA=true CURRENT_MAIN=$current_main TARGET_SHA=$GITHUB_SHA"
             exit 1
           }
-          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"promotion_run_id":sys.argv[1]}})' "$PROMOTION_RUN_ID")"
+          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"promotion_run_id":sys.argv[1]}}))' "$PROMOTION_RUN_ID")"
           status="$(curl -sS -o /tmp/dispatch-response.txt -w '%{http_code}' \
             -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
