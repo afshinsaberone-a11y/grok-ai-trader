@@ -25,9 +25,9 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
         assert "Start-Process -FilePath $schtasks" in step
         assert "WaitForExit(15000)" in step
         assert f"G13_RUNTIME_{label}_TASK_START_TIMEOUT" in step
-        assert "$deadline = $taskStartedAt.AddSeconds(180)" in step
+        assert "$deadline = $startedAt.AddSeconds(180)" in step
         assert f"G13_RUNTIME_{label}_WAITING_FOR_MARKER" in step
-        assert step.count("WaitForExit(10000)") == 2
+        assert step.count("WaitForExit(10000)") == 1
         assert "Start-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTaskInfo -TaskName $taskName" not in step
@@ -45,7 +45,8 @@ def test_missing_marker_emits_redacted_startup_diagnostics():
         step_name = "Run Auth OFF probe" if mode == "AUTH_OFF" else "Run Auth ON probe"
         next_name = "Run Auth ON probe" if mode == "AUTH_OFF" else "Evaluate runtime evidence"
         step = _step(workflow, step_name, next_name)
-        assert f"Write-G13ProbeStartupDiagnostic -Mode '{mode}'" in step
+        assert "schema_version = 'forexai.g13.runtime_probe_startup_diagnostic.v1'" in step
+        assert f"mode = '{mode}'" in step
         assert f"G13_RUNTIME_{mode}_MARKER_MISSING" in step
         assert "startup_config_present =" in step
         assert "probe_ex5_present =" in step
