@@ -157,6 +157,7 @@ jobs:
           Write-Host "KILL_SWITCH_SNAPSHOT_CREATED"
 
       - name: Run Auth OFF probe
+        timeout-minutes: 5
         run: |
           $ErrorActionPreference = 'Stop'
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
@@ -182,20 +183,26 @@ jobs:
           $action = New-ScheduledTaskAction -Execute $terminal -Argument ('/config:"' + $config + '" /skipupdate')
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
           $taskCreatedAt = (Get-Date).AddSeconds(-2)
+          $schtasks = Join-Path $env:WINDIR 'System32\schtasks.exe'
           try {
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_REGISTER_BEGIN=true'
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
-            Start-ScheduledTask -TaskName $taskName
+            Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_REGISTERED=true'
+            $startProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            if (-not $startProcess.WaitForExit(15000)) {
+              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'G13_RUNTIME_AUTH_OFF_TASK_START_TIMEOUT'
+            }
+            if ($startProcess.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_OFF_TASK_START_FAILED' }
             Write-Host 'G13_RUNTIME_AUTH_OFF_TASK_STARTED=true'
-            $deadline = (Get-Date).AddSeconds(180)
+            $taskStartedAt = Get-Date
+            $deadline = $taskStartedAt.AddSeconds(180)
+            $nextHeartbeat = 15
             while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $done -PathType Leaf)) {
-              $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-              if ($task -and $task.State -eq 'Ready') {
-                $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
-                # LastTaskResult before LastRunTime advances is stale/default;
-                # only evaluate a result after Task Scheduler records this run.
-                if ($info -and $info.LastRunTime -gt $taskCreatedAt -and $info.LastTaskResult -ne 0) {
-                  throw 'G13_RUNTIME_AUTH_OFF_TASK_FAILED'
-                }
+              $elapsed = [int]((Get-Date) - $taskStartedAt).TotalSeconds
+              if ($elapsed -ge $nextHeartbeat) {
+                Write-Host "G13_RUNTIME_AUTH_OFF_WAITING_FOR_MARKER elapsed_seconds=$elapsed"
+                $nextHeartbeat += 15
               }
               Start-Sleep -Seconds 2
             }
@@ -208,12 +215,26 @@ jobs:
             Write-Host 'MT5_AUTH_OFF_PROBE_OK'
           }
           finally {
-            try { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue } catch { }
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+            foreach ($verb in @('/End','/Delete')) {
+              try {
+                $cleanupArgs = @($verb,'/TN',$taskName)
+                if ($verb -eq '/Delete') { $cleanupArgs += '/F' }
+                $cleanupProcess = Start-Process -FilePath $schtasks -ArgumentList $cleanupArgs -NoNewWindow -PassThru
+                if (-not $cleanupProcess.WaitForExit(10000)) {
+                  Stop-Process -Id $cleanupProcess.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb"
+                } else {
+                  Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_EXIT=$verb,$($cleanupProcess.ExitCode)"
+                }
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_ERROR=$verb"
+              }
+            }
             Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
           }
 
       - name: Run Auth ON probe
+        timeout-minutes: 5
         run: |
           $ErrorActionPreference = 'Stop'
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
@@ -239,20 +260,26 @@ jobs:
           $action = New-ScheduledTaskAction -Execute $terminal -Argument ('/config:"' + $config + '" /skipupdate')
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew
           $taskCreatedAt = (Get-Date).AddSeconds(-2)
+          $schtasks = Join-Path $env:WINDIR 'System32\schtasks.exe'
           try {
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_REGISTER_BEGIN=true'
             Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
-            Start-ScheduledTask -TaskName $taskName
+            Write-Host 'G13_RUNTIME_AUTH_ON_TASK_REGISTERED=true'
+            $startProcess = Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName) -NoNewWindow -PassThru
+            if (-not $startProcess.WaitForExit(15000)) {
+              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
+              throw 'G13_RUNTIME_AUTH_ON_TASK_START_TIMEOUT'
+            }
+            if ($startProcess.ExitCode -ne 0) { throw 'G13_RUNTIME_AUTH_ON_TASK_START_FAILED' }
             Write-Host 'G13_RUNTIME_AUTH_ON_TASK_STARTED=true'
-            $deadline = (Get-Date).AddSeconds(180)
+            $taskStartedAt = Get-Date
+            $deadline = $taskStartedAt.AddSeconds(180)
+            $nextHeartbeat = 15
             while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $done -PathType Leaf)) {
-              $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-              if ($task -and $task.State -eq 'Ready') {
-                $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
-                # Ignore Task Scheduler's pre-run/default result until the
-                # LastRunTime proves this one-shot task actually executed.
-                if ($info -and $info.LastRunTime -gt $taskCreatedAt -and $info.LastTaskResult -ne 0) {
-                  throw 'G13_RUNTIME_AUTH_ON_TASK_FAILED'
-                }
+              $elapsed = [int]((Get-Date) - $taskStartedAt).TotalSeconds
+              if ($elapsed -ge $nextHeartbeat) {
+                Write-Host "G13_RUNTIME_AUTH_ON_WAITING_FOR_MARKER elapsed_seconds=$elapsed"
+                $nextHeartbeat += 15
               }
               Start-Sleep -Seconds 2
             }
@@ -264,8 +291,21 @@ jobs:
             Write-Host 'MT5_AUTH_ON_PROBE_OK'
           }
           finally {
-            try { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue } catch { }
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+            foreach ($verb in @('/End','/Delete')) {
+              try {
+                $cleanupArgs = @($verb,'/TN',$taskName)
+                if ($verb -eq '/Delete') { $cleanupArgs += '/F' }
+                $cleanupProcess = Start-Process -FilePath $schtasks -ArgumentList $cleanupArgs -NoNewWindow -PassThru
+                if (-not $cleanupProcess.WaitForExit(10000)) {
+                  Stop-Process -Id $cleanupProcess.Id -Force -ErrorAction SilentlyContinue
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb"
+                } else {
+                  Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_EXIT=$verb,$($cleanupProcess.ExitCode)"
+                }
+              } catch {
+                Write-Host "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_ERROR=$verb"
+              }
+            }
             Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
           }
 
