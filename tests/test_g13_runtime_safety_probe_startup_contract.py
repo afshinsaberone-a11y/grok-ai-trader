@@ -57,16 +57,19 @@ def test_runtime_probe_uses_unique_result_marker_as_success_signal():
 
     for mode in ("OFF", "ON"):
         # A non-zero schtasks launcher result is diagnostic, not proof the
-        # runtime probe failed to launch; do not terminate before observing
-        # the task state and waiting for a real, run-unique MQL5 marker.
+        # runtime probe failed to launch; the actual MQL5 marker decides.
         assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_EXIT_NONZERO" in workflow
-        assert f"G13_RUNTIME_AUTH_{mode}_TASK_STATE_AFTER_LAUNCH" in workflow
-        assert f"G13_RUNTIME_AUTH_{mode}_TASK_LAST_RESULT_AFTER_LAUNCH" in workflow
+        assert f"schtasks_stdout = $schtasksStdoutText" in workflow
+        assert f"schtasks_stderr = $schtasksStderrText" in workflow
         assert f"G13_RUNTIME_AUTH_{mode}_MARKER_MISSING" in workflow
         assert (
             f"if ($start.ExitCode -ne 0) {{ throw 'G13_RUNTIME_AUTH_{mode}_TASK_START_FAILED' }}"
             not in workflow
         )
+
+    # Avoid potentially blocking Task Scheduler module queries on the MT5 host.
+    assert "Get-ScheduledTask -TaskName $taskName" not in workflow
+    assert "Get-ScheduledTaskInfo -TaskName $taskName" not in workflow
 
     # Waiting on the marker does not bypass the connected Demo identity or
     # no-order assertions that follow it.
