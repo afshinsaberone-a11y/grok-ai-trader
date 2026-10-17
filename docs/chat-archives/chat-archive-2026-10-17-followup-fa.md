@@ -102,3 +102,39 @@ SHA هدف زنجیره: **1cd8ed8087c56708f714850155ae6adaa543b157**
 
 ---
 این آرشیو برای پیگیری تاریخی تهیه شده است. هرجا وضعیت به run ID و SHA بستگی دارد، لینک اصلی GitHub مرجع نهایی است؛ با تغییر SHA باید شواهد تازه تولید شوند.
+
+
+## ۸. وضعیت پس از ادغام اصلاح Runtime Probe
+
+پس از ثبت بخش‌های قبلی، اصلاح Runtime Probe در [PR #277](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/277) پس از CI موفق squash-merge شد:
+
+- Commit ادغام: **3115833c4f0067edfb29c2bffd420c36e8460827**
+- [Static Validation روی PR](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046425420) — موفق
+- [Python tests روی PR](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046425342) — موفق
+- [Agent Runtime روی PR](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046425289) — موفق
+
+SHA فعلی main در آخرین بررسی این پیگیری: **3115833c4f0067edfb29c2bffd420c36e8460827**.
+
+زنجیرهٔ G13 برای SHA تازه مجدداً آغاز شده است:
+
+- [Workflow Static Validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046532617) — موفق
+- [Validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046539414) — در حال اجرا
+- [Robustness](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046540828) — در حال اجرا
+- [OOS Watchdog](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046532669) — در حال حل‌کردن اجرای دقیق Validation/Robustness و ادامهٔ مراحل زنجیره
+
+[Readiness run 39046552821](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39046552821) بلافاصله پس از commit Skip شده بود؛ چون در آن لحظه هنوز رویداد موفقِ Preflight رخ نداده بود. این run **نتیجهٔ نهایی Readiness برای زنجیرهٔ تازه نیست** و نباید به‌عنوان قبولی یا شکست نهایی تعبیر شود.
+
+## ۹. وضعیت آرشیو در GitHub
+
+- آرشیو جدید این فایل است: [chat-archive-2026-10-17-followup-fa.md](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/docs/archive-2026-10-17-followup-fa/docs/chat-archives/chat-archive-2026-10-17-followup-fa.md)
+- [PR #276](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/276) این فایل را برای review باز نگه می‌دارد.
+- فایل عمداً مستقیم روی main قرار داده نشده تا صرفاً با تغییر مستندات، SHA دقیق شواهد G13 دوباره تغییر نکند. پس از تکمیل زنجیره و بررسی readiness می‌توان دربارهٔ ادغام آرشیو تصمیم گرفت.
+
+## ۱۰. موانعی که هنوز با اتصال فعلی قابل رفع کامل نیستند
+
+1. **Runtime Safety روی SHA جدید:** زنجیرهٔ تازه هنوز باید تا Auth OFF/Auth ON Runtime Probe، Controlled Demo Package Preflight و Readiness کامل شود. ادغام اصلاح null-safe فقط باگ تشخیصی را رفع می‌کند؛ خودش ثابت نمی‌کند Task Scheduler یا MT5 Probe در میزبان به PASS می‌رسد.
+2. **Branch protection:** پاسخ Branch API، فیلد main را در زمان بررسی «protected=false» گزارش می‌کرد. اتصال GitHub در دسترس، دسترسی تنظیمات admin برای خواندن جزئیات Branch Protection را ندارد؛ فعال‌سازی Required Reviews/Checks و محدودیت bypass باید توسط مالک/ادمین در Settings انجام شود.
+3. **مراجع مستقل سرمایه و اعتماد:** public keyهای مستقل Ed25519، امضاکنندهٔ بیرونی Capital Firewall Grant، ارائه‌دهندگان Signal/Risk، تأیید اپراتور، registry ماندگار و allowlist دقیق Demo از طریق CI ایجاد یا جعل نمی‌شوند. این‌ها به پیکربندی واقعی و تأیید انسانی نیاز دارند.
+4. **آمادگی عملیاتی Demo و Live:** تا زمانی که شواهد مستقل، Readiness موفق روی SHA دقیق و تطبیق session سرویس/MT5 تأیید نشده‌اند، Kill Switch باید DENY و DemoTradingAuthorized باید false بماند. Live غیرفعال است.
+
+---
