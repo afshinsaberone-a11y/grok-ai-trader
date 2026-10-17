@@ -232,6 +232,9 @@ def test_mt5_runner_waits_for_exact_candidate_parity_before_diagnostic_compile()
     ).read_text(encoding="utf-8")
 
     assert "group: forexai-control-plane-pr-real-data-parity-pull_request-" in parity_workflow
+    assert "forexai-g13-oos-watchdog-m15.yml/runs?branch=main&per_page=100" in parity_workflow
+    assert "workflow_id")==377528976" in parity_workflow
+    assert "CONTROL_PLANE_MAIN_G13_WATCHDOG_COMPLETED" in parity_workflow
     assert "CANDIDATE_SHA: ${{ github.event_name == 'pull_request'" in compile_workflow
     assert 'get("workflow_id")==385709004' in compile_workflow
     assert '"SUCCESS|"+str(latest["id"])' in compile_workflow
