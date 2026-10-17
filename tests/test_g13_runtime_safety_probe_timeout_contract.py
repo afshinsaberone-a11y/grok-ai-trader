@@ -27,7 +27,7 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
         assert f"G13_RUNTIME_{label}_TASK_START_TIMEOUT" in step
         assert "$deadline = $taskStartedAt.AddSeconds(180)" in step
         assert f"G13_RUNTIME_{label}_WAITING_FOR_MARKER" in step
-        assert "WaitForExit(10000)" in step
+        assert step.count("WaitForExit(10000)") == 3
         assert "Start-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTask -TaskName $taskName" not in step
         assert "Get-ScheduledTaskInfo -TaskName $taskName" not in step
@@ -38,3 +38,32 @@ def test_auth_off_and_auth_on_probes_have_hard_timeouts_and_bounded_scheduler_ca
     assert "G13_RUNTIME_AUTH_OFF_ORDER_INVARIANT_FAILED" in workflow
     assert "G13_RUNTIME_AUTH_ON_ORDER_INVARIANT_FAILED" in workflow
     assert "KILL_SWITCH_UNCHANGED=true" in workflow
+
+
+def test_missing_marker_emits_redacted_startup_diagnostics_for_both_probe_modes():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    pairs = (
+        ("Run Auth OFF probe", "Run Auth ON probe", "AUTH_OFF"),
+        ("Run Auth ON probe", "Evaluate runtime evidence", "AUTH_ON"),
+    )
+    for name, next_name, mode in pairs:
+        step = _step(workflow, name, next_name)
+        assert "Write-G13ProbeStartupDiagnostic -Mode '" + mode + "'" in step
+        assert "G13_RUNTIME_" + mode + "_MARKER_MISSING" in step
+        assert "scheduled_task_state = $taskState" in step
+        assert "scheduled_task_last_result = $taskLastResult" in step
+        assert "startup_config_present =" in step
+        assert "probe_ex5_present =" in step
+        assert "recent_terminal_log_mentions_probe =" in step
+        assert "recent_terminal_log_mentions_script_failure =" in step
+        assert "raw_terminal_logs_exported = $false" in step
+        assert "raw_task_query_exported = $false" in step
+        assert "raw_task_config_exported = $false" in step
+        assert "orders_expected = $false" in step
+
+    assert "Write-G13ProbeStartupDiagnostic -Mode 'AUTH_OFF'" in workflow
+    assert "Write-G13ProbeStartupDiagnostic -Mode 'AUTH_ON'" in workflow
+    assert "FILE_COMMON" in (
+        Path("research/optimization/G13_Safety_Probe_AuthOff.mq5").read_text(encoding="utf-8")
+    )
