@@ -357,3 +357,31 @@ SHA جاری main در این بررسی: \`b60f950694b8366b4f1d330768c2fd8ae9bf
 - [Static Validation — 39049219949](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219949)، [Full Python tests — 39049219925](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219925) و [Agent Runtime — 39049219868](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049219868): همگی **success** روی همین SHA.
 
 این هنوز موفقیت کامل G13 نیست؛ زنجیره باید از Robustness به بعد OOS، Promotion، Safety Audit، Compile/Parity، Runtime Safety Probe، Preflight و Readiness را برای همین SHA تکمیل کند.
+
+
+### ۱۱.۱۱ اصلاح OOS invocation و راستی‌آزمایی جاری — ۱۷ اکتبر ۲۰۲۶، ۱۶:۳۶ UTC
+
+دو تغییر دیگر به main اضافه شدند تا حتی اجرای OOS قدیمی نتواند اجرای معتبر جدید را لغو یا جایگزین کند:
+
+- [Commit 9ed2d51513deaeefb95e86b776fd66f039f4b698](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/9ed2d51513deaeefb95e86b776fd66f039f4b698) در `.github/workflows/forexai-g13-oos-m15-current.yml`: OOS اکنون دو ورودی اجباری `expected_main_sha` و `watchdog_run_id` می‌گیرد؛ شروع کار SHA جاری، SHA هدف، نام/branch/SHA/status خود watchdog فراخواننده را تأیید می‌کند. کلید concurrency نیز بر اساس SHA هدف و شناسهٔ همان watchdog است، نه فقط SHA.
+- [Commit e406f9a6fc91657449f1167564f4cb5e35cbfa77](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/e406f9a6fc91657449f1167564f4cb5e35cbfa77) در `.github/workflows/forexai-g13-oos-watchdog-m15.yml`: watchdog اکنون این ورودی‌ها را هنگام dispatch به OOS منتقل می‌کند و baseline شناسهٔ run را حفظ می‌کند.
+
+Static Validation روی SHA موقت `e406f9...` یک failure داشت، زیرا تست قبلی فقط کلید concurrency مبتنی بر `github.sha` را می‌پذیرفت و کلید جدیدِ invocation-bound را نمی‌شناخت. قرارداد تست در [commit 679c89128ff5a5e6944a4c7542bf80d1afe02a7d](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/679c89128ff5a5e6944a4c7542bf80d1afe02a7d) اصلاح شد تا در OOS، وجود `expected_main_sha`, `watchdog_run_id`, guardهای شروع و بررسی watchdog را مطالبه کند؛ سایر workflowها همچنان باید concurrency را به SHA dispatch‌شده مقید کنند.
+
+#### CI فعلی روی main SHA `679c89128ff5a5e6944a4c7542bf80d1afe02a7d`
+
+- [Full Python tests — 39049944672](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049944672): **success**؛ 9 مرحله در job Python tests موفق شدند.
+- [Workflow Static Validation — 39049944726](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049944726): هنگام آخرین بررسی در حال اجرا بود؛ هنوز نتیجهٔ نهایی اعلام نشده.
+- [Validation M15 — 39049953169](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049953169): در حال اجرا.
+- [Robustness M15 — 39049955317](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049955317): در حال اجرا.
+- [OOS Watchdog — 39049944669](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049944669): منتظر Validation و Robustness موفق برای همین SHA است.
+- [Readiness run 39049885770](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39049885770) روی SHA قبلی `e406f9...` به‌درستی `skipped` است؛ این نتیجه Readiness موفق نیست.
+
+#### وضعیت خارج از CI
+
+- Branch API هنوز `main.protected=false` و rulesets خالی گزارش می‌کند؛ اتصال GitHub موجود فقط ابزار GET برای خواندن تنظیمات دارد و امکان نوشتن branch protection/ruleset در اختیارش نیست.
+- شش کلید عمومی مستقل Ed25519، Grant signer، Signal/Risk/Operator attestations، registry پایدار، secret runtime و allowlist واقعی Demo باید از مراجع واقعی دریافت شوند؛ اینها با commit یا سبزشدن workflow ساخته/جعل نمی‌شوند.
+- PR #227 هنوز Draft و ادغام‌نشده است.
+- هیچ معامله‌ای اجرا نشده است؛ Kill Switch `DENY`، مجوز Demo برابر false و Live غیرفعال می‌مانند.
+
+به‌دلیل تغییر پی‌درپی SHA، هیچ‌یک از Validation/Robustness/OOS روی `b60f950...` یا `a52a0d7...` را نمی‌توان به‌جای شواهد SHA `679c891...` پذیرفت.
