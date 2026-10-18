@@ -38,6 +38,8 @@ on:
       - 'tests/test_g13_demo_package_preflight_binding.py'
       - 'tests/test_g13_promotion_gate_provenance.py'
       - 'tests/test_g13_oos_watchdog_contract.py'
+      - 'research/optimization/rsi_divergence_discovery_g13.py'
+      - 'tests/test_g13_rsi_divergence_numpy_parity.py'
       - 'tests/test_mt5_common_files_profile_workflow_contract.py'
       - 'tools/control_plane_provider_host_preflight_v1.py'
       - 'tools/resolve_mt5_common_files_v1.ps1'
@@ -119,7 +121,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install test dependency
-        run: python -m pip install --disable-pip-version-check pytest 'cryptography>=42,<52'
+        run: python -m pip install --disable-pip-version-check pytest 'cryptography>=42,<52' 'numpy>=1.26,<3' 'pandas>=2.0,<3'
 
       - name: Test read-only Provider host diagnostic contract
         run: python -m pytest -q tests/test_control_plane_provider_host_preflight_v1.py
@@ -135,6 +137,9 @@ jobs:
 
       - name: Test legacy runtime probe trigger and shared runner lock
         run: python -m pytest -q tests/test_g13_runtime_probe_v1_trigger_contract.py
+
+      - name: Test G13 RSI divergence NumPy parity
+        run: python -m pytest -q tests/test_g13_rsi_divergence_numpy_parity.py
 
       - name: Test Capital Firewall Grant issuer and host preflight contracts
         run: |
