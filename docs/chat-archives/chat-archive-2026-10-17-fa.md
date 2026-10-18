@@ -526,3 +526,64 @@ Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) �
 - کپی و چاپ marker بعد از اجرای Probe و پیش از assertion، تا وقتی assertion شکست می‌خورد نیز شواهد محدود و غیرحساس artifact شود. هیچ سفارش یا مجوز جدیدی صادر نمی‌شود.
 
 پس از ادغام، به علت تغییر SHA باید زنجیرهٔ G13 از ابتدا روی همان SHA جدید اجرا شود. موفقیت Validation/Robustness/OOS/Promotion/Parity به‌تنهایی مجوز Demo نیست. Live همچنان قفل است.
+
+
+---
+
+## ۱۵. تکمیل زنجیرهٔ G13 تا آمادگی ممیزی Demo؛ مانع نهایی Control Plane — ۱۸ اکتبر ۲۰۲۶
+
+این بخش فقط به انتهای آرشیو اضافه شده است. تمام متن‌ها، لینک‌ها و بخش‌های قبلی بدون حذف یا بازنویسی حفظ شده‌اند.
+
+### وضعیت نهایی روی SHA دقیق main
+
+SHA نسخهٔ جاری در زمان این بررسی:
+`1b9fb2cc5b5514589a1e76fd7d8957dad12845d5`.
+
+- **Validation** — [run 39129178778](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129178778): موفق.
+- **Robustness** — [run 39129180619](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129180619): موفق.
+- **OOS** — [run 39129188559](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129188559): موفق.
+- **Promotion** — [run 39129340039](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129340039): موفق؛ ۹ کاندیدا ترویج شده‌اند.
+- **Execution Safety Audit** — [run 39129344679](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129344679): موفق.
+- **Compile + Signal Parity** — [run 39064380623، تلاش دوم](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39064380623): موفق؛ برابری Python/MQL5 برابر ۹ از ۹ PASS. اجرای موازی/تکراری [run 39129386859](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129386859) نیز در پایان موفق شد و Runtime portable پاک‌سازی شد.
+- **Runtime Safety Probe** — [run 39129391898](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129391898): موفق؛ Auth OFF و Auth ON هر دو marker معتبر ساختند، هویت حساب Demo و اتصال ترمینال تأیید شد، و Kill Switch در تمام آزمون‌ها `DENY` ماند. هیچ سفارشی ارسال نشد.
+- **Controlled Demo Package Preflight** — [run 39130021155](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130021155): موفق؛ هش هر ۹ باینری، هر ۹ سورس و هر ۹ قرارداد ایمنی سورس بررسی شدند.
+- **Demo Readiness Gate** — [run 39130062704](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130062704): موفق؛ **Watchdog رسمی [run 39063438315، تلاش دوم](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39063438315) نیز موفق شد.**
+
+### معنای دقیق «Readiness موفق»
+
+گزارش نهایی این مقدار را ثبت کرده است:
+
+`status=READY_FOR_CONTROLLED_DEMO_AUDIT`
+
+و `next_gate=CONTROLLED_DEMO_EXECUTION_AUDIT`. در همان گزارش:
+- `parity_status=PASS` و `parity_passed_count=9`
+- `runtime.account_identity_verified=true`
+- `runtime.terminal_connected=true`
+- `runtime.demo_account=true`
+- `runtime.authorization_off_blocks=true`
+- `runtime.authorization_on_permission_chain_match=true`
+- `runtime.orders_submitted=false`
+- `promotion.demo_trading_allowed=false`
+- `promotion.live_trading_allowed=false`
+- `live_remains_disabled=true`
+
+بنابراین مانع فنی راه‌اندازی MT5، هویت حساب، اجرای probe، برابری سیگنال و یکپارچگی بسته حل شده است. اما Readiness فقط اجازهٔ ادامه به **ممیزی اجرای Demo کنترل‌شده** می‌دهد؛ خودش مجوز معامله صادر نمی‌کند.
+
+### اقدام مجاز بعدی برای تشخیص مانع نهایی
+
+اکنون که Job تکراری Compile/Parity هم تمام شده، مرحلهٔ تشخیصی باقی‌مانده **ForexAI Capital Firewall Authorization Preflight** است:
+https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/workflows/forexai-capital-firewall-authorization-preflight.yml
+
+برای اجرای تشخیصی از candidate `2` استفاده می‌شود؛ این شناسه در manifest جاری و فهرست کاندیداهای promoted وجود دارد. مسیر پیش‌فرض ترمینال را تغییر ندهید. این Workflow فقط گزارش redact شده تولید می‌کند و Kill Switch را روی `DENY` می‌گذارد؛ به‌هیچ‌وجه مجوز نمی‌سازد و سفارش نمی‌فرستد.
+
+### مانع واقعی باقی‌مانده: منبع اعتماد و مجوز مستقل
+
+گزارش Readiness تأیید نمی‌کند که Capital Firewall authority فراهم شده باشد. ثبت مالکیت موجود، نقش Grant signer را `NOT PROVISIONED`، منبع تولید Signal را `NOT IDENTIFIED`، مرجع Risk + Reservation را `NOT IDENTIFIED` و منبع مستقل Human Operator Approval را provision نشده می‌داند. نگهداری کلید Promotion Attestor و ناسازگاری کلید عمومی نیز نیازمند رسیدگی با مالک واقعی کلید است.
+
+برای مجاز شدن یک سفارش Demo باید منابع واقعی و مستقل، کلیدهای عمومی معتبر و متمایز، کلید خصوصی Grant روی میزبان جداگانه و secret manager تأییدشده، registry ضدبازپخش پایدار، Signal امضاشده و تازه، رزرو ریسک واقعی، Operator approval معتبر، admission request امضاشده، TradeLedger معتبر و authenticated envelope تأمین و تطبیق داده شوند. روی MT5 Runner نیز مسیرهای `FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH`، `FOREXAI_TRADE_LEDGER_PATH` و `FOREXAI_AUTHENTICATED_ENVELOPE_PATH` و secret واقعی `FOREXAI_CONTROL_PLANE_HMAC_SECRET` باید از منبع امن معتبر پیکربندی شوند.
+
+Workflow ممیزی اجرای Demo به Trade ID صادرشده از Capital Firewall و فایل authorization پیش‌صادرشده نیاز دارد. هیچ Trade ID، امضا، تأیید انسانی، reservation، ledger event، envelope یا `.auth` نباید حدس زده یا جعل شود. تا وقتی آن منابع واقعاً provision نشده و Preflight مجوز سرمایه سبز نشده است، اجرای Controlled Demo Execution Audit مجاز نیست.
+
+**حالت ایمنی نهایی این checkpoint:** Kill Switch برابر `DENY`؛ مجوز Demo برابر false؛ مجوز Live برابر false؛ تعداد سفارش‌های ارسالی این زنجیره برابر صفر است.
+
+این بخش به انتهای آرشیو افزوده شد و همهٔ بخش‌های قبلی دست‌نخورده باقی مانده‌اند.
