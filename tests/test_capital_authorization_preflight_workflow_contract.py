@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_capital_authorization_preflight_is_manual_read_only_and_fail_closed():
+def test_capital_authorization_preflight_is_manual_or_after_readiness_read_only_and_fail_closed():
     workflow = (
         ROOT
         / ".github"
@@ -13,8 +13,15 @@ def test_capital_authorization_preflight_is_manual_read_only_and_fail_closed():
     ).read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in workflow
+    assert "workflow_run:" in workflow
+    assert '"ForexAI G13 Demo Readiness Gate M15"' in workflow
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "github.event.workflow_run.head_branch == 'main'" in workflow
+    assert "github.event.workflow_run.head_sha" in workflow
+    assert "CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED" in workflow
+    assert "CANDIDATE_ID: ${{ inputs.candidate_id || '2' }}" in workflow
     assert "runs-on: [self-hosted, windows, mt5]" in workflow
-    assert workflow.count("shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}") == 3
+    assert workflow.count("shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}") == 4
     assert "-m tools.diagnose_capital_authorization_prerequisites_v1" in workflow
     assert "-m tools.diagnose_capital_authorization_prerequisites_v1" in workflow
     assert "Push-Location -LiteralPath $env:GITHUB_WORKSPACE" in workflow

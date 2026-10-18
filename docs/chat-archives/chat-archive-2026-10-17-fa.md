@@ -526,3 +526,45 @@ Issue [#225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) �
 - کپی و چاپ marker بعد از اجرای Probe و پیش از assertion، تا وقتی assertion شکست می‌خورد نیز شواهد محدود و غیرحساس artifact شود. هیچ سفارش یا مجوز جدیدی صادر نمی‌شود.
 
 پس از ادغام، به علت تغییر SHA باید زنجیرهٔ G13 از ابتدا روی همان SHA جدید اجرا شود. موفقیت Validation/Robustness/OOS/Promotion/Parity به‌تنهایی مجوز Demo نیست. Live همچنان قفل است.
+
+
+---
+
+## ۱۵. مرحله‌بندی موانع باقی‌مانده و اتصال تشخیص Capital Firewall — ۱۸ اکتبر ۲۰۲۶
+
+این بخش به انتهای آرشیو افزوده شد. متن، توضیحات، پاسخ‌ها و لینک‌های قدیمی پاک یا بازنویسی نشده‌اند.
+
+### وضعیت فنی اثبات‌شده روی main
+
+SHA بررسی‌شده: `1b9fb2cc5b5514589a1e76fd7d8957dad12845d5`
+
+- Validation [39129178778](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129178778) — PASS.
+- Robustness [39129180619](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129180619) — PASS.
+- OOS [39129188559](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129188559) — PASS.
+- Promotion [39129340039](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129340039) — PASS.
+- Execution Safety Audit [39129344679](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129344679) — PASS.
+- Compile + Signal Parity [39064380623, attempt 2](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39064380623) — PASS؛ parity سیگنال Python/MQL5 برابر ۹/۹.
+- Runtime Safety Probe [39129391898](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39129391898) — PASS؛ Auth OFF و Auth ON، هویت حساب، اتصال ترمینال، عدم ارسال سفارش و Kill Switch برابر DENY بررسی شدند.
+- Controlled Demo Package Preflight [39130021155](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130021155) — PASS؛ ۹ binary و source و safety contract بررسی شدند.
+- Demo Readiness [39130062704](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130062704) — PASS به معنی آمادگی برای ممیزی کنترل‌شده، نه مجوز ترید.
+
+Readiness artifact واقعاً گزارش می‌کند: `status=READY_FOR_CONTROLLED_DEMO_AUDIT`, `next_gate=CONTROLLED_DEMO_EXECUTION_AUDIT`, `demo_trading_allowed=false`, `live_trading_allowed=false`, `orders_submitted=false`. در Promotion manifest همین SHA، شناسه‌های 2، 6، 10، 12، 14، 22، 26، 30 و 32 وجود دارند؛ Candidate ID 2 در manifest واقعی هست، نه حدس دستی.
+
+### تغییر فوری پیشنهادی
+
+PR جدید، **تشخیص فقط‌خواندنی Capital Firewall را پس از هر G13 Readiness موفق به‌طور خودکار اجرا می‌کند** و امکان اجرای دستی را هم حفظ می‌کند. برای رویداد خودکار، workflow:
+- فقط Readiness موفق روی شاخهٔ main را می‌پذیرد.
+- دقیقاً همان SHA را checkout می‌کند و قبل از بررسی، جلوی گزارش منسوخ را اگر main تغییر کرده باشد می‌گیرد.
+- Kill Switch را روی DENY تثبیت و راستی‌آزمایی می‌کند.
+- فقط گزارش redacted آپلود می‌کند و در صورت وجود blocker، Actions به‌درستی شکست می‌خورد.
+- مجوز، Grant، envelope، TradeLedger event یا رکورد MQL5 ایجاد نمی‌کند و سفارشی نمی‌فرستد.
+
+### مراحل بعدی بر اساس امکان رفع
+
+1. **رفع‌شده:** زنجیرهٔ G13/MT5، parity، Runtime و Package Readiness روی SHA فعلی سبز است.
+2. **قابل‌رفع از مخزن:** اجرای خودکار read-only Capital Firewall Preflight؛ PR باید روی head نهایی CI سبز شود و سپس ادغام گردد. بعد از commit جدید، زنجیرهٔ exact-SHA مجدداً اجرا می‌شود و پس از Readiness جدید، تشخیص خودکار blockerهای میزبان را گزارش می‌کند.
+3. **قابل‌رفع با دسترسی Admin/Secret Store:** تأمین و تأیید مسیرهای محلی `FOREXAI_TRADE_LEDGER_PATH`، `FOREXAI_AUTHENTICATED_ENVELOPE_PATH` و secret محافظت‌شدهٔ `FOREXAI_CONTROL_PLANE_HMAC_SECRET` در صورت موجودبودن منابع واقعی. هیچ مقدار محرمانه‌ای نباید وارد GitHub، آرشیو، چت یا لاگ شود.
+4. **نیازمند مسئول و منبع مستقل واقعی:** راه‌اندازی/تأیید Grant signer مستقل، Promotion Attestor با اصلاح مالکانهٔ mismatch و custody کلید، Signal source، Risk + Reservation، Human Approval و شش trust anchor متمایز؛ سپس امضای واقعی یک درخواست کوتاه‌عمر یک‌سیگنال Demo و تأیید ledger/envelope.
+5. **آخرین گیت:** Capital Firewall Authorization Preflight باید با صفر blocker و وضعیت `PREREQUISITES_PRESENT_NO_EXECUTION` موفق باشد؛ سپس روی همان شواهد جاری ممیزی اجرای کنترل‌شدهٔ یک سیگنال. Live همچنان غیرفعال.
+
+منابع مستقل و مجوز واقعی را نمی‌توان با کد مخزن، CI سبز، کلید آزمایشی، فایل JSON دستی یا Candidate ID جایگزین کرد. تا زمان موفقیت واقعی مراحل ۳ تا ۵، Demo غیرمجاز، Kill Switch برابر DENY، Live خاموش و تعداد سفارش‌های تشخیصی صفر باقی می‌ماند.
