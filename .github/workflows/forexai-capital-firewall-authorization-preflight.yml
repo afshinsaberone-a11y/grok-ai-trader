@@ -13,18 +13,20 @@ on:
         required: true
         default: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
         type: string
-
-  # Run this read-only diagnostic automatically after a successful G13
-  # Readiness Gate. It reports authority blockers; it never grants permission.
-  workflow_run:
-    workflows:
-      - "ForexAI G13 Demo Readiness Gate M15"
-    types: [completed]
-    branches:
-      - main
+      readiness_run_id:
+        description: "Optional successful G13 Demo Readiness Gate run ID for exact-SHA automatic preflight"
+        required: false
+        default: ""
+        type: string
+      readiness_sha:
+        description: "Exact main SHA bound to readiness_run_id; required when readiness_run_id is provided"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: forexai-capital-firewall-authorization-preflight
@@ -32,12 +34,6 @@ concurrency:
 
 jobs:
   inspect:
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'workflow_run' &&
-           github.event.workflow_run.conclusion == 'success' &&
-           github.event.workflow_run.name == 'ForexAI G13 Demo Readiness Gate M15' &&
-           github.event.workflow_run.head_branch == 'main') }}
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 10
     env:
@@ -51,25 +47,50 @@ jobs:
       - name: Checkout exact revision
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ inputs.readiness_sha || github.sha }}
 
-      - name: Verify readiness SHA is still current main
-        if: github.event_name == 'workflow_run'
+      - name: Verify exact successful readiness source when run-bound
+        if: inputs.readiness_run_id != ''
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          READINESS_SHA: ${{ github.event.workflow_run.head_sha }}
+          READINESS_RUN_ID: ${{ inputs.readiness_run_id }}
+          READINESS_SHA_INPUT: ${{ inputs.readiness_sha }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if ($env:READINESS_SHA -notmatch '^[0-9a-f]{40}$') { throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_SHA_INVALID' }
+          $runId = 0
+          if (-not [int]::TryParse($env:READINESS_RUN_ID, [ref]$runId) -or $runId -le 0) {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_RUN_ID_INVALID'
+          }
+          if ($env:READINESS_SHA_INPUT -notmatch '^[0-9a-f]{40}$') {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_SHA_INVALID'
+          }
           $headers = @{
             Authorization = "Bearer $env:GITHUB_TOKEN"
             Accept = 'application/vnd.github+json'
             'X-GitHub-Api-Version' = '2022-11-28'
           }
+          $readiness = $null
+          for ($attempt = 1; $attempt -le 60; $attempt++) {
+            $readiness = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$runId" -Headers $headers
+            if ($readiness.status -eq 'completed') { break }
+            Start-Sleep -Seconds 5
+          }
+          if ($null -eq $readiness -or $readiness.status -ne 'completed') {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_COMPLETION_TIMEOUT'
+          }
+          if ($readiness.name -ne 'ForexAI G13 Demo Readiness Gate M15') {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_WORKFLOW_MISMATCH'
+          }
+          if ($readiness.conclusion -ne 'success' -or $readiness.head_branch -ne 'main') {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_NOT_SUCCESSFUL_ON_MAIN'
+          }
+          if ($readiness.head_sha -ne $env:READINESS_SHA_INPUT) {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_SHA_MISMATCH'
+          }
           $main = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/commits/main" -Headers $headers
-          if ($main.sha -ne $env:READINESS_SHA) { throw 'CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED' }
-          Write-Output "CAPITAL_AUTH_PREFLIGHT_READINESS_SHA_VERIFIED=$($env:READINESS_SHA)"
+          if ($main.sha -ne $env:READINESS_SHA_INPUT) { throw 'CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED' }
+          Write-Output "CAPITAL_AUTH_PREFLIGHT_READINESS_VERIFIED=true RUN=$runId SHA=$($env:READINESS_SHA_INPUT)"
 
       - name: Resolve MT5 owner profile and set fail-closed kill switch
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}

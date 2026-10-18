@@ -47,6 +47,9 @@ jobs:
       ${{ github.event_name == 'workflow_dispatch' ||
           (github.event.workflow_run.conclusion == 'success' &&
            github.event.workflow_run.name == 'ForexAI G13 Controlled Demo Package Preflight M15') }}
+    permissions:
+      actions: write
+      contents: read
     runs-on: ubuntu-latest
     env:
       PYTHONOPTIMIZE: '0'
@@ -281,3 +284,75 @@ jobs:
           name: g13-demo-readiness-gate-m15
           path: artifacts/g13/g13-demo-readiness-gate-m15.json
           if-no-files-found: error
+
+      - name: Dispatch exact-SHA read-only Capital Firewall preflight
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          READINESS_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+
+          repository = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GITHUB_TOKEN"]
+          readiness_run_id = os.environ["READINESS_RUN_ID"]
+          expected_sha = os.environ["MAIN_HEAD_SHA"]
+          api_root = f"https://api.github.com/repos/{repository}"
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def get_json(url):
+              request = Request(url, headers=headers)
+              with urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          main = get_json(f"{api_root}/commits/main")
+          if main.get("sha") != expected_sha:
+              raise SystemExit("CAPITAL_PREFLIGHT_DISPATCH_MAIN_SHA_MOVED")
+
+          source = get_json(f"{api_root}/actions/runs/{readiness_run_id}")
+          if source.get("name") != "ForexAI G13 Demo Readiness Gate M15":
+              raise SystemExit("CAPITAL_PREFLIGHT_DISPATCH_SOURCE_WORKFLOW_MISMATCH")
+          if source.get("head_branch") != "main" or source.get("head_sha") != expected_sha:
+              raise SystemExit("CAPITAL_PREFLIGHT_DISPATCH_SOURCE_SHA_MISMATCH")
+          if source.get("status") not in ("in_progress", "completed"):
+              raise SystemExit("CAPITAL_PREFLIGHT_DISPATCH_SOURCE_STATE_INVALID")
+          if source.get("status") == "completed" and source.get("conclusion") != "success":
+              raise SystemExit("CAPITAL_PREFLIGHT_DISPATCH_SOURCE_NOT_SUCCESSFUL")
+
+          payload = {
+              "ref": "main",
+              "inputs": {
+                  "readiness_run_id": str(readiness_run_id),
+                  "readiness_sha": expected_sha,
+                  "candidate_id": "2",
+                  "terminal_path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+              },
+          }
+          request = Request(
+              f"{api_root}/actions/workflows/forexai-capital-firewall-authorization-preflight.yml/dispatches",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={**headers, "Content-Type": "application/json"},
+              method="POST",
+          )
+          try:
+              with urlopen(request, timeout=20) as response:
+                  if response.status not in (201, 204):
+                      raise SystemExit("CAPITAL_PREFLIGHT_DISPATCH_UNEXPECTED_STATUS")
+          except HTTPError as error:
+              raise SystemExit(f"CAPITAL_PREFLIGHT_DISPATCH_HTTP_{error.code}") from None
+          print(
+              "CAPITAL_FIREWALL_PREFLIGHT_DISPATCHED",
+              f"readiness_run_id={readiness_run_id}",
+              f"readiness_sha={expected_sha}",
+              "orders_submitted=false",
+              "authorization_created=false",
+          )
+          PY

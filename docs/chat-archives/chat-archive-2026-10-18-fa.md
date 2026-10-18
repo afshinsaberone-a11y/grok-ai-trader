@@ -97,3 +97,33 @@ Runtime Safety Probe فقط زمانی موفق محسوب می‌شود که ma
 
 ---
 *این آرشیو به‌عنوان فایل مستقل افزوده شده است؛ آرشیوهای قدیمی جایگزین یا حذف نشده‌اند.*
+
+
+---
+
+## ۹. اصلاح trigger خودکار Capital Firewall پس از Readiness — ۱۸ اکتبر ۲۰۲۶
+
+این افزوده به انتهای آرشیو روزانه اضافه شده است؛ بخش‌های قبلی حذف یا بازنویسی نشده‌اند.
+
+### مشاهدهٔ دقیق
+
+روی main با SHA 890e471073ea425f07999200f332cec5c927a031، این اجراها موفق بودند:
+
+- [OOS M15 Current — 39133726375](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39133726375)
+- [Final Promotion — 39133879918](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39133879918)
+- [Compile + Signal Parity — 39134000464](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39134000464)
+- [Runtime Safety Probe — 39134457094](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39134457094)
+- [Controlled Demo Package Preflight — 39134596728](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39134596728)
+- [Demo Readiness Gate — 39134681756](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39134681756)
+
+Readiness فقط READY_FOR_CONTROLLED_DEMO_AUDIT را تأیید می‌کند؛ demo_trading_allowed=false، live_trading_allowed=false و orders_submitted=false باقی می‌مانند. در فهرست اجراهای بررسی‌شده، پس از Readiness موفق، اجرای خودکار تازهٔ Capital Firewall Preflight دیده نشد. اجرای قدیمی [39130857806](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130857806) به‌دلیل رسیدن از رویداد Readiness که خودش Skipped بود، Skip شده بود و مدرک پیش‌نیازهای امروز نیست.
+
+### اصلاح در PR #290
+
+[PR #290](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/290) به‌جای اتکا به workflow_run برای راه‌اندازی preflight، آن را مستقیماً در انتهای Workflow Readiness dispatch می‌کند. این مرحله فقط پس از موفق‌شدن assertionها و آپلود artifact اجرا می‌شود، SHA جاری را دوباره بررسی می‌کند و شناسهٔ همان Run را به preflight می‌دهد. Preflight تا اتمام Run والد با نتیجهٔ success صبر می‌کند، نام workflow، شاخهٔ main، SHA دقیق و تطابق آن با main را کنترل می‌کند؛ در صورت mismatch یا timeout، fail-closed می‌ماند.
+
+این اصلاح از مجوز actions: write فقط در job مربوط به Readiness برای dispatch یک workflow تشخیصی استفاده می‌کند. خود Capital Firewall preflight فقط actions: read دارد و همچنان باید گزارش redacted صادر کند؛ هیچ grant، envelope، ledger event یا رکورد مجوز تولید نمی‌شود و هیچ سفارش ارسال نمی‌شود. آرشیو قبلی و نتایج G13 پیشین حفظ شده‌اند.
+
+### اعتبارسنجی لازم
+
+تست قرارداد جدید باید اثبات کند که dispatch بعد از Readiness و آپلود artifact است، Run ID و SHA دقیق ارسال می‌شوند و Preflight فقط پس از اتمام موفق همان Run به بررسی میزبان ادامه می‌دهد. این تغییر تا پاس‌شدن CI و ادغام معتبر تلقی نمی‌شود. پس از ادغام، زنجیرهٔ exact-SHA تازه لازم است؛ فقط گزارش واقعی Capital Firewall می‌تواند blockerهای میزبان/کلید را آشکار کند.
