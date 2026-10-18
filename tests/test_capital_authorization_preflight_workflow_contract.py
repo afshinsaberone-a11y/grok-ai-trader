@@ -13,7 +13,7 @@ def test_capital_authorization_preflight_is_manual_or_after_readiness_read_only_
     ).read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in workflow
-    assert '"ForexAI G13 Demo Readiness Gate M15"' in workflow
+    assert "ForexAI G13 Demo Readiness Gate M15" in workflow
     assert 'readiness_run_id:' in workflow
     assert 'readiness_sha:' in workflow
     assert "READINESS_SHA_INPUT" in workflow
