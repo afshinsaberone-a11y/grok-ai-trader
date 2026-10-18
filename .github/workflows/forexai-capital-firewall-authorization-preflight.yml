@@ -58,8 +58,8 @@ jobs:
           READINESS_SHA_INPUT: ${{ inputs.readiness_sha }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $runId = 0
-          if (-not [int]::TryParse($env:READINESS_RUN_ID, [ref]$runId) -or $runId -le 0) {
+          [long]$runId = 0
+          if (-not [long]::TryParse($env:READINESS_RUN_ID, [ref]$runId) -or $runId -le 0) {
             throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_RUN_ID_INVALID'
           }
           if ($env:READINESS_SHA_INPUT -notmatch '^[0-9a-f]{40}$') {

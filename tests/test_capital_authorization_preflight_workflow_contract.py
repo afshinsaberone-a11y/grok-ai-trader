@@ -16,6 +16,9 @@ def test_capital_authorization_preflight_is_manual_or_after_readiness_read_only_
     assert "ForexAI G13 Demo Readiness Gate M15" in workflow
     assert 'readiness_run_id:' in workflow
     assert 'readiness_sha:' in workflow
+    assert "[long]$runId = 0" in workflow
+    assert "[long]::TryParse($env:READINESS_RUN_ID, [ref]$runId)" in workflow
+    assert "[int]::TryParse($env:READINESS_RUN_ID" not in workflow
     assert "READINESS_SHA_INPUT" in workflow
     assert "$readiness.head_sha -ne $env:READINESS_SHA_INPUT" in workflow
     assert "CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED" in workflow
