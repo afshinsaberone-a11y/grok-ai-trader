@@ -313,3 +313,17 @@ Commitهای زیر در تاریخچهٔ مخزن دیده شدند:
 - نتیجهٔ آزمون‌ها و Runها را با لینک و SHA دقیق ثبت کند؛
 - Secretها، کلیدهای خصوصی، passphraseها، داده‌های حساب و شناسه‌های امنیتی را حذف کند؛
 - شواهد ناموجود را به‌صورت نامعلوم/تأییدنشده ثبت کند، نه اینکه آن‌ها را حدس بزند.
+
+
+---
+
+## 16. آرشیو گفت‌وگوی ۱۸ اکتبر ۲۰۲۶ — موانع G13 و Control Plane
+
+برای حفظ گفتگوهای تازه بدون بازنویسی این سند تاریخی، آرشیو مستقل زیر افزوده شد:
+
+- [آرشیو فارسی گفت‌وگوی ۱۸ اکتبر ۲۰۲۶](docs/chat-archives/chat-archive-2026-10-18-fa.md)
+- [Issue #225 — موانع واقعی Capital Firewall](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225)
+- SHA مبنای وضعیت ثبت‌شده: `86ebd46709c22d88646a137bfeb7d006b5b55875`.
+- روی این SHA، Validation، Robustness، OOS، Promotion، Execution Safety Audit، MT5 Compile/Signal Parity، Runtime Safety Probe، Controlled Demo Package Preflight و Demo Readiness Gate همگی PASS ثبت شده‌اند؛ لینک‌های هر اجرا در فایل مستقل هستند.
+- این نتیجه‌ها مجوز Capital Firewall نیستند. آخرین Preflight دیده‌شده skipped بود و تأمین/اعتبارسنجی منابع مستقل امضا، TradeLedger، envelope و رزرو ریسک همچنان شرط لازم است.
+- آرشیو قبلی و محتوای این فایل دست‌نخورده باقی مانده‌اند؛ این بخش فقط به انتها اضافه شده است.
