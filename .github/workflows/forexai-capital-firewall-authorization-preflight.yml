@@ -13,18 +13,20 @@ on:
         required: true
         default: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
         type: string
-
-  # Run this read-only diagnostic automatically after a successful G13
-  # Readiness Gate. It reports authority blockers; it never grants permission.
-  workflow_run:
-    workflows:
-      - "ForexAI G13 Demo Readiness Gate M15"
-    types: [completed]
-    branches:
-      - main
+      readiness_run_id:
+        description: "Optional successful G13 Demo Readiness Gate run ID for exact-SHA automatic preflight"
+        required: false
+        default: ""
+        type: string
+      readiness_sha:
+        description: "Exact main SHA bound to readiness_run_id; required when readiness_run_id is provided"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: forexai-capital-firewall-authorization-preflight
@@ -32,12 +34,6 @@ concurrency:
 
 jobs:
   inspect:
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'workflow_run' &&
-           github.event.workflow_run.conclusion == 'success' &&
-           github.event.workflow_run.name == 'ForexAI G13 Demo Readiness Gate M15' &&
-           github.event.workflow_run.head_branch == 'main') }}
     runs-on: [self-hosted, windows, mt5]
     timeout-minutes: 10
     env:
@@ -51,25 +47,235 @@ jobs:
       - name: Checkout exact revision
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ inputs.readiness_sha || github.sha }}
 
-      - name: Verify readiness SHA is still current main
-        if: github.event_name == 'workflow_run'
+      - name: Verify exact successful readiness source when run-bound
+        if: inputs.readiness_run_id != ''
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          READINESS_SHA: ${{ github.event.workflow_run.head_sha }}
+          READINESS_RUN_ID: ${{ inputs.readiness_run_id }}
+          READINESS_SHA_INPUT: ${{ inputs.readiness_sha }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if ($env:READINESS_SHA -notmatch '^[0-9a-f]{40}$') { throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_SHA_INVALID' }
+          $runId = 0
+          if (-not [int]::TryParse($env:READINESS_RUN_ID, [ref]$runId) -or $runId -le 0) {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_RUN_ID_INVALID'
+          }
+          if ($env:READINESS_SHA_INPUT -notmatch '^[0-9a-f]{40}
+      - name: Resolve MT5 owner profile and set fail-closed kill switch
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Always preserve a redacted report even when MT5 profile discovery fails.
+          # In particular, do not turn a missing process into a successful preflight.
+          $reportDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts/g13-capital-authorization-preflight'
+          New-Item -ItemType Directory -Force -Path $reportDirectory | Out-Null
+          $reportPath = Join-Path $reportDirectory 'report.json'
+          $preflightReport = [ordered]@{
+            schema = 'forexai.capital_authorization_preflight_early_failure.v1'
+            checked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+            candidate_id = [string]$env:CANDIDATE_ID
+            symbol = 'EURUSD'
+            timeframe = 'M15'
+            status = 'BLOCKED'
+            stage = 'MT5_OWNER_PROFILE_RESOLUTION'
+            owner_profile_resolution = 'PENDING'
+            kill_switch_deny_status = 'UNVERIFIED'
+            authorization_record_created = $false
+            ledger_mutated = $false
+            order_submission_performed = $false
+            live_authorization_changed = $false
+            blockers = @('PREFLIGHT_NOT_COMPLETED')
+          }
+          $preflightReport | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encoding utf8
+          try {
+            & (Join-Path $env:GITHUB_WORKSPACE 'tools\\resolve_mt5_profile_or_desktop_v1.ps1') -TerminalPath "$env:TERMINAL_PATH" -DataRoot "$env:MT5_DATA_ROOT" -SetDenyKillSwitch |
+              ForEach-Object {
+                $line = [string]$_
+                if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
+                elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') { Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]' }
+                elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
+                else { Write-Output $line }
+              }
+            $preflightReport.stage = 'READ_ONLY_DIAGNOSTIC_PENDING'
+            $preflightReport.owner_profile_resolution = 'PASS'
+            $preflightReport.kill_switch_deny_status = 'VERIFIED_DENY'
+            $preflightReport.blockers = @('READ_ONLY_DIAGNOSTIC_PENDING')
+            $preflightReport | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encoding utf8
+          } catch {
+            # The resolver's exception can contain local paths, usernames, or PIDs.
+            # Emit only an allowlisted reason code so the actionable cause is visible
+            # without exposing machine-specific data in public workflow logs.
+            $failureText = [string]$_.Exception.Message
+            $failureCode = switch -Regex ($failureText) {
+              '^G13_MT5_TERMINAL_EXECUTABLE_NOT_FOUND:' { 'TERMINAL_EXECUTABLE_NOT_FOUND'; break }
+              '^G13_MT5_TERMINAL_PROCESS_NOT_FOUND:' { 'TERMINAL_PROCESS_NOT_FOUND'; break }
+              '^G13_MT5_TERMINAL_PROCESS_ACCESS_DENIED$' { 'TERMINAL_PROCESS_ACCESS_DENIED'; break }
+              '^G13_MT5_TERMINAL_PROCESS_PATH_UNAVAILABLE$' { 'TERMINAL_PROCESS_PATH_UNAVAILABLE'; break }
+              '^G13_MT5_TERMINAL_PROCESS_PATH_MISMATCH$' { 'TERMINAL_PROCESS_PATH_MISMATCH'; break }
+              '^G13_MT5_TERMINAL_OWNER_SID_UNRESOLVED:' { 'TERMINAL_OWNER_SID_UNRESOLVED'; break }
+              '^G13_MT5_TERMINAL_OWNER_UNRESOLVED:' { 'TERMINAL_OWNER_UNRESOLVED'; break }
+              '^G13_MT5_USER_PROFILE_UNRESOLVED:' { 'USER_PROFILE_UNRESOLVED'; break }
+              '^G13_MT5_MULTIPLE_TERMINAL_PROFILES_MATCH_EXECUTABLE$' { 'MULTIPLE_TERMINAL_PROFILES'; break }
+              '^G13_MT5_COMMON_FILES_DIRECTORY_NOT_FOUND:' { 'COMMON_FILES_DIRECTORY_NOT_FOUND'; break }
+              '^G13_KILL_SWITCH_INITIAL_DENY_FAILED:' { 'KILL_SWITCH_DENY_WRITE_FAILED'; break }
+              '^G13_KILL_SWITCH_INITIAL_DENY_VERIFICATION_FAILED$' { 'KILL_SWITCH_DENY_VERIFY_FAILED'; break }
+              '^G13_MT5_COMMON_FILES_WRITE_ACCESS_DENIED:' { 'COMMON_FILES_WRITE_ACCESS_DENIED'; break }
+              '^G13_MT5_CONFIGURED_DATA_ROOT_MISSING$' { 'CONFIGURED_DATA_ROOT_MISSING'; break }
+              '^G13_MT5_CONFIGURED_PROFILE_ROOT_MISSING$' { 'CONFIGURED_PROFILE_ROOT_MISSING'; break }
+              '^G13_MT5_CONFIGURED_PROFILE_UNRESOLVED$' { 'CONFIGURED_PROFILE_UNRESOLVED'; break }
+              '^G13_MT5_INTERACTIVE_SESSION_REQUIRED' { 'INTERACTIVE_SESSION_REQUIRED'; break }
+              '^G13_MT5_COMMON_FILES_PATH_MISMATCH$' { 'COMMON_FILES_PATH_MISMATCH'; break }
+              '^G13_MT5_COMMON_FILES_PATH_INVALID$' { 'COMMON_FILES_PATH_INVALID'; break }
+              '^G13_MT5_INTERACTIVE_PROFILE_RESOLUTION_FAILED$' { 'INTERACTIVE_PROFILE_RESOLUTION_FAILED'; break }
+              '^G13_MT5_PROFILE_RESOLUTION_FAILED$' { 'MT5_PROFILE_RESOLUTION_FAILED'; break }
+              '^G13_MT5_INTERACTIVE_PROFILE_OUTPUT_INCOMPLETE$' { 'INTERACTIVE_PROFILE_OUTPUT_INCOMPLETE'; break }
+              default { 'UNCLASSIFIED_RESOLVER_FAILURE' }
+            }
+            $preflightReport.status = 'BLOCKED'
+            $preflightReport.stage = 'MT5_OWNER_PROFILE_RESOLUTION'
+            $preflightReport.owner_profile_resolution = 'FAIL'
+            $preflightReport.kill_switch_deny_status = 'UNVERIFIED'
+            $preflightReport.blockers = @($failureCode)
+            try {
+              $preflightReport | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encoding utf8
+            } catch {
+              Write-Output 'CAPITAL_AUTH_PREFLIGHT_REPORT_WRITE_FAILED=true'
+            }
+            Write-Output "CAPITAL_AUTH_PREFLIGHT_RESOLVER_FAILURE_CODE=$failureCode"
+            throw "CAPITAL_AUTH_PREFLIGHT_MT5_PROFILE_RESOLUTION_FAILED:$failureCode"
+          }
+
+      - name: Resolve Python runtime
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidatePaths = @(
+            (Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+            'C:\\Users\\Star\\AppData\\Local\\Programs\\Python\\Python312\\python.exe',
+            'C:\\Program Files\\Python312\\python.exe'
+          ) | Where-Object { $_ }
+          $pythonExe = $null
+          foreach ($candidate in $candidatePaths) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+              try {
+                $version = (& $candidate -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>$null | Select-Object -Last 1).Trim()
+                if ($LASTEXITCODE -eq 0 -and $version -match '^3 (11|12|13)$') { $pythonExe = $candidate; break }
+              } catch { }
+            }
+          }
+          if (-not $pythonExe) { throw 'CAPITAL_AUTH_PREFLIGHT_PYTHON_NOT_FOUND' }
+          "PYTHON_EXE=$pythonExe" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'CAPITAL_AUTH_PREFLIGHT_PYTHON=PASS'
+
+      - name: Run read-only Capital Firewall prerequisite diagnostic
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Paths and the optional Trade ID are runner-local environment variables,
+          # not workflow inputs, so their values are never echoed into public logs.
+          $ledger = $env:FOREXAI_TRADE_LEDGER_PATH
+          $authenticatedEnvelope = $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH
+          $expectedTradeId = $env:FOREXAI_EXPECTED_TRADE_ID
+
+          New-Item -ItemType Directory -Force -Path 'artifacts/g13-capital-authorization-preflight' | Out-Null
+          $reportPath = Join-Path $env:GITHUB_WORKSPACE 'artifacts/g13-capital-authorization-preflight/report.json'
+          $diagnosticArgs = @(
+            '--candidate-id', $env:CANDIDATE_ID,
+            '--common-files', $env:FOREXAI_MT5_COMMON_FILES,
+            '--report-out', $reportPath
+          )
+          if (-not [string]::IsNullOrWhiteSpace($ledger)) {
+            $diagnosticArgs += @('--ledger-path', $ledger)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($authenticatedEnvelope)) {
+            $diagnosticArgs += @('--authenticated-envelope-path', $authenticatedEnvelope)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($expectedTradeId)) {
+            $diagnosticArgs += @('--expected-trade-id', $expectedTradeId)
+          }
+
+          # Invoke as a module from the repository root so imports such as
+          # "from tools.capital_firewall_v1 import CapitalFirewall" resolve
+          # consistently on the self-hosted Windows runner.
+          Push-Location -LiteralPath $env:GITHUB_WORKSPACE
+          try {
+            & $env:PYTHON_EXE -m tools.diagnose_capital_authorization_prerequisites_v1 @diagnosticArgs
+            $diagnosticExitCode = $LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
+          if ($diagnosticExitCode -ne 0) { throw "CAPITAL_AUTH_PREFLIGHT_DIAGNOSTIC_FAILED:$diagnosticExitCode" }
+
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          "CAPITAL_AUTH_PREFLIGHT_STATUS=$($report.status)" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "BLOCKER_COUNT=$(@($report.blockers).Count)" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "AUTHORIZATION_RECORD_CREATED=$($report.authorization_record_created)" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "ORDER_SUBMISSION_PERFORMED=$($report.order_submission_performed)" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          Write-Output "CAPITAL_AUTH_PREFLIGHT_STATUS=$($report.status)"
+          Write-Output "CAPITAL_AUTH_PREFLIGHT_BLOCKERS=$(@($report.blockers) -join ',')"
+          Write-Output 'AUTHORIZATION_RECORD_CREATED=false'
+          Write-Output 'ORDER_SUBMISSION_PERFORMED=false'
+
+          # A green Actions run must mean that the diagnostic found no blockers.
+          # Keep the redacted report uploadable via the following if: always()
+          # step, but do not let a completed diagnostic with BLOCKED status look
+          # like a successful authorization preflight.
+          $reportedStatus = [string]$report.status
+          $blockers = @(
+            $report.blockers |
+              ForEach-Object { [string]$_ } |
+              Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          )
+          if ($reportedStatus -ne 'PREREQUISITES_PRESENT_NO_EXECUTION' -or $blockers.Count -gt 0) {
+            if ($reportedStatus -eq 'BLOCKED' -and $blockers.Count -gt 0) {
+              $reason = $blockers -join ','
+            } else {
+              $reason = 'UNEXPECTED_DIAGNOSTIC_STATUS'
+            }
+            throw "CAPITAL_AUTH_PREFLIGHT_NOT_READY:$reason"
+          }
+
+      - name: Upload redacted prerequisite report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-capital-authorization-preflight
+          path: artifacts/g13-capital-authorization-preflight/report.json
+          if-no-files-found: warn
+          retention-days: 7
+) {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_SHA_INVALID'
+          }
           $headers = @{
             Authorization = "Bearer $env:GITHUB_TOKEN"
             Accept = 'application/vnd.github+json'
             'X-GitHub-Api-Version' = '2022-11-28'
           }
+          $readiness = $null
+          for ($attempt = 1; $attempt -le 60; $attempt++) {
+            $readiness = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$runId" -Headers $headers
+            if ($readiness.status -eq 'completed') { break }
+            Start-Sleep -Seconds 5
+          }
+          if ($null -eq $readiness -or $readiness.status -ne 'completed') {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_COMPLETION_TIMEOUT'
+          }
+          if ($readiness.name -ne 'ForexAI G13 Demo Readiness Gate M15') {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_WORKFLOW_MISMATCH'
+          }
+          if ($readiness.conclusion -ne 'success' -or $readiness.head_branch -ne 'main') {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_NOT_SUCCESSFUL_ON_MAIN'
+          }
+          if ($readiness.head_sha -ne $env:READINESS_SHA_INPUT) {
+            throw 'CAPITAL_AUTH_PREFLIGHT_READINESS_SHA_MISMATCH'
+          }
           $main = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/commits/main" -Headers $headers
-          if ($main.sha -ne $env:READINESS_SHA) { throw 'CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED' }
-          Write-Output "CAPITAL_AUTH_PREFLIGHT_READINESS_SHA_VERIFIED=$($env:READINESS_SHA)"
+          if ($main.sha -ne $env:READINESS_SHA_INPUT) { throw 'CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED' }
+          Write-Output "CAPITAL_AUTH_PREFLIGHT_READINESS_VERIFIED=true RUN=$runId SHA=$($env:READINESS_SHA_INPUT)"
 
       - name: Resolve MT5 owner profile and set fail-closed kill switch
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
