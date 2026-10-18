@@ -38,38 +38,55 @@ def pivots(d,p):
     return d.High.eq(d.High.rolling(2*p+1,center=True).max()).fillna(False), d.Low.eq(d.Low.rolling(2*p+1,center=True).min()).fillna(False)
 
 def signals(d,p):
-    ph,pl=pivots(d,p['pivot']); out=pd.Series(0,index=d.index,dtype=int); highs=[]; lows=[]
-    for i in range(p['pivot'],len(d)-p['pivot']):
-        if not (np.isfinite(d.RSI14.iloc[i]) and np.isfinite(d.ATR14.iloc[i])): continue
-        pi=i-p['pivot']
-        if ph.iloc[pi]: highs.append((pi,float(d.High.iloc[pi]),float(d.RSI14.iloc[pi])))
-        if pl.iloc[pi]: lows.append((pi,float(d.Low.iloc[pi]),float(d.RSI14.iloc[pi])))
+    """Build divergence signals with NumPy row access; preserve the canonical signal rules."""
+    ph,pl=pivots(d,p['pivot'])
+    n=len(d)
+    pivot=int(p['pivot'])
+    ph_values=ph.to_numpy(dtype=bool,copy=False)
+    pl_values=pl.to_numpy(dtype=bool,copy=False)
+    highs_values=d['High'].to_numpy(dtype=float,copy=False)
+    lows_values=d['Low'].to_numpy(dtype=float,copy=False)
+    rsi_values=d['RSI14'].to_numpy(dtype=float,copy=False)
+    atr_values=d['ATR14'].to_numpy(dtype=float,copy=False)
+    out=np.zeros(n,dtype=int)
+    highs=[]; lows=[]
+    for i in range(pivot,n-pivot):
+        if not (np.isfinite(rsi_values[i]) and np.isfinite(atr_values[i])): continue
+        pi=i-pivot
+        if ph_values[pi]: highs.append((pi,float(highs_values[pi]),float(rsi_values[pi])))
+        if pl_values[pi]: lows.append((pi,float(lows_values[pi]),float(rsi_values[pi])))
         if p['side']=='short' and len(highs)>=2:
             a,b=highs[-2],highs[-1]
-            if b[1]>a[1]+p['min_delta'] and b[2]<a[2] and b[2]>=p['rsi_high']: out.iloc[i]=-1
+            if b[1]>a[1]+p['min_delta'] and b[2]<a[2] and b[2]>=p['rsi_high']: out[i]=-1
         if p['side']=='long' and len(lows)>=2:
             a,b=lows[-2],lows[-1]
-            if b[1]<a[1]-p['min_delta'] and b[2]>a[2] and b[2]<=p['rsi_low']: out.iloc[i]=1
-    return out
+            if b[1]<a[1]-p['min_delta'] and b[2]>a[2] and b[2]<=p['rsi_low']: out[i]=1
+    return pd.Series(out,index=d.index,dtype=int)
 
 def trade_returns(d,p):
-    """Return canonical per-trade R multiples using the v1 execution contract."""
+    """Return canonical per-trade R multiples using NumPy row access and the v1 execution contract."""
     if len(d)<100: return []
-    sig=signals(d,p); cfg=ExecutionConfig(); rs=[]; pos=None
+    sig=signals(d,p).to_numpy(dtype=int,copy=False)
+    highs=d['High'].to_numpy(dtype=float,copy=False)
+    lows=d['Low'].to_numpy(dtype=float,copy=False)
+    opens=d['Open'].to_numpy(dtype=float,copy=False)
+    closes=d['Close'].to_numpy(dtype=float,copy=False)
+    atr_values=d['ATR14'].to_numpy(dtype=float,copy=False)
+    cfg=ExecutionConfig(); rs=[]; pos=None
     for i in range(1,len(d)):
         if pos is not None:
-            h,l=float(d.High.iloc[i]),float(d.Low.iloc[i]); age=i-pos['entry_i']
+            h,l=float(highs[i]),float(lows[i]); age=i-pos['entry_i']
             slhit=l<=pos['sl'] if pos['side']==1 else h>=pos['sl']; tphit=h>=pos['tp'] if pos['side']==1 else l<=pos['tp']
-            opposite=bool(sig.iloc[i]==-pos['side'])
+            opposite=bool(sig[i]==-pos['side'])
             if slhit or tphit or opposite or age>=MAX_HOLD:
-                raw=pos['sl'] if slhit else pos['tp'] if tphit else float(d.Close.iloc[i]); ex=apply_exit_cost(raw,pos['side'],cfg)
+                raw=pos['sl'] if slhit else pos['tp'] if tphit else float(closes[i]); ex=apply_exit_cost(raw,pos['side'],cfg)
                 rs.append(float((ex-pos['entry'])/(pos['entry']-pos['sl'])*pos['side'])); pos=None
-        if pos is None and bool(sig.iloc[i-1]):
-            side=int(sig.iloc[i-1]); entry=apply_entry_cost(float(d.Open.iloc[i]),side,cfg); atr=float(d.ATR14.iloc[i-1])
+        if pos is None and bool(sig[i-1]):
+            side=int(sig[i-1]); entry=apply_entry_cost(float(opens[i]),side,cfg); atr=float(atr_values[i-1])
             if not np.isfinite(atr) or atr<=0: continue
             risk=p['atr_mult']*atr; sl=entry-side*risk; tp=entry+side*p['rr']*risk; pos={'entry_i':i,'side':side,'entry':entry,'sl':sl,'tp':tp}
     if pos is not None:
-        ex=apply_exit_cost(float(d.Close.iloc[-1]),pos['side'],cfg); rs.append(float((ex-pos['entry'])/(pos['entry']-pos['sl'])*pos['side']))
+        ex=apply_exit_cost(float(closes[-1]),pos['side'],cfg); rs.append(float((ex-pos['entry'])/(pos['entry']-pos['sl'])*pos['side']))
     return rs
 
 def empty(): return {'trades':0,'win_rate':0.0,'total_R':0.0,'expectancy_R':0.0,'profit_factor':0.0,'max_dd_pct':0.0,'entries':0,'exits':0}
