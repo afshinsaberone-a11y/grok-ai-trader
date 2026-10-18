@@ -568,3 +568,18 @@ PR جدید، **تشخیص فقط‌خواندنی Capital Firewall را پس ا
 5. **آخرین گیت:** Capital Firewall Authorization Preflight باید با صفر blocker و وضعیت `PREREQUISITES_PRESENT_NO_EXECUTION` موفق باشد؛ سپس روی همان شواهد جاری ممیزی اجرای کنترل‌شدهٔ یک سیگنال. Live همچنان غیرفعال.
 
 منابع مستقل و مجوز واقعی را نمی‌توان با کد مخزن، CI سبز، کلید آزمایشی، فایل JSON دستی یا Candidate ID جایگزین کرد. تا زمان موفقیت واقعی مراحل ۳ تا ۵، Demo غیرمجاز، Kill Switch برابر DENY، Live خاموش و تعداد سفارش‌های تشخیصی صفر باقی می‌ماند.
+
+
+---
+
+## ۱۶. تکمیل فوری: تشخیص خودکار Capital Firewall ادغام شد — ۱۸ اکتبر ۲۰۲۶
+
+این افزوده پس از ادغام PR #288 انجام شد؛ بخش‌های پیشین آرشیو همچنان حفظ شده‌اند.
+
+- PR [#288](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/288) ادغام شد.
+- SHA جدید main: `b36d3edb4aaab40d8ad53247a528faa0f766a14a`.
+- روی head نهایی PR `2e53dd7264939db4496f9cd01b0e25d3fbce57e1)، Static Workflow Validation [39130732048](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130732048)، Python Tests [39130732046](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130732046)، Agent Runtime [39130732033](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130732033) و Project Repair Loop [39130721482](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130721482) همگی PASS شدند.
+- بعد از ادغام، اعتبارسنجی و زنجیرهٔ رسمی exact-SHA روی commit تازه دوباره آغاز شدند: Static Validation [39130820891](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130820891)، OOS Watchdog [39130820837](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130820837)، Python Tests [39130820834](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130820834)، Agent Runtime [39130820766](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39130820804).
+- Workflow Capital Firewall اکنون پس از **Readiness موفق روی SHA فعلی** باید preflight تشخیصی read-only را به‌طور خودکار اجرا کند. چون Readiness قبلی مربوط به SHA قبلی بود، هنوز اجرای خودکار جدید و گزارش blockerهای میزبان تأیید نشده است.
+
+این تغییر فقط شکاف trigger را می‌بندد؛ منبع امضای مستقل، live-signal attestor، Risk/Reservation و Human Approval واقعی را ایجاد نمی‌کند. وقتی اجرای تشخیصی جدید گزارشش را آپلود کند، کدهای blocker براساس آن مرحله‌بندی و اصلاح می‌شوند. Kill Switch روی DENY، Demo غیرمجاز تا تأیید مستقل، Live غیرفعال و تعداد سفارش‌های تشخیصی صفر باقی می‌مانند.
