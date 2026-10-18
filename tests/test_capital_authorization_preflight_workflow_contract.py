@@ -13,11 +13,11 @@ def test_capital_authorization_preflight_is_manual_or_after_readiness_read_only_
     ).read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in workflow
-    assert "workflow_run:" in workflow
     assert '"ForexAI G13 Demo Readiness Gate M15"' in workflow
-    assert "github.event.workflow_run.conclusion == 'success'" in workflow
-    assert "github.event.workflow_run.head_branch == 'main'" in workflow
-    assert "github.event.workflow_run.head_sha" in workflow
+    assert 'readiness_run_id:' in workflow
+    assert 'readiness_sha:' in workflow
+    assert "READINESS_SHA_INPUT" in workflow
+    assert "$readiness.head_sha -ne $env:READINESS_SHA_INPUT" in workflow
     assert "CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED" in workflow
     assert "CANDIDATE_ID: ${{ inputs.candidate_id || '2' }}" in workflow
     assert "runs-on: [self-hosted, windows, mt5]" in workflow
@@ -95,3 +95,33 @@ def test_capital_authorization_preflight_cannot_be_green_when_report_is_blocked(
     assert "AUTHORIZATION_RECORD_CREATED=false" in workflow
     assert "ORDER_SUBMISSION_PERFORMED=false" in workflow
 
+
+
+def test_successful_readiness_dispatches_read_only_preflight_for_exact_sha():
+    readiness = (
+        ROOT / ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
+    ).read_text(encoding="utf-8")
+    preflight = (
+        ROOT / ".github/workflows/forexai-capital-firewall-authorization-preflight.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "permissions:\n      actions: write\n      contents: read" in readiness
+    upload_idx = readiness.index("- name: Upload readiness evidence")
+    dispatch_idx = readiness.index("- name: Dispatch exact-SHA read-only Capital Firewall preflight")
+    assert upload_idx < dispatch_idx
+    assert "actions/workflows/forexai-capital-firewall-authorization-preflight.yml/dispatches" in readiness
+    assert '"readiness_run_id": str(readiness_run_id)' in readiness
+    assert '"readiness_sha": expected_sha' in readiness
+    assert 'source.get("head_sha") != expected_sha' in readiness
+    assert "orders_submitted=false" in readiness
+    assert "authorization_created=false" in readiness
+    assert "order_send" not in readiness.lower()
+
+    assert "inputs.readiness_sha || github.sha" in preflight
+    assert "if: inputs.readiness_run_id != ''" in preflight
+    assert "CAPITAL_AUTH_PREFLIGHT_READINESS_COMPLETION_TIMEOUT" in preflight
+    assert "CAPITAL_AUTH_PREFLIGHT_READINESS_NOT_SUCCESSFUL_ON_MAIN" in preflight
+    assert "CAPITAL_AUTH_PREFLIGHT_READINESS_SHA_MISMATCH" in preflight
+    assert "CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED" in preflight
+    assert "permissions:\n  contents: read\n  actions: read" in preflight
+    assert "workflow_run:" not in preflight
