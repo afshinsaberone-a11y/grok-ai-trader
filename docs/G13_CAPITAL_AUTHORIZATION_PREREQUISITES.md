@@ -25,6 +25,10 @@ The report is uploaded as `forexai-capital-authorization-preflight`. It reports 
 
 If the ledger or envelope is not present, the blocker is an **unconnected or unprovisioned Control Plane input**, not the NTFS ACL. This repository's authentication/materialization tools validate an existing authorization; they must not invent the underlying authority. Do not create a fake ledger event, guessed Trade ID, or hand-written `.auth` record to bypass the blocker.
 
+### Bounded local file discovery
+
+If the configured variables are present but their target files and parent folders are absent, run `tools/diagnose_control_plane_storage_inventory_v1.ps1` locally on the Windows host and follow `docs/G13_CONTROL_PLANE_STORAGE_INVENTORY_V1.md`. This checks a bounded set of likely app directories by filename and metadata only. Its private report contains local paths; do not upload or paste that report into GitHub, Dropbox, or chat. Candidate names are not proof of trusted authority. If no authentic files are found, the independent source owner must provision them; do not create placeholders.
+
 ## Locate the Trade ID privately
 
 The exact Trade ID belongs to the authenticated envelope and must match the Capital Firewall ledger and the MQL5 authorization record. If you have the authenticated envelope on the Windows machine, inspect only its identity locally (do not share the output or commit the file):
