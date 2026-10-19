@@ -30,6 +30,7 @@ The target directory must be a local private diagnostics directory. Do not place
 - Search is bounded by a fixed directory count, file count, and depth; reparse-point directories and common generated/cache directories are skipped.
 - The report records whether each configured target exists at Process/User/Machine scope, without emitting the configured environment-variable values.
 - Filename matches are labeled as candidates only. A matching filename, path, timestamp, file size, or extension does not prove ownership, signature validity, current freshness, ledger integrity, risk reservation, operator approval, or trading authority.
+- The repository file `config/forexai_runtime_authorization_envelope_v1.json` is a schema/contract definition, not an operational envelope. A filename match for that exact file under a `config` directory is labeled `schema_contract_filename_only`; do not point the runner's runtime-envelope variable at it.
 - Names suggesting examples/tests/backups/templates are marked as such and must not be treated as production inputs.
 - The report explicitly keeps `authority_verified=false`, `secrets_read=false`, `private_key_contents_read=false`, `candidate_file_contents_read=false`, `ledger_mutated=false`, `authorization_created=false`, `kill_switch_changed=false`, and `orders_submitted=false`.
 
