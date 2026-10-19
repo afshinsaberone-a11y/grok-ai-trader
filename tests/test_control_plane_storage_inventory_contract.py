@@ -31,6 +31,12 @@ def test_control_plane_storage_inventory_checks_expected_inputs_without_disclosi
     assert "FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH" in script
     assert "FOREXAI_TRADE_LEDGER_PATH" in script
     assert "FOREXAI_AUTHENTICATED_ENVELOPE_PATH" in script
+    assert "EnvironmentVariableTarget]::Process" in script
+    assert "EnvironmentVariableTarget]::User" in script
+    assert "EnvironmentVariableTarget]::Machine" in script
+    assert "process_configured =" in script
+    assert "machine_configured =" in script
+    assert "user_configured =" in script
     assert "private_key_contents_read = $false" in script
     assert "secrets_read = $false" in script
     # The inventory must never parse, print or otherwise read the candidate documents.
