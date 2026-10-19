@@ -28,7 +28,9 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) {
 $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
 
 $roots = New-Object System.Collections.Generic.List[object]
-$seenRoots = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+# Use PowerShell's case-insensitive hashtable rather than a generic HashSet
+# constructor; this is compatible with Windows PowerShell 5.1 binder behavior.
+$seenRoots = @{}
 
 function Add-InventoryRoot {
     param(
@@ -40,7 +42,8 @@ function Add-InventoryRoot {
     if ($Path -notmatch '^[A-Za-z]:\\') { return }
     try {
         $full = [System.IO.Path]::GetFullPath($Path)
-        if (-not $seenRoots.Add($full)) { return }
+        if ($seenRoots.ContainsKey($full)) { return }
+        $seenRoots[$full] = $true
         $exists = Test-Path -LiteralPath $full -PathType Container -ErrorAction SilentlyContinue
         $roots.Add([pscustomobject]@{
             label = $Label
