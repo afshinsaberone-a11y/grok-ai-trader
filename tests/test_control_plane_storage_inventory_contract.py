@@ -59,7 +59,9 @@ def test_control_plane_inventory_only_matches_names_and_never_claims_candidates_
         ROOT / "tools" / "diagnose_control_plane_storage_inventory_v1.ps1"
     ).read_text(encoding="utf-8")
 
-    assert "Get-CandidateCategory -Name $item.Name" in script
+    assert "Get-CandidateCategory -Name $item.Name -Path $item.FullName" in script
+    assert "schema_contract_filename_only" in script
+    assert "forexai_runtime_authorization_envelope_v1.json" in script
     assert "authority_verified = $false" in script
     assert "example_or_test_name = [bool]$exampleName" in script
     assert "INVENTORY_COMPLETE_DISCOVERY_ONLY" in script
