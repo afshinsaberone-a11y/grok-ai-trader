@@ -56,3 +56,14 @@ def test_control_plane_inventory_only_matches_names_and_never_claims_candidates_
     assert "example_or_test_name = [bool]$exampleName" in script
     assert "INVENTORY_COMPLETE_DISCOVERY_ONLY" in script
     assert "INVENTORY_PARTIAL_DISCOVERY_ONLY" in script
+
+
+def test_control_plane_inventory_has_windows_powershell_syntax_validation():
+    workflow = (
+        ROOT / ".github" / "workflows" / "tests.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "control-plane-inventory-powershell-parse:" in workflow
+    assert "runs-on: windows-latest" in workflow
+    assert "[System.Management.Automation.Language.Parser]::ParseFile(" in workflow
+    assert "CONTROL_PLANE_INVENTORY_POWERSHELL_PARSE=PASS" in workflow
