@@ -138,7 +138,17 @@ foreach ($spec in $targetSpecs) {
 }
 
 function Get-CandidateCategory {
-    param([string]$Name)
+    param(
+        [string]$Name,
+        [string]$Path
+    )
+    # The repository's config file is a schema contract, not a runtime envelope.
+    # Distinguish it only by exact filename plus config-directory path; a name-only
+    # match elsewhere remains an untrusted candidate.
+    if ($Name -ieq 'forexai_runtime_authorization_envelope_v1.json' -and
+        $Path -match '(?i)\\config\\forexai_runtime_authorization_envelope_v1\.json$') {
+        return 'schema_contract_filename_only'
+    }
     if ($Name -match '(?i)^trade[-_.]?ledger.*\.(jsonl|ndjson|json|db|sqlite)$') {
         return 'trade_ledger_filename_candidate'
     }
@@ -217,7 +227,7 @@ foreach ($root in $roots) {
             }
             $totalFiles++
             $filesSeen++
-            $category = Get-CandidateCategory -Name $item.Name
+            $category = Get-CandidateCategory -Name $item.Name -Path $item.FullName
             if ($null -eq $category) { continue }
             $exampleName = $item.Name -match '(?i)(^|[._-])(example|sample|fixture|template|test|backup|bak|old|disabled)([._-]|$)'
             $candidates.Add([pscustomobject]@{
