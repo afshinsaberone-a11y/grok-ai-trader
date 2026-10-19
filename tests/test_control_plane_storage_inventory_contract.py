@@ -62,6 +62,9 @@ def test_control_plane_inventory_only_matches_names_and_never_claims_candidates_
     assert "Get-CandidateCategory -Name $item.Name -Path $item.FullName" in script
     assert "schema_contract_filename_only" in script
     assert "forexai_runtime_authorization_envelope_v1.json" in script
+    assert "return 'schema_contract_filename_only'" in script
+    assert "Path -match" in script
+    assert script.index("schema_contract_filename_only") < script.index("authenticated_envelope_filename_candidate")
     assert "authority_verified = $false" in script
     assert "example_or_test_name = [bool]$exampleName" in script
     assert "INVENTORY_COMPLETE_DISCOVERY_ONLY" in script
