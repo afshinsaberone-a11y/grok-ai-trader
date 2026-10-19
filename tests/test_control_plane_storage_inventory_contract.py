@@ -16,7 +16,12 @@ def test_control_plane_storage_inventory_is_bounded_and_read_only():
     assert "$seenRoots = @{}" in script
     assert "$seenRoots.ContainsKey($full)" in script
     assert "HashSet[string]" not in script
-    assert "filename_candidates = @($candidates)" in script
+    assert "configured_targets = $targetReport.ToArray()" in script
+    assert "scanned_roots = $rootResults.ToArray()" in script
+    assert "filename_candidates = $candidates.ToArray()" in script
+    assert "configured_targets = @($targetReport)" not in script
+    assert "scanned_roots = @($rootResults)" not in script
+    assert "filename_candidates = @($candidates)" not in script
     assert "authority_verified = $false" in script
     assert "candidate_file_contents_read = $false" in script
     assert "ledger_mutated = $false" in script
