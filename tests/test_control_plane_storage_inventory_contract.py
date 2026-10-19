@@ -13,6 +13,9 @@ def test_control_plane_storage_inventory_is_bounded_and_read_only():
     assert "$maxFiles = 12000" in script
     assert "maximum_depth = 4" in script
     assert "FileAttributes]::ReparsePoint" in script
+    assert "$seenRoots = @{}" in script
+    assert "$seenRoots.ContainsKey($full)" in script
+    assert "HashSet[string]" not in script
     assert "filename_candidates = @($candidates)" in script
     assert "authority_verified = $false" in script
     assert "candidate_file_contents_read = $false" in script
