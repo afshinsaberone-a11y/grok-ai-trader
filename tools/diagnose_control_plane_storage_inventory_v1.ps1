@@ -57,6 +57,8 @@ function Add-InventoryRoot {
 }
 
 # Deliberately bounded allowlist of plausible app data directories.
+# When serializing generic List[object], use .ToArray(): Windows PowerShell 5.1
+# can throw 'Argument types do not match' for @($list) on this exact generic type.
 Add-InventoryRoot -Label 'ProgramData_ForexAI' -Path (Join-Path $env:ProgramData 'ForexAI')
 Add-InventoryRoot -Label 'ProgramData_ForexAI_Provider' -Path (Join-Path $env:ProgramData 'ForexAI-Provider')
 Add-InventoryRoot -Label 'ProgramData_ForexAIProvider' -Path (Join-Path $env:ProgramData 'ForexAIProvider')
@@ -250,9 +252,9 @@ $report = [ordered]@{
         maximum_depth = 4
         truncated = [bool]$truncated
     }
-    configured_targets = @($targetReport)
-    scanned_roots = @($rootResults)
-    filename_candidates = @($candidates)
+    configured_targets = $targetReport.ToArray()
+    scanned_roots = $rootResults.ToArray()
+    filename_candidates = $candidates.ToArray()
     summary = [ordered]@{
         directory_count = $totalDirectories
         file_count = $totalFiles
