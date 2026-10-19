@@ -82,7 +82,11 @@ $targetReport = New-Object System.Collections.Generic.List[object]
 foreach ($spec in $targetSpecs) {
     $scopeValues = @{}
     foreach ($scope in @('Process', 'User', 'Machine')) {
-        $target = [System.EnvironmentVariableTarget]::$scope
+        switch ($scope) {
+            'Process' { $target = [System.EnvironmentVariableTarget]::Process }
+            'User' { $target = [System.EnvironmentVariableTarget]::User }
+            'Machine' { $target = [System.EnvironmentVariableTarget]::Machine }
+        }
         $value = [Environment]::GetEnvironmentVariable($spec.name, $target)
         $scopeValues[$scope] = $value
     }
