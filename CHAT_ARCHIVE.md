@@ -344,3 +344,16 @@ Commitهای زیر در تاریخچهٔ مخزن دیده شدند:
 گزارش Preflight روی SHA `ad110585de13ceab6a1c58b422a5a1b76d2fcb13` سه فایل غایب را ثبت کرد: TradeLedger، authenticated runtime envelope و رکورد مجوز MQL5. ابزار تشخیصی جدید فقط نام فایل‌ها/متادیتا را در مسیرهای محلی محدود بررسی می‌کند؛ محتوا، Secret یا کلید خصوصی را نمی‌خواند و هیچ مجوز، Ledger event، تغییر Kill Switch یا سفارشی ایجاد نمی‌کند. نتیجهٔ تشخیص هرگز به‌تنهایی اثبات اعتبار مرجع نیست.
 
 این تغییر به شاخهٔ `diagnostic/control-plane-storage-inventory-20261019` اضافه شده است؛ تا زمان CI و بازبینی، ادغام‌شده محسوب نمی‌شود. متن و لینک‌های تاریخی این آرشیو دست‌نخورده باقی می‌مانند.
+
+
+---
+
+## ۱۸. نتیجهٔ Inventory ویندوز و تشخیص مسیرهای stale — ۱۹ اکتبر ۲۰۲۶
+
+- آرشیو مستقل فارسی ۱۹ اکتبر: docs/chat-archives/chat-archive-2026-10-19-fa.md
+- Issue #254 — تأمین منابع مستقل Control Plane: https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/254
+- PR #293 — ابزار تشخیصی فقط‌خواندنی: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/293
+
+اجرای واقعی روی Windows موفق شد: اسکن مسیرهای مجاز ۲۸ پوشه و ۶۰۲ فایل را با صفر خطا دید؛ اسکن جداگانهٔ workspace مخزن ۲۷ پوشه و ۶۲۵ فایل را با صفر خطا بررسی کرد. هر سه متغیر مسیر در Process و Machine تنظیم و برابرند، اما هدف و پوشهٔ والد هر سه مفقودند. نامزد config/forexai_runtime_authorization_envelope_v1.json یک قرارداد/schema در مخزن است، نه Envelope اجرایی.
+
+بنابراین مسیرهای فعلی بدون backing store واقعی‌اند؛ منبع مستقل/کلیدهای عملیاتی هنوز باید تأمین و تأیید شوند. هیچ placeholder یا مجوز تازه‌ای ساخته نشده است؛ Kill Switch روی DENY، Demo unauthorized، Live disabled و سفارش‌ها صفر باقی مانده‌اند. این بخش فقط به انتهای آرشیو اضافه شده و محتوای قدیمی حفظ شده است.
