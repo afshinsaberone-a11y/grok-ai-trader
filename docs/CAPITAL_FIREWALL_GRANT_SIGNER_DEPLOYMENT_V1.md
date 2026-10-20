@@ -3,7 +3,7 @@
 **Status: PLAN STAGED — NOT PROVISIONED. No host has been created and no production signer has been activated.**  
 **Accountable project owner:** Afshin Saber (user-designated; coordination responsibility only).  
 **Required operational host administrator / Grant key custodian:** NOT ASSIGNED / NOT VERIFIED.  
-**Target location:** a new, dedicated Linux LTS VPS or equivalent isolated compute instance in a separately administered cloud account/project. It must be distinct from both the Windows Provider host and the MT5 execution Runner.
+**Candidate deployment:** Route A is an existing independently administered Windows client workstation (no third VPS), only if the separate host/key-custody boundary is verified. Route B is a dedicated Linux LTS VPS or equivalent isolated compute instance in a separately administered cloud account/project if no qualifying workstation exists. Both must be distinct from the Windows Provider host and MT5 execution Runner.
 
 This is an implementation runbook for the existing `tools/capital_firewall_grant_issuer_v1.py`. It does not issue a Grant, initialize a production registry, create a private key, or authorize trading.
 
