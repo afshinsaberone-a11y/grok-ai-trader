@@ -44,7 +44,27 @@ Post-run inspection:
 
 Record hostname, OS build, result, account SID, and ACL review in the approved change record; do not include secrets.
 
-## 2. Keep the existing issuer and its state on this workstation
+## 2. Generate the dedicated Grant key on the approved workstation
+
+Only do this after the independent host administrator and Grant key custodian are recorded, the workstation eligibility review passes, and the ACLs on the empty `keys` directory have been checked. Do not run the command on the Provider host or MT5 Runner.
+
+From the reviewed repository checkout, run:
+
+    python -m tools.capital_firewall_grant_key_bootstrap_v1 --private-key-out "C:\ProgramData\ForexAI-CapitalFirewall\keys\capital-firewall-grant.pem" --public-key-out "C:\ProgramData\ForexAI-CapitalFirewall\keys\capital-firewall-grant-public.txt"
+
+The utility requires an interactive TTY, the exact typed confirmation `CREATE_CAPITAL_FIREWALL_GRANT_KEYPAIR`, and a passphrase of at least 20 characters entered twice with hidden input. It creates both files with no-overwrite semantics; the private key is encrypted PKCS#8 PEM and the public file contains only canonical base64 for the raw 32-byte Ed25519 public key. It prints the public-key SHA-256 fingerprint and key ID, never the private key or passphrase. It rejects relative paths, symlink outputs, output paths inside the repository, missing parent directories, and pre-existing destinations. It does not configure any trust anchor, create a registry, issue a Grant, or authorize trading.
+
+Immediately verify the files and inherited ACLs without printing the PEM contents:
+
+    Get-Item "C:\ProgramData\ForexAI-CapitalFirewall\keys\capital-firewall-grant.pem","C:\ProgramData\ForexAI-CapitalFirewall\keys\capital-firewall-grant-public.txt" | Select-Object Name,Length
+    icacls "C:\ProgramData\ForexAI-CapitalFirewall\keys"
+    icacls "C:\ProgramData\ForexAI-CapitalFirewall\keys\capital-firewall-grant.pem"
+
+Save the printed public fingerprint in the approved change record. Compare it with an independently computed fingerprint and have the key custodian/reviewer confirm it before a reviewed change to `FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY`. The public-key text is not secret, but do not treat its existence as proof that the upstream sources or signer are authorized. The new private-key passphrase belongs in the approved password manager; never paste it into GitHub, issues, commits, or chat.
+
+If key generation reports a blocked status or is interrupted, inspect both target paths and the ACLs manually before taking any corrective action. Never overwrite a keypair to “make the preflight pass”; if a real private key was exposed, revoke/rotate through the approved change path.
+
+## 3. Keep the existing issuer and its state on this workstation
 
 The current integration point remains tools/capital_firewall_grant_issuer_v1.py; do not create an alternate generic “sign this JSON” command. The issuer already implements:
 - canonical-JSON Ed25519 signatures and key-pair/trust-anchor checks;
@@ -59,11 +79,11 @@ The issuer currently requires an online, read-only GitHub token and performs a l
 
 Do not initialize the production registry until the six distinct, owner-verified trust anchors and independent source roles have passed review. Once initialized, keep the registry on protected durable storage and document backup/recovery and revocation ownership. Never reset it, redirect issuance to a new empty registry, or restore a stale registry to bypass replay protection.
 
-## 3. Offline/HSM boundary
+## 4. Offline/HSM boundary
 
 This workstation option is **standalone, not air-gapped**. It can reduce cloud cost and keep the Grant key away from both trading/Provider servers, but it does not remove network dependence during evidence verification. No YubiKey/HSM provider has been added to the current issuer, and an air-gapped USB packet workflow is not yet implemented. Do not claim hardware-backed signing until a PKCS#11/provider integration, authenticated evidence export/import, clock/freshness handling, durable anti-replay behavior, key policy, and negative tests are implemented and reviewed.
 
-## Remaining production gates
+## 5. Remaining production gates
 
 This bootstrap creates no key, registry, source packet, Grant, service, or permission. The following remain independent blockers even after it passes:
 - host administrator/custodian/reviewer/revocation-owner identities are approved and verified;
