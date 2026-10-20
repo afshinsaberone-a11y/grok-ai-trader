@@ -37,7 +37,7 @@ All six trust anchors must be distinct. The private key is only read into proces
 From the repository checkout on the dedicated host, with the intended runtime environment and secret-manager mount configured:
 
 ~~~powershell
-python -m tools.capital_firewall_host_preflight_v1 --expected-hostname 'CAPITAL-FIREWALL-01' --forbidden-hostname 'PROVIDER-HOST-01' --forbidden-hostname 'MT5-RUNNER-01' --grant-private-key 'C:\ProgramData\CapitalFirewall\keys\capital-firewall-grant.pem' --registry 'C:\ProgramData\CapitalFirewall\state\grant-registry.sqlite'
+python -m tools.capital_firewall_host_preflight_v1 --expected-hostname 'CAPITAL-FIREWALL-01' --forbidden-hostname 'PROVIDER-HOST-01' --forbidden-hostname 'MT5-RUNNER-01' --grant-private-key 'C:\ProgramData\ForexAI-CapitalFirewall\keys\capital-firewall-grant.pem' --registry 'C:\ProgramData\ForexAI-CapitalFirewall\state\grant-registry.sqlite'
 $LASTEXITCODE
 ~~~
 
