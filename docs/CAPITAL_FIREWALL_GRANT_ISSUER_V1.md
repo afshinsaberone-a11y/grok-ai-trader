@@ -31,7 +31,7 @@ The host must receive these public trust anchors from an approved configuration 
 | FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY | Human Operator Approval Source |
 | FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY | This Grant issuer |
 
-All six decoded Ed25519 keys must be distinct. The Grant public key must derive from the actual private key used by this issuer. The private key is loaded from a PKCS#8 PEM path mounted by the host secret manager; an optional encrypted-PEM passphrase is read from FOREXAI_CAPITAL_FIREWALL_GRANT_KEY_PASSPHRASE. Never place the private key or passphrase in this repository, the MT5 Runner, GitHub Variables, issue comments, logs or source packets. GITHUB_TOKEN or GH_TOKEN must be read-only and is used only to inspect real G13 Actions evidence.
+All six decoded Ed25519 keys must be distinct. The Grant public key must derive from the actual private key used by this issuer. The private key is loaded from an encrypted PKCS#8 PEM path outside the checkout. On an interactive terminal, the issuer securely prompts for the passphrase without echo when FOREXAI_CAPITAL_FIREWALL_GRANT_KEY_PASSPHRASE is not set; non-interactive use must inject the passphrase for that process from an approved secret manager, never a persistent User/Machine environment variable. Never place the private key or passphrase in this repository, the MT5 Runner, GitHub Variables, issue comments, logs or source packets. GITHUB_TOKEN or GH_TOKEN must be read-only and is used only to inspect real G13 Actions evidence.
 
 Afshin Saber is accountable for arranging the source roles. That project ownership does not automatically make him an independent key custodian, prove that each source exists, or create a separate trust boundary. Actual service owners/key custodians must be recorded before a role is PROVISIONED.
 
@@ -42,7 +42,7 @@ Provision a durable directory on the independent Capital Firewall host first; co
 Run this initialization command once. It refuses to overwrite an existing file or operate without the exact confirmation:
 
 ~~~powershell
-python -m tools.capital_firewall_grant_issuer_v1 --initialize-registry --registry 'C:\ProgramData\CapitalFirewall\state\grant-registry.sqlite' --confirmation INITIALIZE_CAPITAL_FIREWALL_GRANT_REGISTRY
+python -m tools.capital_firewall_grant_issuer_v1 --initialize-registry --registry 'C:\ProgramData\ForexAI-CapitalFirewall\state\grant-registry.sqlite' --confirmation INITIALIZE_CAPITAL_FIREWALL_GRANT_REGISTRY
 ~~~
 
 Do not delete, reset, replace, restore an old copy, or redirect this registry to bypass replay protection. Back it up and retain it under the approved state/audit policy. The issuer commits the one-shot IDs before publishing output; if delivery fails after the commit, reconcile it rather than reissuing with a different filename.
@@ -62,14 +62,13 @@ The metadata request is an exact JSON object with these fields:
 
 Metadata is not evidence by itself. The issuer checks the actual workflow and artifact data and rejects wrong SHA, failed/skipped runs, wrong workflow/job/artifact, candidate/config mismatch, non-real-data provenance, or invalid contracts.
 
-Example command, after the metadata request and protected key are provisioned:
+Example command, after the metadata request, protected key, and least-privilege read-only GitHub token are provisioned. In an interactive terminal the issuer prompts with hidden input for the token and encrypted-key passphrase if they are not already process-configured; do not type either secret into the command line or save it with setx:
 
 ~~~powershell
-$env:GITHUB_TOKEN = '<read-only token supplied by the approved secret manager>'
-python -m tools.capital_firewall_grant_issuer_v1 --prepare-evidence --metadata-request 'C:\ProgramData\CapitalFirewall\in\grant-metadata-request.json' --grant-private-key 'C:\ProgramData\CapitalFirewall\keys\capital-firewall-grant.pem' --output 'C:\ProgramData\CapitalFirewall\out\verified-g13-chain-cache.json' --receipt-output 'C:\ProgramData\CapitalFirewall\out\verified-g13-chain-receipt.json' --confirmation PREPARE_CAPITAL_FIREWALL_EVIDENCE
+python -m tools.capital_firewall_grant_issuer_v1 --prepare-evidence --metadata-request 'C:\ProgramData\ForexAI-CapitalFirewall\in\grant-metadata-request.json' --grant-private-key 'C:\ProgramData\ForexAI-CapitalFirewall\keys\capital-firewall-grant.pem' --output 'C:\ProgramData\ForexAI-CapitalFirewall\out\verified-g13-chain-cache.json' --receipt-output 'C:\ProgramData\ForexAI-CapitalFirewall\out\verified-g13-chain-receipt.json' --confirmation PREPARE_CAPITAL_FIREWALL_EVIDENCE
 ~~~
 
-The cache expires after five minutes and binds the exact main SHA, all run IDs, promoted candidate/config hash, intended identifiers and verified evidence digest. If the cache expires, main changes, or identifiers need to change, prepare again. This stage does not need or accept a live source packet.
+On successful completion, clear any process-scoped token/passphrase variables that were injected from a secret manager. The cache expires after five minutes and binds the exact main SHA, all run IDs, promoted candidate/config hash, intended identifiers and verified evidence digest. If the cache expires, main changes, or identifiers need to change, prepare again. This stage does not need or accept a live source packet.
 
 ## Issue a Grant from fresh source evidence
 
@@ -86,7 +85,7 @@ The issuer enforces:
 Example command after real source systems produce fresh evidence:
 
 ~~~powershell
-python -m tools.capital_firewall_grant_issuer_v1 --evidence-cache 'C:\ProgramData\CapitalFirewall\out\verified-g13-chain-cache.json' --source-packet 'C:\ProgramData\CapitalFirewall\in\fresh-source-attestations.json' --grant-private-key 'C:\ProgramData\CapitalFirewall\keys\capital-firewall-grant.pem' --registry 'C:\ProgramData\CapitalFirewall\state\grant-registry.sqlite' --output 'C:\ProgramData\CapitalFirewall\out\capital-firewall-grant.json' --receipt-output 'C:\ProgramData\CapitalFirewall\out\capital-firewall-grant-receipt.json' --confirmation ISSUE_ONE_SIGNAL_DEMO_GRANT
+python -m tools.capital_firewall_grant_issuer_v1 --evidence-cache 'C:\ProgramData\ForexAI-CapitalFirewall\out\verified-g13-chain-cache.json' --source-packet 'C:\ProgramData\ForexAI-CapitalFirewall\in\fresh-source-attestations.json' --grant-private-key 'C:\ProgramData\ForexAI-CapitalFirewall\keys\capital-firewall-grant.pem' --registry 'C:\ProgramData\ForexAI-CapitalFirewall\state\grant-registry.sqlite' --output 'C:\ProgramData\ForexAI-CapitalFirewall\out\capital-firewall-grant.json' --receipt-output 'C:\ProgramData\ForexAI-CapitalFirewall\out\capital-firewall-grant-receipt.json' --confirmation ISSUE_ONE_SIGNAL_DEMO_GRANT
 ~~~
 
 The resulting Grant uses schema forexai.capital_firewall.one_signal_demo_grant.v1 and key ID forexai-capital-firewall-grant-v1, has scope ONE_SIGNAL_DEMO_ONLY, Demo permission true, Live permission false, and expiry bounded by source evidence/reservation and 15 minutes. The signer also requires the explicit local confirmation ISSUE_ONE_SIGNAL_DEMO_GRANT. Do not store real Grant, receipt, or source-packet files in public Actions artifacts.
