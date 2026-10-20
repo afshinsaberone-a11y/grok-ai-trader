@@ -166,6 +166,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         print("This creates only the Grant keypair. It does not activate the trust anchor or issue a Grant.")
         typed = input(f"Type {CONFIRMATION} to continue: ").strip()
+        if typed != CONFIRMATION:
+            raise GrantKeyBootstrapError("CONFIRMATION_INVALID")
         from getpass import getpass
 
         first = getpass("New Grant private-key passphrase (20+ characters): ")
