@@ -11,7 +11,6 @@ import hashlib
 import os
 from pathlib import Path
 import sys
-from typing import Mapping
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -184,6 +183,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except (EOFError, KeyboardInterrupt):
         print("CAPITAL_FIREWALL_GRANT_KEY_BOOTSTRAP=BLOCKED reason=OPERATOR_CANCELLED", file=sys.stderr)
+        return 2
+    except Exception:
+        print("CAPITAL_FIREWALL_GRANT_KEY_BOOTSTRAP=BLOCKED reason=UNEXPECTED_FAILURE_MANUAL_REVIEW_REQUIRED", file=sys.stderr)
         return 2
 
     print(f"CAPITAL_FIREWALL_GRANT_KEY_BOOTSTRAP={result['status']}")
