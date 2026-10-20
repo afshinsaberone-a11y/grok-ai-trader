@@ -71,6 +71,14 @@ Complete only after assigning the independent administrator and custodian:
 10. Only after host custody, key anchors, source owners, and production storage are independently reviewed should the authorized custodian consider one-time initialization of the durable SQLite anti-replay registry described in `docs/CAPITAL_FIREWALL_GRANT_ISSUER_V1.md`. Initialize once, as the actual runtime identity, on durable protected storage. Never reset/delete/redirect it or restore an old backup to bypass uniqueness.
 11. Re-run the exact G13 run chain on the exact current `main` SHA before preparing the cache. Existing runs from a previous SHA are not reusable as current evidence.
 
+
+
+### Guarded host bootstrap artifact
+
+A narrow, first-run Ubuntu 22.04/24.04 LTS filesystem bootstrap is included at [\`deploy/capital-firewall-signer/bootstrap-ubuntu-lts-v1.sh\`](../deploy/capital-firewall-signer/bootstrap-ubuntu-lts-v1.sh), with operator instructions in [\`deploy/capital-firewall-signer/README.md\`](../deploy/capital-firewall-signer/README.md). It requires root, a TTY and exact-hostname confirmation; refuses pre-existing identity/data paths; creates only the non-login \`capital-firewall\` system account and empty mode-0700 directories; and reports that no key, registry, packet, Grant, service or permission was created. Its safety contract is tested by \`tests/test_capital_firewall_signer_host_bootstrap_v1.py\`.
+
+This artifact is **not** a cloud provisioner or complete host-hardening policy. Do not run it on the Provider host or MT5 Runner. Cloud firewall/SSH controls, account/MFA/ownership verification, audit logging, backups, trusted immutable code deployment, key/source provisioning and independent review remain separate prerequisites. An unexpected or partial bootstrap failure requires manual inspection rather than blind re-execution.
+
 ## 4. Existing issuer workflow (no execution until prerequisites pass)
 
 The existing implementation intentionally separates two actions:
