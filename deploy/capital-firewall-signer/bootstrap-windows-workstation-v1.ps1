@@ -5,7 +5,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Stop-Blocked([string]$Reason) {
-    Write-Error "CAPITAL_FIREWALL_WORKSTATION_BOOTSTRAP=BLOCKED reason=$Reason"
+    Write-Host "CAPITAL_FIREWALL_WORKSTATION_BOOTSTRAP=BLOCKED reason=$Reason" -ForegroundColor Red
     exit 2
 }
 
@@ -102,7 +102,7 @@ try {
     Write-Output "LIVE_ENABLED=0"
 }
 catch {
-    Write-Error "CAPITAL_FIREWALL_WORKSTATION_BOOTSTRAP=BLOCKED reason=UNEXPECTED_FAILURE_MANUAL_REVIEW_REQUIRED"
-    Write-Error $_.Exception.Message
+    Write-Host "CAPITAL_FIREWALL_WORKSTATION_BOOTSTRAP=BLOCKED reason=UNEXPECTED_FAILURE_MANUAL_REVIEW_REQUIRED" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
     exit 2
 }
