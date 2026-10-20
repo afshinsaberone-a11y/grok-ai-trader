@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
@@ -452,8 +453,8 @@ def test_cli_can_prompt_for_read_only_github_token_without_persisting_it(monkeyp
     monkeypatch.setattr(grant_issuer, "getpass", lambda _prompt: "test-read-only-token")
 
     assert grant_issuer._read_github_read_token() == "test-read-only-token"
-    assert "GITHUB_TOKEN" not in __import__("os").environ
-    assert "GH_TOKEN" not in __import__("os").environ
+    assert "GITHUB_TOKEN" not in os.environ
+    assert "GH_TOKEN" not in os.environ
 
 
 def test_cli_blocks_when_github_token_missing_and_input_is_not_interactive(monkeypatch):
@@ -513,8 +514,8 @@ def test_interactive_token_prompt_ignores_inherited_environment_tokens(monkeypat
     monkeypatch.setattr(grant_issuer, "getpass", lambda _prompt: "explicit-read-only-token")
 
     assert grant_issuer._read_github_read_token() == "explicit-read-only-token"
-    assert __import__("os").environ["GITHUB_TOKEN"] == "inherited-token-must-not-be-used"
-    assert __import__("os").environ["GH_TOKEN"] == "another-inherited-token-must-not-be-used"
+    assert os.environ["GITHUB_TOKEN"] == "inherited-token-must-not-be-used"
+    assert os.environ["GH_TOKEN"] == "another-inherited-token-must-not-be-used"
 
 
 def test_noninteractive_token_comes_from_process_environment(monkeypatch):
