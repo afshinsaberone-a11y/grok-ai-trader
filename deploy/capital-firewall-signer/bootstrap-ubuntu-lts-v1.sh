@@ -6,7 +6,6 @@ umask 077
 
 readonly RUNTIME_USER="capital-firewall"
 readonly DATA_ROOT="/var/lib/capital-firewall"
-readonly HOST_CONFIRM_PHRASE=""
 
 fail() {
   printf 'CAPITAL_FIREWALL_HOST_BOOTSTRAP=BLOCKED reason=%s\n' "$1" >&2
@@ -60,6 +59,10 @@ IFS=: read -r found_user _ found_uid found_gid _ found_home found_shell <<< "$pa
 [[ "$found_home" == "$DATA_ROOT" ]] || fail "RUNTIME_HOME_MISMATCH"
 [[ "$found_shell" == "/usr/sbin/nologin" ]] || fail "RUNTIME_SHELL_NOT_LOCKED"
 
+actual_children="$(find "$DATA_ROOT" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)"
+expected_children="$(printf '%s\n' in keys out state | LC_ALL=C sort)"
+[[ "$actual_children" == "$expected_children" ]] || fail "UNEXPECTED_DATA_ROOT_CONTENT"
+
 for path in "$DATA_ROOT" "$DATA_ROOT/keys" "$DATA_ROOT/in" "$DATA_ROOT/out" "$DATA_ROOT/state"; do
   [[ ! -L "$path" && -d "$path" ]] || fail "PROTECTED_PATH_INVALID"
   owner="$(stat -c '%U' -- "$path")"
@@ -67,6 +70,9 @@ for path in "$DATA_ROOT" "$DATA_ROOT/keys" "$DATA_ROOT/in" "$DATA_ROOT/out" "$DA
   mode="$(stat -c '%a' -- "$path")"
   [[ "$owner" == "$RUNTIME_USER" && "$group" == "$RUNTIME_USER" ]] || fail "PROTECTED_PATH_OWNER_MISMATCH"
   [[ "$mode" == "700" ]] || fail "PROTECTED_PATH_MODE_MISMATCH"
+done
+
+for path in "$DATA_ROOT/keys" "$DATA_ROOT/in" "$DATA_ROOT/out" "$DATA_ROOT/state"; do
   [[ -z "$(find "$path" -mindepth 1 -maxdepth 1 -print -quit)" ]] || fail "UNEXPECTED_PREEXISTING_CONTENT"
 done
 
