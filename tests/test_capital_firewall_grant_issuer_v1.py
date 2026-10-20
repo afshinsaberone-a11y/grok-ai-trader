@@ -496,5 +496,34 @@ def test_encrypted_grant_private_key_can_be_unlocked_with_hidden_interactive_pro
         lambda _prompt: "test-interactive-passphrase-long",
     )
 
-    loaded = grant_issuer._load_private_key(private_path, None)
+    loaded = grant_issuer._load_private_key(private_path, "wrong-inherited-passphrase-that-must-be-ignored")
     assert isinstance(loaded, Ed25519PrivateKey)
+
+
+def test_interactive_token_prompt_ignores_inherited_environment_tokens(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "inherited-token-must-not-be-used")
+    monkeypatch.setenv("GH_TOKEN", "another-inherited-token-must-not-be-used")
+
+    class InteractiveInput:
+        @staticmethod
+        def isatty():
+            return True
+
+    monkeypatch.setattr(grant_issuer.sys, "stdin", InteractiveInput())
+    monkeypatch.setattr(grant_issuer, "getpass", lambda _prompt: "explicit-read-only-token")
+
+    assert grant_issuer._read_github_read_token() == "explicit-read-only-token"
+    assert __import__("os").environ["GITHUB_TOKEN"] == "inherited-token-must-not-be-used"
+    assert __import__("os").environ["GH_TOKEN"] == "another-inherited-token-must-not-be-used"
+
+
+def test_noninteractive_token_comes_from_process_environment(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "injected-read-only-token")
+
+    class NonInteractiveInput:
+        @staticmethod
+        def isatty():
+            return False
+
+    monkeypatch.setattr(grant_issuer.sys, "stdin", NonInteractiveInput())
+    assert grant_issuer._read_github_read_token() == "injected-read-only-token"
