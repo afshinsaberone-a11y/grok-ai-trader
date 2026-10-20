@@ -8,7 +8,7 @@ Review [bootstrap-windows-workstation-v1.ps1](bootstrap-windows-workstation-v1.p
 
 If those independence conditions cannot be proven, do not use Route A; proceed with Route B below. A second folder/account on the Provider host or MT5 Runner is never a substitute.
 
-After the independent host/custodian review and ACL check, the Grant key can be generated locally with `python -m tools.capital_firewall_grant_key_bootstrap_v1 --private-key-out "C:\\ProgramData\\ForexAI-CapitalFirewall\\keys\\capital-firewall-grant.pem" --public-key-out "C:\\ProgramData\\ForexAI-CapitalFirewall\\keys\\capital-firewall-grant-public.txt"`. The command prompts interactively for exact confirmation and a long passphrase; it does not activate the public trust anchor or initialize the anti-replay registry. See the workstation runbook for review and key-fingerprint handling.
+After the independent host/custodian review and ACL check, the Grant key can be generated locally with `python -m tools.capital_firewall_grant_key_bootstrap_v1 --private-key-out "C:\ProgramData\\ForexAI-CapitalFirewall\\keys\\capital-firewall-grant.pem" --public-key-out "C:\ProgramData\\ForexAI-CapitalFirewall\\keys\\capital-firewall-grant-public.txt"`. The command prompts interactively for exact confirmation and a long passphrase; it does not activate the public trust anchor or initialize the anti-replay registry. See the workstation runbook for review and key-fingerprint handling.
 
 ## Route B: new, separately administered Ubuntu LTS VPS
 
