@@ -64,3 +64,11 @@ def test_workstation_runbook_does_not_misrepresent_air_gap_or_host_independence(
     assert "current-main" in source
     assert "anti-replay registry" in source
     assert "Kill Switch DENY" in source
+
+
+def test_deployment_plan_keeps_no_new_vps_route_conditional_and_linux_fallback():
+    deployment = (ROOT / "docs" / "CAPITAL_FIREWALL_GRANT_SIGNER_DEPLOYMENT_V1.md").read_text(encoding="utf-8")
+    assert "Route A is an existing independently administered Windows client workstation" in deployment
+    assert "Route B is a dedicated Linux LTS VPS" in deployment
+    assert "No workstation has yet been identified or verified as independent" in deployment
+    assert "No instance has been ordered or provisioned" in deployment
