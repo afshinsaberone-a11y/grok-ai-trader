@@ -1,6 +1,16 @@
-# Capital Firewall Grant Signer Host Bootstrap (Ubuntu LTS)
+# Capital Firewall Grant Signer Deployment Paths
 
-**Status: operator-assisted preparation only. No cloud VM is provisioned by this directory. No signing capability is activated.**
+**Status: operator-assisted preparation only. No cloud VM is provisioned and no signing capability is activated. A conditional no-new-VPS route for an independent Windows client workstation is documented in [the workstation runbook](../../docs/CAPITAL_FIREWALL_GRANT_SIGNER_WORKSTATION_V1.md).**
+
+## Route A: use an existing independent Windows client workstation
+
+Review [bootstrap-windows-workstation-v1.ps1](bootstrap-windows-workstation-v1.ps1) and [the workstation runbook](../../docs/CAPITAL_FIREWALL_GRANT_SIGNER_WORKSTATION_V1.md) first. It is permitted only on a separate Windows client OS workstation with no self-hosted Actions Runner service or active MT5 terminal, and only when the host administrator and Grant key custodian are independent from the Provider/Runner trust boundary. It is not a fully air-gapped signer: the current issuer requires outbound read-only GitHub API checks. The bootstrap creates only a non-admin runtime account and empty protected directories.
+
+If those independence conditions cannot be proven, do not use Route A; proceed with Route B below. A second folder/account on the Provider host or MT5 Runner is never a substitute.
+
+## Route B: new, separately administered Ubuntu LTS VPS
+
+`bootstrap-ubuntu-lts-v1.sh` remains the first-run bootstrap for the dedicated Linux VPS path.
 
 ## Scope
 
