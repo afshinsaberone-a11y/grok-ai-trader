@@ -11,9 +11,9 @@ This is an implementation runbook for the existing `tools/capital_firewall_grant
 
 ### Chosen architecture
 
-Run the existing two-phase Grant Issuer as an **on-demand CLI on a dedicated isolated host**, not as a public HTTP service and not as a long-running Windows service. No inbound trading or Grant-issuance API is needed. An authorized operator connects through restricted administrative access, prepares verified G13 evidence, then separately issues a Grant only after fresh signed source evidence is available.
+Run the existing two-phase Grant Issuer as an **on-demand CLI in an independently administered security boundary**, not as a public HTTP service. First assess Route A in docs/CAPITAL_FIREWALL_GRANT_SIGNER_WORKSTATION_V1.md; it avoids purchasing a third VPS only if a separate Windows client workstation and an independent host administrator/key custodian genuinely exist. Otherwise follow Route B below and procure a dedicated Linux LTS VPS. Neither route activates signing merely by setting up directories. The current issuer needs outbound access to read-only GitHub APIs during evidence preparation and issuance; neither route is a fully air-gapped workflow.
 
-The target host must:
+For Route B (new Linux VPS), the target host must:
 
 - Be a newly provisioned Linux LTS VPS/VM in a cloud account/project with a separate administrative boundary. The cloud provider/account and host name remain **TO BE PROVISIONED**; this repository does not have a cloud-provisioning connector or credentials to create that VM.
 - Be distinct from `WIN-P7MA35DRF6Q` (the inspected Windows Provider host) and from the Windows MT5 execution Runner.
@@ -61,7 +61,7 @@ The latest Provider-host diagnostics found:
 
 These are not solved by deploying the Grant signer alone. Current official readiness with `demo_trading_allowed=false` cannot support issuing a production Grant; fresh, source-governed Demo permission is required.
 
-## 3. Host provisioning checklist
+## 3. Route B: Dedicated Linux VPS provisioning checklist
 
 Complete only after assigning the independent administrator and custodian:
 
@@ -83,9 +83,9 @@ Complete only after assigning the independent administrator and custodian:
 
 
 
-### Guarded host bootstrap artifact
+### Route B guarded Ubuntu host bootstrap artifact
 
-A narrow, first-run Ubuntu 22.04/24.04 LTS filesystem bootstrap is included at [\`deploy/capital-firewall-signer/bootstrap-ubuntu-lts-v1.sh\`](../deploy/capital-firewall-signer/bootstrap-ubuntu-lts-v1.sh), with operator instructions in [\`deploy/capital-firewall-signer/README.md\`](../deploy/capital-firewall-signer/README.md). It requires root, a TTY and exact-hostname confirmation; refuses pre-existing identity/data paths; creates only the non-login \`capital-firewall\` system account and empty mode-0700 directories; and reports that no key, registry, packet, Grant, service or permission was created. Its safety contract is tested by \`tests/test_capital_firewall_signer_host_bootstrap_v1.py\`.
+For Route B, a narrow, first-run Ubuntu 22.04/24.04 LTS filesystem bootstrap is included at [\`deploy/capital-firewall-signer/bootstrap-ubuntu-lts-v1.sh\`](../deploy/capital-firewall-signer/bootstrap-ubuntu-lts-v1.sh), with operator instructions in [\`deploy/capital-firewall-signer/README.md\`](../deploy/capital-firewall-signer/README.md). It requires root, a TTY and exact-hostname confirmation; refuses pre-existing identity/data paths; creates only the non-login \`capital-firewall\` system account and empty mode-0700 directories; and reports that no key, registry, packet, Grant, service or permission was created. Its safety contract is tested by \`tests/test_capital_firewall_signer_host_bootstrap_v1.py\`.
 
 This artifact is **not** a cloud provisioner or complete host-hardening policy. Do not run it on the Provider host or MT5 Runner. Cloud firewall/SSH controls, account/MFA/ownership verification, audit logging, backups, trusted immutable code deployment, key/source provisioning and independent review remain separate prerequisites. An unexpected or partial bootstrap failure requires manual inspection rather than blind re-execution.
 
@@ -114,9 +114,14 @@ No Grant issued by this component sends an order, flips the Kill Switch, writes 
 - [ ] Incident response, key revocation/rotation, registry backup/recovery and failed-output reconciliation are tested.
 - [ ] Demo Kill Switch remains `DENY` until a separate, explicit, fresh one-signal execution decision. Live remains disabled.
 
+### Route A bootstrap artifact
+
+A guarded Windows-client workstation layout bootstrap is included at [bootstrap-windows-workstation-v1.ps1](../deploy/capital-firewall-signer/bootstrap-windows-workstation-v1.ps1), with operating limits and the issuer handoff documented in [CAPITAL_FIREWALL_GRANT_SIGNER_WORKSTATION_V1.md](CAPITAL_FIREWALL_GRANT_SIGNER_WORKSTATION_V1.md). It refuses Windows Server, the known Provider hostname, a self-hosted Actions Runner service, an active MT5 terminal, pre-existing identity/data paths, or mismatched hostname confirmation. It creates only a local non-administrator runtime account and protected empty folders. It does not create keys, a registry, a source packet, a Grant, a service, or authorization. Static guardrail checks live in tests/test_capital_firewall_signer_workstation_v1.py. This alternative is not air-gapped and is conditional on a separate host administrator and key custodian.
+
 ## Current decision
 
-**Deployment target selected at architecture level:** a new dedicated Linux LTS VPS/VM in a separately administered cloud account/project.  
-**Host instance, cloud account/provider, independent administrator and Grant key custodian:** not yet provisioned/assigned.  
+**Route A (no new VPS):** conditional candidate is an existing independently administered Windows client workstation. No workstation has yet been identified or verified as independent, and none has been bootstrapped by this change.  
+**Route B (fallback):** a dedicated Linux LTS VPS/VM in a separately administered cloud account/project. No instance has been ordered or provisioned.  
+**Independent administrator and Grant key custodian:** not yet assigned/verified.  
 **Grant status:** NOT PROVISIONED. No production key, registry, Grant or source packet was created by this document.  
 **Safety state:** Kill Switch DENY; Demo unauthorized; Live disabled; zero orders.
