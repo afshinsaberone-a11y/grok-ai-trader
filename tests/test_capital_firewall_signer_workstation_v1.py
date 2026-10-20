@@ -15,6 +15,8 @@ def test_workstation_bootstrap_has_fail_closed_host_guards():
     assert "SELF_HOSTED_ACTIONS_RUNNER_HOST_FORBIDDEN" in source
     assert "ACTIVE_MT5_TERMINAL_HOST_FORBIDDEN" in source
     assert "HOSTNAME_CONFIRMATION_MISMATCH" in source
+    assert "Write-Error" not in source
+    assert "UNEXPECTED_FAILURE_MANUAL_REVIEW_REQUIRED" in source
 
 
 def test_workstation_bootstrap_only_creates_locked_empty_layout():
