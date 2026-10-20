@@ -38,6 +38,16 @@ The target host must:
 
 Do not mark this signer as independent or provisioned until the host's separate administration and named custodian are actually verified. A second folder, another process, or a separate VM administered with the same unrestricted account is not adequate evidence of independent custody.
 
+
+
+### Provider-specific note: MobinHost
+
+The operator has identified MobinHost (`my.mobinhost.com/clientarea.php`) as the provider of the existing Windows Server 2022 machine `WIN-P7MA35DRF6Q`, which is already the ForexAI Provider host. **Do not repurpose, reinstall, or host the Grant signer on that machine.** Preserve its existing Provider/Admission role and staged-key state.
+
+MobinHost publicly documents separate Linux VPS offerings, including Ubuntu LTS choices and root/SSH administration. That makes a second Linux VPS a possible procurement path, but the current Windows VPS subscription does not prove a second instance exists or that it has a separate administrative boundary. See the provider's [Linux VPS information](https://www.mobinhost.com/vps-linux/) and [VPS order guide](https://www.mobinhost.com/vps-order-in-mobinhost/).
+
+Before placing a paid order, the accountable owner must review cost, location, account access, and whether a separate MobinHost customer account/admin boundary can be used for the signer. A second VPS under the same unrestricted account operated by the same administrator is **not sufficient proof of independent custody**. The target should be a new Ubuntu 24.04 LTS VPS (22.04 LTS only if 24.04 is unavailable/unsupported for the required runtime), dedicated to the signer, with no MT5 or Provider keys. Record the new instance ID and the actual independent administrator/custodian only after creation and verification. No order has been placed by this repository change.
+
 ## 2. Pre-deployment blockers that must stay visible
 
 The latest Provider-host diagnostics found:
