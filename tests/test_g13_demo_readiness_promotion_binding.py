@@ -305,6 +305,11 @@ def test_readiness_only_accepts_explicit_dispatch_to_prevent_duplicate_preflight
     ).read_text(encoding="utf-8")
     trigger_block = workflow.split("\npermissions:", 1)[0]
 
+    # With no workflow_run trigger, concurrency must bind to the explicitly
+    # dispatched current SHA rather than a nonexistent source-run payload.
+    assert "group: g13-demo-readiness-gate-m15-${{ github.sha }}" in workflow
+    assert "github.event.workflow_run.head_sha || github.sha }}" not in workflow
+
     # Controlled Demo Package Preflight explicitly dispatches Readiness with
     # exact-SHA run IDs. A second workflow_run trigger caused duplicate
     # Readiness jobs and redundant Capital Firewall preflights for one SHA.
