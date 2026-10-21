@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| ForexAI G13 Execution Safety Probe - Authorization OFF           |
-//| No trading code. Reads only MT5 account/control state.            |
+//| ForexAI G13 Execution Safety Probe - Auth Predicate Cycle       |
+//| One-session, read-only Auth OFF + Auth ON marker generation.      |
 //+------------------------------------------------------------------+
 #property strict
 #property version "1.00"
