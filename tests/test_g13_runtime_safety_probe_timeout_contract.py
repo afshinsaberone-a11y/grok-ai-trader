@@ -154,3 +154,22 @@ def test_scheduler_null_exit_code_fallback_requires_success_ack_and_marker():
         assert "terminal_connected,true" in step
         assert "account_identity_verified,true" in step
         assert "orders_submitted,false" in step
+
+
+def test_auth_on_waits_for_auth_off_terminal_exit_before_starting_second_config():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    step = _step(workflow, "Run Auth ON probe", "Evaluate runtime evidence")
+
+    # The second task must not be launched until the exact configured terminal
+    # has exited. Unknown process paths and a timeout are hard failures.
+    assert "G13_RUNTIME_AUTH_ON_PRESTART_TERMINAL_QUERY_FAILED" in step
+    assert "G13_RUNTIME_AUTH_ON_PRESTART_TERMINAL_PATH_UNRESOLVED" in step
+    assert "G13_RUNTIME_AUTH_ON_PRESTART_TERMINAL_STILL_RUNNING" in step
+    assert "G13_RUNTIME_AUTH_ON_PRESTART_TERMINAL_ABSENT=true" in step
+    assert "$shutdownDeadline = $shutdownStartedAt.AddSeconds(75)" in step
+    assert "[System.StringComparison]::OrdinalIgnoreCase" in step
+    assert step.index("G13_RUNTIME_AUTH_ON_PRESTART_TERMINAL_ABSENT=true") < step.index(
+        "Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName)"
+    )
+    assert "orders_submitted,false" in workflow
+    assert "KILL_SWITCH_UNCHANGED=true" in workflow
