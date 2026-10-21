@@ -388,7 +388,8 @@ jobs:
           readiness_path = ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
           readiness_workflow = Path(readiness_path).read_text(encoding="utf-8")
           readiness_triggers = readiness_workflow.split("\npermissions:", 1)[0]
-          readiness_sha_expr = "$" + "{{ github.sha }}"\n          assert f"group: g13-demo-readiness-gate-m15-{readiness_sha_expr}" in readiness_workflow, (
+          readiness_sha_expr = "$" + "{{ github.sha }}"
+          assert f"group: g13-demo-readiness-gate-m15-{readiness_sha_expr}" in readiness_workflow, (
               f"explicitly dispatched Readiness must use the dispatched SHA: {readiness_path}"
           )
           assert "workflow_dispatch:" in readiness_triggers and "\n  workflow_run:" not in readiness_triggers, (
