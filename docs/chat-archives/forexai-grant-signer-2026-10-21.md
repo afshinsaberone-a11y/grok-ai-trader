@@ -172,3 +172,15 @@ https://support.microsoft.com/en-us/servicing/os/windows-10/2019/11/november-12-
 
 وضعیت معامله‌ها ثابت است: Kill Switch DENY؛ Demo غیرمجاز؛ Live غیرفعال؛ سفارش‌ها صفر.
 
+---
+
+## پیوست — ادامهٔ کار روی همان لپ‌تاپ و مرحلهٔ تشخیص ارتقا (۲۱ اکتبر ۲۰۲۶)
+
+کاربر تصمیم گرفت روی همان لپ‌تاپ `DESKTOP-50D6J3G` ادامه دهیم؛ بنابراین فعلاً مسیر جایگزین VPS انتخاب نشده است. خروجی فعلی نشان می‌دهد Windows 10 Enterprise نسخهٔ هستهٔ 10.0.15063 (1703) است. Microsoft نسخهٔ 1703 را پایان‌یافته و Windows 11 upgrade را مشروط به اجرای نسخهٔ پشتیبانی‌شدهٔ Windows 10 و احراز سخت‌افزار سازگار می‌داند:
+- https://learn.microsoft.com/en-us/windows/release-health/release-information
+- https://support.microsoft.com/en-us/windows/deployment/install-upgrade/can-i-upgrade-to-windows-11
+
+بخش قبلی خروجی PowerShell به‌علت قالب‌بندی چند pipeline، مقادیر مسیرها را به‌صورت روشن نشان نداد؛ بنابراین هنوز نمی‌توان از آن نتیجه گرفت که پوشه‌های Runner یا Provider وجود ندارند. گام جاری فقط یک ممیزی read-only و چاپ نتیجه به شکل JSON است: Edition/Build/UBR، مدل و CPU/RAM، فضای درایو سیستم، TPM/Secure Boot/BitLocker در صورت دسترسی، سرویس‌های Runner/Provider، فرایند MT5، مسیرهای حساس و عضویت مدیر. تا قبل از مشاهدهٔ خروجی، هیچ عملیات تغییردهنده، bootstrap یا ساخت کلیدی انجام نمی‌شود.
+
+تصمیم: روی همین لپ‌تاپ کار ادامه می‌یابد، اما کلید عملیاتی Grant روی Build قدیمی و پایان‌پشتیبانی‌شده تولید نمی‌شود. ابتدا صلاحیت ارتقا به Windows پشتیبانی‌شده بررسی می‌شود؛ اگر ارتقا ممکن نباشد، باید روی همین دستگاه نصب/سیستم‌عامل پشتیبانی‌شده فراهم شود، نه اینکه کلید تولید و به trust anchor متصل شود. هیچ کلیدی ساخته یا فعال نشده؛ Kill Switch DENY، Demo unauthorized، Live disabled و orders submitted=0 باقی می‌مانند.
+
