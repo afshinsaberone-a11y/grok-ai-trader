@@ -304,3 +304,42 @@ https://support.microsoft.com/en-us/servicing/os/windows-10/2019/11/november-12-
 - Auth ON، ارزیابی evidence و تأیید نهایی Kill Switch تا زمان موفقیت Auth OFF به‌عنوان گیت‌های وابسته اجرا نمی‌شوند.
 
 این وضعیت موقت است و نباید به‌عنوان سبزشدن Runtime Safety Probe یا آماده‌بودن Demo تعبیر شود. پس از تکمیل Job، باید نتیجه و Artifact تازه بررسی شوند. هیچ سفارش آزمایشی برای این پیگیری مجاز نیست؛ Kill Switch برابر `DENY` می‌ماند، Demo تا عبور از همهٔ گیت‌های مستقل غیرمجاز است، Live غیرفعال و orders submitted=0 است.
+
+
+---
+
+## پیوست — بررسی نتیجهٔ بازاجرای Runtime Safety Probe پس از تأیید اتصال Demo (۲۱ اکتبر ۲۰۲۶)
+
+### نتیجهٔ واقعی تلاش دوم
+- اجرای workflow: [39577911969](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969)
+- Job attempt دوم: [runtime-safety-probe / 119465302906](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969)
+- Artifact جدید: [g13-mt5-runtime-safety-probe-m15-v2 / 12379616600](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969/artifacts/12379616600)
+- Static no-order preflight، Compile safety probes، Deploy run-unique non-trading probes و Snapshot shared kill switch: همگی موفق.
+- Run Auth OFF probe: ناموفق با `G13_RUNTIME_AUTH_OFF_MARKER_MISSING`.
+- Auth ON، ارزیابی شواهد و تأیید انتهایی Kill Switch اجرا نشدند.
+
+### گزارش تشخیصی Artifact دوم
+- `result_marker_present=false`
+- `startup_config_present=true`
+- `startup_config_contains_expected_script=true`
+- `probe_ex5_present=true`
+- `common_files_directory_present=true`
+- `kill_switch_state_is_deny=true`
+- `scheduled_task_state=Ready`
+- `scheduled_task_last_result=0`
+- `scheduled_task_last_run_time=10/21/2026 11:55:28 PM`
+- `terminal_process_count=1`
+- `terminal_process_interactive_session_count=1`
+- `recent_terminal_log_count=0`
+- `recent_terminal_log_mentions_probe=false`
+- این نوبت `recent_terminal_log_mentions_login_failure=false` است (برخلاف Artifact قبلی که نشانگر طبقه‌بندی ورود/اتصال true بود).
+
+بنابراین تأیید کاربر دربارهٔ اتصال Demo ثبت می‌شود، اما شواهد attempt دوم همچنان اجرای Startup script را اثبات نمی‌کنند. وجود یک فرایند تعاملی MT5 همراه با نبود هرگونه لاگ ترمینال تازه و نبود marker، این فرضیه را تقویت می‌کند که درخواست `terminal64.exe /config:...` هنگام بازبودن ترمینال موجود، startup config را به‌صورت یک اجرای مستقل اعمال نمی‌کند؛ این فرضیه هنوز ریشه‌یابی قطعی محسوب نمی‌شود. راهنمای MQL5 دربارهٔ اجرای یک‌بارهٔ اسکریپت تأکید می‌کند ترمینال باید از فایل پیکربندی startup راه‌اندازی شود و `ShutdownTerminal` بعد از اجرای اسکریپت آن ترمینال را می‌بندد: https://www.mql5.com/en/articles/20147 .
+
+### اقدام کنترل‌شدهٔ بعدی
+1. پیش از هر بستن/راه‌اندازی مجدد، خود کاربر در MT5 وضعیت Positions و Orders/Pending را بررسی کند. اگر هر موقعیت یا سفارش باز وجود دارد، ترمینال را برای این آزمون نبندد و ابتدا آن را تحت مدیریت مناسب قرار دهد.
+2. اگر حساب Demo کاملاً بدون موقعیت/سفارش باز است، کاربر می‌تواند همهٔ پنجره‌ها/فرایندهای MT5 روی Runner را به‌طور عادی ببندد تا اجرای startup-config یک instance مستقل بسازد؛ سپس Runtime Safety Probe دوباره اجرا شود. هیچ فرایند MT5 را از Workflow به‌طور اجباری خاتمه ندهید.
+3. پس از اجرا، فقط اجرای تازه‌ای را قبول کنید که Auth OFF marker واقعی و همهٔ assertionهای لازم را تولید کند؛ Task Scheduler با Last Result برابر 0 کافی نیست.
+4. اگر پس از اجرای ترمینالِ بسته نیز نشانگر ایجاد نشد، باید workflow برای جمع‌آوری امن‌تر شواهد startup/Task Scheduler/مسیر لاگ اصلاح شود؛ نه اینکه شرط marker حذف یا bypass شود.
+
+حفاظت ثابت: Kill Switch برابر `DENY`؛ مجوز Demo عملیاتی صادرنشده؛ Live غیرفعال؛ سفارش ارسال‌شده صفر. این افزوده فقط تشخیص/گزارش است و هیچ کد معاملاتی یا trust anchor را تغییر نمی‌دهد.
