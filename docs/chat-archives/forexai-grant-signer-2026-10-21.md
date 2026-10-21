@@ -248,3 +248,41 @@ https://support.microsoft.com/en-us/servicing/os/windows-10/2019/11/november-12-
 گام بعدی: اجرای یک اسکریپت PowerShell صرفاً خواندنی برای نمایش خروجی JSON شامل دقیقاً edition/build/UBR، CPU، RAM، فضای دیسک، وضعیت TPM/Secure Boot/BitLocker در حد دسترسی، سرویس‌های Runner، فرایندهای MT5، و حضور پوشه‌های Runner/Provider/Signer. همچنین باید به‌صورت جداگانه تأیید شود که مدیر و بازیابی دسترسی به این workstation از ادارهٔ Provider/Runner مستقل است. تا وقتی این داده‌ها و بازبینی/تصویب مسیر رسمی کامل نشده‌اند، کلید آزمایشی دوم به هیچ trust anchor متصل نمی‌شود.
 
 آخرین نتیجهٔ رمزنگاری آزمایشی دوم حفظ است: `PRIVATE_KEY_DECRYPTION=PASS`, `PUBLIC_PRIVATE_MATCH=PASS`, `SIGNATURE_VERIFY=PASS`. هیچ رمز یا محتوای کلید خصوصی ثبت نمی‌شود. وضعیت معاملات: Kill Switch DENY؛ Demo غیرمجاز؛ Live غیرفعال؛ سفارش‌های ارسالی صفر.
+
+
+---
+
+## پیوست — تغییر موفق رمز آزمایشی و تشخیص دقیق‌تر Runtime Safety Probe (۲۱ اکتبر ۲۰۲۶)
+
+### کلید آزمایشی
+کاربر تأیید کرد که تغییر رمز انجام شده و مشکل برطرف شده است. هیچ رمز یا محتوای کلید خصوصی درخواست یا در این آرشیو ثبت نشده است. نتیجه همچنان فقط به جفت‌کلید آزمایشی محدود است؛ اتصال به Trust Anchor، صدور Grant و مجوز معامله از این نتیجه حاصل نمی‌شود.
+
+### بررسی مستقیم Artifact مربوط به G13 Runtime Safety Probe
+- Workflow run: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969
+- Job: `runtime-safety-probe`، ID `119147943749`
+- SHA آزمون‌شده: `513a0071bd4ab64258ed20c5deb7218ba183371b`
+- Artifact: [g13-mt5-runtime-safety-probe-m15-v2](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969/artifacts/12335571296)
+
+گزارش تشخیصی `g13-runtime-probe-startup-diagnostic-AUTH_OFF.json` این مقادیر را ثبت کرده است:
+- `result_marker_present=false`
+- `startup_config_present=true` و `startup_config_contains_expected_script=true`
+- `probe_ex5_present=true`
+- `common_files_directory_present=true`
+- `kill_switch_state_is_deny=true` و `kill_switch_state_is_allow=false`
+- `scheduled_task_state=Ready` و `scheduled_task_last_result=0`
+- `terminal_process_count=1` و `terminal_process_interactive_session_count=1`
+- `recent_terminal_log_mentions_probe=false`
+- `recent_terminal_log_mentions_script_failure=false`
+- `recent_terminal_log_mentions_existing_instance=false`
+- `recent_terminal_log_mentions_config_failure=false`
+- `recent_terminal_log_mentions_login_failure=true`
+
+این شواهد، مشکل را از «کامپایل یا نبود فایل Probe» جدا می‌کند و به **ورود/اتصال حساب در ترمینال MT5 یا مرحلهٔ راه‌اندازی نشست** محدودتر می‌سازد. بااین‌حال چون Artifact متن خام لاگ را صادر نکرده، این فقط طبقه‌بندیِ مبتنی بر نشانگرهاست و علت ریشه‌ایِ دقیق (اعتبار ورود، نام سرور، وضعیت شبکه یا ترتیب راه‌اندازی) هنوز اثبات نشده است. نتیجهٔ موفق Task Scheduler به‌تنهایی اثبات اجرای Probe نیست؛ نشانگر واقعی همچنان اجباری است و این شکست نباید دور زده شود.
+
+### اقدام بعدیِ کنترل‌شده
+1. روی **میزبان MT5 Runner** و در نشست تعاملی کاربر مجاز، MT5 را باز کنید و بدون ارسال هیچ رمز یا شمارهٔ حساب در چت، اتصال یک حساب **Demo** معتبر را در رابط خود ترمینال بررسی کنید. در صورت نیاز، ورود را فقط از پنجرهٔ رسمی MT5 و با اطلاعاتی که مالک حساب Demo تأیید کرده انجام دهید؛ حساب Live را وارد نکنید.
+2. بررسی کنید ترمینال واقعاً Connected است و حساب نمایش‌داده‌شده Demo است. Kill Switch باید همچنان `DENY` بماند؛ هیچ سفارش یا تغییر مجوزی انجام ندهید.
+3. سپس Runtime Safety Probe را دوباره در همان SHA/زنجیرهٔ جاری اجرا و Artifact تازه را بررسی کنید. اگر نشانگر هنوز ساخته نشد، فقط دادهٔ تشخیصیِ پالایش‌شدهٔ جدید را بررسی کنید؛ هیچ گیت را براساس موفقیت Task Scheduler باز نکنید.
+4. این مانع از PR #295 و بررسی صلاحیت دستگاه Grant Signer جداست. PR #295 در وضعیت Draft باقی می‌ماند و کلید آزمایشی به سیستم عملیاتی وصل نمی‌شود.
+
+وضعیت ایمنی ثابت: Kill Switch `DENY`؛ Demo غیرمجاز تا عبور از گیت‌های کامل و مستقل؛ Live غیرفعال؛ سفارش‌های ارسال‌شده صفر. هیچ رمز، کلید خصوصی، منبع مجوز جعلی یا تغییر Trust Anchor در این پیگیری ثبت یا ایجاد نشد.
