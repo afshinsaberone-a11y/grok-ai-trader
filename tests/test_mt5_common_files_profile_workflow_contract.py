@@ -106,7 +106,8 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert workflow.count("New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive") == 1
     assert workflow.count("AllowLiveTrading=0") == 1
     assert workflow.count("orders_submitted,false") >= 2
-    assert workflow.count("finally {") == 1
+    # One finally bounds the diagnostic query and one cleans up the single launch task.
+    assert workflow.count("finally {") == 2
     assert workflow.count("$startedAt = Get-Date") == 1
     assert workflow.count("$deadline = $startedAt.AddSeconds(180)") == 1
     assert workflow.count("Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName)") == 1
