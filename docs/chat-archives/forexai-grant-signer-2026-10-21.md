@@ -375,3 +375,26 @@ https://support.microsoft.com/en-us/servicing/os/windows-10/2019/11/november-12-
 - **Run Auth OFF probe: success**
 
 آخرین وضعیت خوانده‌شده: `Run Auth ON probe=in_progress`؛ ارزیابی شواهد، بررسی عدم تغییر Kill Switch و بارگذاری Artifact هنوز تکمیل نشده‌اند. این فقط نتیجهٔ مرحله‌ای است، نه موفقیت کل Runtime Safety Probe. تا دریافت نتیجهٔ نهایی، Kill Switch `DENY` می‌ماند، مجوز عملیاتی Demo صادرنشده است، Live غیرفعال و orders submitted=0 باقی می‌ماند.
+
+
+---
+
+## پیوست — تشخیص Auth ON پس از موفقیت Auth OFF و اصلاح پیشنهادی fail-closed (۲۲ اکتبر ۲۰۲۶)
+
+### اجرای واقعی سوم
+- اجرای G13 Runtime Safety Probe: [run 39577911969](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969)
+- Job attempt: `119470856081`
+- Artifact تازه: [artifact 12380561285](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969/artifacts/12380561285)
+- Auth OFF: success؛ account identity تأییدشده، terminal connected، Demo verified، `authorization=false`، `execution_allowed=false` و `orders_submitted=false`.
+- Auth ON: fail در `G13_RUNTIME_AUTH_ON_ACCOUNT_IDENTITY_UNVERIFIED`. نشانگر واقعی Auth ON می‌گوید: `terminal_connected=false`, `account_identity_verified=false`, `demo_account=false`, `account_trade_allowed=false`, `account_trade_expert=false`, `execution_allowed=false`, `orders_submitted=false`.
+- `account_login_present=true` و `account_server_present=true` بودند، اما اتصال واقعی false بود؛ این شواهد، اعتبار ورود ذخیره‌شده را از وضعیت اتصال زنده جدا می‌کند.
+- ارزیابی runtime evidence و بررسی انتهایی Kill Switch به‌دلیل شکست Auth ON skipped شدند. Artifact نشان می‌دهد snapshot اولیهٔ Kill Switch برابر `DENY` و هر دو پروب `orders_submitted=false` بودند؛ گیت اتصال/هویت نباید دور زده شود.
+
+### اصلاح محافظه‌کارانهٔ ایجادشده
+PR Draft شمارهٔ 296: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/296
+
+شاخهٔ `fix/g13-runtime-probe-terminal-shutdown-race-2026-10-22` تغییر محدودی به `.github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml` و تست قراردادی اضافه می‌کند. پیش از شروع Auth ON، Workflow تا ۷۵ ثانیه منتظر می‌ماند تا فرایندِ executable path دقیق MT5 که در Auth OFF استفاده شده بود ناپدید شود. خطای استعلام، مسیر ناشناخته یا timeout باعث توقف آشکار می‌شوند؛ Workflow هیچ فرایندی را اجباری نمی‌بندد، هیچ شرط اتصال/هویت را شل نمی‌کند و موفقیت Task Scheduler را جای نشانگر واقعی نمی‌گذارد.
+
+**حد و وضعیت:** PR #296 در وضعیت Draft/open و ادغام‌نشده است. این تغییر یک فرضیهٔ زمانی قابل‌آزمون را هدف می‌گیرد، اما هنوز علت ریشه‌ای قطعی یا رفع قطعی اثبات نشده است. باید تست‌های CI و review انجام شود و پس از merge، زنجیرهٔ G13 روی SHA دقیق جدید دوباره اجرا شود. هیچ تغییری در main، Trust Anchor، Grant یا مجوز معاملاتی انجام نشده است.
+
+وضعیت ایمنی: Kill Switch `DENY`؛ Demo برای معامله غیرمجاز تا صدور مجوز معتبر و عبور از همهٔ گیت‌های مستقل؛ Live غیرفعال؛ تعداد سفارش‌های ارسال‌شده صفر.
