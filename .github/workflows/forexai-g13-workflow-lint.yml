@@ -588,14 +588,14 @@ jobs:
               "promotion_run_id",
               "preflight_run_id",
               "g13-controlled-demo-package-preflight-m15",
-              "runtime_id=\\\"${MANUAL_RUNTIME_RUN_ID}\\\"",
-              "safety_id=\\\"${MANUAL_SAFETY_RUN_ID}\\\"",
-              "parity_id=\\\"${MANUAL_PARITY_RUN_ID}\\\"",
-              "promotion_id=\\\"${MANUAL_PROMOTION_RUN_ID}\\\"",
-              "preflight_id=\\\"${MANUAL_PREFLIGHT_RUN_ID}\\\"",
+              'runtime_id="${MANUAL_RUNTIME_RUN_ID}",
+              'safety_id="${MANUAL_SAFETY_RUN_ID}",
+              'parity_id="${MANUAL_PARITY_RUN_ID}",
+              'promotion_id="${MANUAL_PROMOTION_RUN_ID}",
+              'preflight_id="${MANUAL_PREFLIGHT_RUN_ID}",
               "download_exact_artifact",
               "G13_EVIDENCE_ARTIFACTS_BYTE_BOUND=true",
-              "[ \\\"$sha\\\" = \\\"$MAIN_SHA\\\" ]",
+              '[ "$sha" = "$MAIN_SHA" ]',
           ]:
               assert token in readiness_workflow, f"readiness workflow binding token missing: {token}"
           assert "latest_success_exact" not in readiness_workflow, (
