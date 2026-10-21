@@ -21,11 +21,13 @@ def test_runtime_probe_uses_extensionless_mt5_startup_script_names():
     )
     assert (
         '"G13_AUTH_ON_SCRIPT=G13_Safety_Probe_AuthOn_$($env:GITHUB_RUN_ID)"'
-        in workflow
+        not in workflow
     )
     assert "Script=$scriptRel" in workflow
     assert "Dest=($env:G13_AUTH_OFF_SCRIPT + '.ex5')" in workflow
-    assert "Dest=($env:G13_AUTH_ON_SCRIPT + '.ex5')" in workflow
+    assert "Dest=($env:G13_AUTH_ON_SCRIPT + '.ex5')" not in workflow
+    # Auth ON source is syntax-checked but not installed as a second startup script.
+    assert "G13_Safety_Probe_AuthOn" in workflow
     assert "($scriptRel + '.ex5')" in workflow
     assert "Script=$scriptRel.ex5" not in workflow
 
