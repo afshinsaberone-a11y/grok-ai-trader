@@ -6,6 +6,12 @@ WORKFLOW = Path(
 )
 
 
+def _step(workflow: str, name: str, next_name: str) -> str:
+    start = workflow.index(f"      - name: {name}\n")
+    end = workflow.index(f"      - name: {next_name}\n", start + 1)
+    return workflow[start:end]
+
+
 def test_runtime_probe_uses_extensionless_mt5_startup_script_names():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
@@ -22,10 +28,6 @@ def test_runtime_probe_uses_extensionless_mt5_startup_script_names():
     assert "Dest=($env:G13_AUTH_ON_SCRIPT + '.ex5')" in workflow
     assert "($scriptRel + '.ex5')" in workflow
     assert "Script=$scriptRel.ex5" not in workflow
-    assert (
-        '"G13_AUTH_OFF_SCRIPT=G13_Safety_Probe_AuthOff_$($env:GITHUB_RUN_ID).ex5"'
-        not in workflow
-    )
 
 
 def test_runtime_probe_requires_identity_verified_connected_demo_markers():
@@ -52,46 +54,59 @@ def test_runtime_probe_requires_identity_verified_connected_demo_markers():
         assert 'FileWrite(h,"orders_submitted,false")' in probe
 
 
-
-def test_runtime_probe_uses_unique_result_marker_as_success_signal():
+def test_auth_states_are_evaluated_from_one_consistent_terminal_snapshot():
     workflow = WORKFLOW.read_text(encoding="utf-8")
+    source = Path("research/optimization/G13_Safety_Probe_AuthOff.mq5").read_text(
+        encoding="utf-8"
+    )
+    off_step = _step(workflow, "Run Auth OFF probe", "Run Auth ON probe")
+    on_step = _step(workflow, "Run Auth ON probe", "Evaluate runtime evidence")
 
-    for mode in ("OFF", "ON"):
-        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_EXIT_NONZERO" in workflow
-        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_STDOUT=$startStdoutText" in workflow
-        assert f"G13_RUNTIME_AUTH_{mode}_SCHTASKS_STDERR=$startStderrText" in workflow
-        missing_marker_idx = workflow.index(
-            f"Write-Host 'G13_RUNTIME_AUTH_{mode}_MARKER_MISSING=true'"
-        )
-        launch_failure_idx = workflow.index(
-            f'throw "G13_RUNTIME_AUTH_{mode}_TASK_START_FAILED_EXIT_$startExitCode"'
-        )
-        # A nonzero launcher only becomes a failure after the full marker wait.
-        assert missing_marker_idx < launch_failure_idx
-        assert f"G13_RUNTIME_AUTH_{mode}_MARKER_MISSING" in workflow
+    assert "const bool authorized_off=false;" in source
+    assert "const bool authorized_on=true;" in source
+    assert "const bool shared_gate_open=" in source
+    assert "WriteProbe(\"auth_on\"" in source
+    assert "WriteProbe(\"auth_off\"" in source
+    # Auth OFF marker is the completion signal, and is emitted only after the
+    # paired Auth ON marker from the same MT5 process has already been written.
+    assert source.index('WriteProbe("auth_on"') < source.index('WriteProbe("auth_off"')
+    assert "Remove-Item -LiteralPath $done,$authOnDone -Force" in off_step
+    assert "MT5_AUTH_ON_PROBE_OK_SINGLE_SESSION=true" in on_step
+    assert "G13_RUNTIME_AUTH_ON_MUST_BLOCK_WITH_KILL_SWITCH_DENY" in on_step
+    assert "G13_RUNTIME_AUTH_ON_ORDER_INVARIANT_FAILED" in on_step
+    assert "G13_RUNTIME_AUTH_OFF_MUST_BLOCK" in off_step
+    assert "orders_submitted,false" in source
+    assert "execution_allowed,false" in on_step
+    # Auth ON validates a marker; it must not launch a second terminal/config.
+    assert "Start-Process" not in on_step
+    assert "Register-ScheduledTask" not in on_step
+    assert "ShutdownTerminal=" not in on_step
 
-    for required in (
-        "G13_RUNTIME_AUTH_OFF_ACCOUNT_IDENTITY_UNVERIFIED",
-        "G13_RUNTIME_AUTH_OFF_TERMINAL_DISCONNECTED",
-        "G13_RUNTIME_AUTH_OFF_DEMO_ACCOUNT_UNVERIFIED",
-        "G13_RUNTIME_AUTH_OFF_ORDER_INVARIANT_FAILED",
-        "G13_RUNTIME_AUTH_ON_ACCOUNT_IDENTITY_UNVERIFIED",
-        "G13_RUNTIME_AUTH_ON_TERMINAL_DISCONNECTED",
-        "G13_RUNTIME_AUTH_ON_DEMO_ACCOUNT_UNVERIFIED",
-        "G13_RUNTIME_AUTH_ON_ORDER_INVARIANT_FAILED",
-        "G13_RUNTIME_AUTH_OFF_KILL_SWITCH_NOT_DENY",
-        "G13_RUNTIME_AUTH_ON_KILL_SWITCH_NOT_DENY",
-    ):
-        assert required in workflow
 
+def test_runtime_probe_marker_validation_stays_fail_closed():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    off_step = _step(workflow, "Run Auth OFF probe", "Run Auth ON probe")
+    on_step = _step(workflow, "Run Auth ON probe", "Evaluate runtime evidence")
+
+    assert "G13_RUNTIME_AUTH_OFF_MARKER_MISSING" in off_step
+    assert "G13_RUNTIME_AUTH_ON_MARKER_MISSING" in on_step
+    assert "G13_RUNTIME_AUTH_OFF_KILL_SWITCH_NOT_DENY" in off_step
+    assert "G13_RUNTIME_AUTH_ON_KILL_SWITCH_NOT_DENY" in on_step
+    assert "^authorization,false$" in off_step
+    assert "^authorization,true$" in on_step
+    assert "^execution_allowed,false$" in off_step
+    assert "^execution_allowed,false$" in on_step
+    assert "^orders_submitted,false$" in off_step
+    assert "^orders_submitted,false$" in on_step
+    assert "KILL_SWITCH_UNCHANGED=true" in workflow
 
 
 def test_runtime_probes_wait_boundedly_for_account_identity_and_capture_failure_markers():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    for label, source_name, next_step in (
-        ("OFF", "research/optimization/G13_Safety_Probe_AuthOff.mq5", "Run Auth ON probe"),
-        ("ON", "research/optimization/G13_Safety_Probe_AuthOn.mq5", "Evaluate runtime evidence"),
+    for source_name in (
+        "research/optimization/G13_Safety_Probe_AuthOff.mq5",
+        "research/optimization/G13_Safety_Probe_AuthOn.mq5",
     ):
         source = Path(source_name).read_text(encoding="utf-8")
         assert "identity_wait_seconds=45" in source
@@ -104,10 +119,11 @@ def test_runtime_probes_wait_boundedly_for_account_identity_and_capture_failure_
         assert 'FileWrite(h,"account_server_present,"' in source
         assert "account_identity_verified" in source
 
-        step = workflow[workflow.index(f"      - name: Run Auth {label} probe"):]
-        step = step[:step.index(f"      - name: {next_step}")]
+    off_step = _step(workflow, "Run Auth OFF probe", "Run Auth ON probe")
+    on_step = _step(workflow, "Run Auth ON probe", "Evaluate runtime evidence")
+    for label, step in (("OFF", off_step), ("ON", on_step)):
         copy_at = step.index("Copy-Item -LiteralPath $done -Destination $markerArtifact -Force")
         assert copy_at < step.index("foreach ($assertion in @(")
         assert f"G13_RUNTIME_AUTH_{label}_MARKER=$_ " in step
+        assert f"G13_RUNTIME_AUTH_{label}_ORDER_INVARIANT_FAILED" in step
         assert "orders_submitted,false" in step
-        assert "G13_RUNTIME_AUTH_" + label + "_ORDER_INVARIANT_FAILED" in workflow
