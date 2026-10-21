@@ -136,8 +136,8 @@ def test_paired_auth_markers_are_generated_in_order_with_no_order_invariant():
 
     assert "Remove-Item -LiteralPath $done,$authOnDone -Force" in off_step
     assert source.index('WriteProbe("auth_on"') < source.index('WriteProbe("auth_off"')
-    assert "authorization,true" in source
-    assert "authorization,false" in source
+    assert "const bool authorized_on=true;" in source
+    assert "const bool authorized_off=false;" in source
     assert 'FileWrite(h,"orders_submitted,false")' in source
     assert "G13_RUNTIME_AUTH_ON_MUST_BLOCK_WITH_KILL_SWITCH_DENY" in on_step
     assert "KILL_SWITCH_UNCHANGED=true" in workflow
