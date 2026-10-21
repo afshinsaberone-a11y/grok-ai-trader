@@ -64,7 +64,11 @@ void WriteProbe(const string label,const long mode,const bool account_identity_v
 
 void OnStart()
 {
-   const bool authorized=false;
+   // One live MT5 session supplies a consistent read-only snapshot for
+   // both authorization states. The authorization flag is only a predicate
+   // input; this script contains no order APIs and always records no orders.
+   const bool authorized_off=false;
+   const bool authorized_on=true;
    bool terminal_connected=false;
    long account_login=0;
    string account_server="";
@@ -92,7 +96,8 @@ void OnStart()
 
    const long mode=AccountInfoInteger(ACCOUNT_TRADE_MODE);
    const bool kill_switch=DemoKillSwitchAllowed();
-   const bool other=HasOtherG13Position(0);
+   const bool other_off=HasOtherG13Position(0);
+   const bool other_on=HasOtherG13Position(130002);
    const bool terminal_trade_allowed=(bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED);
    const bool mql_trade_allowed=(bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
    const bool account_trade_allowed=(bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED);
@@ -104,25 +109,35 @@ void OnStart()
    const bool symbol_tp=(symbol_order_mode & SYMBOL_ORDER_TP)!=0;
    const long stops_level=(long)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
    const bool symbol_sell=(symbol_trade_mode==SYMBOL_TRADE_MODE_FULL || symbol_trade_mode==SYMBOL_TRADE_MODE_SHORTONLY);
-   const bool allowed=authorized &&
-                      mode==ACCOUNT_TRADE_MODE_DEMO &&
-                      account_identity_verified &&
-                      terminal_connected &&
-                      terminal_trade_allowed &&
-                      mql_trade_allowed &&
-                      account_trade_allowed &&
-                      account_trade_expert &&
-                      symbol_sell &&
-                      symbol_market &&
-                      symbol_sl &&
-                      symbol_tp &&
-                      stops_level>=0 &&
-                      kill_switch &&
-                      !other;
 
-   WriteProbe("auth_off",mode,account_identity_verified,account_login>0,StringLen(account_server)>0,authorized,kill_switch,other,
+   // Authorization ON/OFF are two evaluations of the same actual account
+   // and terminal snapshot. This avoids restarting MT5 (which can discard the
+   // saved session), while keeping Kill Switch DENY as the independent blocker.
+   const bool shared_gate_open=(mode==ACCOUNT_TRADE_MODE_DEMO &&
+                                account_identity_verified &&
+                                terminal_connected &&
+                                terminal_trade_allowed &&
+                                mql_trade_allowed &&
+                                account_trade_allowed &&
+                                account_trade_expert &&
+                                symbol_sell &&
+                                symbol_market &&
+                                symbol_sl &&
+                                symbol_tp &&
+                                stops_level>=0 &&
+                                kill_switch);
+   const bool allowed_off=authorized_off && shared_gate_open && !other_off;
+   const bool allowed_on=authorized_on && shared_gate_open && !other_on;
+
+   // Write Auth ON first and Auth OFF last. The workflow waits for the Auth OFF
+   // marker, so its appearance proves that both same-session markers are ready.
+   WriteProbe("auth_on",mode,account_identity_verified,account_login>0,StringLen(account_server)>0,authorized_on,kill_switch,other_on,
               terminal_connected,terminal_trade_allowed,mql_trade_allowed,
               account_trade_allowed,account_trade_expert,
-              symbol_trade_mode,symbol_market,symbol_sl,symbol_tp,stops_level,allowed);
+              symbol_trade_mode,symbol_market,symbol_sl,symbol_tp,stops_level,allowed_on);
+   WriteProbe("auth_off",mode,account_identity_verified,account_login>0,StringLen(account_server)>0,authorized_off,kill_switch,other_off,
+              terminal_connected,terminal_trade_allowed,mql_trade_allowed,
+              account_trade_allowed,account_trade_expert,
+              symbol_trade_mode,symbol_market,symbol_sl,symbol_tp,stops_level,allowed_off);
 }
 //+------------------------------------------------------------------+
