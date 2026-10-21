@@ -229,3 +229,22 @@ https://support.microsoft.com/en-us/servicing/os/windows-10/2019/11/november-12-
 این فقط اثبات می‌کند که کلید آزمایشی رمزگذاری‌شده باز می‌شود، با کلید عمومی متناظر است و امضا/تأیید محلی کار می‌کند. این جفت‌کلید عملیاتی نیست، به Provider یا trust anchor متصل نشده و هیچ Grant، registry یا مجوز معاملاتی ایجاد نشده است. رمز عبور و محتوای کلید خصوصی عمداً ثبت نشده‌اند.
 
 **گام بعدی عملیاتی:** هنوز کلید را به Control Plane وصل نکنید. نخست باید سیستم‌عامل پشتیبانی‌شده و استقلال مدیریتی دستگاه احراز شود و سپس مسیر رسمی/بازبینی‌شدهٔ PR #295 دنبال شود. وضعیت ایمنی ثابت: Kill Switch DENY؛ Demo غیرمجاز؛ Live غیرفعال؛ orders submitted=0.
+
+
+---
+
+## پیوست — ادامهٔ ارزیابی ارتقای دستگاه و وضعیت مسیر رسمی (۲۱ اکتبر ۲۰۲۶)
+
+آخرین نتیجهٔ PR #295 از طریق GitHub خوانده شد:
+- PR: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/295
+- عنوان: `feat(control-plane): add conditional workstation Grant signer path`
+- وضعیت API در زمان بررسی: `open`, `draft=true`, `merged=false`
+- شاخهٔ تغییر: `ops/capital-firewall-grant-signer-deployment-20261020`
+- HEAD گزارش‌شده: `04d0ace14c4879412db992d7d0cdd2effa051149`
+- محدودهٔ طرح: مسیر مشروط workstation ویندوزی مستقل یا جایگزین VPS لینوکس؛ این PR خودش میزبان را provision، trust anchor را فعال یا Grant صادر نمی‌کند.
+
+دادهٔ دستگاه فعلی از کاربر: hostname `DESKTOP-50D6J3G`, Windows Enterprise `10.0.15063` (version 1703). این Build برای تصمیم استفادهٔ عملیاتی کافی/قابل قبول نیست؛ بررسی سخت‌افزار و eligibility ارتقا هنوز انجام نشده است. الزامات پایهٔ Windows 11 طبق مستند رسمی Microsoft عبارت‌اند از CPU سازگار 64-bit (حداقل ۲ هسته)، RAM حداقل 4 GB، دستگاه ذخیره‌سازی حداقل 64 GB، UEFI/Secure Boot-capable و TPM 2.0؛ فهرست CPUهای پشتیبانی‌شده و بررسی رسمی باید جداگانه احراز شود: https://learn.microsoft.com/en-us/windows/whats-new/windows-11-requirements . Microsoft توصیه می‌کند برای ارزیابی جامع eligibility از PC Health Check استفاده شود: https://support.microsoft.com/en-us/windows/experience/compatibility/how-to-use-the-pc-health-check-app .
+
+گام بعدی: اجرای یک اسکریپت PowerShell صرفاً خواندنی برای نمایش خروجی JSON شامل دقیقاً edition/build/UBR، CPU، RAM، فضای دیسک، وضعیت TPM/Secure Boot/BitLocker در حد دسترسی، سرویس‌های Runner، فرایندهای MT5، و حضور پوشه‌های Runner/Provider/Signer. همچنین باید به‌صورت جداگانه تأیید شود که مدیر و بازیابی دسترسی به این workstation از ادارهٔ Provider/Runner مستقل است. تا وقتی این داده‌ها و بازبینی/تصویب مسیر رسمی کامل نشده‌اند، کلید آزمایشی دوم به هیچ trust anchor متصل نمی‌شود.
+
+آخرین نتیجهٔ رمزنگاری آزمایشی دوم حفظ است: `PRIVATE_KEY_DECRYPTION=PASS`, `PUBLIC_PRIVATE_MATCH=PASS`, `SIGNATURE_VERIFY=PASS`. هیچ رمز یا محتوای کلید خصوصی ثبت نمی‌شود. وضعیت معاملات: Kill Switch DENY؛ Demo غیرمجاز؛ Live غیرفعال؛ سفارش‌های ارسالی صفر.
