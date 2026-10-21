@@ -1,8 +1,10 @@
 name: ForexAI G13 Demo Readiness Gate M15
 
 # Read-only evidence gate. No orders, no trading authorization.
-# It can be run manually or automatically after the prerequisite evidence
-# workflows complete successfully. The gate itself never enables trading.
+# It accepts an explicit dispatch only. The controlled Demo package preflight
+# dispatches it with exact-SHA run IDs after all prerequisite evidence passes.
+# This prevents a second workflow_run-triggered copy from dispatching duplicate
+# Capital Firewall preflights. The gate itself never enables trading.
 on:
   workflow_dispatch:
     inputs:
@@ -21,24 +23,13 @@ on:
       preflight_run_id:
         description: "Successful G13 Controlled Demo Package Preflight run for the current main commit"
         required: true
-  workflow_run:
-    workflows:
-      - "ForexAI G13 MT5 Compile + Signal Parity"
-      - "ForexAI G13 Execution Safety Audit M15"
-      - "ForexAI G13 MT5 Runtime Safety Probe M15 v2"
-      - "ForexAI G13 Workflow Static Validation"
-      - "ForexAI G13 Final Promotion M15"
-      - "ForexAI G13 Controlled Demo Package Preflight M15"
-    types: [completed]
-    branches:
-      - main
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: g13-demo-readiness-gate-m15-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: g13-demo-readiness-gate-m15-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
