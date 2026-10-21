@@ -232,11 +232,13 @@ def test_runtime_safety_probe_startup_attaches_script_to_explicit_chart():
     ).read_text(encoding="utf-8")
 
     # MT5 does not start a startup Script when the current profile has no
-    # chart. Force an explicit, deterministic chart for both no-order probes.
-    assert workflow.count("          Script=$scriptRel\n") == 2
-    assert workflow.count("          Symbol=EURUSD\n") == 2
-    assert workflow.count("          Period=M15\n") == 2
-    assert workflow.count("          ShutdownTerminal=1\n") == 2
+    # chart. Force one explicit, deterministic chart for the single-session
+    # script that emits the paired Auth OFF and Auth ON markers.
+    assert workflow.count("          Script=$scriptRel\n") == 1
+    assert workflow.count("          Symbol=EURUSD\n") == 1
+    assert workflow.count("          Period=M15\n") == 1
+    assert workflow.count("          ShutdownTerminal=1\n") == 1
+    assert "MT5_AUTH_ON_PROBE_OK_SINGLE_SESSION=true" in workflow
 
 def test_runtime_probe_is_dispatch_only_to_preserve_main_mt5_ordering():
     workflow = Path(
