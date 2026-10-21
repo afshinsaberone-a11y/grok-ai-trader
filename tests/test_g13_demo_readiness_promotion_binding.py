@@ -218,13 +218,18 @@ def test_static_lint_freshness_reuses_only_unchanged_ancestor():
         assert audited_path in freshness
 
 
-def test_readiness_requires_runtime_probe_from_exact_current_main_sha():
+def test_readiness_uses_explicit_run_ids_and_verifies_each_against_exact_main_sha():
     workflow = Path(
         ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
     ).read_text(encoding="utf-8")
 
-    assert 'runtime_id="$(latest_success_exact "forexai-g13-mt5-runtime-safety-probe-m15-v2.yml" "$MAIN_SHA")"' in workflow
+    assert 'runtime_id="${MANUAL_RUNTIME_RUN_ID}"' in workflow
+    assert 'safety_id="${MANUAL_SAFETY_RUN_ID}"' in workflow
+    assert 'parity_id="${MANUAL_PARITY_RUN_ID}"' in workflow
+    assert 'promotion_id="${MANUAL_PROMOTION_RUN_ID}"' in workflow
+    assert 'preflight_id="${MANUAL_PREFLIGHT_RUN_ID}"' in workflow
     assert 'if [ "$key" = "RUNTIME" ] || [ "$key" = "SAFETY" ]' in workflow
+    assert '[ "$sha" = "$MAIN_SHA" ] || { echo "$key run head SHA mismatch' in workflow
 
 def test_runtime_safety_probe_startup_attaches_script_to_explicit_chart():
     workflow = Path(
@@ -298,12 +303,12 @@ def test_readiness_only_accepts_explicit_dispatch_to_prevent_duplicate_preflight
     workflow = Path(
         ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
     ).read_text(encoding="utf-8")
-    trigger_block = workflow.split("\\npermissions:", 1)[0]
+    trigger_block = workflow.split("\npermissions:", 1)[0]
 
     # Controlled Demo Package Preflight explicitly dispatches Readiness with
     # exact-SHA run IDs. A second workflow_run trigger caused duplicate
     # Readiness jobs and redundant Capital Firewall preflights for one SHA.
-    assert "  workflow_dispatch:\\n" in trigger_block
-    assert "\\n  workflow_run:" not in trigger_block
+    assert "  workflow_dispatch:\n" in trigger_block
+    assert "\n  workflow_run:" not in trigger_block
     assert "Dispatch exact-SHA read-only Capital Firewall preflight" in workflow
     assert 'READINESS_RUN_ID: ${{ github.run_id }}' in workflow
