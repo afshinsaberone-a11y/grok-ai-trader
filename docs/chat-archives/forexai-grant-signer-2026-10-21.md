@@ -343,3 +343,19 @@ https://support.microsoft.com/en-us/servicing/os/windows-10/2019/11/november-12-
 4. اگر پس از اجرای ترمینالِ بسته نیز نشانگر ایجاد نشد، باید workflow برای جمع‌آوری امن‌تر شواهد startup/Task Scheduler/مسیر لاگ اصلاح شود؛ نه اینکه شرط marker حذف یا bypass شود.
 
 حفاظت ثابت: Kill Switch برابر `DENY`؛ مجوز Demo عملیاتی صادرنشده؛ Live غیرفعال؛ سفارش ارسال‌شده صفر. این افزوده فقط تشخیص/گزارش است و هیچ کد معاملاتی یا trust anchor را تغییر نمی‌دهد.
+
+
+---
+
+## پیوست — ترمینال MT5 بسته شد و تلاش سوم برای Runtime Safety Probe آغاز شد (۲۱ اکتبر ۲۰۲۶)
+
+کاربر تأیید کرد: «MT5 بسته شد». سپس فقط Job `runtime-safety-probe` از اجرای workflow [39577911969](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969) دوباره اجرا شد.
+
+- API بازاجرای Job: `success=true`.
+- شناسهٔ Job attempt جدید: `119470856081`.
+- آخرین وضعیت مشاهده‌شده: `in_progress`.
+- `Set up job`: success؛ `Checkout`: در حال اجرا.
+- `Resolve MT5 service paths`، static no-order preflight، compile، deploy، snapshot Kill Switch و Auth OFF هنوز در این attempt شروع نشده‌اند.
+- بنابراین در این نوبت هیچ نتیجه‌ای دربارهٔ نشانگر Auth OFF وجود ندارد؛ نه PASS است و نه فعلاً شکست Runtime تازه‌ای ثبت شده است. باید نتیجه را از همان attempt جدید دریافت کرد و از ارزیابی اجرای قبلی به‌عنوان نتیجهٔ این attempt خودداری کرد.
+
+تا پایان این تلاش، گیت‌های معامله دست‌نخورده بمانند: Kill Switch `DENY`، مجوز Demo برای معامله صادرنشده، Live غیرفعال و سفارش‌های ارسال‌شده صفر. هیچ تغییری در کد یا trust anchor این نوبت انجام نشد.
