@@ -434,3 +434,49 @@ https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/296
 متن PR نیز به‌روزرسانی شد تا وضعیت فعلی (Ready for review، نه Draft و نه merged) و محدودیت مهم را دقیق منعکس کند: تغییر هنوز روی Runner واقعی آزمایش نشده است. PR هنوز نیازمند بازبینی/ادغام مجاز و اجرای G13 روی SHA دقیق main پس از ادغام است. هیچ کدی در main به‌وسیلهٔ این اقدام تغییر نکرد.
 
 وضعیت ایمنی ثابت: Kill Switch `DENY`؛ Demo مجوز معامله ندارد تا زنجیره و مجوزهای مستقل کامل شوند؛ Live غیرفعال؛ سفارش‌های ارسال‌شده صفر.
+
+
+---
+
+## پیوست — اصلاح Runtime Probe به طراحی تک‌نشستی (۲۲ اکتبر ۲۰۲۶)
+
+### شواهد واقعی قبل از اصلاح
+در اجرای main روی SHA `513a0071bd4ab64258ed20c5deb7218ba183371b`، تلاش Job `119470856081`:
+- **Auth OFF موفق** بود و هویت حساب Demo و اتصال واقعی ترمینال را تأیید کرد.
+- **Auth ON ناموفق** بود: `G13_RUNTIME_AUTH_ON_ACCOUNT_IDENTITY_UNVERIFIED`، با `terminal_connected=false` و `account_identity_verified=false`.
+- هر دو اسکریپت از قبل تا ۴۵ ثانیه برای هویت/اتصال منتظر می‌ماندند؛ بنابراین صرفاً افزودن انتظار برای بسته‌شدن terminal، درمان قابل اتکا نبود.
+- نشانگر واقعی هم‌چنان `orders_submitted=false` بود. این اجرای Runtime به‌طور کلی شکست‌خورده است، نه سبز.
+
+منبع اجرای ناموفق:
+https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969
+
+### اصلاح ثبت‌شده در PR #296
+PR:
+https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/296
+
+شاخه:
+`fix/g13-runtime-probe-terminal-shutdown-race-2026-10-22`
+
+HEAD تأییدشده برای CI:
+`622a746bc1c09c12642c319d3729dcd828c779bc`
+
+تغییرات این نسخه:
+1. اسکریپت ورودی `G13_Safety_Probe_AuthOff.mq5` در همان نشست MT5 یک snapshot واقعی و مشترک از اتصال، هویت حساب، مجوزهای ترمینال، نماد و Kill Switch می‌گیرد.
+2. از همان snapshot، دو predicate منطقی مستقل ارزیابی و دو فایل نشانگر `auth_on` و `auth_off` تولید می‌شوند. نشانگر Auth ON ابتدا و نشانگر Auth OFF آخر نوشته می‌شود؛ workflow فقط پس از نشانگر Auth OFF به مرحلهٔ بعد می‌رود.
+3. workflow هر دو نشانگر را قبل از شروع حذف می‌کند، فقط یک entry-point را در MT5 نصب می‌کند و مرحلهٔ بررسی Auth ON دیگر ترمینال یا Task Scheduler دوم راه نمی‌اندازد.
+4. تست‌های قرارداد به طراحی تک‌نشستی تغییر کردند. منطق احراز هویت/اتصال حساب تضعیف نشده است. Auth ON با Kill Switch روی `DENY` صراحتاً باید `execution_allowed=false` گزارش کند. هر دو marker باید `orders_submitted=false` داشته باشند.
+
+### CI در HEAD بالا
+- [G13 Workflow Static Validation — run 39675769384](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39675769384): **success**.
+- [Full Python tests — run 39675769407](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39675769407): **success**.
+- [Agent Runtime Check — run 39675769381](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39675769381): **success**.
+- [P0 Quant Trust Gate — run 39675769406](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39675769406): **success**.
+
+این‌ها تست‌های کد/قرارداد هستند، نه اثبات Runtime روی MT5 ویندوز. اجرای تازه روی self-hosted MT5 هنوز انجام نشده است؛ PR #296 باز و ادغام‌نشده است. اجرای واقعی پس از بازبینی و ادغام مجاز باید ثابت کند هر دو نشانگر متعلق به حساب Demo متصل و احراز هویت‌شده‌اند، Kill Switch تغییری نکرده و هیچ سفارشی ارسال نشده است.
+
+### وضعیت ایمنی و کار بعدی
+- Kill Switch همچنان `DENY`.
+- Demo هنوز مجوز اجرای معامله ندارد؛ Live غیرفعال است.
+- تعداد سفارش‌های ارسال‌شده: صفر.
+- زنجیرهٔ G13 و بسته‌بندی Demo تا موفق‌شدن Runtime واقعی باید مسدود بمانند.
+- تاریخچهٔ قبلی این فایل حذف یا جایگزین نشد؛ این بخش فقط به انتهای آرشیو افزوده شده است.
