@@ -3,7 +3,7 @@ name: ForexAI G13 MT5 Runtime Safety Probe M15 v2
 # Read-only execution safety verification. No EA/order submission is possible.
 # Runtime evidence is dispatched only by the main G13 watchdog after exact-SHA signal parity.
 # Every run is bound to the current main SHA through the official watchdog's ordered chain.
-# Every probe is installed under a run-unique MT5 Scripts directory to avoid
+# The composite probe is installed under a run-unique MT5 Scripts directory to avoid
 # collisions with older MT5 processes or files locked by a prior run.
 on:
   # The watchdog dispatches this only after exact-SHA Compile + Signal Parity.
@@ -95,7 +95,6 @@ jobs:
           "MT5_SCRIPTS_ROOT=$scriptsRoot" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "G13_MT5_INTERACTIVE_ACCOUNT=$interactiveAccount" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "G13_AUTH_OFF_SCRIPT=G13_Safety_Probe_AuthOff_$($env:GITHUB_RUN_ID)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "G13_AUTH_ON_SCRIPT=G13_Safety_Probe_AuthOn_$($env:GITHUB_RUN_ID)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host 'MT5_PROFILE_RESOLUTION=PASS'
           Write-Host 'MT5_RUNTIME_PROBE_LAUNCH_MODE=INTERACTIVE_TASK'
 
@@ -149,9 +148,10 @@ jobs:
           if (!(Test-Path -LiteralPath $env:MT5_SCRIPTS_ROOT -PathType Container)) {
             throw "MT5 Scripts destination missing: $env:MT5_SCRIPTS_ROOT"
           }
+          # Only the composite entry-point is installed; Auth ON is emitted
+          # by that same process as a second read-only marker.
           $pairs = @(
-            @{ Source='G13_Safety_Probe_AuthOff'; Dest=($env:G13_AUTH_OFF_SCRIPT + '.ex5') },
-            @{ Source='G13_Safety_Probe_AuthOn'; Dest=($env:G13_AUTH_ON_SCRIPT + '.ex5') }
+            @{ Source='G13_Safety_Probe_AuthOff'; Dest=($env:G13_AUTH_OFF_SCRIPT + '.ex5') }
           )
           foreach ($pair in $pairs) {
             $src = Join-Path $env:GITHUB_WORKSPACE ('artifacts\g13\safety_probe_build\' + $pair.Source + '.ex5')
