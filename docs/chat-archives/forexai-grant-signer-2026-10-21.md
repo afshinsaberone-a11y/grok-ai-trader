@@ -359,3 +359,19 @@ https://support.microsoft.com/en-us/servicing/os/windows-10/2019/11/november-12-
 - بنابراین در این نوبت هیچ نتیجه‌ای دربارهٔ نشانگر Auth OFF وجود ندارد؛ نه PASS است و نه فعلاً شکست Runtime تازه‌ای ثبت شده است. باید نتیجه را از همان attempt جدید دریافت کرد و از ارزیابی اجرای قبلی به‌عنوان نتیجهٔ این attempt خودداری کرد.
 
 تا پایان این تلاش، گیت‌های معامله دست‌نخورده بمانند: Kill Switch `DENY`، مجوز Demo برای معامله صادرنشده، Live غیرفعال و سفارش‌های ارسال‌شده صفر. هیچ تغییری در کد یا trust anchor این نوبت انجام نشد.
+
+
+---
+
+## افزودهٔ تکمیلی — نتیجهٔ میان‌مرحله‌ای تلاش سوم (۲۱ اکتبر ۲۰۲۶)
+
+در attempt سوم `119470856081` روی اجرای workflow `39577911969`، پس از بستن MT5 توسط کاربر، مراحل زیر در GitHub Actions با موفقیت تکمیل شدند:
+- Checkout
+- Resolve MT5 service paths
+- Static no-order preflight
+- Compile safety probes
+- Deploy run-unique non-trading probes
+- Snapshot shared kill switch
+- **Run Auth OFF probe: success**
+
+آخرین وضعیت خوانده‌شده: `Run Auth ON probe=in_progress`؛ ارزیابی شواهد، بررسی عدم تغییر Kill Switch و بارگذاری Artifact هنوز تکمیل نشده‌اند. این فقط نتیجهٔ مرحله‌ای است، نه موفقیت کل Runtime Safety Probe. تا دریافت نتیجهٔ نهایی، Kill Switch `DENY` می‌ماند، مجوز عملیاتی Demo صادرنشده است، Live غیرفعال و orders submitted=0 باقی می‌ماند.
