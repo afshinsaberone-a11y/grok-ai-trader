@@ -137,3 +137,26 @@ Therefore the latest chain is not Demo-ready. A successful Task Scheduler launch
 5. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders submitted at zero until the separate approved execution gate passes.
 
 No keys, secrets, trust anchors, production registry, Grant or order were created by this review.
+
+---
+
+## پیوست تازه — نتیجهٔ اولیهٔ دستگاه جداگانه برای Grant Signer (۲۱ اکتبر ۲۰۲۶)
+
+### اطلاعاتی که در خروجی PowerShell دیده شد
+- سیستم‌عامل: Windows 10 Enterprise، نسخهٔ هستهٔ 10.0.15063، Build 15063.
+- بخش‌های Runner و MT5 در خروجیِ ارائه‌شده نام سرویس یا فرایندی نشان ندادند؛ این قرینهٔ اولیه است، نه اثبات کامل نبودن همهٔ وابستگی‌ها.
+- بخش مسیرها به‌درستی چاپ نشد؛ مقدارهای `RunnerDirectory` و `ProviderDirectory` نامشخص مانده‌اند. نام میزبان در این سند عمومی بازنشر نشده است.
+
+### ارزیابی امنیتی
+Build 15063 برابر با Windows 10 version 1703 است. طبق صفحهٔ رسمی Microsoft، نسخهٔ 1703 برای همهٔ ویرایش‌ها به پایان سرویس رسیده و دیگر به‌روزرسانی امنیتی دریافت نمی‌کند:
+https://support.microsoft.com/en-us/servicing/os/windows-10/2019/11/november-12-2019-kb4525245-os-build-15063-2172
+
+**تصمیم فعلی: دستگاه در وضعیت سیستم‌عامل فعلی برای نگهداری کلید خصوصی Grant Signer تأیید نمی‌شود.** ابتدا باید سیستم‌عامل به نسخه‌ای که واقعاً پشتیبانی و به‌روز است ارتقا یابد یا از یک دستگاه مستقل با سیستم‌عامل پشتیبانی‌شده استفاده شود. اگر سخت‌افزار واجد شرایط ارتقا نیست، کلید را روی همین نصب قدیمی ایجاد نکنید.
+
+### مواردی که هنوز باید روشن شود
+1. پس از اصلاح سیستم‌عامل، خروجی تشخیصیِ ساده و برچسب‌دار باید وضعیت دو مسیر `C:\\actions-runner` و `C:\\ProgramData\\ForexAI-Provider`، سرویس‌های Runner/Provider و فرایندهای MT5 را بدون ابهام نشان دهد.
+2. استقلال مدیریتی هنوز تأیید نشده است: آیا مدیر/حسابی که Provider را کنترل می‌کند می‌تواند این دستگاه یا حساب مدیر آن را نیز کنترل یا بازیابی کند؟ پاسخ «بله/خیر/نامشخص» لازم است.
+3. تا تکمیل این موارد، bootstrap، ساخت یا واردکردن کلید خصوصی، تغییر trust anchor و صدور Grant انجام نشود.
+
+این پیوست به انتهای آرشیو افزوده شد؛ هیچ بخش قبلی حذف یا جایگزین نشده است. وضعیت اجرای معامله تغییری نکرده: Kill Switch برابر DENY، مجوز Demo صادر نشده، Live غیرفعال و تعداد سفارش‌های ارسالی صفر.
+
