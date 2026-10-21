@@ -93,7 +93,7 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
         / ".github/workflows/forexai-g13-mt5-runtime-safety-probe-m15-v2.yml"
     ).read_text(encoding="utf-8")
 
-    assert "tools\\\\resolve_mt5_common_files_v1.ps1" in workflow
+    assert "tools\\resolve_mt5_common_files_v1.ps1" in workflow
     assert "$resolved = @(& $resolver -TerminalPath $terminal)" in workflow
     assert "^G13_MT5_COMMON_FILES=" in workflow
     assert "^G13_MT5_TERMINAL_OWNER=" in workflow
@@ -121,8 +121,8 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert "Get-ScheduledTask -TaskName $taskName" not in workflow
     assert "Get-ScheduledTaskInfo -TaskName $taskName" not in workflow
     assert workflow.count('Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-') == 1
-    assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\\\g13\\\\probe-auth-off.ini'" not in workflow
-    assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\\\g13\\\\probe-auth-on.ini'" not in workflow
+    assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-off.ini'" not in workflow
+    assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-on.ini'" not in workflow
     assert workflow.count("Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue") == 1
     assert "foreach ($verb in @('/End','/Delete'))" in workflow
     assert "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb" in workflow
