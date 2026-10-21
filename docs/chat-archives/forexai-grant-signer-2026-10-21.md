@@ -480,3 +480,49 @@ HEAD تأییدشده برای CI:
 - تعداد سفارش‌های ارسال‌شده: صفر.
 - زنجیرهٔ G13 و بسته‌بندی Demo تا موفق‌شدن Runtime واقعی باید مسدود بمانند.
 - تاریخچهٔ قبلی این فایل حذف یا جایگزین نشد؛ این بخش فقط به انتهای آرشیو افزوده شده است.
+
+
+---
+
+## پیوست — ادغام اصلاح Runtime و بازبینی مجدد موانع منبع/مجوز (۲۲ اکتبر ۲۰۲۶)
+
+### اصلاح Runtime وارد main شد
+PR #296 با روش squash ادغام شد:
+- [PR #296](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/296)
+- [Merge commit](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/1cdbe6d381204c573eb65479e5a800e802e5ff51)
+- SHA: `1cdbe6d381204c573eb65479e5a800e802e5ff51`
+
+قبل از ادغام، CI روی HEAD `622a746bc1c09c12642c319d3729dcd828c779bc` موفق بود:
+- [G13 Workflow Static Validation — run 39675769384](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39675769384): success.
+- [Full Python tests — run 39675769407](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39675769407): success.
+- [Agent Runtime Check — run 39675769381](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39675769381): success.
+- [P0 Quant Trust Gate — run 39675769406](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39675769406): success.
+
+این نتایج تست کد و قراردادها هستند. در این پیوست هنوز مدرک تأییدشده‌ای از اجرای واقعی Runtime روی Runner ویندوز برای SHA جدید main نداریم.
+
+### منطق اصلاح‌شده
+یک اجرای MT5، وضعیت واقعی حساب/اتصال/مجوزهای ترمینال و Kill Switch را می‌خواند و دو نشانگر منطقی `auth_on` و `auth_off` را از همان snapshot می‌نویسد. نشانگر Auth ON پیش از Auth OFF نوشته می‌شود؛ در نتیجه نشانگر نهایی Auth OFF فقط پس از ساخته‌شدن هر دو وجود خواهد داشت. workflow فقط یک entry-point را نصب می‌کند و مرحلهٔ Auth ON بار دیگر ترمینال را راه‌اندازی نمی‌کند.
+
+Auth ON به معنی اجازهٔ معامله نیست: با Kill Switch روی `DENY` باید `execution_allowed=false` باشد. هر دو نشانگر باید هویت Demo و اتصال واقعی ترمینال را تأیید کنند و `orders_submitted=false` داشته باشند.
+
+### بازبینی زندهٔ منابع Dropbox
+در ۲۲ اکتبر شش جست‌وجوی read-only انجام شد:
+1. ForexAI TradeLedger
+2. authenticated runtime envelope
+3. Capital Firewall source packet
+4. EURUSD M15 SELL risk reservation
+5. Grant signer/source authority
+6. Operator approval / signal / risk reservation
+
+هر شش جست‌وجو صفر نتیجه داشتند. این با گزارش واقعی Windows inventory قبلی سازگار است: متغیرهای مسیر تنظیم شده‌اند، اما فایل‌های هدف و پوشه‌های والد موجود نیستند؛ فایل JSON موجود در مخزن هم فقط قرارداد/schema است، نه runtime envelope واقعی. هیچ source packet، ledger، envelope یا کلید عملیاتی ساخته یا جعل نشد.
+
+این به‌روزرسانی همچنین به [Issue #254](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/254) و [Issue #225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) افزوده شد.
+
+### موانع باقی‌مانده که نیازمند اختیار/زیرساخت واقعی‌اند
+- تأمین TradeLedger append-only و authenticated runtime envelope از منبع مورداعتماد واقعی.
+- provision کردن Grant signer در مرز مدیریتی مستقل همراه نام مدیر میزبان، custodian کلید، reviewer و revocation owner.
+- شناسایی و تأیید مستقل منابع Signal، Risk+Reservation و Operator Approval و تکمیل نقش Promotion Attestor.
+- رسیدگی به عدم تطابق کلید Promotion از طریق cutover موردتأیید صاحب کلید و انجام هرگونه Admission key rotation فقط با مجوز صاحب کلید.
+- بررسی شواهد G13 روی SHA دقیق جدید main و اجرای واقعی پروب‌ها روی MT5 Runner، نه صرفاً استناد به CI.
+
+این موانع را نمی‌توان امن و صادقانه با تغییر کد یا ساخت فایل‌های placeholder برطرف کرد. تا فراهم‌شدن اقتدار و دادهٔ واقعی، مقدارهای ایمنی تغییر نمی‌کنند: Kill Switch `DENY`؛ مجوز Demo برقرار نشده؛ Live غیرفعال؛ تعداد سفارش‌های ارسال‌شده صفر. تاریخچهٔ قبلی حذف یا جایگزین نشد؛ فقط این پیوست به انتهای آرشیو اضافه شد.
