@@ -424,6 +424,57 @@ jobs:
           }
 
           $terminal = Join-Path $env:MT5_ROOT 'terminal64.exe'
+
+          # Auth OFF uses ShutdownTerminal=1. Its result marker is emitted before
+          # MT5 has necessarily finished exiting. Wait for that exact terminal
+          # process to disappear before launching Auth ON; otherwise the second
+          # /config request can collide with the prior instance and run disconnected.
+          $terminalFullPath = [System.IO.Path]::GetFullPath($terminal)
+          $shutdownStartedAt = Get-Date
+          $shutdownDeadline = $shutdownStartedAt.AddSeconds(75)
+          $shutdownNextHeartbeat = 15
+          $terminalGone = $false
+          while ((Get-Date) -lt $shutdownDeadline) {
+            try {
+              $observedTerminals = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'terminal64.exe'" -ErrorAction Stop)
+            } catch {
+              throw 'G13_RUNTIME_AUTH_ON_PRESTART_TERMINAL_QUERY_FAILED'
+            }
+            $unresolvedTerminalPaths = @(
+              $observedTerminals | Where-Object {
+                [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath)
+              }
+            )
+            if ($unresolvedTerminalPaths.Count -gt 0) {
+              throw 'G13_RUNTIME_AUTH_ON_PRESTART_TERMINAL_PATH_UNRESOLVED'
+            }
+            $matchingTerminals = @(
+              $observedTerminals | Where-Object {
+                try {
+                  [System.String]::Equals(
+                    [System.IO.Path]::GetFullPath([string]$_.ExecutablePath),
+                    $terminalFullPath,
+                    [System.StringComparison]::OrdinalIgnoreCase
+                  )
+                } catch { $false }
+              }
+            )
+            if ($matchingTerminals.Count -eq 0) {
+              $terminalGone = $true
+              Write-Host 'G13_RUNTIME_AUTH_ON_PRESTART_TERMINAL_ABSENT=true'
+              break
+            }
+            $elapsed = [int]((Get-Date) - $shutdownStartedAt).TotalSeconds
+            if ($elapsed -ge $shutdownNextHeartbeat) {
+              Write-Host "G13_RUNTIME_AUTH_ON_WAITING_FOR_PREVIOUS_TERMINAL_EXIT elapsed_seconds=$elapsed"
+              $shutdownNextHeartbeat += 15
+            }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $terminalGone) {
+            throw 'G13_RUNTIME_AUTH_ON_PRESTART_TERMINAL_STILL_RUNNING'
+          }
+
           $config = Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-on-$($env:GITHUB_RUN_ID).ini"
           $done = Join-Path $env:MT5_COMMON_FILES 'g13_safety_probe_auth_on.done.txt'
           $scriptRel = $env:G13_AUTH_ON_SCRIPT
