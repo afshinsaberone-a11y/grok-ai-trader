@@ -526,3 +526,46 @@ Auth ON به معنی اجازهٔ معامله نیست: با Kill Switch رو�
 - بررسی شواهد G13 روی SHA دقیق جدید main و اجرای واقعی پروب‌ها روی MT5 Runner، نه صرفاً استناد به CI.
 
 این موانع را نمی‌توان امن و صادقانه با تغییر کد یا ساخت فایل‌های placeholder برطرف کرد. تا فراهم‌شدن اقتدار و دادهٔ واقعی، مقدارهای ایمنی تغییر نمی‌کنند: Kill Switch `DENY`؛ مجوز Demo برقرار نشده؛ Live غیرفعال؛ تعداد سفارش‌های ارسال‌شده صفر. تاریخچهٔ قبلی حذف یا جایگزین نشد؛ فقط این پیوست به انتهای آرشیو اضافه شد.
+
+
+---
+
+## پیوست پیگیری — ۲۲ اکتبر ۲۰۲۶: رفع Runtime Probe و ادامهٔ موانع Capital Firewall
+
+این پیوست افزایشی است؛ محتوای قبلی آرشیو حذف یا بازنویسی نشده است.
+
+### Runtime Safety Probe روی main
+
+- main در زمان بررسی روی SHA `1cdbe6d381204c573eb65479e5a800e802e5ff51` بود.
+- [PR #296](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/296) با اصلاح اجرای هر دو ارزیابی Auth در یک نشست واقعی MT5 در همین SHA merge شده است.
+- [Runtime Safety Probe run 39678009667](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39678009667)، [Compile + Signal Parity run 39677184804](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39677184804)، [Package Preflight run 39678287819](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39678287819)، [Safety Audit run 39678321941](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39678321941) و [Readiness run 39678450440](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39678450440) همگی موفق گزارش شدند و روی همان SHA هستند.
+- لاگ Runtime با اجرای هر دو probe تأیید کرد: `account_identity_verified=true`، `terminal_connected=true`، `demo_account=true`، `real_account_detected=false`، `kill_switch_allow=false`، `execution_allowed=false` و `orders_submitted=false`. برای Auth OFF مقدار authorization برابر false و برای Auth ON فقط predicate آزمایشی برابر true ثبت شد؛ در هر دو حالت اجرای واقعی مسدود ماند.
+- آرتیفکت runtime با ID `12381728366` و digest برابر `sha256:16f9f5c7950282cb179db206f076908c9f418d04515aae45627aa0542a1dd4de` در GitHub Actions موجود است.
+
+### مانع Capital Firewall هنوز واقعی است
+
+[Capital Firewall Authorization Preflight run 39678500833](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39678500833) با وجود تأیید موفق منبع Readiness و فعال‌کردن/راستی‌آزمایی Kill Switch روی DENY، به‌درستی `BLOCKED` ماند. گزارش دقیق این سه مورد را مشخص کرد:
+
+- `AUTHENTICATED_ENVELOPE_FILE_MISSING`
+- `MQL5_AUTHORIZATION_RECORD_MISSING`
+- `TRADE_LEDGER_FILE_MISSING`
+
+همچنین گزارش ثبت کرد `authorization_record_created=false`، `ledger_mutated=false`، `order_submission_performed=false` و `kill_switch_changed=false`. آرتیفکت تشخیصی ID `12382073848` است. بنابراین نباید فایل‌های صوری بسازیم یا Preflight را به PASS تغییر دهیم: باید رکوردهای معتبر و واقعی از مالک/منبع مجاز تأمین شوند.
+
+سایر موانع شناخته‌شده هنوز نیازمند مسئولان واقعی هستند: بستهٔ معتبر Provider/source، رجیستری صدور پایدار و ضدبازپخش، شش trust anchor مستقل برای Admission/Promotion/Signal/Risk/Operator Approval/Grant، منابع امضاشدهٔ Signal و Risk همراه Reservation، Operator Approval مستقل، رفع هماهنگ اختلاف Promotion-key و cutover مجاز Admission-key، و تأیید custodian/مدیر مستقل Grant Signer. دستگاه Windows 10 Build 15063 که قبلاً بررسی شده بود، به‌دلیل سیستم‌عامل پایان‌پشتیبانی‌شده برای نگهداری کلید عملیاتی تأیید نیست.
+
+### اصلاح جدید workflow Readiness
+
+- [PR #297](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/297) حذف trigger تکراری `workflow_run` از Demo Readiness را دنبال می‌کند؛ Preflight قبلاً Readiness را با run IDهای دقیق dispatch می‌کرد و trigger دوم باعث دو بار اجرای Readiness و دو بار Capital Firewall preflight می‌شد.
+- تست‌ها روی commit `6033d256e2407b127e3103e566391fbc8382b6ce` موفق شدند، اما Static Validation شکست خورد چون lint هنوز قرارداد قدیمی را برای Readiness انتظار داشت. سپس linter و regression test اصلاح شدند و commit فعلی شاخه در آخرین بررسی `afba60f026c7a55d46eba10627a05df696e6b567` بود؛ CI آن زمان در حال اجرا بود و نتیجهٔ نهایی هنوز تأیید نشده بود.
+- PR #297 هنوز merge نشده است. پیش از merge باید Static Validation و تست‌های همان head سبز شوند و mergeability دوباره بررسی شود.
+
+### وضعیت ایمنی
+
+- Kill Switch: **DENY**
+- Demo authorization: **false / صادر نشده**
+- Live: **غیرفعال**
+- سفارش ارسالی: **صفر**
+- هیچ رکورد مجوز، TradeLedger، envelope، production trust anchor، Grant یا کلید عملیاتی جدیدی توسط این پیگیری ایجاد نشده است.
+
+گام عملی بعد: برطرف‌کردن قرارداد lint جدید و تأیید CI در PR #297؛ سپس تأمین ورودی‌های واقعی/امضاشدهٔ Control Plane توسط مالکین مجاز، و اجرای مجدد Capital Firewall preflight فقط پس از در دسترس بودن همان ورودی‌ها.
