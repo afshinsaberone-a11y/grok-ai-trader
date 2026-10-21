@@ -101,19 +101,18 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert "$appData = $env:APPDATA" not in workflow
     assert '"G13_MT5_INTERACTIVE_ACCOUNT=$interactiveAccount" | Out-File $env:GITHUB_ENV' in workflow
     assert "MT5_PROFILE_RESOLUTION=PASS" in workflow
-    # Runtime scripts must run in the terminal owner's logged-on interactive
-    # session, not Session 0; both configs retain no-live/no-order invariants.
-    assert workflow.count("New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive") == 2
-    assert workflow.count("AllowLiveTrading=0") == 2
+    # A single interactive startup emits both authorization predicate markers.
+    # The second step validates its marker and must never launch another MT5 process.
+    assert workflow.count("New-ScheduledTaskPrincipal -UserId $env:G13_MT5_INTERACTIVE_ACCOUNT -LogonType Interactive") == 1
+    assert workflow.count("AllowLiveTrading=0") == 1
     assert workflow.count("orders_submitted,false") >= 2
-    assert workflow.count("finally {") >= 2
-    assert workflow.count("$startedAt = Get-Date") == 2
-    assert workflow.count("$deadline = $startedAt.AddSeconds(180)") == 2
-    assert workflow.count("Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName)") == 2
-    assert workflow.count("WaitForExit(15000)") == 2
-    # Each probe has two bounded calls: the missing-marker evidence query
-    # and task cleanup. A nonzero launcher exit no longer triggers an extra query.
-    assert workflow.count("WaitForExit(10000)") == 4
+    # One finally bounds the diagnostic query and one cleans up the single launch task.
+    assert workflow.count("finally {") == 2
+    assert workflow.count("$startedAt = Get-Date") == 1
+    assert workflow.count("$deadline = $startedAt.AddSeconds(180)") == 1
+    assert workflow.count("Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName)") == 1
+    assert workflow.count("WaitForExit(15000)") == 1
+    assert workflow.count("WaitForExit(10000)") == 2
     assert workflow.count("WaitForExit(10000)") == (
         workflow.count("$queryProcess.WaitForExit(10000)")
         + workflow.count("$cleanup.WaitForExit(10000)")
@@ -122,13 +121,16 @@ def test_runtime_safety_probe_uses_actual_terminal_profile_not_runner_appdata():
     assert "Start-ScheduledTask -TaskName $taskName" not in workflow
     assert "Get-ScheduledTask -TaskName $taskName" not in workflow
     assert "Get-ScheduledTaskInfo -TaskName $taskName" not in workflow
-    assert workflow.count('Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-') == 2
+    assert workflow.count('Join-Path $env:MT5_COMMON_FILES "g13-probe-auth-') == 1
     assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-off.ini'" not in workflow
     assert "Join-Path $env:GITHUB_WORKSPACE 'artifacts\\g13\\probe-auth-on.ini'" not in workflow
-    assert workflow.count("Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue") == 2
+    assert workflow.count("Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue") == 1
     assert "foreach ($verb in @('/End','/Delete'))" in workflow
     assert "G13_RUNTIME_AUTH_OFF_TASK_CLEANUP_TIMEOUT=$verb" in workflow
-    assert "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb" in workflow
+    assert "G13_RUNTIME_AUTH_ON_TASK_CLEANUP_TIMEOUT=$verb" not in workflow
+    assert "G13_RUNTIME_AUTH_ON_AUTH_OFF_MARKER_MISSING" in workflow
+    assert "MT5_AUTH_ON_PROBE_OK_SINGLE_SESSION=true" in workflow
+    assert "Start-Process -FilePath $schtasks -ArgumentList @('/Run','/TN',$taskName)" not in workflow[workflow.index("      - name: Run Auth ON probe"):]
     assert "$proc=Start-Process" not in workflow
 
 
