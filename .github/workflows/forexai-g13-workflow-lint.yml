@@ -372,17 +372,32 @@ jobs:
                       f"G13 concurrency group must use the dispatched commit SHA: {workflow_path}"
                   )
 
-          for workflow_path, group_prefix in [
-              (".github/workflows/forexai-g13-demo-readiness-gate-m15.yml", "g13-demo-readiness-gate-m15"),
-              (".github/workflows/forexai-g13-execution-safety-audit-m15.yml", "g13-execution-safety-audit-m15"),
-          ]:
-              workflow_text = Path(workflow_path).read_text(encoding="utf-8")
-              assert f"group: {group_prefix}-" in workflow_text, (
-                  f"G13 workflow_run concurrency group must be SHA-scoped: {workflow_path}"
-              )
-              assert "github.event.workflow_run.head_sha || github.sha }}" in workflow_text, (
-                  f"G13 workflow_run concurrency must bind to the event's source SHA: {workflow_path}"
-              )
+          # Execution Safety still uses workflow_run events, so bind its
+          # concurrency group to the event source SHA. Demo Readiness is now
+          # explicitly dispatched with verified run IDs and has no workflow_run
+          # trigger; its concurrency key must therefore use github.sha.
+          safety_path = ".github/workflows/forexai-g13-execution-safety-audit-m15.yml"
+          safety_workflow = Path(safety_path).read_text(encoding="utf-8")
+          assert "group: g13-execution-safety-audit-m15-" in safety_workflow, (
+              f"G13 workflow_run concurrency group must be SHA-scoped: {safety_path}"
+          )
+          assert "github.event.workflow_run.head_sha || github.sha }}" in safety_workflow, (
+              f"G13 workflow_run concurrency must bind to the event's source SHA: {safety_path}"
+          )
+
+          readiness_path = ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
+          readiness_workflow = Path(readiness_path).read_text(encoding="utf-8")
+          readiness_triggers = readiness_workflow.split("\npermissions:", 1)[0]
+          readiness_sha_expr = "$" + "{{ github.sha }}"
+          assert f"group: g13-demo-readiness-gate-m15-{readiness_sha_expr}" in readiness_workflow, (
+              f"explicitly dispatched Readiness must use the dispatched SHA: {readiness_path}"
+          )
+          assert "workflow_dispatch:" in readiness_triggers and "\n  workflow_run:" not in readiness_triggers, (
+              f"Demo Readiness must have only the explicit dispatch trigger: {readiness_path}"
+          )
+          assert "github.event.workflow_run.head_sha || github.sha }}" not in readiness_workflow, (
+              f"workflow_run concurrency expression is obsolete for explicit-only Readiness: {readiness_path}"
+          )
           for token in [
               "actions: write",
               'dispatch_workflow "forexai-g13-validation-m15.yml"',
@@ -573,13 +588,22 @@ jobs:
               "promotion_run_id",
               "preflight_run_id",
               "g13-controlled-demo-package-preflight-m15",
-              "latest_success_exact",
-              "local target_sha=\"$2\"",
-              "github.event.workflow_run.name == 'ForexAI G13 Controlled Demo Package Preflight M15'",
+              'runtime_id="${MANUAL_RUNTIME_RUN_ID}"',
+              'safety_id="${MANUAL_SAFETY_RUN_ID}"',
+              'parity_id="${MANUAL_PARITY_RUN_ID}"',
+              'promotion_id="${MANUAL_PROMOTION_RUN_ID}"',
+              'preflight_id="${MANUAL_PREFLIGHT_RUN_ID}"',
               "download_exact_artifact",
               "G13_EVIDENCE_ARTIFACTS_BYTE_BOUND=true",
+              '[ "$sha" = "$MAIN_SHA" ]',
           ]:
               assert token in readiness_workflow, f"readiness workflow binding token missing: {token}"
+          assert "latest_success_exact" not in readiness_workflow, (
+              "explicitly dispatched Readiness must not retain automatic workflow_run resolution"
+          )
+          assert "github.event.workflow_run.name" not in readiness_workflow, (
+              "explicitly dispatched Readiness must not depend on workflow_run event payload"
+          )
           for token in [
               'PROMOTION_FILE = "artifacts/g13/g13-promotion-manifest-m15.json"',
               'HANDOFF_FILE = "artifacts/g13/frozen/g13-candidate-handoff-m15.json"',
