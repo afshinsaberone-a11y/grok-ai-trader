@@ -398,3 +398,19 @@ PR Draft شمارهٔ 296: https://github.com/afshinsaberone-a11y/grok-ai-trader
 **حد و وضعیت:** PR #296 در وضعیت Draft/open و ادغام‌نشده است. این تغییر یک فرضیهٔ زمانی قابل‌آزمون را هدف می‌گیرد، اما هنوز علت ریشه‌ای قطعی یا رفع قطعی اثبات نشده است. باید تست‌های CI و review انجام شود و پس از merge، زنجیرهٔ G13 روی SHA دقیق جدید دوباره اجرا شود. هیچ تغییری در main، Trust Anchor، Grant یا مجوز معاملاتی انجام نشده است.
 
 وضعیت ایمنی: Kill Switch `DENY`؛ Demo برای معامله غیرمجاز تا صدور مجوز معتبر و عبور از همهٔ گیت‌های مستقل؛ Live غیرفعال؛ تعداد سفارش‌های ارسال‌شده صفر.
+
+
+---
+
+## پیوست — نتایج CI برای اصلاح shutdown race در PR #296 (۲۲ اکتبر ۲۰۲۶)
+
+PR Draft: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/296
+شاخه: `fix/g13-runtime-probe-terminal-shutdown-race-2026-10-22`
+HEAD اصلاح: `5dc5c710e93972b84c501c25d2762749c4a94099`
+
+نتایج GitHub Actions روی شاخهٔ PR:
+- [ForexAI G13 Workflow Static Validation — run 39672337369](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39672337369): success؛ شامل تست قراردادهای Runtime Startup/Timeout/Identity، قرارداد Common Files و actionlint.
+- [tests — run 39672337309](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39672337309): success؛ `python -m pytest -q` موفق.
+- [ForexAI Agent Runtime Check — run 39672337397](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39672337397): success.
+
+این نتایج، اعتبارسنجی استاتیک و تست‌های PR هستند؛ ثابت نمی‌کنند که Auth ON روی MT5 Runner واقعی بعد از تغییر موفق خواهد شد. PR #296 هنوز Draft/open و ادغام‌نشده است. مرحلهٔ بعد پس از بازبینی مجاز: ادغام کنترل‌شده، سپس اجرای مجدد زنجیرهٔ G13 روی SHA دقیق main و بررسی markerهای واقعی هر دو Probe. تا آن زمان، وضعیت معامله تغییر نمی‌کند: Kill Switch `DENY`، Demo برای معامله غیرمجاز، Live غیرفعال، orders submitted=0.
