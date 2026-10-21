@@ -94,3 +94,46 @@ Write-Host "`n=== EXISTING FOREXAI DIRECTORIES ==="
 3. استقلال مدیریتی را جداگانه تأیید کنید؛ این موضوع صرفاً از روی hostname یا خروجی PowerShell قابل اثبات نیست.
 4. تنها پس از بررسی، تصمیم بگیرید از دستگاه فعلی استفاده شود یا VPS مستقل تهیه شود.
 5. تاریخچهٔ این سند با تغییرات بعدی به‌صورت افزایشی به‌روزرسانی شود؛ نسخه‌های قبلی گفت‌وگو حذف نشوند.
+
+
+---
+
+## افزودهٔ پیگیری زنده — ۲۱ اکتبر ۲۰۲۶ (append-only)
+
+این بخش به انتهای آرشیو افزوده شده است؛ متن قبلی دست‌نخورده مانده است.
+
+### بررسی آرشیوهای موجود
+- آرشیو اصلی قابل‌بازیابی: [CHAT_ARCHIVE.md](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/CHAT_ARCHIVE.md)؛ خود فایل صریحاً می‌گوید snapshot/خلاصه است و خروجی رسمی تاریخچهٔ ChatGPT برای رونوشت لفظ‌به‌لفظ لازم است.
+- آرشیو ۱۷ اکتبر: [chat-archive-2026-10-17-fa.md](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/docs/archive-forexai-chat-2026-10-21/docs/chat-archives/chat-archive-2026-10-17-fa.md).
+- آرشیو موانع ۱۷ اکتبر: [chat-archive-2026-10-17-remaining-blockers-and-github-export-fa.md](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/docs/archive-forexai-chat-2026-10-21/docs/chat-archives/chat-archive-2026-10-17-remaining-blockers-and-github-export-fa.md).
+- آرشیو ۱۸ اکتبر: [chat-archive-2026-10-18-fa.md](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/docs/archive-forexai-chat-2026-10-21/docs/chat-archives/chat-archive-2026-10-18-fa.md).
+- این آرشیو جدید ۲۱ اکتبر، در همان شاخهٔ آرشیو نگهداری می‌شود و جایگزین main یا فایل‌های قدیمی نیست.
+
+### آخرین زنجیرهٔ G13 که از GitHub Actions راستی‌آزمایی شد
+روی main با SHA برابر با 513a0071bd4ab64258ed20c5deb7218ba183371b:
+- [Validation run 39576653071](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39576653071) — success.
+- [Robustness run 39576657497](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39576657497) — success.
+- [OOS run 39576952545](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39576952545) — success.
+- [Final Promotion run 39577167881](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577167881) — success.
+- [Execution Safety Audit run 39577318512](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577318512) — success.
+- [Compile + Signal Parity run 39577398529](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577398529) — success.
+- [Runtime Safety Probe run 39577911969](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969) — failure. Job runtime-safety-probe compiled/deployed the non-trading probes and kept the static no-order preflight and initial Kill Switch check successful, but the Auth OFF task did not produce the expected result marker within the 180-second wait. The job emitted G13_RUNTIME_AUTH_OFF_MARKER_MISSING; Auth ON and later evidence evaluation were skipped.
+- [OOS Watchdog run 39576635899](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39576635899) — failure after it resolved the upstream stages and then stopped when the exact Runtime Safety Probe failed. Controlled Package Preflight and Readiness were skipped.
+
+Therefore the latest chain is not Demo-ready. A successful Task Scheduler launch message is not proof the MQL5 probe executed. The failure must not be waived or relabeled as success.
+
+### Latest open remediation items
+- [PR #293 — bounded local storage inventory diagnostic](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/293) remains open and unmerged. Its recorded real Windows inventory was discovery-only: 28 allowlisted directories / 602 files, zero scan errors, no authentic candidates; configured path targets and parent directories were absent. A repository JSON file with a similar name was classified as a schema contract, not a runtime envelope. This does not supply production authority.
+- [PR #295 — conditional workstation Grant signer path](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/295) remains Draft and unmerged. It has not provisioned a host, generated a production key, initialized the registry, issued a Grant, or enabled trading.
+- [Issue #254 — independent source owners and Grant signer](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/254) remains the coordination blocker.
+- [Issue #225 — authoritative Control Plane inputs](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225) remains open. The authentic TradeLedger, authenticated envelope and MQL5 authorization record have not been verified as present.
+- The user has a separate device, but its administrative independence is explicitly unknown. No cleaned PowerShell inventory output from that target device has been received in this conversation; do not infer the device is eligible.
+
+### Safe next steps
+1. On the intended separate device, run the previously provided read-only PowerShell inventory and review the redacted output. Do not run bootstrap until the host is confirmed not to be Provider/Runner/MT5 and administrative independence is explicitly assessed.
+2. Diagnose the missing Auth OFF marker from the runtime job's startup diagnostic and task/session evidence. Keep the marker as a required fail-closed condition; do not change the gate to pass on Scheduler success alone.
+3. Resolve real source ownership and production evidence for Signal, Risk + durable Reservation, Operator Approval, Promotion Attestation and Grant signing; coordinate any Admission/Promotion key rotation with the authorized key owners.
+4. Only after authentic inputs and independent trust anchors are verified, rerun the read-only Capital Firewall preflight and then the exact-SHA G13 chain.
+5. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders submitted at zero until the separate approved execution gate passes.
+
+No keys, secrets, trust anchors, production registry, Grant or order were created by this review.
