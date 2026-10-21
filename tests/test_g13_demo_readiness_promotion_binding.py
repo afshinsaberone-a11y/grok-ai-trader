@@ -292,3 +292,18 @@ def test_runtime_probe_identity_rejects_unverified_modes(mode: str, field: str, 
     (off if mode == "auth_off" else on)[field] = value
     with pytest.raises(AssertionError):
         validate_runtime_probe_identity(off, on)
+
+
+def test_readiness_only_accepts_explicit_dispatch_to_prevent_duplicate_preflight():
+    workflow = Path(
+        ".github/workflows/forexai-g13-demo-readiness-gate-m15.yml"
+    ).read_text(encoding="utf-8")
+    trigger_block = workflow.split("\\npermissions:", 1)[0]
+
+    # Controlled Demo Package Preflight explicitly dispatches Readiness with
+    # exact-SHA run IDs. A second workflow_run trigger caused duplicate
+    # Readiness jobs and redundant Capital Firewall preflights for one SHA.
+    assert "  workflow_dispatch:\\n" in trigger_block
+    assert "\\n  workflow_run:" not in trigger_block
+    assert "Dispatch exact-SHA read-only Capital Firewall preflight" in workflow
+    assert 'READINESS_RUN_ID: ${{ github.run_id }}' in workflow
