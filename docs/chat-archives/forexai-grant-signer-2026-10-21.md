@@ -286,3 +286,21 @@ https://support.microsoft.com/en-us/servicing/os/windows-10/2019/11/november-12-
 4. این مانع از PR #295 و بررسی صلاحیت دستگاه Grant Signer جداست. PR #295 در وضعیت Draft باقی می‌ماند و کلید آزمایشی به سیستم عملیاتی وصل نمی‌شود.
 
 وضعیت ایمنی ثابت: Kill Switch `DENY`؛ Demo غیرمجاز تا عبور از گیت‌های کامل و مستقل؛ Live غیرفعال؛ سفارش‌های ارسال‌شده صفر. هیچ رمز، کلید خصوصی، منبع مجوز جعلی یا تغییر Trust Anchor در این پیگیری ثبت یا ایجاد نشد.
+
+
+---
+
+## پیوست — کاربر اتصال حساب Demo را تأیید کرد و Runtime Safety Probe دوباره اجرا شد (۲۱ اکتبر ۲۰۲۶)
+
+کاربر تأیید کرد که حساب Demo در MT5 متصل است. در پاسخ، فقط Job شکست‌خوردهٔ `runtime-safety-probe` از اجرای [39577911969](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39577911969) دوباره اجرا شد؛ زنجیره‌های موفق دیگر دوباره اجرا نشدند.
+
+- اجرای مجدد پذیرفته شد: `success=true` از API بازاجرای Job.
+- Job attempt جاری در لحظهٔ بررسی: `119465302906`.
+- `Static no-order preflight`: success.
+- `Compile safety probes`: success.
+- `Deploy run-unique non-trading probes`: success.
+- `Snapshot shared kill switch`: success.
+- `Run Auth OFF probe`: در لحظهٔ آخرین بررسی `in_progress`؛ هنوز نتیجهٔ نهایی/نشانگر دریافت نشده است.
+- Auth ON، ارزیابی evidence و تأیید نهایی Kill Switch تا زمان موفقیت Auth OFF به‌عنوان گیت‌های وابسته اجرا نمی‌شوند.
+
+این وضعیت موقت است و نباید به‌عنوان سبزشدن Runtime Safety Probe یا آماده‌بودن Demo تعبیر شود. پس از تکمیل Job، باید نتیجه و Artifact تازه بررسی شوند. هیچ سفارش آزمایشی برای این پیگیری مجاز نیست؛ Kill Switch برابر `DENY` می‌ماند، Demo تا عبور از همهٔ گیت‌های مستقل غیرمجاز است، Live غیرفعال و orders submitted=0 است.
