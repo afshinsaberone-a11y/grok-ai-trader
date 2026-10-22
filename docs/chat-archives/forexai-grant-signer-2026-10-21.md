@@ -707,3 +707,12 @@ PR [#299 — docs: fix Provider host diagnostic script path](https://github.com/
 - [Full Python tests run 39739992603](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39739992603): PASS، شامل مرحلهٔ `pytest -q`.
 - [Agent Runtime Check run 39739992586](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39739992586): PASS.
 - main اکنون روی SHA `84a1cc078925f77af155027a7ec8db3189867f2c` است. پس از merge، تست‌ها و G13 static validation جدید روی main در صف اجرا قرار گرفتند؛ اجرای MT5 تازه یا خروجی واقعی Provider-host diagnostic هنوز تأیید نشده است.
+
+
+### نتیجهٔ CI پس از merge در main
+
+روی main SHA `84a1cc078925f77af155027a7ec8db3189867f2c`:
+- [Full Python tests — run 39740139293](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139293): PASS.
+- [Agent Runtime Check — run 39740139294](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139294): PASS.
+- [G13 Workflow Static Validation — run 39740139190](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139190): PASS.
+- اجرای جدید زنجیره در [OOS Watchdog run 39740139075](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139075)، [Validation run 39740152800](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740152800) و [Robustness run 39740156155](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740156155) در آخرین بررسی هنوز `in_progress` بود. نتیجهٔ نهایی یا اجرای جدید MT5 را پیشاپیش PASS حساب نمی‌کنیم.
