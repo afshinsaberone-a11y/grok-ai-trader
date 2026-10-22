@@ -11,6 +11,11 @@ def test_workstation_bootstrap_has_fail_closed_host_guards():
     assert "#Requires -RunAsAdministrator" in source
     assert 'Get-CimInstance -ClassName Win32_OperatingSystem' in source
     assert '[int]$os.ProductType -ne 1' in source
+    assert '[int]$os.BuildNumber -lt 26200' in source
+    assert "WINDOWS_BUILD_TOO_OLD_FOR_SIGNER_HOST" in source
+    assert "TPM_NOT_PRESENT_OR_READY" in source
+    assert "SECURE_BOOT_DISABLED" in source
+    assert "SYSTEM_VOLUME_NOT_FULLY_ENCRYPTED_AND_PROTECTED" in source
     assert "KNOWN_PROVIDER_HOST_FORBIDDEN" in source
     assert "SELF_HOSTED_ACTIONS_RUNNER_HOST_FORBIDDEN" in source
     assert "ACTIVE_MT5_TERMINAL_HOST_FORBIDDEN" in source
