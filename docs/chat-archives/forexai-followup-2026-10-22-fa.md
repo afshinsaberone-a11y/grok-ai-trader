@@ -100,3 +100,28 @@ PR: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/295
 با وجود اینکه تغییرات مستندات/آزمون محدودند، پروژه الزام شواهد exact-SHA دارد؛ پس artifactهای زنجیرهٔ قبلی را نباید به‌عنوان شواهد تازهٔ همان SHA جاری معرفی کرد. جست‌وجوی وضعیت commit و runهای مرتبط از طریق ابزار متصل‌شده، برای SHA جاری نتیجه‌ای برنگرداند؛ بنابراین در این پیگیری نتوانستم زنجیرهٔ کامل تازه روی `84a1cc0` را تأیید کنم. لازم است workflowهای لازم از GitHub Actions روی SHA جاری اجرا/تأیید شوند پیش از هر تصمیم تازه دربارهٔ آمادگی Demo.
 
 این موضوع مانع‌های منبع واقعی را رفع نمی‌کند: گزارش Authorization Preflight روی SHA قبلی همچنان سه ورودی مفقود را نشان داده بود: TradeLedger معتبر، authenticated runtime envelope و رکورد مجوز MQL5. هیچ‌کدام نباید با placeholder یا شواهد ساختگی جایگزین شوند.
+
+## ۷. اصلاح دقیق‌تر ماتریس نسخهٔ ویندوز — ۲۲ اکتبر ۲۰۲۶
+
+در بازبینی بعدی، شرط ثابت «Build 26200 / Windows 11 25H2 یا بالاتر» بیش از حد محدودکننده تشخیص داده شد: طبق چرخهٔ عمر رسمی مایکروسافت، Windows 11 Enterprise/Education نسخهٔ 24H2 هنوز تا ۱۲ اکتبر ۲۰۲۷ پشتیبانی می‌شود، درحالی‌که پشتیبانی Home/Pro نسخهٔ 24H2 در ۱۳ اکتبر ۲۰۲۶ پایان یافته است. بنابراین شرط سخت‌افزار/نسخه بدون کاهش امنیت، دقیق‌تر شد.
+
+در آخرین head این تغییرات روی همان شاخهٔ پیش‌نویس PR #295 ثبت شدند:
+- `6b4e6e9e0a2568e316e77dd981e3f3ac45a72716` — به‌جای حد ثابت 26200، بررسی Release/Edition/UBR: Windows 11 24H2 فقط برای Enterprise/Education/LTSCهای پذیرفته‌شده؛ 25H2 و 26H2؛ UBR حداقل 9711 مطابق baseline امنیتی اکتبر ۲۰۲۶.
+- `b78663953a82ef556cfa6c5b12fbc998a0b0b206` — آزمون‌های قراردادی برای این ماتریس.
+- `5b13d4de26ccbc0e722d3bf5b8c01138de9fd714` — به‌روزرسانی راهنمای workstation.
+- `81a57b300789110fe79b44a52bc573bff4c8dda0` — به‌روزرسانی خلاصهٔ deployment.
+
+در head `81a57b300789110fe79b44a52bc573bff4c8dda0` تمام چهار بررسی زیر موفق بودند:
+- Python tests: run `39791343351` — success.
+- P0 Quant Trust Gate: run `39791343675` — success.
+- G13 Workflow Static Validation: run `39791343492` — success.
+- Agent Runtime Check: run `39791343511` — success.
+
+`real-data-smoke` skipped بود؛ پس این نتایج شواهد دادهٔ زنده یا مجوز معامله نیستند. این تغییر ماتریس، رایانهٔ ASUS فعلی را واجد شرایط نمی‌کند: خروجی آن همچنان Windows build `15063` است و وضعیت TPM/Secure Boot هم قابل تأیید نبود. کاربر تأکید کرده دستگاه ارتقا داده نشود.
+
+منابع رسمی نسخه/چرخهٔ عمر:
+- https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information
+- https://learn.microsoft.com/en-us/lifecycle/products/windows-11-enterprise-and-education
+- https://learn.microsoft.com/en-us/lifecycle/products/windows-11-home-and-pro
+
+این اصلاح فقط در PR Draft است؛ هیچ تغییری به `main`، دستگاه کاربر، trust anchor یا مجوز معاملاتی اعمال نشده است.
