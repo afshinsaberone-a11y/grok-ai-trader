@@ -45,6 +45,8 @@ on:
       - 'tools/control_plane_provider_host_preflight_v1.py'
       - 'tools/resolve_mt5_common_files_v1.ps1'
       - 'tools/diagnose_provider_host_deployment_v1.ps1'
+      - 'deploy/capital-firewall-signer/bootstrap-windows-workstation-v1.ps1'
+      - 'tests/test_capital_firewall_signer_workstation_v1.py'
       - 'tests/test_control_plane_provider_host_preflight_v1.py'
       - 'docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md'
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
@@ -86,6 +88,8 @@ on:
       - 'tools/control_plane_provider_host_preflight_v1.py'
       - 'tools/resolve_mt5_common_files_v1.ps1'
       - 'tools/diagnose_provider_host_deployment_v1.ps1'
+      - 'deploy/capital-firewall-signer/bootstrap-windows-workstation-v1.ps1'
+      - 'tests/test_capital_firewall_signer_workstation_v1.py'
       - 'tests/test_control_plane_provider_host_preflight_v1.py'
       - 'docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md'
       - '.github/workflows/forexai-capital-firewall-authorization-preflight.yml'
@@ -150,21 +154,36 @@ jobs:
           python -m py_compile tools/capital_firewall_grant_issuer_v1.py tools/capital_firewall_host_preflight_v1.py
           python -m pytest -q tests/test_capital_firewall_grant_issuer_v1.py tests/test_capital_firewall_host_preflight_v1.py tests/test_g13_capital_firewall_promotion_attestor_v1.py
 
-      - name: Parse PowerShell Provider host diagnostic
+      - name: Parse PowerShell Provider diagnostic and signer bootstrap
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Join-Path $PWD 'tools/diagnose_provider_host_deployment_v1.ps1'),
-            [ref]$tokens,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
+          $targets = @(
+            @{
+              Path = Join-Path $PWD 'tools/diagnose_provider_host_deployment_v1.ps1'
+              Label = 'PROVIDER_HOST_DIAGNOSTIC_PARSE'
+            },
+            @{
+              Path = Join-Path $PWD 'deploy/capital-firewall-signer/bootstrap-windows-workstation-v1.ps1'
+              Label = 'CAPITAL_FIREWALL_SIGNER_BOOTSTRAP_PARSE'
+            }
+          )
+          foreach ($target in $targets) {
+            if (-not (Test-Path -LiteralPath $target.Path -PathType Leaf)) {
+              throw "POWERSHELL_PARSE_TARGET_MISSING:$($target.Label)"
+            }
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $target.Path,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+            Write-Output "$($target.Label)=PASS"
           }
-          Write-Output 'PROVIDER_HOST_DIAGNOSTIC_PARSE=PASS'
 
       - name: Install actionlint
         env:
