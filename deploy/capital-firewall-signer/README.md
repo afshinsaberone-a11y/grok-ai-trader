@@ -4,7 +4,7 @@
 
 ## Route A: use an existing independent Windows client workstation
 
-Review [bootstrap-windows-workstation-v1.ps1](bootstrap-windows-workstation-v1.ps1) and [the workstation runbook](../../docs/CAPITAL_FIREWALL_GRANT_SIGNER_WORKSTATION_V1.md) first. It is permitted only on a separate Windows client OS workstation with no self-hosted Actions Runner service or active MT5 terminal, and only when the host administrator and Grant key custodian are independent from the Provider/Runner trust boundary. It is not a fully air-gapped signer: the current issuer requires outbound read-only GitHub API checks. The bootstrap creates only a non-admin runtime account and empty protected directories.
+Review [bootstrap-windows-workstation-v1.ps1](bootstrap-windows-workstation-v1.ps1) and [the workstation runbook](../../docs/CAPITAL_FIREWALL_GRANT_SIGNER_WORKSTATION_V1.md) first. It is permitted only on a separate supported Windows client workstation (build family 26200/Windows 11 25H2 or newer) with TPM ready, UEFI Secure Boot enabled, and a fully encrypted/protected BitLocker system volume; it must have no self-hosted Actions Runner service or active MT5 terminal, and the host administrator and Grant key custodian must be independent from the Provider/Runner trust boundary. It is not a fully air-gapped signer: the current issuer requires outbound read-only GitHub API checks. The bootstrap creates only a non-admin runtime account and empty protected directories.
 
 If those independence conditions cannot be proven, do not use Route A; proceed with Route B below. A second folder/account on the Provider host or MT5 Runner is never a substitute.
 
