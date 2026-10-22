@@ -988,3 +988,59 @@ SHA دقیق فعلی هنگام بررسی: `d378cec2af802652e37bebdf46dd9a40fc
 5. پس از آن، Producer باید از همان درخواست معتبر، Ledger، envelope و authorization record معتبر را بسازد. تا وقتی این سه ورودی واقعی وجود ندارند، materializer MQL5 را اجرا نکن.
 
 **وضعیت پایان این مرحله:** مشکل هویت/اتصال MT5 در probe تک‌سشن رفع و در run 39734936302 تأیید شده؛ مجوز معاملهٔ Demo هنوز صادر نشده، Kill Switch روی DENY و Live غیرفعال باقی می‌ماند. موانع Provider و ورودی‌های سه‌گانهٔ Control Plane هنوز باز هستند.
+
+
+## الحاقیهٔ تکمیلی — زنجیرهٔ دقیق main پس از اصلاح مسیر تشخیص
+
+در بررسی بعدی، `main` به SHA زیر رسیده بود؛ این زنجیره جداگانه برای همان SHA اجرا شده است و جایگزین شواهد SHA قدیمی‌تر می‌شود:
+
+`84a1cc078925f77af155027a7ec8db3189867f2c`
+
+- [Validation — 39740152800](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740152800): success
+- [Robustness — 39740156155](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740156155): success
+- [OOS — 39740409691](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740409691): success
+- [Promotion — 39740600848](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740600848): success
+- [Compile + Signal Parity — 39740801148](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740801148): success
+- [Runtime Safety Probe — 39741437695](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741437695): success
+- [Controlled Demo Package Preflight — 39741676950](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741676950): success
+- [Demo Readiness Gate — 39741768970](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741768970): success
+- [Execution Safety Audit — 39741714527](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741714527): success
+- [Capital Firewall Authorization Preflight — 39741810592](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741810592): failure, as expected for missing operational inputs.
+
+لاگ Capital Firewall run برای SHA دقیق فوق، دوباره این سه مورد را نشان داده است: `AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING`, `TRADE_LEDGER_FILE_MISSING`. مقدار `AUTHORIZATION_RECORD_CREATED=false` و وضعیت `BLOCKED` بوده است. این باگِ تست/Workflow نیست؛ فایل‌های معتبر از Control Plane هنوز به Runner وصل/تولید نشده‌اند.
+
+### مرحلهٔ تشخیصی بعدی: fingerprint کلید عمومی Promotion
+
+روی میزبان Provider در PowerShell ادمین این بلوک فقط fingerprintهای SHA-256 کلید عمومی موجود در فایل، متغیر Process و متغیر Machine را محاسبه می‌کند. خود کلیدها، فایل خصوصی و عبارت عبور چاپ نمی‌شوند و هیچ تنظیمی تغییر نمی‌کند:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$publicFile = 'C:\ProgramData\ForexAI-Provider\keys\promotion-attestor-public-key.txt'
+
+function Get-Ed25519PublicFingerprint {
+    param([string]$Encoded)
+    if ([string]::IsNullOrWhiteSpace($Encoded)) { return 'NOT_CONFIGURED' }
+    try {
+        $raw = [Convert]::FromBase64String($Encoded.Trim())
+        if ($raw.Length -ne 32) { return 'INVALID_LENGTH' }
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString($sha.ComputeHash($raw))).Replace('-', '').ToLowerInvariant()
+        } finally { $sha.Dispose() }
+    } catch { return 'INVALID_BASE64' }
+}
+
+$fileValue = Get-Content -LiteralPath $publicFile -Raw
+$processValue = [Environment]::GetEnvironmentVariable('FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY','Process')
+$machineValue = [Environment]::GetEnvironmentVariable('FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY','Machine')
+
+"PROMOTION_FILE_SHA256=$(Get-Ed25519PublicFingerprint $fileValue)"
+"PROMOTION_PROCESS_SHA256=$(Get-Ed25519PublicFingerprint $processValue)"
+"PROMOTION_MACHINE_SHA256=$(Get-Ed25519PublicFingerprint $machineValue)"
+```
+
+این سه fingerprint را فقط با fingerprint مستقلی که مالک رسمی Promotion Attestor از مرجع مورد اعتماد ارائه می‌کند مقایسه کن. **فقط با دیدن MATCH/MISMATCH تصمیم به تغییر متغیر یا جایگزینی فایل نگیر.** تا مشخص‌شدن مرجع معتبر، کلید خصوصی Promotion روی میزبان Provider حذف/کپی/استفاده نشود و هیچ عبارت عبوری در Machine/User environment ذخیره نشود.
+
+### وضعیت نهایی همین الحاقیه
+
+زنجیرهٔ G13 برای `84a1cc0...` در گیت‌های پژوهش، Promotion، Parity، Runtime Safety، Package Preflight، Safety Audit و Readiness موفق است. مرحلهٔ صدور مجوز واقعی همچنان BLOCKED است؛ Demo هنوز مجاز نیست، Kill Switch باید DENY بماند، Live خاموش است و هیچ سفارشی ارسال نشده است.
