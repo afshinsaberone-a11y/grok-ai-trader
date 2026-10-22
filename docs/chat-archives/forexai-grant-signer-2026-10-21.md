@@ -907,3 +907,45 @@ Capital Firewall Authorization Preflight روی همان SHA سه ورودی و�
 5. سپس `tools/materialize_mql5_authorization_v1.py` باید در هماهنگی با همان Trade ID، Ledger و Envelope معتبر، رکورد `.auth` تازه را از ابزار رسمی بسازد؛ عمر رکورد کوتاه است و نباید دستی نوشته شود.
 
 **نتیجه:** علت شکست فعلی در خود تست تشخیصی یا مسیر PowerShell نیست؛ فایل‌های downstream به دلیل نبود upstream authority/evidence تولید نشده‌اند. تا تکمیل این زنجیره، Kill Switch باید `DENY` بماند، `demo_trading_authorized=false` و `live_trading_allowed=false` حفظ شود و هیچ سفارشی ارسال نشود. این پیوست به انتهای آرشیو اضافه می‌شود؛ محتوای پیشین حذف یا بازنویسی نشده است.
+
+
+---
+
+## پیوست جدید — مسیر رسمی تولید TradeLedger، Authenticated Envelope و MQL5 Authorization Record (2026-10-22)
+
+این پیوست فقط به انتهای آرشیو افزوده شده و متن‌های قبلی حفظ شده‌اند.
+
+### شواهد فعلی
+
+- در G13 روی main SHA d378cec2af802652e37bebdf46dd9a40fc639364، اجرای Runtime Safety به شمارهٔ 39734936302 موفق گزارش شده است.
+- اجرای Demo Readiness به شمارهٔ 39735164926 موفق است، اما موفق شدن workflow به معنی صدور اجازهٔ Demo نیست؛ قرارداد Control Plane نیازمند demo_trading_allowed=true در یک تصمیم معتبر و تازه است.
+- Capital Firewall Authorization Preflight، اجرای 39735202045، به‌صراحت این سه مانع را گزارش کرده است: TRADE_LEDGER_FILE_MISSING، AUTHENTICATED_ENVELOPE_FILE_MISSING و MQL5_AUTHORIZATION_RECORD_MISSING.
+- گزارش Provider میزبان WIN-P7MA35DRF6Q، ارسال‌شده در این گفتگو، نشان می‌دهد سرویس Provider ثبت نشده، ورودی in خالی است و Source Packet معتبر پیدا نشده، public key پیکربندی‌شدهٔ Promotion با فایل public key عدم تطابق دارد و Trust Anchorهای Signal/Risk/Operator/Grant موجود نیستند. هیچ کلید خصوصی یا passphrase در این پیوست درج نشده است.
+- اجرای PowerShell از مسیر C:\ProgramData\ForexAI-Provider\source\tools\diagnose_provider_host_deployment_v1.ps1 خطای CommandNotFoundException داده؛ این مسیر خاص فایل را نداشته است. نسخهٔ مخزن در tools/diagnose_provider_host_deployment_v1.ps1 قرار دارد؛ خطای مسیر اسکریپت به‌خودی‌خود علت نبودن سه فایل مجوز نیست.
+
+### سه فایل چگونه باید ساخته شوند؟
+
+1. **TradeLedger:** مسیر tools/control_plane_service_v1.py و کلاس tools/trade_ledger_v1.py. Ledger، JSONL append-only با hash-chain است. آن را با فایل خالی یا رویداد ساختگی پر نکنید. سرویس Control Plane، پس از تأیید درخواست Admission امضاشده و وضعیت runtime، چرخهٔ معتبر را ثبت می‌کند.
+2. **Authenticated Runtime Envelope:** همان tools/control_plane_service_v1.py با HMAC Secret محافظت‌شده و تأیید جاری Capital Firewall. سرویس این Envelope را اتمی منتشر می‌کند؛ خودش سفارش نمی‌فرستد، Kill Switch را ALLOW نمی‌کند و مجوز Live صادر نمی‌کند.
+3. **MQL5 Authorization Record:** ابزار tools/materialize_mql5_authorization_v1.py از Ledger و Envelope معتبر، Secret HMAC، Trade ID دقیق و زمان UTC جاری استفاده می‌کند. نام رکورد برای candidate 2 و EURUSD از الگوی ForexAI_Authorization_130002_EURUSD.auth است؛ محل هدف باید Common Files واقعی ترمینال مالک و Runner باشد. رکورد حداکثر 10 ثانیه تازگی دارد و باید فقط در روال مصوب، بلافاصله پیش از یک سیگنال Demo مجاز، ساخته شود.
+
+### وابستگی‌های لازم به ترتیب
+
+1. منبع مستقل Promotion باید شواهد رسمی G13 را برای main SHA دقیق بررسی کند و تصمیم تازهٔ یک سیگنال Demo را صریحاً تأیید کند؛ PASS بودن صرفِ workflow یا parity جای این تصمیم را نمی‌گیرد.
+2. میزبان و custodian مستقل Capital Firewall باید واقعاً provision شود؛ کد Grant Issuer فعلاً به‌تنهایی وجود مرز اعتماد عملیاتی را ثابت نمی‌کند. Signal، Risk/Reservation و Operator Approval باید attestationهای واقعی و جداگانه با Ed25519 امضا کنند. هر شش Trust Anchor مربوط به Admission، Promotion، Signal، Risk، Operator و Grant باید از منبع مورد تأیید تعیین و متمایز بودنشان بررسی شود.
+3. مغایرت public key مربوط به Promotion باید با custodian کلید و فرایند rotation مصوب رفع شود. از روی نام فایل، کلید آزمایشی یا مقدار حدسی، کلید مورد اعتماد را فعال نکنید.
+4. فقط پس از تولید Source Packet معتبر از منابع مستقل، Admission Provider می‌تواند با tools/control_plane_admission_provider_v1.py و Registry پایدار ضد replay درخواست یک‌بارمصرف امضاشده بسازد. نبود Source Packet یا نبود کلیدها با نوشتن JSON دستی قابل جبران نیست.
+5. درخواست امضاشده باید از مسیر حفاظت‌شده به میزبان MT5 تحویل شود. آن‌گاه Workflow ForexAI Control Plane Producer v1 با ورودی صریح RUN_CONTROL_PLANE_PREFLIGHT می‌تواند Ledger و Envelope را تولید کند. اجرای آن نیازمند مسیرهای Runner-local معتبر، Secret HMAC محافظت‌شده و تطبیق حساب Demo تأییدشده است.
+6. Preflight تشخیصی را دوباره اجرا کنید و تأیید کنید Ledger integrity/hash-chain و Envelope HMAC/current-authority پاس شده‌اند. سپس فقط در روال اجرای کنترل‌شدهٔ مجاز، materializer رکورد .auth تازه را با Trade ID گرفته‌شده از Envelope تولید کند. Preflight به‌تنهایی materializer را اجرا نمی‌کند.
+7. تا فراهم شدن این پیش‌نیازها: Kill Switch روی DENY، orders_submitted=false، Demo authorization مسدود و Live غیرفعال باقی می‌مانند.
+
+### منابع مخزن
+
+- پیش‌نیازهای Capital Authorization: https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/docs/G13_CAPITAL_AUTHORIZATION_PREREQUISITES.md
+- Control Plane Producer: https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/docs/CONTROL_PLANE_PRODUCER_V1.md
+- ابزار تولید Ledger و Envelope: https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/tools/control_plane_service_v1.py
+- راهنمای Admission Provider: https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/docs/CONTROL_PLANE_ADMISSION_PROVIDER_V1.md
+- Grant Issuer مستقل: https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/docs/CAPITAL_FIREWALL_GRANT_ISSUER_V1.md
+- ابزار رکورد MQL5: https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/tools/materialize_mql5_authorization_v1.py
+
+این کار، علت و مسیر رسمی حل مانع را مشخص می‌کند، اما از این گفتگو امکان ساخت Source Packet امضاشده از منابع خارجی، تطبیق custody واقعی کلیدها یا اجرای PowerShell روی دو میزبان کاربر وجود نداشت. بنابراین هیچ‌یک از سه فایل عملیاتی به‌عنوان ساخته‌شده گزارش نمی‌شود و هیچ مجوز یا سفارشی ایجاد نشده است.
