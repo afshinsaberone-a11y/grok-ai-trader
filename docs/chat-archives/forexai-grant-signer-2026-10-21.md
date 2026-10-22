@@ -949,3 +949,42 @@ Capital Firewall Authorization Preflight روی همان SHA سه ورودی و�
 - ابزار رکورد MQL5: https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/tools/materialize_mql5_authorization_v1.py
 
 این کار، علت و مسیر رسمی حل مانع را مشخص می‌کند، اما از این گفتگو امکان ساخت Source Packet امضاشده از منابع خارجی، تطبیق custody واقعی کلیدها یا اجرای PowerShell روی دو میزبان کاربر وجود نداشت. بنابراین هیچ‌یک از سه فایل عملیاتی به‌عنوان ساخته‌شده گزارش نمی‌شود و هیچ مجوز یا سفارشی ایجاد نشده است.
+
+
+---
+
+## الحاقیهٔ اجرایی — 2026-10-22 (مرحلهٔ Provider و MT5)
+
+این الحاقیه به انتهای سابقه افزوده شد؛ هیچ بخش قبلی حذف یا بازنویسی نشده است.
+
+### شواهد تازهٔ G13 روی main
+
+SHA دقیق فعلی هنگام بررسی: `d378cec2af802652e37bebdf46dd9a40fc639364`.
+
+- [Runtime Safety Probe run 39734936302](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734936302): PASS برای probe مرکب تک‌سشن.
+- لاگ همان اجرای واقعی نشان می‌دهد Auth OFF و Auth ON هردو `account_identity_verified=true`، `terminal_connected=true` و `demo_account=true` هستند. Auth ON مقدار `authorization=true` را در ورودی probe گزارش می‌کند، ولی با Kill Switch روی DENY مقدار `kill_switch_allow=false`، `execution_allowed=false` و `orders_submitted=false` باقی مانده است.
+- [Demo Readiness run 39735164926](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735164926): PASS برای Readiness با شواهد همین SHA. این PASS مجوز معامله صادر نمی‌کند.
+- [Controlled Demo Package Preflight run 39735091186](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735091186): PASS برای بررسی بسته.
+- [Capital Firewall Authorization Preflight run 39735202045](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045): BLOCKED. موانع ثبت‌شده دقیقاً `AUTHENTICATED_ENVELOPE_FILE_MISSING`، `MQL5_AUTHORIZATION_RECORD_MISSING` و `TRADE_LEDGER_FILE_MISSING` هستند. گزارش تصریح می‌کند که Authorization record ساخته نشده، Ledger تغییر نکرده و سفارشی ارسال نشده است.
+
+### گزارش تازهٔ میزبان Provider
+
+گزارش ارسالی کاربر دارای `FILE_INTEGRITY=PASS` است و اسکریپت تشخیصی read-only در مسیر موقت اجرا شده است. نتیجهٔ ثبت‌شده برای میزبان `WIN-P7MA35DRF6Q`:
+
+- سرویس `ForexAIProviderSvc` ثبت نشده است.
+- پوشه‌های `in` و `out` خالی‌اند و `current-source-packet.json` وجود ندارد.
+- فایل‌های کلید عمومی Admission و Promotion موجود و با قالب ۳۲ بایت Ed25519 هستند، اما مقدار Promotion در محیط با فایل کلید عمومی مطابقت ندارد.
+- مرجع‌های عمومی Signal، Risk، Operator Approval و Capital Firewall Grant در Process/User/Machine تنظیم نشده‌اند.
+- کلید خصوصی رمزگذاری‌شدهٔ Promotion روی میزبان Provider موجود تشخیص داده شده؛ این مسئلهٔ مرزبندی اعتماد است و باید از مسیر چرخش/تأیید رسمی کلید رسیدگی شود.
+- عبارت عبور کلید Admission در محیط Process وجود ندارد. گزارش از نمایش مقدار کلید یا عبارت عبور خودداری کرده است.
+- رجیستری تولیدی باز یا مقداردهی اولیه نشده است؛ این کار را نباید دستی برای سبز کردن preflight انجام داد.
+
+### ترتیب ادامهٔ کار
+
+1. ابتدا مرجع معتبر Promotion و مالک مستقل کلید آن را تأیید کن؛ فقط fingerprintهای عمومی را مقایسه کن. فایل کلید یا متغیر محیطی را کورکورانه بر دیگری ترجیح نده و تا تعیین مرجع معتبر، کلید خصوصی را حذف یا جایگزین نکن.
+2. کلید خصوصی Promotion را تحت فرایند مصوب به مرز اعتماد جداگانه منتقل/بچرخان؛ آن کلید نباید روی میزبان Admission Provider باقی بماند. هیچ passphrase یا کلید خصوصی در GitHub، چت یا لاگ قرار نگیرد.
+3. برای Signal، Risk+Reservation، Operator Approval و Capital Firewall Grant، مالکان و سرویس‌های مستقل واقعی را تعیین کن؛ کلیدهای نمایشی یا تکراری نساز.
+4. فقط پس از فراهم‌شدن trust anchorهای واقعی و تنظیم امن عبارت عبور در پردازش اجرایی، preflight میزبان Provider را دوباره اجرا کن. ورودی باید packet معتبر با امضای واقعی منابع باشد؛ JSON دست‌ساز، سیگنال ساختگی یا مقداردهی دستی رجیستری قابل قبول نیست.
+5. پس از آن، Producer باید از همان درخواست معتبر، Ledger، envelope و authorization record معتبر را بسازد. تا وقتی این سه ورودی واقعی وجود ندارند، materializer MQL5 را اجرا نکن.
+
+**وضعیت پایان این مرحله:** مشکل هویت/اتصال MT5 در probe تک‌سشن رفع و در run 39734936302 تأیید شده؛ مجوز معاملهٔ Demo هنوز صادر نشده، Kill Switch روی DENY و Live غیرفعال باقی می‌ماند. موانع Provider و ورودی‌های سه‌گانهٔ Control Plane هنوز باز هستند.
