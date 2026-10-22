@@ -842,3 +842,18 @@ Capital Firewall Authorization Preflight روی همان SHA سه ورودی و�
 تا تعیین متولیان واقعی، مرز custody کلید Promotion، چهار منبع امضاکنندهٔ مستقل، و مسیر provisioning سرویس/packet، نباید با کلید آزمایشی یا حدسی، packet ساختگی، یا ایجاد دستی Ledger/Envelope/`.auth` گزارش را سبز کرد. هیچ‌یک از این سه سند را نباید دستی جعل کرد؛ باید از فرایندهای مجاز و متصل به منابع معتبر ساخته شوند. کلید خصوصی موجود را نیز بدون تأیید custodian و برنامهٔ انتقال/چرخش امن حذف نکن.
 
 وضعیت محافظتی پابرجاست: `Kill Switch=DENY`, `demo_trading_authorized=false`, `live_trading_allowed=false`, `orders_submitted=false`.
+
+
+---
+
+## پیوست وضعیت تکراری — 2026-10-22، پس از اصلاح مسیر
+
+این پیوست نیز افزایشی است و همهٔ متن‌های قبلی آرشیو حفظ شده‌اند.
+
+- اصلاح مسیر تشخیص Provider اکنون روی `main` است: commit [84a1cc078925f77af155027a7ec8db3189867f2c](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/84a1cc078925f77af155027a7ec8db3189867f2c). فایل Runbook دیگر دستور اجرای ابزار از `C:\ProgramData\ForexAI-Provider\source\tools\` را نمی‌دهد و تست رگرسیون برای این مسیر اشتباه اضافه شده است.
+- [Python tests: 39740139293](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139293) موفق: 686 passed, 1 warning.
+- زنجیره G13 روی SHA بالا: Validation [39740152800](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740152800), Robustness [39740156155](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740156155), OOS [39740409691](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740409691), Promotion [39740600848](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740600848), Compile/Parity [39740801148](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740801148), Runtime Safety [39741437695](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741437695), Package Preflight [39741676950](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741676950), Readiness [39741768970](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741768970) همگی PASS هستند.
+- در اجرای واقعی Runtime Safety روی این SHA، هر دو probe Auth ON/OFF حساب Demo متصل و هویت‌تأییدشده داشتند؛ `kill_switch_allow=false`, `execution_allowed=false`, `orders_submitted=false` و `KILL_SWITCH_UNCHANGED=true` تأیید شد.
+- [Capital Firewall Authorization Preflight 39741810592](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741810592) همچنان BLOCKED است، دقیقاً به‌علت `AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING`, `TRADE_LEDGER_FILE_MISSING`. این‌ها باید از منبع معتبر Control Plane ساخته شوند؛ ساخت دستی یا دادهٔ ساختگی مجاز نیست.
+
+نتیجهٔ اجرایی: باگ مسیر اسکریپت در کد/Runbook حل شده؛ موانع باقی‌مانده دیگر خطای مسیر نیستند و به provisioning منبع Provider، جداسازی custody کلید Promotion، منابع مستقل امضاشونده و داده‌های واقعی authorization/ledger وابسته‌اند. `Kill Switch=DENY`; Demo issuance همچنان مجاز نشده؛ Live غیرفعال و سفارش‌گذاری صفر باقی مانده است.
