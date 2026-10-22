@@ -212,3 +212,19 @@ def test_provider_host_diagnostic_does_not_expose_public_key_or_passphrase_value
     assert "environment_value =" not in script
     assert "passphrase_value =" not in script
     assert "registry_path = $registryPath" not in script
+
+def test_provider_host_runbook_uses_the_tracked_diagnostic_path():
+    root = Path(__file__).resolve().parents[1]
+    runbook = (root / "docs" / "G13_PROVIDER_HOST_PREFLIGHT_V1.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert (root / "tools" / "diagnose_provider_host_deployment_v1.ps1").is_file()
+    assert (
+        "Join-Path (Get-Location).Path 'tools\\diagnose_provider_host_deployment_v1.ps1'"
+        in runbook
+    )
+    assert (
+        r"C:\ProgramData\ForexAI-Provider\source\tools\diagnose_provider_host_deployment_v1.ps1"
+        not in runbook
+    )

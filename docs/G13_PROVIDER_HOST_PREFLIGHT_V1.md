@@ -64,12 +64,20 @@ not create real private keys, signed admissions, source evidence, or orders.
 
 ## Deployment inventory diagnostic
 
-The repository also includes `tools/diagnose_provider_host_deployment_v1.ps1`. Use it to collect a reusable, redacted snapshot of the Windows host while diagnosing a blocked deployment:
+The repository also includes `tools/diagnose_provider_host_deployment_v1.ps1`. This is a **repository-root tool**, not part of the Provider installation payload by default. Its tracked location is `tools/diagnose_provider_host_deployment_v1.ps1`, not `C:\ProgramData\ForexAI-Provider\source\tools\`.
+
+From the repository checkout root, run:
 
 ```powershell
-& 'C:\ProgramData\ForexAI-Provider\source\tools\diagnose_provider_host_deployment_v1.ps1'
+$diagnostic = Join-Path (Get-Location).Path 'tools\diagnose_provider_host_deployment_v1.ps1'
+if (-not (Test-Path -LiteralPath $diagnostic -PathType Leaf)) {
+    throw 'DIAGNOSTIC_SCRIPT_NOT_FOUND: run from the repository checkout root or retrieve the pinned tracked file below.'
+}
+& $diagnostic -ProviderRoot 'C:\ProgramData\ForexAI-Provider'
 $LASTEXITCODE
 ```
+
+If the Provider host has no repository checkout, use the [reviewed source file pinned to commit `d378cec2af802652e37bebdf46dd9a40fc639364`](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/d378cec2af802652e37bebdf46dd9a40fc639364/tools/diagnose_provider_host_deployment_v1.ps1); do not assume that the diagnostic script was installed under the Provider root. Verify the downloaded file before executing it.
 
 Run an elevated PowerShell session for the initial host inventory. Once a runtime identity or service has been deliberately configured, run it again under the intended identity to inspect that identity's effective process environment. The script reports only variable presence and public-key match statuses; it never prints public-key values, passphrases, registry paths, or private-key contents. For PEM files it reads only the first header line. It does not install/start services, alter ACLs or environment variables, open the production issuance registry, write a source packet/admission, or authorize trading. Exit code 2 indicates blockers in the inspected configuration.
 
