@@ -1169,3 +1169,52 @@ Diagnostic به‌صورت read-only اجرا شده؛ `FILE_INTEGRITY=PASS`، �
 - این اجراها ثابت می‌کنند زنجیرهٔ آزمون/آمادگی G13 موفق است، نه اینکه منبع‌های مستقل Control Plane provision شده‌اند یا Demo trading مجاز شده است. برای رفع این سه blocker باید ورودی‌های واقعی و معتبر از فرایند مصوب Control Plane تولید/متصل شوند؛ فایل جعلی یا دست‌نویس راه‌حل نیست.
 
 **وضعیت ایمنی همچنان:** Kill Switch = `DENY`؛ مجوز Demo صادر نشده؛ Live غیرفعال؛ هیچ سفارشی ارسال نشده است.
+
+
+---
+
+## پیوست تکمیلی — 2026-10-22 (Provider diagnosis + exact-SHA G13)
+
+این پیوست به انتهای سند افزوده شده است؛ محتوای قبلی حذف یا بازنویسی نشده است.
+
+### نتیجه‌های تأییدشده روی `main`
+
+- SHA فعلیِ تأییدشده هنگام ثبت: `84a1cc078925f77af155027a7ec8db3189867f2c`.
+- [Commit رفع مسیر اسکریپت تشخیصی](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/84a1cc078925f77af155027a7ec8db3189867f2c): مستندات اکنون فایل را از پوشهٔ ریشهٔ مخزن، `tools/diagnose_provider_host_deployment_v1.ps1` اجرا می‌کنند، نه از پوشه‌ای که در بستهٔ Provider وجود ندارد.
+- تست‌های مخزن، G13 Workflow Static Validation و Agent Runtime Check در اجرای همین SHA موفق بودند:
+  - [tests 39740139293](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139293)
+  - [G13 Workflow Static Validation 39740139190](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139190)
+  - [Agent Runtime Check 39740139294](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139294)
+- زنجیرهٔ G13 با همین SHA در Validation، Robustness، OOS، Promotion، Compile/Parity، MT5 Runtime Safety، Package Preflight، Execution Safety Audit و Demo Readiness موفق شد:
+  - [Validation 39740152800](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740152800)
+  - [Robustness 39740156155](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740156155)
+  - [OOS 39740409691](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740409691)
+  - [Promotion 39740600848](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740600848)
+  - [Compile + Signal Parity 39740801148](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740801148)
+  - [MT5 Runtime Safety 39741437695](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741437695)
+  - [Package Preflight 39741676950](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741676950)
+  - [Execution Safety Audit 39741714527](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741714527)
+  - [Demo Readiness 39741768970](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741768970)
+- Runtime logهای G13 هر دو حالت Auth را با هویت Demo تأییدشده و ترمینال متصل نشان می‌دهند؛ در هر دو حالت `execution_allowed=false` و `orders_submitted=false` بود و Kill Switch تغییر نکرد. بنابراین شکست قبلی تشخیص هویت/اتصال MT5 در این اجرای تازه دیده نشد.
+- [Capital Firewall Authorization Preflight 39741810592](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741810592) با وضعیت `BLOCKED` تمام شد. سه ورودی واقعی مفقودند: `TRADE_LEDGER_FILE_MISSING`، `AUTHENTICATED_ENVELOPE_FILE_MISSING` و `MQL5_AUTHORIZATION_RECORD_MISSING`. خروجی اعلام کرد که authorization record ساخته نشده و سفارشی ارسال نشده است.
+
+### گزارش تازهٔ Provider host
+
+گزارش تشخیصی فقط‌خواندنی با `FILE_INTEGRITY=PASS` اجرا شد، اما وضعیت کلی میزبان همچنان `BLOCKED` است:
+
+- سرویس `ForexAIProviderSvc` ثبت نشده؛ پوشهٔ `in` خالی است و بستهٔ منبع معتبر پیدا نشده است.
+- کلیدهای عمومی Signal، Risk، Operator Approval و Capital Firewall Grant در محیط Provider غایب‌اند.
+- کلید عمومی فایل Promotion با anchor پیکربندی‌شده تطبیق ندارد؛ User scope هم تنظیم نشده است. **هیچ‌یک از دو کلید نباید خودکار مرجع قرار گیرد.** تغییر anchor فقط پس از تأیید مالک کلید و چرخش هماهنگ‌شده مجاز است.
+- کلید خصوصی Promotion روی میزبان Provider وجود دارد و باید از نظر جدایی مدیریت/حفاظت کلید بررسی شود؛ این گزارش مالکیت یا استقلال آن را اثبات نمی‌کند.
+- رمز کلید امضای Admission در محیط Process موجود نیست. رمز نباید در Git، چت، لاگ یا متغیر Machine/User ذخیره شود؛ فقط باید از secret manager مصوب به فرایند مجاز تزریق شود.
+- گزارش مسیر/مقدار کلید یا رمز را افشا نکرده، Production registry را باز نکرده و هیچ مجوز، envelope، ledger یا سفارشی نساخته است.
+
+### ترتیب رفع باقی‌مانده‌ها
+
+1. پیش از هر استقرار Provider، تعیین مالک و custodian مستقل برای Promotion، Signal، Risk/Reservation، Operator Approval و Grant و ثبت اثرانگشت public key هر منبع.
+2. رفع عدم تطابق Promotion از مسیر چرخش تأییدشده؛ جداسازی کلید خصوصی Promotion از Provider؛ عدم انتخاب خودکار کلید صرفاً به‌دلیل وجود فایل یا متغیر محیطی.
+3. دریافت ورودی واقعی و تازهٔ امضاشده از منابع مستقل. فایل خالی، امضای آزمایشی یا payload دستی جایگزین مجاز نیست.
+4. پس از معتبرشدن منابع و secret custody، preflight میزبان را دوباره اجرا کن؛ سپس با فرآیند مجاز Control Plane، TradeLedger، envelope و رکورد مجوز معتبر/کوتاه‌عمر تولید شوند و Authorization Preflight مجدد اجرا شود.
+5. سرویس/فرایند Provider را تا آماده‌شدن منبع‌های معتبر و طراحی اجرای مصوب نصب/فعال نکن؛ CLI یک‌مرحله‌ای را به Windows service دائمی تبدیل نکن.
+
+**ایمنی:** Kill Switch = `DENY`؛ مجوز Demo صادر نشده؛ Live غیرفعال؛ `orders_submitted=false`. موفقیت G13 فقط شواهد آمادگی و آزمون است و به‌تنهایی اختیار معامله ایجاد نمی‌کند.
