@@ -85,3 +85,18 @@ PR: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/295
 - [Provider host preflight/runbook](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md)
 - [Capital Firewall Authority Ownership Register](https://github.com/afshinsaberone-a11y/grok-ai-trader/blob/main/docs/CAPITAL_FIREWALL_AUTHORITY_OWNERSHIP_REGISTER_V1.md)
 - [Microsoft Windows 11 release information](https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information)
+
+## ۶. بررسی تازگی شواهد exact-SHA
+
+بعد از ثبت آرشیو اولیه، مقایسهٔ commitها نشان داد که main روی SHA زیر است:
+
+- Current main baseline returned by GitHub for PR #300: `84a1cc078925f77af155027a7ec8db3189867f2c`
+- SHA مربوط به زنجیرهٔ G13 ذکرشده در گزارش پیشین Issue #225: `d378cec2af802652e37bebdf46dd9a40fc639364`
+
+مقایسه نشان می‌دهد `84a1cc0` دقیقاً یک commit بعد از `d378cec` است و فقط این دو فایل را تغییر داده است:
+- `docs/G13_PROVIDER_HOST_PREFLIGHT_V1.md`
+- `tests/test_control_plane_provider_host_preflight_v1.py`
+
+با وجود اینکه تغییرات مستندات/آزمون محدودند، پروژه الزام شواهد exact-SHA دارد؛ پس artifactهای زنجیرهٔ قبلی را نباید به‌عنوان شواهد تازهٔ همان SHA جاری معرفی کرد. جست‌وجوی وضعیت commit و runهای مرتبط از طریق ابزار متصل‌شده، برای SHA جاری نتیجه‌ای برنگرداند؛ بنابراین در این پیگیری نتوانستم زنجیرهٔ کامل تازه روی `84a1cc0` را تأیید کنم. لازم است workflowهای لازم از GitHub Actions روی SHA جاری اجرا/تأیید شوند پیش از هر تصمیم تازه دربارهٔ آمادگی Demo.
+
+این موضوع مانع‌های منبع واقعی را رفع نمی‌کند: گزارش Authorization Preflight روی SHA قبلی همچنان سه ورودی مفقود را نشان داده بود: TradeLedger معتبر، authenticated runtime envelope و رکورد مجوز MQL5. هیچ‌کدام نباید با placeholder یا شواهد ساختگی جایگزین شوند.
