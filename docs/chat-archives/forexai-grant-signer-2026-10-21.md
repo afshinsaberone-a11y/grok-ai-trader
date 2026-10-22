@@ -646,3 +646,23 @@ PR #298 ادغام شد: [fix(g13): make package preflight sole Readiness dispat
 5. پس از صدور Grant واقعی و cross-link شدن زنجیره، ابزارهای امضاشده باید authenticated envelope و رکورد Authorization تازه را با expiry و trade identity منطبق بسازند. سپس Capital Firewall preflight تکرار شود؛ فقط PASS بودن آن می‌تواند به گام بعدی Controlled Demo Audit منتهی شود.
 
 در این وضعیت، متغیر \`FOREXAI_CONTROL_PLANE_HMAC_SECRET\` تنظیم‌شده گزارش شده، ولی envelope، Authorization record و TradeLedger موجود نیستند. Secret configured به معنی وجود/اعتبار این سه شیء نیست. هیچ private key، passphrase، HMAC secret یا account credential نباید در چت یا commit قرار بگیرد. تا زمان تامین واقعی منابع بالا، مجوز Demo صادر نشود و Kill Switch روی DENY بماند.
+
+
+---
+
+## تکمیل وضعیت — آرتیفکت واقعی Runtime و Capital Preflight (2026-10-22)
+
+در بررسی مستقیم آرتیفکت Runtime Safety روی main SHA `d378cec2af802652e37bebdf46dd9a40fc639364`، هر دو نشانگر `g13_safety_probe_auth_off.done.txt` و `g13_safety_probe_auth_on.done.txt` خوانده شدند. هر دو شامل `status=PASS`، `account_identity_verified=true`، `demo_account=true` و `terminal_connected=true` هستند. در Auth ON مقدار `authorization=true` فقط حالت آزمون predicate است؛ همزمان `kill_switch_allow=false`، `execution_allowed=false` و `orders_submitted=false` ثبت شده‌اند. در Auth OFF نیز `execution_allowed=false` و `orders_submitted=false` است. فایل قبل از Probe، Kill Switch را `DENY` ثبت کرده است. این گزارش مجوز معامله صادر نمی‌کند.
+
+آرتیفکت Capital Firewall Preflight (run [39735202045](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045), artifact [12406733297](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045/artifacts/12406733297)) وضعیت واقعی را دقیق‌تر می‌کند:
+- `common_files_directory_exists=true`
+- `control_plane_secret_configured=true`
+- `TRADE_LEDGER_FILE_MISSING`
+- `AUTHENTICATED_ENVELOPE_FILE_MISSING`
+- `MQL5_AUTHORIZATION_RECORD_MISSING`
+
+هیچ authorization record ایجاد نشده، Ledger تغییر نکرده، Live تغییر نکرده و سفارشی ارسال نشده است. این خطا باید fail-closed بماند؛ سبزکردن ساختگی آن، ایجاد Ledger خالی یا نوشتن دستی فایل envelope/`.auth` رفع مانع محسوب نمی‌شود.
+
+وضعیت تازه به پیگیری‌های [Issue #225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225#issuecomment-6334562501) و [Issue #254](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/254#issuecomment-6334563041) افزوده شد. محدودیت عملیاتی تغییر نکرده: باید منبع Admission/Provider معتبر، Ledger و Envelope واقعی، رکورد مجوز تازه، و مالکیت/نگهداری مستقل کلیدهای Signal، Risk+Reservation، Operator Approval، Promotion و Grant توسط صاحبان مجاز تأمین و راستی‌آزمایی شود. کلید staged، trust anchor یا Registry تولیدی در این بررسی فعال/بازنشانی نشده است.
+
+Safety invariantها همچنان برقرارند: Kill Switch `DENY`; Demo authorization صادر نشده؛ Live غیرفعال؛ `orders_submitted=false`.
