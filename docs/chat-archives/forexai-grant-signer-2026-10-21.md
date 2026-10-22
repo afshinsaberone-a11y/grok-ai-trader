@@ -1127,3 +1127,35 @@ Diagnostic به‌صورت read-only اجرا شده؛ `FILE_INTEGRITY=PASS`، �
 5. **پس از تأیید منبع‌ها،** دوباره Provider preflight و سپس Capital Firewall Authorization Preflight اجرا شوند. TradeLedger، runtime envelope یا رکورد MQL5 نباید دستی/نمادین ساخته شود؛ باید فقط از فرایند مجاز و پس از مجوز صریح یک سیگنال Demo ایجاد شوند.
 
 **وضعیت ایمنی پابرجا:** Kill Switch = `DENY`، مجوز Demo صادر نشده، Live غیرفعال و سفارش ارسال نشده است. این آرشیو فقط ثبت وضعیت است و هیچ کلید، secret، attestation، Grant یا مجوزی تولید نمی‌کند.
+
+
+---
+
+## پیوست نگهداری تاریخچه و ادامهٔ رفع موانع — 2026-10-22
+
+این بخش به انتهای آرشیو افزوده شده است؛ متن قبلی حذف یا جایگزین نشده است. درخواست کاربر این است که پرسش‌وپاسخ‌های قبلی حفظ شوند و کار از وضعیت فعلی ادامه یابد. این فایل خلاصه/ثبت روند است، نه ادعای رونویسی کلمه‌به‌کلمه از کل تاریخچهٔ حساب.
+
+### رفع خطای مسیر PowerShell
+
+- ابزار تشخیصی در مخزن با مسیر `tools/diagnose_provider_host_deployment_v1.ps1` نگهداری می‌شود؛ به‌طور پیش‌فرض در `C:\\ProgramData\\ForexAI-Provider\\source\\tools\\` نصب نیست.
+- پیوست اپراتور نشان می‌دهد اجرای بعدی از فایل موقت `C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\3\\diagnose_provider_host_deployment_v1.ps1` با `FILE_INTEGRITY=PASS` انجام شده است و گزارش JSON کامل صادر کرده است.
+- بنابراین خطای قبلی `CommandNotFoundException` مربوط به مسیر نادرست فایل است؛ گزارش جدید نشان می‌دهد تشخیص انجام شده، اما وضعیت میزبان همچنان `BLOCKED` است. برای اجرای بعدی فقط از نسخهٔ بررسی‌شدهٔ مخزن و مسیر واقعی آن استفاده شود.
+
+### وضعیت فنیِ ثابت‌شده از گزارش جدید
+
+- `ForexAIProviderSvc` ثبت نشده؛ دایرکتوری‌های `in` و `out` خالی‌اند؛ `current-source-packet.json` وجود ندارد.
+- کلید عمومی فایل Promotion با `FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY` در Process و Machine تطابق ندارد. کلید خصوصی Promotion نیز روی میزبان Provider موجود گزارش شده؛ مرز نگهداری/متولی مستقل باید بررسی و در صورت نیاز با فرایند چرخشِ تأییدشده اصلاح شود.
+- لنگرهای عمومی Signal، Risk، Operator Approval و Capital Firewall Grant موجود نیستند.
+- متغیر عبارت عبور کلید Admission در محیط Process جاری دیده نشده است. مقدار عبارت عبور نباید در چت، GitHub، فایل گزارش یا خروجی ترمینال ثبت شود.
+- اجرای G13 Runtime Safety `39734936302` موفق شد؛ Demo Readiness `39735164926` موفق شد؛ Package Preflight `39735091186` موفق شد. این‌ها مجوز معامله صادر نمی‌کنند.
+- Capital Firewall Authorization Preflight `39735202045` به دلیل `AUTHENTICATED_ENVELOPE_FILE_MISSING`، `MQL5_AUTHORIZATION_RECORD_MISSING` و `TRADE_LEDGER_FILE_MISSING` مسدود شد؛ هیچ رکورد مجوز ایجاد نشد و هیچ سفارشی ارسال نشد.
+
+### گام‌های بعدی، بدون جعل شواهد یا دور زدن کنترل‌ها
+
+1. مالک/متولی واقعی Promotion را مشخص و کلید عمومی را از مرجع معتبر همان متولی تأیید کند؛ متغیر محیطی را صرفاً برای سبزشدن تست، به‌صورت حدسی تغییر نده.
+2. متولیان مستقل Signal، Risk+Reservation، Operator Approval و Grant signer و کلیدهای عمومی متمایز آن‌ها را provision/تأیید کنند. کلید آزمایشی یا کلید تکراری جایگزین نیست.
+3. جدایی کلید خصوصی Promotion از میزبان Provider توسط مالک کلید تأیید شود؛ کلید خصوصی را در مخزن، Runner یا چت کپی نکن.
+4. پس از وجود منبع‌های امضاشده و تازه و تأیید متولی‌ها، سرویس Provider با هویت سرویس و دسترسی/مسیر رجیستری بادوام به‌صورت کنترل‌شده نصب/پیکربندی و preflight دوباره اجرا شود. تا وقتی packet معتبر و متولی‌ها وجود ندارند، ثبت سرویس به‌تنهایی رفع مجوز نیست.
+5. پس از موفق‌شدن زنجیرهٔ منبع و صدور معتبر Grant، پیش‌نیازهای Ledger/Envelope/رکورد MQL5 از مسیر رسمی تولید و Capital Firewall preflight دوباره بررسی شود؛ فایل‌ها دستی یا ساختگی ساخته نشوند.
+
+**حالت ایمنی:** Kill Switch = `DENY`; `demo_trading_authorized=false`; `live_trading_allowed=false`; `orders_submitted=false`. هیچ secret یا کلید خصوصی در این پیوست درج نشده است.
