@@ -885,3 +885,25 @@ Capital Firewall Authorization Preflight روی همان SHA سه ورودی و�
 باگ مسیر runbook اصلاح شده و گزارش تشخیصی اکنون علت‌های واقعی provisioning را تفکیک می‌کند. باقی‌مانده‌ها با ایجاد فایل خالی، جعل source packet، ساخت دستی Ledger/Envelope/.auth، تولید کلیدهای آزمایشی، یا خاموش‌کردن گیت‌ها حل‌شدنی نیستند. برای رفع واقعی، سرویس Provider باید با هویت و محیط امن موردتأیید نصب شود؛ صاحبان مستقل Signal/Risk/Operator/Grant و کلیدهای عمومی متمایز باید مشخص شوند؛ مغایرت و custody کلید Promotion از مسیر rotation تأییدشده حل شود؛ سپس source packet واقعی و TradeLedger/Envelope/Authorization از زنجیرهٔ معتبر ساخته شوند.
 
 حفاظت همچنان برقرار است: Kill Switch=DENY، demo_trading_authorized=false، live_trading_allowed=false، orders_submitted=false. هیچ secret، passphrase، public-key value یا محتوای کلید در این پیوست ثبت نشده است.
+
+
+---
+
+## پیوست — ادامه عیب‌یابی Control Plane، 2026-10-22
+
+### وضعیت واقعی روی main
+- SHA فعلی بررسی‌شده: `84a1cc078925f77af155027a7ec8db3189867f2c`.
+- [Runtime Safety Probe، اجرا 39741437695](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741437695)، [Controlled Demo Package Preflight، اجرا 39741676950](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741676950) و [Demo Readiness، اجرا 39741768970](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741768970) برای همین SHA موفق بودند.
+- [Capital Firewall Authorization Preflight، اجرا 39741810592](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741810592) با این سه مانع واقعی شکست خورد: `TRADE_LEDGER_FILE_MISSING`، `AUTHENTICATED_ENVELOPE_FILE_MISSING`، `MQL5_AUTHORIZATION_RECORD_MISSING`. در گزارش، `authorization_record_created=false`، `ledger_mutated=false`، `order_submission_performed=false` و `live_authorization_changed=false` بوده است.
+- خطای PowerShell درباره مسیر `C:\ProgramData\ForexAI-Provider\source\tools\diagnose_provider_host_deployment_v1.ps1` از مسیر اشتباه ناشی می‌شد. ابزار ردیابی‌شده در مخزن در `tools/diagnose_provider_host_deployment_v1.ps1` است، نه اینکه الزاماً در پوشه نصب Provider کپی شده باشد. اصلاح runbook در main با commit `84a1cc078925f77af155027a7ec8db3189867f2c` ثبت شده است.
+- خروجی پیوست‌شدهٔ Provider host نشان می‌دهد سرویس ثبت نشده، پوشه‌های `in` و `out` خالی، source packet غایب، چهار trust anchor مستقل Signal/Risk/Operator/Grant تنظیم‌نشده، کلید عمومی Promotion با محیط ناسازگار، و passphrase در محیط process در دسترس نیست. گزارش هیچ کلید/عبارت عبور/مقدار کلیدی را افشا نکرده است.
+- جست‌وجوی Dropbox با نام فایل‌ها و اصطلاحات TradeLedger، authenticated envelope، source packet، Capital Firewall و authorization هیچ نتیجهٔ منطبقی برنگرداند؛ بنابراین در Dropbox متصل، فایل مرجع متناظر پیدا نشد. این جست‌وجو به‌تنهایی وجود فایل در هر مخزن دیگری را رد نمی‌کند.
+
+### ترتیب صحیح رفع موانع
+1. ابتدا میزبان و متولی مستقل Capital Firewall/Grant را مشخص و مرز مدیریتی آن را تأیید کنید؛ میزبان Provider و MT5 Runner جایگزین این مرز نیستند.
+2. صاحبان مستقل Promotion، Signal، Risk+Reservation و Operator Approval باید attestation واقعی و تازه، کلیدهای عمومی متمایز و بستهٔ منبع معتبر را از کانال موردتأیید تهیه کنند. مقدارهای ساختگی یا کلیدهای آزمایشی جایگزین نیستند.
+3. مغایرت trust anchor و custody کلید Promotion با مرجع آن هماهنگ و از مسیر rotation مصوب اصلاح شود؛ تا آن زمان کلیدها را حدس نزنید یا بی‌هماهنگی تعویض نکنید.
+4. پس از اعتبارسنجی request امضاشده، ابزار `tools/control_plane_service_v1.py` می‌تواند بر اساس درخواست، حساب Demo واقعی و وضعیت Kill Switch، چرخهٔ معتبر TradeLedger و authenticated envelope را تولید کند. این ابزار بدون request معتبر نباید authority بسازد.
+5. سپس `tools/materialize_mql5_authorization_v1.py` باید در هماهنگی با همان Trade ID، Ledger و Envelope معتبر، رکورد `.auth` تازه را از ابزار رسمی بسازد؛ عمر رکورد کوتاه است و نباید دستی نوشته شود.
+
+**نتیجه:** علت شکست فعلی در خود تست تشخیصی یا مسیر PowerShell نیست؛ فایل‌های downstream به دلیل نبود upstream authority/evidence تولید نشده‌اند. تا تکمیل این زنجیره، Kill Switch باید `DENY` بماند، `demo_trading_authorized=false` و `live_trading_allowed=false` حفظ شود و هیچ سفارشی ارسال نشود. این پیوست به انتهای آرشیو اضافه می‌شود؛ محتوای پیشین حذف یا بازنویسی نشده است.
