@@ -597,3 +597,39 @@ Auth ON به معنی اجازهٔ معامله نیست: با Kill Switch رو�
 - PR #298 ادغام شد؛ SHA جدید main برابر \`d378cec2af802652e37bebdf46dd9a40fc639364\`. اجرای جدید Push در زمان ثبت این پیوست هنوز در صف بود: Watchdog \`39733695868\`, Static Validation \`39733695869\`, Agent Runtime \`39733695874\`, Tests \`39733695776\`. نتیجهٔ اجرای زنجیرهٔ جدید هنوز نباید PASS فرض شود.
 - رفع این باگ orchestration تکرارها را حذف می‌کند، اما موانع اعتبارسنجی سرمایه همچنان مستقل‌اند. آخرین Capital Firewall report واقعی نشان داده TradeLedger، authenticated envelope و MQL5 authorization record وجود ندارند. این‌ها بدون منبع و custodian مجاز قابل ساختن/پرکردن نیستند.
 - حفاظ‌ها بدون تغییر: Kill Switch \`DENY\`؛ Demo authorization صادر نشده؛ Live غیرفعال؛ \`orders_submitted=false\`. هیچ کلید عملیاتی، grant یا سفارش ایجاد نشده است.
+
+
+## پیوست سوم — پایان زنجیرهٔ G13 روی main و مانع مستقل Capital Firewall (۲۰۲۶-۱۰-۲۲)
+
+### نتیجهٔ زنجیرهٔ exact-SHA
+روی SHA \`d378cec2af802652e37bebdf46dd9a40fc639364\`، زنجیرهٔ زیر با موفقیت کامل شد:
+- Validation: [39733708532](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39733708532)
+- Robustness: [39733711507](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39733711507)
+- OOS: [39733943328](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39733943328)
+- Promotion: [39734110771](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734110771)
+- Execution Safety Audit: [39734232112](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734232112) و refresh لازم [39735118992](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735118992)
+- MT5 Compile + Signal Parity: [39734294670](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734294670)
+- MT5 Runtime Safety Probe v2: [39734936302](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734936302)
+- Controlled Demo Package Preflight: [39735091186](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735091186)
+- Demo Readiness Gate: [39735164926](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735164926)
+- OOS Watchdog کل زنجیره را به‌صورت exact-SHA تکمیل کرد: [39733695868](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39733695868)
+
+Readiness report روی همان SHA، دادهٔ واقعی HistData EURUSD M1 resampled به M15 با quality PASS، برابری Python/MQL5 برابر PASS برای ۹ کاندید، حساب Demo تأییدشده، اتصال ترمینال صحیح و \`orders_submitted=false\` را ثبت کرد. وضعیت دقیق \`READY_FOR_CONTROLLED_DEMO_AUDIT\` است، نه مجوز معامله. خود گزارش تصریح می‌کند \`demo_trading_allowed=false\` و \`live_trading_allowed=false\`.
+
+### اصلاح تکرار اجراها
+PR #298 ادغام شد: [fix(g13): make package preflight sole Readiness dispatcher](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/298)، merge SHA بالا. در زنجیرهٔ جدید فقط یک Readiness اجرا و یک Capital Firewall Authorization Preflight ایجاد شد؛ تکرار دوگانهٔ قبلی برطرف شد.
+
+### Capital Firewall Authorization Preflight — نتیجهٔ واقعی
+اجرای [39735202045](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045) در Windows MT5 self-hosted runner به‌صورت fail-closed متوقف شد؛ آرتیفکت گزارش redacted: [12406733297](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045/artifacts/12406733297).
+
+گزارش روی همان SHA و زمان UTC \`2026-10-22T06:40:03Z\` سه blocker واقعی را تأیید کرد:
+- \`AUTHENTICATED_ENVELOPE_FILE_MISSING\`: مسیر تنظیم شده ولی فایل envelope موجود نیست؛ schema=\`MISSING\`.
+- \`MQL5_AUTHORIZATION_RECORD_MISSING\`: فایل authorization موجود نیست؛ رکورد ساخته نشده است.
+- \`TRADE_LEDGER_FILE_MISSING\`: مسیر ledger تنظیم شده ولی فایل موجود نیست؛ integrity=\`MISSING\`.
+
+گزارش همچنین \`control_plane_secret_configured=true\` و \`common_files_directory_exists=true\` ثبت کرد، اما این به‌معنای وجود فایل‌های معتبر نیست. مقادیر ایمنی خروجی: \`kill_switch_changed=false\`, \`ledger_mutated=false\`, \`live_authorization_changed=false\`, \`authorization_record_created=false\`, \`order_submission_performed=false\`.
+
+### وضعیت تحویل
+تمام گیت‌های پژوهش، ایمنی، parity، runtime و readiness روی SHA جدید PASS هستند؛ مانع باقی‌مانده یک نقص اثبات/کد نیست، بلکه نبود منابع معتبر Control Plane است: authoritative TradeLedger، authenticated runtime envelope و رکورد Authorization تازه و معتبر. آن‌ها باید از منبع/custodian مجاز و با زنجیرهٔ اعتماد صحیح تامین شوند؛ ساخت فایل خالی، signature/grant دست‌ساز یا فعال‌کردن کلید staged مجاز نیست.
+
+حفاظ‌ها دست‌نخورده بمانند: Kill Switch \`DENY\`; Demo authorization صادر نشده؛ Live خاموش؛ سفارش ثبت نشده. پس از تامین واقعی این ورودی‌ها باید preflight دوباره اجرا شود؛ تا آن زمان نباید این وضعیت به عنوان اجازهٔ معامله گزارش شود.
