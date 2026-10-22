@@ -857,3 +857,31 @@ Capital Firewall Authorization Preflight روی همان SHA سه ورودی و�
 - [Capital Firewall Authorization Preflight 39741810592](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741810592) همچنان BLOCKED است، دقیقاً به‌علت `AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING`, `TRADE_LEDGER_FILE_MISSING`. این‌ها باید از منبع معتبر Control Plane ساخته شوند؛ ساخت دستی یا دادهٔ ساختگی مجاز نیست.
 
 نتیجهٔ اجرایی: باگ مسیر اسکریپت در کد/Runbook حل شده؛ موانع باقی‌مانده دیگر خطای مسیر نیستند و به provisioning منبع Provider، جداسازی custody کلید Promotion، منابع مستقل امضاشونده و داده‌های واقعی authorization/ledger وابسته‌اند. `Kill Switch=DENY`; Demo issuance همچنان مجاز نشده؛ Live غیرفعال و سفارش‌گذاری صفر باقی مانده است.
+
+
+---
+
+## پیوست وضعیت — 2026-10-22، گزارش جدید Provider Host
+
+این بخش فقط به انتهای آرشیو اضافه شده است؛ هیچ‌یک از گزارش‌ها و توضیحات قبلی حذف یا جایگزین نشده‌اند.
+
+### نتیجهٔ گزارش خوانده‌شده
+
+- فایل تشخیصی از مسیر موقت Windows اجرا شده و خود فایل FILE_INTEGRITY=PASS گزارش کرده است. بنابراین خطای قبلی اجرای مسیر C:\\ProgramData\\ForexAI-Provider\\source\\tools\\diagnose_provider_host_deployment_v1.ps1 را باید از وضعیت فعلی جدا دانست: ابزار تشخیصی در مخزن در مسیر tools/diagnose_provider_host_deployment_v1.ps1 است و runbook این مسیر را در commit [84a1cc078925f77af155027a7ec8db3189867f2c](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/84a1cc078925f77af155027a7ec8db3189867f2c) اصلاح کرده است.
+- میزبان WIN-P7MA35DRF6Q: ForexAIProviderSvc هنوز ثبت نشده؛ پوشه‌های in و out خالی‌اند و authoritative source packet وجود ندارد.
+- Admission public key در فایل و environment مطابق است. Promotion Attestor public key با environment در دو scope یعنی Process و Machine مغایرت دارد؛ User scope برای هر دو تنظیم نشده است.
+- کلیدهای عمومی مستقل Signal، Risk، Operator Approval و Capital Firewall Grant پیکربندی نشده‌اند. passphrase مربوط به کلید Admission در process فعلی موجود نیست.
+- فایل کلید خصوصی رمزگذاری‌شدهٔ Promotion در میزبان Provider دیده شده است؛ این یک مسألهٔ مرز نگه‌داری/اعتماد است، نه چیزی که باید با کپی‌کردن کلید عمومی یا تغییر environment به‌صورت حدسی «سبز» شود. مرز custody و هرگونه rotation باید توسط متولی مجاز تأیید شود.
+- اسکریپت تشخیصی read_only=true، production_registry_opened=false، orders_submitted=false و ledger_mutated=false را گزارش می‌کند؛ هیچ مجوز Demo یا Live صادر نشده است.
+
+### وضعیت MT5 و G13 روی SHA فعلی
+
+- main در SHA 84a1cc078925f77af155027a7ec8db3189867f2c قرار دارد.
+- [Runtime Safety Probe — 39741437695](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741437695)، [Demo Package Preflight — 39741676950](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741676950) و [Demo Readiness — 39741768970](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741768970) موفق بوده‌اند. موفقیت این مراحل به معنای صدور مجوز معامله نیست.
+- [Capital Firewall Authorization Preflight — 39741810592](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741810592) همچنان BLOCKED است: AUTHENTICATED_ENVELOPE_FILE_MISSING، MQL5_AUTHORIZATION_RECORD_MISSING و TRADE_LEDGER_FILE_MISSING.
+
+### نتیجه و محدودیت اقدام
+
+باگ مسیر runbook اصلاح شده و گزارش تشخیصی اکنون علت‌های واقعی provisioning را تفکیک می‌کند. باقی‌مانده‌ها با ایجاد فایل خالی، جعل source packet، ساخت دستی Ledger/Envelope/.auth، تولید کلیدهای آزمایشی، یا خاموش‌کردن گیت‌ها حل‌شدنی نیستند. برای رفع واقعی، سرویس Provider باید با هویت و محیط امن موردتأیید نصب شود؛ صاحبان مستقل Signal/Risk/Operator/Grant و کلیدهای عمومی متمایز باید مشخص شوند؛ مغایرت و custody کلید Promotion از مسیر rotation تأییدشده حل شود؛ سپس source packet واقعی و TradeLedger/Envelope/Authorization از زنجیرهٔ معتبر ساخته شوند.
+
+حفاظت همچنان برقرار است: Kill Switch=DENY، demo_trading_authorized=false، live_trading_allowed=false، orders_submitted=false. هیچ secret، passphrase، public-key value یا محتوای کلید در این پیوست ثبت نشده است.
