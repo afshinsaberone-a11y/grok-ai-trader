@@ -18,10 +18,38 @@ try {
     if ([int]$os.ProductType -ne 1) {
         Stop-Blocked "WINDOWS_CLIENT_OS_REQUIRED_SERVER_OS_FORBIDDEN"
     }
-    # Local signer-host security floor: Windows 11 25H2 build family or newer.
-    # Older Windows client builds are not accepted merely because they are not Server.
-    if ([int]$os.BuildNumber -lt 26200) {
-        Stop-Blocked "WINDOWS_BUILD_TOO_OLD_FOR_SIGNER_HOST"
+    # Read the release identity and cumulative-update revision from the local OS registry.
+    # Matrix current at 2026-10: 24H2 only for supported Enterprise/Education/LTSC editions;
+    # 25H2 and 26H2 accepted when at least the October 2026 security baseline is installed.
+    $currentVersion = Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction Stop
+    $build = [int]$os.BuildNumber
+    $ubr = [int]$currentVersion.UBR
+    $displayVersion = [string]$currentVersion.DisplayVersion
+    $editionId = [string]$currentVersion.EditionID
+    $supported24H2Editions = @(
+        "Enterprise", "EnterpriseN", "Education", "EducationN",
+        "EnterpriseS", "IoTEnterprise", "IoTEnterpriseS"
+    )
+    $supportedWindowsRelease = $false
+    switch ($displayVersion) {
+        "24H2" {
+            if ($build -eq 26100 -and $ubr -ge 9711 -and $editionId -in $supported24H2Editions) {
+                $supportedWindowsRelease = $true
+            }
+        }
+        "25H2" {
+            if ($build -eq 26200 -and $ubr -ge 9711) {
+                $supportedWindowsRelease = $true
+            }
+        }
+        "26H2" {
+            if ($build -eq 26300 -and $ubr -ge 9711) {
+                $supportedWindowsRelease = $true
+            }
+        }
+    }
+    if (-not $supportedWindowsRelease) {
+        Stop-Blocked "WINDOWS_RELEASE_OR_PATCH_BASELINE_UNSUPPORTED_FOR_SIGNER_HOST"
     }
     try {
         $tpm = Get-Tpm -ErrorAction Stop
