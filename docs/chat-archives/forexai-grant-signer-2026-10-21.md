@@ -1044,3 +1044,49 @@ $machineValue = [Environment]::GetEnvironmentVariable('FOREXAI_PROVIDER_PROMOTIO
 ### وضعیت نهایی همین الحاقیه
 
 زنجیرهٔ G13 برای `84a1cc0...` در گیت‌های پژوهش، Promotion، Parity، Runtime Safety، Package Preflight، Safety Audit و Readiness موفق است. مرحلهٔ صدور مجوز واقعی همچنان BLOCKED است؛ Demo هنوز مجاز نیست، Kill Switch باید DENY بماند، Live خاموش است و هیچ سفارشی ارسال نشده است.
+
+
+---
+
+## الحاقیهٔ جدید — 2026-10-22: نتیجهٔ fingerprint و موانع واقعی Provider
+
+این الحاقیه فقط به انتهای آرشیو افزوده شده است؛ هیچ بخش قبلی حذف یا بازنویسی نشده است.
+
+### مرجع مخزن و شواهد تازه
+
+- `main` فعلی: `84a1cc078925f77af155027a7ec8db3189867f2c`.
+- اصلاح مسیر diagnostic در commit `84a1cc0` انجام شده: اسکریپت read-only در مسیر ریشهٔ مخزن، `tools/diagnose_provider_host_deployment_v1.ps1` قرار دارد؛ قرارگرفتن آن در `C:\ProgramData\ForexAI-Provider\source\tools\` فرض نمی‌شود.
+- [G13 Demo Readiness Gate — run 39741768970](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741768970): PASS در SHA دقیق فوق.
+- [Execution Safety Audit — run 39741714527](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741714527): PASS در SHA دقیق فوق.
+- [Capital Firewall Authorization Preflight — run 39741810592](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741810592): FAILED/BLOCKED؛ این نتیجه با ورودی‌های عملیاتی غایب سازگار است، نه با مجوز معامله.
+
+### خروجی fingerprint ارائه‌شده از میزبان Provider
+
+کاربر خروجی زیر را از بررسی read-only ارائه کرد:
+
+- `PROMOTION_FILE_SHA256=94dd89a41f0edec19bc565ae50c750c82d9ed75ba3272f0cf77da24de96f67c3`
+- `PROMOTION_PROCESS_SHA256=da1ae490ea6d77b2a13bbf7911d9c654aacfbf54eaad1bc18745ce3621fd2cd8`
+- `PROMOTION_MACHINE_SHA256=da1ae490ea6d77b2a13bbf7911d9c654aacfbf54eaad1bc18745ce3621fd2cd8`
+
+Process و Machine با هم برابرند، اما fingerprint فایل با مقدارهای محیطی متفاوت است. این فقط اختلاف را اثبات می‌کند؛ به‌تنهایی تعیین نمی‌کند کدام کلید مرجع معتبر و مورد تأیید مالک Promotion Attestor است. بنابراین متغیر محیطی یا فایل نباید خودکار به دیگری کپی شود.
+
+### وضعیت میزبانی Provider که از diagnostic تأیید شده
+
+Diagnostic به‌صورت read-only اجرا شده؛ `FILE_INTEGRITY=PASS`، محتوای کلید خصوصی و عبارت عبور چاپ/خوانده نشده، درخواست امضاشده ساخته نشده، ledger تغییر نکرده، envelope ایجاد نشده و سفارشی ارسال نشده است. نتیجه همچنان `BLOCKED` است:
+
+- سرویس `ForexAIProviderSvc` ثبت نشده است.
+- پوشه‌های `in` و `out` خالی‌اند و بستهٔ منبع معتبر فعلی پیدا نشده است.
+- کلیدهای عمومی مستقل Signal، Risk، Operator Approval و Capital Firewall Grant در محیط Provider پیکربندی نشده‌اند.
+- کلید عمومی Promotion که از فایل خوانده می‌شود با مقدارهای Process/Machine سازگار نیست.
+- کلید خصوصی Promotion روی میزبان Provider حضور دارد و باید طبق مرز اعتماد/فرایند چرخشِ تأییدشده بررسی شود.
+- عبارت عبور Admission در محیط Process فعلی موجود نیست؛ این مقدار نباید در Machine/User environment ذخیره شود.
+
+### ترتیب رفع موانع — بدون ایجاد مجوز جعلی
+
+1. **مرجع Promotion:** از متولی مستقل Promotion Attestor، fingerprint کلید عمومی معتبر را از کانال مورداعتماد دریافت کن. با سه fingerprint بالا مقایسه شود؛ تا روشن‌شدن مرجع، کلید خصوصی موجود روی Provider استفاده/منتقل/حذف نشود و trust anchor فعال تغییر نکند. اگر کلید فعلی باید rotate شود، چرخش باید هماهنگ و همراه با به‌روزرسانی کنترل‌شدهٔ همهٔ مصرف‌کنندگان باشد.
+2. **چهار منبع مستقل:** مالک/میزبان واقعی Signal، Risk همراه با Reservation، Operator Approval و Grant signer باید مشخص شوند. چهار کلید متفاوت را از خود این مراجع دریافت کن؛ کلید آزمایشی یا تکراری جایگزین نیست.
+3. **بستهٔ منبع واقعی:** packet باید با attestationهای تازه و امضاشدهٔ واقعی ساخته و از مسیر کنترل‌شده تحویل شود؛ فایل نمونه یا JSON دارای PASS دستی، منبع معتبر محسوب نمی‌شود.
+4. **Provider runtime:** فقط پس از تثبیت مرزهای اعتماد، passphrase manager، حساب سرویس، ورودی/خروجی کنترل‌شده و registry بادوام ضدتکرار، استقرار سرویس بررسی شود. CLI یک‌بارمصرف Admission نباید مستقیماً به‌عنوان سرویس دائمی نصب شود.
+5. **تأیید نهایی:** دوباره Provider preflight و سپس Authorization Preflight اجرا شوند. تا زمانی که هر دو منبع معتبر و تازه را تأیید نکرده‌اند، فایل TradeLedger، authenticated envelope یا MQL5 authorization record نباید دستی/نمادین ساخته شود.
+
+**وضعیت ایمنی:** Kill Switch باید `DENY` بماند؛ `demo_trading_authorized=false`، `live_trading_allowed=false` و `orders_submitted=false`. سبز بودن G13 Readiness به معنی صدور مجوز سرمایه نیست.
