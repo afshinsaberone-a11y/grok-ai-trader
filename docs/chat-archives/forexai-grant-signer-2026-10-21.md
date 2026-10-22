@@ -1090,3 +1090,40 @@ Diagnostic به‌صورت read-only اجرا شده؛ `FILE_INTEGRITY=PASS`، �
 5. **تأیید نهایی:** دوباره Provider preflight و سپس Authorization Preflight اجرا شوند. تا زمانی که هر دو منبع معتبر و تازه را تأیید نکرده‌اند، فایل TradeLedger، authenticated envelope یا MQL5 authorization record نباید دستی/نمادین ساخته شود.
 
 **وضعیت ایمنی:** Kill Switch باید `DENY` بماند؛ `demo_trading_authorized=false`، `live_trading_allowed=false` و `orders_submitted=false`. سبز بودن G13 Readiness به معنی صدور مجوز سرمایه نیست.
+
+
+---
+
+## به‌روزرسانی افزایشی — 2026-10-22، اجرای G13 و گزارش Provider جدید
+
+این بخش به انتهای آرشیو افزوده شده و هیچ متن قبلی حذف یا بازنویسی نشده است.
+
+### شواهد تازه روی main
+
+- SHA فعلی بررسی‌شده: `d378cec2af802652e37bebdf46dd9a40fc639364`.
+- [MT5 Runtime Safety Probe — run 39734936302](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734936302): **PASS**؛ job `runtime-safety-probe` و تمام مراحل Auth/identity/no-order موفق شدند.
+- [Controlled Demo Package Preflight — run 39735091186](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735091186): **PASS**.
+- [Demo Readiness Gate — run 39735164926](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735164926): **PASS به‌عنوان گیت آمادگی**؛ این نتیجه به‌تنهایی Demo trading permission صادر نمی‌کند.
+- [Capital Firewall Authorization Preflight — run 39735202045](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045): **BLOCKED** با `AUTHENTICATED_ENVELOPE_FILE_MISSING`، `MQL5_AUTHORIZATION_RECORD_MISSING` و `TRADE_LEDGER_FILE_MISSING`. گزارش ثبت کرد که هیچ مجوزی ساخته نشد و هیچ سفارشی ارسال نشد.
+
+### نتیجهٔ گزارش Provider روی WIN-P7MA35DRF6Q
+
+فایل گزارشِ ارائه‌شده توسط اپراتور در `C:\Users\Administrator\Desktop\provider-host-diagnostic.txt` و خروجی تشخیص `DIAGNOSTIC_EXIT_CODE=2` است. در این ابزار، کد 2 یعنی تشخیص با وضعیت **BLOCKED** پایان یافته؛ به‌معنای شکست نحوی PowerShell نیست.
+
+مواردی که گزارش تأیید کرد:
+- `ForexAIProviderSvc` ثبت نشده است.
+- دایرکتوری‌های `in` و `out` خالی‌اند و بستهٔ منبع معتبر وجود ندارد.
+- کلید عمومی محیط Promotion با فایل کلید عمومی Promotion تطابق ندارد؛ کلید خصوصی Promotion نیز روی میزبان Provider دیده شده و مرز اعتماد آن حل نشده است.
+- کلیدهای اعتماد Signal، Risk، Operator Approval و Capital Firewall Grant در Process/User/Machine تنظیم نشده‌اند.
+- عبارت عبور کلید Admission در محیط Process جاری وجود ندارد.
+- `demo_trading_authorized=false`، `live_trading_allowed=false`، `orders_submitted=false` و هیچ فایل مجوز/Envelope/ledger ایجاد نشده است.
+
+### ترتیب رفع — وابسته به مرجع اعتماد واقعی
+
+1. **ابتدا مرز Promotion را حل کن:** میزبان/متولی مستقل Promotion Attestor باید مشخص شود و کلید عمومی از منبع مورداعتماد تأیید شود. کلید خصوصیِ حاضر روی Provider را به‌عنوان مرجع معتبر فرض نکن؛ trust anchor را حدسی عوض نکن و کلید قدیمی را پیش از چرخش هماهنگ و تأییدشده حذف نکن.
+2. **منابع مستقل را provision کن:** Signal، Risk+Reservation، Operator Approval و Capital Firewall Grant signer هنوز منابع تأییدشده‌ای ندارند. کلیدها باید از هر متولی واقعی و متفاوت دریافت شوند؛ تولید کلیدهای تصادفی برای سبز کردن preflight ممنوع است.
+3. **عبارت عبور Admission را فقط از secret manager مصوب، در همان فرایند سرویس تزریق کن.** آن را در Machine/User environment، GitHub، لاگ یا چت ذخیره نکن. اگر عبارت عبور عملیاتی در دسترس نیست، چرخش هماهنگ کلید لازم است؛ رمز کلید آزمایشی، جایگزین رمز کلید عملیاتی نیست.
+4. **سرویس Provider را بعد از تعیین هویت سرویس، مسیر registry بادوام و ACLهای محدود راه‌اندازی/آزمایش کن.** CLI یک‌بارمصرف Admission را مستقیماً به سرویس دائمی تبدیل نکن. packet باید از attestationهای تازه و امضاشدهٔ واقعی منابع ساخته شود.
+5. **پس از تأیید منبع‌ها،** دوباره Provider preflight و سپس Capital Firewall Authorization Preflight اجرا شوند. TradeLedger، runtime envelope یا رکورد MQL5 نباید دستی/نمادین ساخته شود؛ باید فقط از فرایند مجاز و پس از مجوز صریح یک سیگنال Demo ایجاد شوند.
+
+**وضعیت ایمنی پابرجا:** Kill Switch = `DENY`، مجوز Demo صادر نشده، Live غیرفعال و سفارش ارسال نشده است. این آرشیو فقط ثبت وضعیت است و هیچ کلید، secret، attestation، Grant یا مجوزی تولید نمی‌کند.
