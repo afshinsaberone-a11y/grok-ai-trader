@@ -698,3 +698,12 @@ PR [#299 — docs: fix Provider host diagnostic script path](https://github.com/
 در آن اجرا `authorization_record_created=false`، `ledger_mutated=false`، `order_submission_performed=false` و `live_authorization_changed=false` بود. این فایل‌ها را نباید با دادهٔ ساختگی/خالی ساخت یا با نوشتن دستی دور زد؛ باید از Control Plane واقعی، منبع مجاز و جریان اعتبارسنجی تأمین شوند. خروجی Provider-host diagnostic هنوز برای تعیین موانع محیط Provider لازم است.
  
 حالت ایمنی حفظ شد: Kill Switch `DENY`، Demo مجاز نشده، Live خاموش و هیچ سفارشی ارسال نشده است.
+
+
+### پیگیری تکمیلی — ادغام اصلاح مسیر
+
+- PR #299 با روش squash ادغام شد: [merge commit `84a1cc078925f77af155027a7ec8db3189867f2c`](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/84a1cc078925f77af155027a7ec8db3189867f2c).
+- [G13 Workflow Static Validation run 39739992614](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39739992614): PASS.
+- [Full Python tests run 39739992603](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39739992603): PASS، شامل مرحلهٔ `pytest -q`.
+- [Agent Runtime Check run 39739992586](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39739992586): PASS.
+- main اکنون روی SHA `84a1cc078925f77af155027a7ec8db3189867f2c` است. پس از merge، تست‌ها و G13 static validation جدید روی main در صف اجرا قرار گرفتند؛ اجرای MT5 تازه یا خروجی واقعی Provider-host diagnostic هنوز تأیید نشده است.
