@@ -584,3 +584,16 @@ Auth ON به معنی اجازهٔ معامله نیست: با Kill Switch رو�
 - اصلاح runtime انجام شده و با اجرای واقعی روی runner تأیید شده است؛ نیاز نیست این probe را دوباره با خاموش/روشن‌کردن Kill Switch اجرا کنیم.
 - گلوگاه باقی‌مانده دیگر کد probe نیست. ورودی‌های واقعی کنترل سرمایه هنوز روی مسیر مورد انتظار در دسترس نیستند: Admission request معتبر و امضاشده، منبع Provider معتبر، TradeLedger پایدار، authenticated envelope و رکورد Authorization معتبر. فایل خالی یا دادهٔ ساختگی برای سبزکردن gate تولید نشود.
 - تا وقتی منبع مستقل/مجاز این موارد را فراهم نکرده و Preflight روی همان main SHA موفق نشده، `Kill Switch=DENY`، Demo authorization غیرفعال و Live غیرفعال باقی بمانند. هیچ سفارش جدیدی در این بررسی ارسال نشده است.
+
+
+## پیوست دوم — تک‌مالک‌کردن Readiness و پیگیری PR #298 (۲۰۲۶-۱۰-۲۲)
+
+- علت تکرار مشخص شد: در زنجیرهٔ یکسان روی SHA \`a28b8be7777b75521ff292ea0b7bfe3c53592695\`، هم Watchdog و هم Controlled Demo Package Preflight مستقیماً Readiness را dispatch می‌کردند. در نتیجه دو Readiness اجرا و دو Capital Firewall preflight ایجاد شده بود.
+- [PR #298](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/298) اصلاح را اعمال کرد: Package Preflight تنها dispatcher باقی ماند؛ Watchdog پیش از dispatch کردن آن، baseline شناسهٔ Readinessها را ثبت می‌کند و سپس فقط اجرای تازهٔ همان SHA/branch و از نوع \`workflow_dispatch\` را resolve می‌کند.
+- اعتبارسنجی روی head \`160def4497c87bc8733badb96c53778cc80cc4ea\`:
+  - [G13 Workflow Static Validation run 39733564007](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39733564007): PASS
+  - [Python tests run 39733564084](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39733564084): PASS
+  - [Agent Runtime Check run 39733564067](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39733564067): PASS
+- PR #298 ادغام شد؛ SHA جدید main برابر \`d378cec2af802652e37bebdf46dd9a40fc639364\`. اجرای جدید Push در زمان ثبت این پیوست هنوز در صف بود: Watchdog \`39733695868\`, Static Validation \`39733695869\`, Agent Runtime \`39733695874\`, Tests \`39733695776\`. نتیجهٔ اجرای زنجیرهٔ جدید هنوز نباید PASS فرض شود.
+- رفع این باگ orchestration تکرارها را حذف می‌کند، اما موانع اعتبارسنجی سرمایه همچنان مستقل‌اند. آخرین Capital Firewall report واقعی نشان داده TradeLedger، authenticated envelope و MQL5 authorization record وجود ندارند. این‌ها بدون منبع و custodian مجاز قابل ساختن/پرکردن نیستند.
+- حفاظ‌ها بدون تغییر: Kill Switch \`DENY\`؛ Demo authorization صادر نشده؛ Live غیرفعال؛ \`orders_submitted=false\`. هیچ کلید عملیاتی، grant یا سفارش ایجاد نشده است.
