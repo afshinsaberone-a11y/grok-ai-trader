@@ -1218,3 +1218,14 @@ Diagnostic به‌صورت read-only اجرا شده؛ `FILE_INTEGRITY=PASS`، �
 5. سرویس/فرایند Provider را تا آماده‌شدن منبع‌های معتبر و طراحی اجرای مصوب نصب/فعال نکن؛ CLI یک‌مرحله‌ای را به Windows service دائمی تبدیل نکن.
 
 **ایمنی:** Kill Switch = `DENY`؛ مجوز Demo صادر نشده؛ Live غیرفعال؛ `orders_submitted=false`. موفقیت G13 فقط شواهد آمادگی و آزمون است و به‌تنهایی اختیار معامله ایجاد نمی‌کند.
+
+
+## افزودهٔ ثبت پیگیری — 2026-10-22 (ادامهٔ بررسی منابع واقعی)
+
+- نسخهٔ جاری `main` برابر `84a1cc078925f77af155027a7ec8db3189867f2c` است. اصلاح مسیر ابزار تشخیص Provider در این commit ثبت شده است: اسکریپت `diagnose_provider_host_deployment_v1.ps1` ابزار ریشهٔ مخزن است و به‌طور پیش‌فرض در `C:\\ProgramData\\ForexAI-Provider\\source\\tools` نصب نیست؛ آزمون رگرسیون این مسیر هم افزوده شده است.
+- روی همین SHA زنجیرهٔ G13 شامل Validation، Robustness، OOS، Promotion، Compile/Parity، MT5 Runtime Safety، Controlled Demo Package Preflight، Execution Safety Audit و Demo Readiness موفق گزارش شده است. این نتایج مجوز معامله ایجاد نمی‌کنند.
+- اجرای [Capital Firewall Authorization Preflight 39741810592](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741810592) همچنان `BLOCKED` است: `TRADE_LEDGER_FILE_MISSING`، `AUTHENTICATED_ENVELOPE_FILE_MISSING` و `MQL5_AUTHORIZATION_RECORD_MISSING`. هیچ Authorization Record ساخته نشده و هیچ سفارشی ارسال نشده است.
+- گزارش فقط‌خواندنی Provider روی `WIN-P7MA35DRF6Q` نیز `BLOCKED` است: سرویس `ForexAIProviderSvc` ثبت نشده، Source Packet مفقود و پوشهٔ ورودی خالی است؛ کلیدهای عمومی Signal/Risk/Operator/Grant موجود نیستند؛ Promotion file/public-key anchor mismatch دارد و کلید خصوصی Promotion روی همان Provider host دیده شده؛ passphrase در Process environment وجود ندارد.
+- جست‌وجوی فقط‌خواندنی Dropbox برای TradeLedger، authenticated runtime envelope، `current-source-packet`، Capital Firewall Grant، و منابع Signal/Risk/Operator هیچ نتیجه‌ای برنگرداند. این فقط می‌گوید در محتوای قابل‌جست‌وجوی Dropbox متصل، مدرکی پیدا نشد؛ عدم وجود منبع در تمام سامانه‌های احتمالی را اثبات نمی‌کند.
+- ترتیب ایمن ادامه: منبع/مالک مستقل و اثرانگشت تأییدشدهٔ کلیدها → چرخش هماهنگ Promotion و جداسازی custody → Packet واقعی با attestations امضاشدهٔ تازه → runtime/provider با secret-manager تزریق‌شده و registry ضدبازپخش پایدار → اتصال Ledger/envelope معتبر و ساخت مجوز کوتاه‌عمر فقط از ابزار رسمی در لحظهٔ آزمون کنترل‌شده.
+- **گیت‌های ایمنی بدون تغییر:** Kill Switch `DENY`؛ Demo unauthorized؛ Live disabled؛ `orders_submitted=false`. کلید آزمایشی، Packet ساختگی، ledger خالی یا فایل مجوز دستی جایگزین منبع مستقل نمی‌شود.
