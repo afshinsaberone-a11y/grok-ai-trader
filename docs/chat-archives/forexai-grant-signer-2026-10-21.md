@@ -716,3 +716,53 @@ PR [#299 — docs: fix Provider host diagnostic script path](https://github.com/
 - [Agent Runtime Check — run 39740139294](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139294): PASS.
 - [G13 Workflow Static Validation — run 39740139190](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139190): PASS.
 - اجرای جدید زنجیره در [OOS Watchdog run 39740139075](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740139075)، [Validation run 39740152800](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740152800) و [Robustness run 39740156155](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740156155) در آخرین بررسی هنوز `in_progress` بود. نتیجهٔ نهایی یا اجرای جدید MT5 را پیشاپیش PASS حساب نمی‌کنیم.
+
+
+---
+
+## افزودهٔ پیگیری زنده — ۲۲ اکتبر ۲۰۲۶ (append-only؛ گزارش Provider Host)
+
+این بخش به انتهای فایل اضافه شد و هیچ متن قبلی حذف یا بازنویسی نشده است. گزارش ورودی از میزبان Provider بررسی شد؛ هیچ مقدار کلید، گذرواژه، توکن، یا مسیر رجیستری تولیدی در این آرشیو ثبت نمی‌شود.
+
+### خطای مسیر PowerShell و نتیجهٔ واقعی
+- اجرای اولیه با مسیر `C:\\ProgramData\\ForexAI-Provider\\source\\tools\\diagnose_provider_host_deployment_v1.ps1` شکست خورده بود، چون آن فایل در آن مسیر نصب نشده بود.
+- فایل رسمی ردیابی‌شده در مخزن، `tools/diagnose_provider_host_deployment_v1.ps1` است؛ راهنمای فعلی می‌گوید این ابزار، ابزار ریشهٔ مخزن است و نباید فرض کرد که داخل پوشهٔ Provider نصب شده باشد.
+- گزارش بعدی موفق بود: `FILE_INTEGRITY=PASS` و فایل از پوشهٔ موقت کاربر اجرا شد. بنابراین خطای مسیر دیگر blocker اصلی نیست.
+
+### نتیجهٔ جدید Provider host
+خروجی گزارش تشخیصی، status برابر `BLOCKED` و exit code برابر `2` بود. یافته‌ها:
+- میزبان تحت دسترسی Administrator اجرا شده بود؛ سرویس `ForexAIProviderSvc` ثبت نشده است.
+- فایل‌های حیاتی برنامه وجود داشتند، اما پوشه‌های `in` و `out` خالی و بستهٔ منبع معتبر `current-source-packet.json` غایب بود.
+- کلید عمومی Admission در فایل و متغیرهای Process/Machine تطبیق داشت؛ این تنها تطبیق رشته‌ای کلید عمومی است، نه اثبات مالکیت مستقل یا سلامت سرویس.
+- کلید عمومی Promotion با متغیرهای Process و Machine تطبیق نداشت؛ کلید خصوصی Promotion نیز روی Provider host شناسایی شد و مرز اعتماد آن باید توسط مالک مجاز بررسی شود.
+- کلیدهای عمومی Signal، Risk، Operator Approval و Capital Firewall Grant در هیچ‌یک از scopeهای Process/User/Machine تنظیم نشده بودند.
+- عبارت عبور کلید امضای Admission در محیط فرایند جاری موجود نبود. گزارش، مقدار عبارت عبور را نمایش نداد.
+- رجیستری تولیدی باز یا ایجاد نشد.
+
+### زنجیرهٔ G13 روی main
+Commit فعلی بررسی‌شده: [`d378cec2af802652e37bebdf46dd9a40fc639364`](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/d378cec2af802652e37bebdf46dd9a40fc639364).
+- [OOS run 39733943328](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39733943328) — success.
+- [Final Promotion run 39734110771](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734110771) — success.
+- [Compile + Signal Parity run 39734294670](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734294670) — success.
+- [Runtime Safety Probe run 39734936302](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734936302) — success.
+- [Controlled Demo Package Preflight run 39735091186](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735091186) — success.
+- [Demo Readiness run 39735164926](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735164926) — success.
+- [Capital Firewall Authorization Preflight run 39735202045](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045) — failure فقط‌خواندنی؛ موانع گزارش‌شده عبارت بودند از `AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING` و `TRADE_LEDGER_FILE_MISSING`.
+- شکست Authorization Preflight را نباید با موفقیت Readiness اشتباه گرفت؛ readiness بستهٔ آزمایشی به‌معنای مجوز سرمایه یا مجوز ارسال سفارش نیست.
+
+### اقدامات ایمنی لازم پیش از هر اجرای دیگر
+1. متغیر Promotion را فقط برای برابرشدن با فایل کلید محلی تغییر ندهید؛ ابتدا مرجع عمومی رسمی را از مالک مستقل Promotion دریافت و اثر حضور کلید خصوصی روی Provider host را با برنامهٔ چرخش مورد تأیید مالک حل کنید.
+2. کلیدهای Signal/Risk/Operator/Grant را با کلیدهای آزمایشی یا یک کلید مشترک پر نکنید؛ مالکان/سیستم‌های واقعی و مستقل هنوز باید معرفی و تأیید شوند.
+3. گذرواژه‌ها را در متغیرهای دائمی Machine/User ثبت نکنید؛ اگر مالک مجاز کلید را تأیید کرد، تزریق باید کوتاه‌عمر و از secret manager تأییدشده به فرایند لازم باشد.
+4. سرویس Windows را با تبدیل مستقیم CLI یک‌مرحله‌ای به سرویس دائمی ایجاد نکنید؛ راهنمای مخزن صریحاً از این کار منع می‌کند.
+5. فایل‌های Ledger، Envelope یا Authorization را دستی یا با دادهٔ ساختگی نسازید. این فایل‌ها باید از مسیر Control Plane و شواهد امضاشدهٔ معتبر تولید شوند.
+
+### وضعیت ایمنی فعلی
+- `orders_submitted=false`
+- `signed_request_created=false`
+- `ledger_mutated=false`
+- `authenticated_envelope_created=false`
+- `demo_trading_authorized=false`
+- `live_trading_allowed=false`
+
+مانع‌های باقی‌مانده اکنون عمدتاً به مرجع‌های امضای مستقل، بستهٔ منبع واقعی و معتبر، مرز اعتماد کلید Promotion، و تولید مجاز/پایدار Ledger و Envelope وابسته‌اند؛ از راه اصلاح صرفِ مسیر فایل یا دورزدن Preflight برطرف نمی‌شوند.
