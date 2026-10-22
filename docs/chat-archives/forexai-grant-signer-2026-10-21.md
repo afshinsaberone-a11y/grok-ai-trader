@@ -569,3 +569,18 @@ Auth ON به معنی اجازهٔ معامله نیست: با Kill Switch رو�
 - هیچ رکورد مجوز، TradeLedger، envelope، production trust anchor، Grant یا کلید عملیاتی جدیدی توسط این پیگیری ایجاد نشده است.
 
 گام عملی بعد: برطرف‌کردن قرارداد lint جدید و تأیید CI در PR #297؛ سپس تأمین ورودی‌های واقعی/امضاشدهٔ Control Plane توسط مالکین مجاز، و اجرای مجدد Capital Firewall preflight فقط پس از در دسترس بودن همان ورودی‌ها.
+
+
+## پیوست تازه — بررسی عملیاتی ۲۰۲۶-۱۰-۲۲
+
+### شواهد روی main فعلی
+- آخرین SHA بررسی‌شدهٔ main: `a28b8be7777b75521ff292ea0b7bfe3c53592695`؛ شامل جلوگیری از dispatch تکراری Demo Readiness از طریق حذف trigger افزودهٔ `workflow_run`.
+- PR #296 برای probe ترکیبی یک‌نشستی MT5 در commit `1cdbe6d381204c573eb65479e5a800e802e5ff51` ادغام شده است.
+- [Runtime Safety Probe v2 run 39682837823](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39682837823) روی همین SHA سبز شد. دو marker واقعی Auth OFF/ON هر دو `status=PASS`، `account_identity_verified=true`، `terminal_connected=true`، `demo_account=true`، `real_account_detected=false` و `orders_submitted=false` نشان دادند. در هر دو حالت `execution_allowed=false` بود؛ در Auth ON، `authorization=true` بود اما `kill_switch_allow=false` و Kill Switch روی `DENY` باقی ماند. پس probe اتصال و هویت Demo را تأیید می‌کند، نه مجوز ارسال سفارش.
+- [Compile + Signal Parity run 39682276008](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39682276008) موفق شد؛ Readiness run [39683162757](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39683162757) با وضعیت `READY_FOR_CONTROLLED_DEMO_AUDIT` پایان یافت. گزارش Readiness صریحاً `demo_trading_allowed=false`، `live_trading_allowed=false` و `orders_submitted=false` را حفظ می‌کند.
+- [Capital Firewall Authorization Preflight run 39683213858](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39683213858) به‌درستی fail-closed متوقف شد: `AUTHENTICATED_ENVELOPE_FILE_MISSING`، `MQL5_AUTHORIZATION_RECORD_MISSING` و `TRADE_LEDGER_FILE_MISSING`. گزارش نیز `authorization_record_created=false` و `order_submission_performed=false` را تأیید کرد. آرتیفکت گزارش: [12384098859](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39683213858/artifacts/12384098859).
+
+### تصمیم اجرایی
+- اصلاح runtime انجام شده و با اجرای واقعی روی runner تأیید شده است؛ نیاز نیست این probe را دوباره با خاموش/روشن‌کردن Kill Switch اجرا کنیم.
+- گلوگاه باقی‌مانده دیگر کد probe نیست. ورودی‌های واقعی کنترل سرمایه هنوز روی مسیر مورد انتظار در دسترس نیستند: Admission request معتبر و امضاشده، منبع Provider معتبر، TradeLedger پایدار، authenticated envelope و رکورد Authorization معتبر. فایل خالی یا دادهٔ ساختگی برای سبزکردن gate تولید نشود.
+- تا وقتی منبع مستقل/مجاز این موارد را فراهم نکرده و Preflight روی همان main SHA موفق نشده، `Kill Switch=DENY`، Demo authorization غیرفعال و Live غیرفعال باقی بمانند. هیچ سفارش جدیدی در این بررسی ارسال نشده است.
