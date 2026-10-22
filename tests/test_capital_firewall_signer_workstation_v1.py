@@ -11,8 +11,14 @@ def test_workstation_bootstrap_has_fail_closed_host_guards():
     assert "#Requires -RunAsAdministrator" in source
     assert 'Get-CimInstance -ClassName Win32_OperatingSystem' in source
     assert '[int]$os.ProductType -ne 1' in source
-    assert '[int]$os.BuildNumber -lt 26200' in source
-    assert "WINDOWS_BUILD_TOO_OLD_FOR_SIGNER_HOST" in source
+    assert 'Get-ItemProperty -LiteralPath "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"' in source
+    assert '$build -eq 26100' in source
+    assert '$build -eq 26200' in source
+    assert '$build -eq 26300' in source
+    assert '$ubr -ge 9711' in source
+    assert '"24H2"' in source and '"25H2"' in source and '"26H2"' in source
+    assert '"EnterpriseS", "IoTEnterprise", "IoTEnterpriseS"' in source
+    assert "WINDOWS_RELEASE_OR_PATCH_BASELINE_UNSUPPORTED_FOR_SIGNER_HOST" in source
     assert "TPM_NOT_PRESENT_OR_READY" in source
     assert "SECURE_BOOT_DISABLED" in source
     assert "SYSTEM_VOLUME_NOT_FULLY_ENCRYPTED_AND_PROTECTED" in source
