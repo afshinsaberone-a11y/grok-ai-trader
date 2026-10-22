@@ -18,6 +18,35 @@ try {
     if ([int]$os.ProductType -ne 1) {
         Stop-Blocked "WINDOWS_CLIENT_OS_REQUIRED_SERVER_OS_FORBIDDEN"
     }
+    # Local signer-host security floor: Windows 11 25H2 build family or newer.
+    # Older Windows client builds are not accepted merely because they are not Server.
+    if ([int]$os.BuildNumber -lt 26200) {
+        Stop-Blocked "WINDOWS_BUILD_TOO_OLD_FOR_SIGNER_HOST"
+    }
+    try {
+        $tpm = Get-Tpm -ErrorAction Stop
+        if (-not $tpm.TpmPresent -or -not $tpm.TpmReady) {
+            Stop-Blocked "TPM_NOT_PRESENT_OR_READY"
+        }
+    } catch {
+        Stop-Blocked "TPM_STATUS_UNAVAILABLE"
+    }
+    try {
+        $secureBootEnabled = Confirm-SecureBootUEFI -ErrorAction Stop
+        if (-not $secureBootEnabled) {
+            Stop-Blocked "SECURE_BOOT_DISABLED"
+        }
+    } catch {
+        Stop-Blocked "SECURE_BOOT_STATUS_UNAVAILABLE"
+    }
+    try {
+        $systemVolume = Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop
+        if ($systemVolume.ProtectionStatus -ne "On" -or $systemVolume.VolumeStatus -ne "FullyEncrypted") {
+            Stop-Blocked "SYSTEM_VOLUME_NOT_FULLY_ENCRYPTED_AND_PROTECTED"
+        }
+    } catch {
+        Stop-Blocked "SYSTEM_VOLUME_ENCRYPTION_STATUS_UNAVAILABLE"
+    }
     if ($env:COMPUTERNAME -ieq "WIN-P7MA35DRF6Q") {
         Stop-Blocked "KNOWN_PROVIDER_HOST_FORBIDDEN"
     }
