@@ -799,3 +799,46 @@ Commit فعلی بررسی‌شده: [`d378cec2af802652e37bebdf46dd9a40fc639364`
 نباید با مقدار کلید حدسی، کلیدهای آزمایشی، packet ساختگی، فایل Ledger/Envelope/.auth دستی، یا ثبت مستقیم CLI تک‌مرحله‌ای به‌عنوان سرویس این موارد را «سبز» کرد. پیش‌نیاز واقعی ادامه کار، تأیید متولی کلید Promotion و مرز مالکیت آن، تعیین/راه‌اندازی مرجع‌های مستقل Signal و Risk+Reservation و Operator Approval و Grant، و دریافت packetهای واقعی امضاشده است. سپس سرویس/کانال Provider و ورودی‌های پایدار Control Plane باید در میزبان‌های صحیح provision شوند و preflight از نو اجرا شود.
 
 وضعیت محافظتی بدون تغییر باقی می‌ماند: `Kill Switch=DENY`, `demo_trading_authorized=false`, `live_trading_allowed=false`, `orders_submitted=false`.
+
+
+---
+
+## پیوست تکمیلی افزایشی — 2026-10-22 (مسیر اسکریپت و وضعیت آخرین بررسی)
+
+این پیوست به انتهای آرشیو اضافه می‌شود؛ هیچ محتوای قبلی حذف یا بازنویسی نشده است.
+
+### 1) خطای PowerShell درباره مسیر فایل
+
+خطای «The term 'C:\ProgramData\ForexAI-Provider\source\tools\diagnose_provider_host_deployment_v1.ps1' is not recognized» ناشی از مسیر اشتباه بود. فایل تشخیصی در مخزن در مسیر ریشه‌ای زیر قرار دارد و به‌طور پیش‌فرض جزو پوشهٔ نصب Provider نیست:
+
+`tools/diagnose_provider_host_deployment_v1.ps1`
+
+اجرای تشخیصی بعدی با موفقیت از فایل موقت `C:\Users\ADMINI~1\AppData\Local\Temp\3\diagnose_provider_host_deployment_v1.ps1` انجام شد: `FILE_INTEGRITY=PASS` و `read_only=true`. بنابراین خطای یافت‌نشدن فایل حل شده است؛ وضعیت Provider همچنان مسدود است.
+
+### 2) تازه‌ترین زنجیره G13 روی main
+
+SHA دقیق main: `d378cec2af802652e37bebdf46dd9a40fc639364`.
+
+- [MT5 Runtime Safety Probe — 39734936302](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734936302): PASS.
+- [Controlled Demo Package Preflight — 39735091186](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735091186): PASS.
+- [Demo Readiness Gate — 39735164926](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735164926): PASS.
+- [Capital Firewall Authorization Preflight — 39735202045](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045): BLOCKED، به دلایل زیر.
+
+در Runtime Safety، هر دو marker مربوط به Auth OFF و Auth ON گزارش کردند: هویت حساب تأییدشده، حساب Demo، اتصال ترمینال برقرار، `kill_switch_allow=false`، `execution_allowed=false` و `orders_submitted=false`. همچنین `KILL_SWITCH_UNCHANGED=true`. این فقط اعتبارسنجی runtime ایمن است؛ مجوز انجام معامله نیست.
+
+### 3) موانع واقعی باقی‌مانده
+
+گزارش Provider میزبان `WIN-P7MA35DRF6Q` وضعیت `BLOCKED` دارد:
+- سرویس `ForexAIProviderSvc` ثبت نشده؛ دایرکتوری‌های `in` و `out` خالی‌اند و authoritative source packet وجود ندارد.
+- trust anchorهای عمومی Signal، Risk، Operator Approval و Capital Firewall Grant تنظیم نشده‌اند.
+- کلید عمومی Promotion داخل فایل با مقدار پیکربندی‌شدهٔ محیط هم‌خوان نیست؛ کلید خصوصی Promotion روی میزبان Provider دیده شده و مرز نگه‌داری مستقل آن باید تأیید/اصلاح شود.
+- عبارت عبور کلید Provider در محیط فرایند فعلی نیست. این مقدار نباید در چت، GitHub، یا متغیر محیطی Machine/User دائمی ذخیره شود؛ فقط باید از secret manager مجاز به فرایند مجاز تزریق شود.
+
+Capital Firewall Authorization Preflight روی همان SHA سه ورودی واقعی را گم‌شده گزارش کرده است:
+`AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING`, `TRADE_LEDGER_FILE_MISSING`.
+
+### 4) ادامهٔ امن کار
+
+تا تعیین متولیان واقعی، مرز custody کلید Promotion، چهار منبع امضاکنندهٔ مستقل، و مسیر provisioning سرویس/packet، نباید با کلید آزمایشی یا حدسی، packet ساختگی، یا ایجاد دستی Ledger/Envelope/`.auth` گزارش را سبز کرد. هیچ‌یک از این سه سند را نباید دستی جعل کرد؛ باید از فرایندهای مجاز و متصل به منابع معتبر ساخته شوند. کلید خصوصی موجود را نیز بدون تأیید custodian و برنامهٔ انتقال/چرخش امن حذف نکن.
+
+وضعیت محافظتی پابرجاست: `Kill Switch=DENY`, `demo_trading_authorized=false`, `live_trading_allowed=false`, `orders_submitted=false`.
