@@ -1159,3 +1159,13 @@ Diagnostic به‌صورت read-only اجرا شده؛ `FILE_INTEGRITY=PASS`، �
 5. پس از موفق‌شدن زنجیرهٔ منبع و صدور معتبر Grant، پیش‌نیازهای Ledger/Envelope/رکورد MQL5 از مسیر رسمی تولید و Capital Firewall preflight دوباره بررسی شود؛ فایل‌ها دستی یا ساختگی ساخته نشوند.
 
 **حالت ایمنی:** Kill Switch = `DENY`; `demo_trading_authorized=false`; `live_trading_allowed=false`; `orders_submitted=false`. هیچ secret یا کلید خصوصی در این پیوست درج نشده است.
+
+
+## آخرین بررسی پس از اصلاح مسیر تشخیصی — 2026-10-22
+
+- نسخهٔ فعلی `main`: `84a1cc078925f77af155027a7ec8db3189867f2c` — مستند مسیر غلط تشخیص Provider اصلاح شده و تست regression اضافه شده است: [commit](https://github.com/afshinsaberone-a11y/grok-ai-trader/commit/84a1cc078925f77af155027a7ec8db3189867f2c).
+- اجرای مجدد روی همان SHA: [Validation 39740152800](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740152800)، [Robustness 39740156155](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740156155)، [OOS 39740409691](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740409691)، [Promotion 39740600848](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740600848)، [Compile + Parity 39740801148](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740801148)، [Runtime Safety 39741437695](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741437695)، [Package Preflight 39741676950](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741676950)، [Execution Safety Audit 39741714527](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741714527)، [Demo Readiness 39741768970](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741768970): همگی `success`.
+- آخرین [Capital Firewall Authorization Preflight 39741810592](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741810592) همچنان `BLOCKED` است: `AUTHENTICATED_ENVELOPE_FILE_MISSING`، `MQL5_AUTHORIZATION_RECORD_MISSING` و `TRADE_LEDGER_FILE_MISSING`. خروجی صریحاً `AUTHORIZATION_RECORD_CREATED=false` و `ORDER_SUBMISSION_PERFORMED=false) می‌گوید.
+- این اجراها ثابت می‌کنند زنجیرهٔ آزمون/آمادگی G13 موفق است، نه اینکه منبع‌های مستقل Control Plane provision شده‌اند یا Demo trading مجاز شده است. برای رفع این سه blocker باید ورودی‌های واقعی و معتبر از فرایند مصوب Control Plane تولید/متصل شوند؛ فایل جعلی یا دست‌نویس راه‌حل نیست.
+
+**وضعیت ایمنی همچنان:** Kill Switch = `DENY`؛ مجوز Demo صادر نشده؛ Live غیرفعال؛ هیچ سفارشی ارسال نشده است.
