@@ -766,3 +766,36 @@ Commit فعلی بررسی‌شده: [`d378cec2af802652e37bebdf46dd9a40fc639364`
 - `live_trading_allowed=false`
 
 مانع‌های باقی‌مانده اکنون عمدتاً به مرجع‌های امضای مستقل، بستهٔ منبع واقعی و معتبر، مرز اعتماد کلید Promotion، و تولید مجاز/پایدار Ledger و Envelope وابسته‌اند؛ از راه اصلاح صرفِ مسیر فایل یا دورزدن Preflight برطرف نمی‌شوند.
+
+---
+
+## الحاقیهٔ تکمیلی — 2026-10-22: تفکیک موفقیت Runtime از مسدودبودن مجوز سرمایه
+
+این الحاقیه به انتهای آرشیو افزوده شد؛ محتوای قبلی حفظ شده است.
+
+### اجرای واقعی MT5 روی commit فعلی
+
+در run [39734936302](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734936302)، هر دو marker واقعی در یک نشست MT5 پاس شدند:
+- `account_identity_verified=true`
+- `demo_account=true` و `real_account_detected=false`
+- `terminal_connected=true`
+- `kill_switch_allow=false`
+- در هر دو probe: `execution_allowed=false` و `orders_submitted=false`
+- `KILL_SWITCH_UNCHANGED=true`
+
+این فقط تأیید اتصال و رفتار fail-closed در probe است؛ مجوز Demo یا مجوز معامله صادر نمی‌کند.
+
+### گلوگاه نهایی
+
+اجرای [Capital Firewall Authorization Preflight 39735202045](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045) شکست مورد انتظار را ثبت کرد:
+- `AUTHENTICATED_ENVELOPE_FILE_MISSING`
+- `MQL5_AUTHORIZATION_RECORD_MISSING`
+- `TRADE_LEDGER_FILE_MISSING`
+
+گزارش Provider روی میزبان `WIN-P7MA35DRF6Q` نیز وضعیت `BLOCKED` دارد: سرویس ثبت نشده؛ ورودی/خروجی Provider خالی‌اند؛ packet معتبر موجود نیست؛ کلیدهای عمومی Signal/Risk/Operator/Grant پیکربندی نشده‌اند؛ کلید Promotion با متغیر مورد اعتماد همخوانی ندارد و کلید خصوصی Promotion روی میزبان Provider دیده شده؛ عبارت عبور کلید Admission در محیط فرایند موجود نبوده است.
+
+### تصمیم اجرایی
+
+نباید با مقدار کلید حدسی، کلیدهای آزمایشی، packet ساختگی، فایل Ledger/Envelope/.auth دستی، یا ثبت مستقیم CLI تک‌مرحله‌ای به‌عنوان سرویس این موارد را «سبز» کرد. پیش‌نیاز واقعی ادامه کار، تأیید متولی کلید Promotion و مرز مالکیت آن، تعیین/راه‌اندازی مرجع‌های مستقل Signal و Risk+Reservation و Operator Approval و Grant، و دریافت packetهای واقعی امضاشده است. سپس سرویس/کانال Provider و ورودی‌های پایدار Control Plane باید در میزبان‌های صحیح provision شوند و preflight از نو اجرا شود.
+
+وضعیت محافظتی بدون تغییر باقی می‌ماند: `Kill Switch=DENY`, `demo_trading_authorized=false`, `live_trading_allowed=false`, `orders_submitted=false`.
