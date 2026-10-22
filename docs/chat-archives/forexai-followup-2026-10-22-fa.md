@@ -125,3 +125,54 @@ PR: https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/295
 - https://learn.microsoft.com/en-us/lifecycle/products/windows-11-home-and-pro
 
 این اصلاح فقط در PR Draft است؛ هیچ تغییری به `main`، دستگاه کاربر، trust anchor یا مجوز معاملاتی اعمال نشده است.
+
+## ۸. تصحیح نتیجهٔ بررسی exact-SHA با خواندن مستقیم Actions API — ۲۲ اکتبر ۲۰۲۶
+
+**تصحیح بخش ۶:** ابزار خلاصه‌شدهٔ قبلی، فقط بخشی از اجراهای مرتبط با commit را برمی‌گرداند؛ اجرای‌های دستی `workflow_dispatch` را در آن پاسخ نشان نداده بود. بررسی مستقیم GitHub Actions API برای SHA فعلی `84a1cc078925f77af155027a7ec8db3189867f2c` نشان داد که زنجیرهٔ موردنیاز G13 واقعاً روی همان SHA کامل شده است. بنابراین ادعای بخش ۶ مبنی بر اینکه اجرای‌های exact-SHA فعلی پیدا نشدند، به‌علت محدودیت مسیر جست‌وجوی قبلی بود و با این بخش تصحیح می‌شود.
+
+تمام اجراهای زیر روی شاخهٔ `main` با همان `head_sha=84a1cc078925f77af155027a7ec8db3189867f2c`، وضعیت `completed/success` و artifactهای غیرمنقضی تأیید شدند:
+
+| Gate | Run ID | Artifact ID اصلی | SHA-256 digest |
+|---|---:|---:|---|
+| Validation M15 | 39740152800 | 12408557828 | `0f6b09a155afb21502a98418359f7fea5f4f55dcfc328cb172e8fbb087a31e17` |
+| Robustness M15 | 39740156155 | 12409335249 | `0a8fa84ac1005904dc04d4f0e9bf039c86af84ffdf239a3551830377acc83b83` |
+| OOS M15 | 39740409691 | 12408494299 | `ef18b771e1cbb7c5c67c729c88c1e483825fc07bf9908ed4cf9890d906fe55f9` |
+| Final Promotion M15 | 39740600848 | 12408863361 | `023f5a0f365f9369700a6b61b8355d0ca16e91bad34ed2912888dfc2e73b4559` |
+| MT5 Compile + Signal Parity | 39740801148 | 12409636057 | `0601031e8aed76a59963b2a43916ae34a3c47f0a432d4030e62c515b8ea1bb37` |
+| Controlled Demo Package Preflight | 39741676950 | 12408769421 | `6dbf3237b1c719869747546ed11fec1103377497d7c813e76df64188a15fdb31` |
+| Execution Safety Audit M15 | 39741714527 | 12410065943 | `5f9893ba5e8f4b9d674021f5f16825faf8c29621572cc7746b6d11c70ce191da` |
+| Demo Readiness Gate M15 | 39741768970 | 12408779604 | `209347eab30d7533f69ad6587bb3b7450170a6f67f1a6e32eb479660190fef30` |
+
+پیوند اجراها:
+- [Validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740152800)
+- [Robustness](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740156155)
+- [OOS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740409691)
+- [Promotion](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740600848)
+- [Compile + Parity](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39740801148)
+- [Runtime Safety Probe](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741437695) — success; artifact `12409860816`, SHA-256 `d0b7befb7a3f7093da22639d0e4e790003559c45832ad02d34b2c186b4323191`
+- [Controlled Demo Package Preflight](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741676950)
+- [Execution Safety Audit](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741714527)
+- [Demo Readiness Gate](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39741768970)
+
+### معنای واقعی Readiness و مانع باقی‌مانده
+
+Artifact واقعی Readiness (`12408779604`) می‌گوید:
+- `status=READY_FOR_CONTROLLED_DEMO_AUDIT`
+- `preflight.status=PASS`
+- `preflight.head_sha=84a1cc078925f77af155027a7ec8db3189867f2c`
+- `parity_passed_count=9`
+- `promotion.demo_trading_allowed=false`
+- `promotion.live_trading_allowed=false`
+- `runtime.demo_account=true`, `terminal_connected=true`, `orders_submitted=false`
+- `next_gate=CONTROLLED_DEMO_EXECUTION_AUDIT`
+
+همچنین artifact Runtime Safety نشان می‌دهد Kill Switch پیش از probe برابر `DENY` بوده است. هر دو probe، Auth OFF و Auth ON، `execution_allowed=false` و `orders_submitted=false` دارند؛ در Auth ON با وجود `authorization=true` مقدار `kill_switch_allow=false` باقی مانده است. این شواهد اتصال حساب Demo را تأیید می‌کند، نه مجوز اجرای سفارش.
+
+مرحلهٔ نهایی بعدی، Capital Firewall Authorization Preflight با run `39741810592` و artifact `12409587022`، در همان SHA جاری صریحاً `BLOCKED` شد. گزارش واقعی redacted سه مانع زیر را دارد:
+- `TRADE_LEDGER_FILE_MISSING`
+- `AUTHENTICATED_ENVELOPE_FILE_MISSING`
+- `MQL5_AUTHORIZATION_RECORD_MISSING`
+
+در همان گزارش `control_plane_secret_configured=true` و `common_files_directory_exists=true`، اما `authorization_record_created=false`، `ledger_mutated=false`، `kill_switch_changed=false` و `order_submission_performed=false` هستند. فایل مجوز مورد انتظار `ForexAI_Authorization_130002_EURUSD.auth` است. این فایل و TradeLedger/envelope باید توسط منبع معتبر Control Plane و با زنجیرهٔ مجوز واقعی تولید شوند؛ نباید دستی یا به شکل placeholder ساخته شوند.
+
+نتیجهٔ اصلاح‌شده: **زنجیرهٔ پژوهش/اعتبارسنجی/آماده‌سازی و Readiness روی SHA جاری موفق است؛ صدور مجوز سرمایه و اجازهٔ اجرای Demo هنوز موفق نیست.** مانع فعلی برای رفتن به مرحلهٔ بعد صرفاً اجرای workflow نیست؛ سه ورودی معتبر عملیاتی و منابع مستقل مجوزدهی هنوز باید تأمین شوند. Kill Switch DENY، Demo authorization false، Live false و تعداد سفارش‌های ارسالی صفر باقی می‌مانند.
