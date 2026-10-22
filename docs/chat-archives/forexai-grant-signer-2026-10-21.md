@@ -633,3 +633,16 @@ PR #298 ادغام شد: [fix(g13): make package preflight sole Readiness dispat
 تمام گیت‌های پژوهش، ایمنی، parity، runtime و readiness روی SHA جدید PASS هستند؛ مانع باقی‌مانده یک نقص اثبات/کد نیست، بلکه نبود منابع معتبر Control Plane است: authoritative TradeLedger، authenticated runtime envelope و رکورد Authorization تازه و معتبر. آن‌ها باید از منبع/custodian مجاز و با زنجیرهٔ اعتماد صحیح تامین شوند؛ ساخت فایل خالی، signature/grant دست‌ساز یا فعال‌کردن کلید staged مجاز نیست.
 
 حفاظ‌ها دست‌نخورده بمانند: Kill Switch \`DENY\`; Demo authorization صادر نشده؛ Live خاموش؛ سفارش ثبت نشده. پس از تامین واقعی این ورودی‌ها باید preflight دوباره اجرا شود؛ تا آن زمان نباید این وضعیت به عنوان اجازهٔ معامله گزارش شود.
+
+
+## پیوست چهارم — توالی مجازِ بازکردن مانع Control Plane (۲۰۲۶-۱۰-۲۲)
+
+کد فعلی مشخص می‌کند که مانع بعدی با ساخت فایل خالی رفع نمی‌شود. مسیر باید از منبع معتبر به‌ترتیب زیر طی شود:
+
+1. **Admission Provider مستقل**: workflow دستی \`.github/workflows/forexai-control-plane-producer-v1.yml\` فقط با ورودی Admission Request معتبر و امضاشده، کلید عمومی Admission معتبر، fingerprint حساب Demo مورد انتظار و مسیرهای مجزای واقعی اجرا می‌شود. این مسیر باید TradeLedger معتبر و authenticated runtime envelope را از فرایند کنترل‌شدهٔ Provider فراهم کند. صرفاً تنظیم شدن متغیرها کافی نیست.
+2. **منابع مستقل Grant**: issuer \`tools/capital_firewall_grant_issuer_v1.py\` به \`source_attestation_packet.v1\` واقعی نیاز دارد که شامل امضای مستقل Signal، Risk/Reservation و Operator Approval باشد. شناسه‌های candidate/signal/trade/authorization/reservation باید در همهٔ payloadها یکسان و زمان اعتبارها تازه باشند.
+3. **شش کلید عمومی Ed25519 متمایز**: Admission، Promotion، Signal، Risk، Operator Approval و Grant. کلیدها باید واقعاً از custodianهای مستقل تامین و در مسیرهای اعتماد تثبیت شوند؛ تکرار یک کلید برای چند نقش رد می‌شود.
+4. **Grant registry پایدار**: مسیر مطلق در \`FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH\`، parent قابل‌نوشتن و SQLite integrity-check سالم لازم است تا anti-replay قبل از انتشار grant پایدار بماند. هر نوع initialize باید فقط توسط مالک مجازِ security boundary و با تأیید صریح انجام شود؛ اجرای خودکار/حدسی انجام نشود.
+5. پس از صدور Grant واقعی و cross-link شدن زنجیره، ابزارهای امضاشده باید authenticated envelope و رکورد Authorization تازه را با expiry و trade identity منطبق بسازند. سپس Capital Firewall preflight تکرار شود؛ فقط PASS بودن آن می‌تواند به گام بعدی Controlled Demo Audit منتهی شود.
+
+در این وضعیت، متغیر \`FOREXAI_CONTROL_PLANE_HMAC_SECRET\` تنظیم‌شده گزارش شده، ولی envelope، Authorization record و TradeLedger موجود نیستند. Secret configured به معنی وجود/اعتبار این سه شیء نیست. هیچ private key، passphrase، HMAC secret یا account credential نباید در چت یا commit قرار بگیرد. تا زمان تامین واقعی منابع بالا، مجوز Demo صادر نشود و Kill Switch روی DENY بماند.
