@@ -35,7 +35,7 @@ def test_watchdog_resolves_the_single_readiness_dispatched_by_package_preflight(
         "forexai-g13-controlled-demo-package-preflight-m15.yml/dispatches"
     )
     assert baseline < preflight_dispatch
-    assert 'r.get("event")==\\"workflow_dispatch\\"' in workflow
+    assert 'r.get("event")=="workflow_dispatch"' in workflow
     assert "G13_FULL_CHAIN_READINESS_PASS" in workflow
 
     resolver_start = workflow.index("      - name: Resolve exact successful Demo Readiness Gate")
