@@ -666,3 +666,35 @@ PR #298 ادغام شد: [fix(g13): make package preflight sole Readiness dispat
 وضعیت تازه به پیگیری‌های [Issue #225](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/225#issuecomment-6334562501) و [Issue #254](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/254#issuecomment-6334563041) افزوده شد. محدودیت عملیاتی تغییر نکرده: باید منبع Admission/Provider معتبر، Ledger و Envelope واقعی، رکورد مجوز تازه، و مالکیت/نگهداری مستقل کلیدهای Signal، Risk+Reservation، Operator Approval، Promotion و Grant توسط صاحبان مجاز تأمین و راستی‌آزمایی شود. کلید staged، trust anchor یا Registry تولیدی در این بررسی فعال/بازنشانی نشده است.
 
 Safety invariantها همچنان برقرارند: Kill Switch `DENY`; Demo authorization صادر نشده؛ Live غیرفعال؛ `orders_submitted=false`.
+
+ 
+---
+ 
+## پیوست افزایشی — 2026-10-22: رفع مسیر اسکریپت Provider و وضعیت موانع
+ 
+### خطای مسیر اسکریپت تشخیصی
+کاربر هنگام اجرای دستور روی میزبان Windows، خطای `CommandNotFoundException` دریافت کرد؛ فایل در مسیر نصب‌شده وجود نداشت:
+ 
+`C:\ProgramData\ForexAI-Provider\source\tools\diagnose_provider_host_deployment_v1.ps1`
+ 
+بررسی مخزن در SHA اصلی `d378cec2af802652e37bebdf46dd9a40fc639364` نشان داد فایل واقعاً در مسیر بالادستی مخزن است:
+ 
+`tools/diagnose_provider_host_deployment_v1.ps1`
+ 
+Blob SHA-1 تأییدشده: `d89f91220a0d76f2dd0e166f01bce3dbb59fe76e`. اسکریپت فقط‌خواندنی است و مقدار کلید/رمز را چاپ نمی‌کند؛ خروجی آن مجوز معامله ایجاد نمی‌کند. دستور PowerShell ارائه‌شده در همین گفتگو، نسخه را از commit مشخص می‌گیرد، Git blob hash را بررسی می‌کند و در child PowerShell اجرا می‌کند؛ هنوز خروجی واقعی آن میزبان از کاربر دریافت نشده است.
+ 
+### اصلاح پایدار راهنما
+PR [#299 — docs: fix Provider host diagnostic script path](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/299) ساخته شد، branch `docs/fix-provider-host-diagnostic-path-20261022`، HEAD `d9874c3d743d3ba88daf5d1a78c2de6f0be521ca`. این تغییر دستور راهنما را به محل واقعی `tools/...` اصلاح می‌کند و تست جلوگیری از تکرار مسیر نادرست می‌افزاید. CI در زمان ثبت این پیوست هنوز در حال اجرا بود؛ PASS اعلام نمی‌شود تا نتیجه تکمیل شود. هیچ فایل یا سابقهٔ قبلی حذف یا بازنویسی نشده است.
+ 
+### جدیدترین شواهد کنترل سرمایه
+روی main SHA `d378cec2af802652e37bebdf46dd9a40fc639364`:
+- Runtime Safety Probe: [run 39734936302](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39734936302) — موفق.
+- Demo Readiness Gate: [run 39735164926](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735164926) — موفق به‌عنوان گیت آمادگی، نه اجازهٔ معامله.
+- Capital Firewall Authorization Preflight: [run 39735202045](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39735202045) — BLOCKED، با سه مانع واقعی:
+  - `AUTHENTICATED_ENVELOPE_FILE_MISSING`
+  - `MQL5_AUTHORIZATION_RECORD_MISSING`
+  - `TRADE_LEDGER_FILE_MISSING`
+ 
+در آن اجرا `authorization_record_created=false`، `ledger_mutated=false`، `order_submission_performed=false` و `live_authorization_changed=false` بود. این فایل‌ها را نباید با دادهٔ ساختگی/خالی ساخت یا با نوشتن دستی دور زد؛ باید از Control Plane واقعی، منبع مجاز و جریان اعتبارسنجی تأمین شوند. خروجی Provider-host diagnostic هنوز برای تعیین موانع محیط Provider لازم است.
+ 
+حالت ایمنی حفظ شد: Kill Switch `DENY`، Demo مجاز نشده، Live خاموش و هیچ سفارشی ارسال نشده است.
