@@ -17,6 +17,12 @@ from tools.capital_firewall_grant_keypair_audit_v1 import (
 PASSPHRASE = "correct-horse-battery-phrase-482"
 
 
+def _repo_root(tmp_path: Path) -> Path:
+    root = tmp_path / "repository"
+    root.mkdir(exist_ok=True)
+    return root
+
+
 def _write_pair(directory: Path, *, key: Ed25519PrivateKey | None = None) -> tuple[Path, Path, bytes]:
     directory.mkdir(parents=True, exist_ok=True)
     private_key = key or Ed25519PrivateKey.generate()
@@ -42,7 +48,7 @@ def test_audit_accepts_encrypted_matching_ed25519_pair(tmp_path: Path) -> None:
         private_path,
         public_path,
         passphrase=PASSPHRASE,
-        repository_root=tmp_path / "repository",
+        repository_root=_repo_root(tmp_path),
     )
     assert report["status"] == "PASS"
     assert report["private_key_encrypted"] is True
