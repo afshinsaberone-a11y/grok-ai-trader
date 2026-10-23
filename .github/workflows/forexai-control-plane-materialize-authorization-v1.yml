@@ -64,8 +64,8 @@ jobs:
             $resolverOutput = @(& $resolver -TerminalPath "$env:TERMINAL_PATH" -DataRoot "$env:MT5_DATA_ROOT" -SetDenyKillSwitch)
             foreach ($item in $resolverOutput) {
               $line = [string]$item
-              if ($line -match '^G13_MT5_COMMON_FILES=') {
-                Write-Output 'G13_MT5_COMMON_FILES=[RESOLVED]'
+              if ($line -match '^(G13_MT5_COMMON_FILES|FOREXAI_MT5_COMMON_FILES|APPDATA)=') {
+                Write-Output 'MT5_PROFILE_PATHS=[RESOLVED]'
               } elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') {
                 Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]'
               } elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') {
