@@ -109,8 +109,8 @@ foreach ($scope in $scopes) {
     $envRegistry = [Environment]::GetEnvironmentVariable('FOREXAI_CAPITAL_FIREWALL_GRANT_REGISTRY_PATH', $scope)
     if (-not [string]::IsNullOrWhiteSpace($envRegistry)) { $registryCandidates.Add($envRegistry) }
 }
-# Include the production-layout example documented by the issuer as well as the
-# existing ForexAI-specific root used by this laptop. All checks remain read-only.
+# Include the issuer documentation's canonical layout as well as the existing
+# ForexAI-specific root used on this laptop. Every registry connection is read-only.
 $canonicalGrantRoot = Join-Path $env:ProgramData 'CapitalFirewall'
 $candidateRoots = @($GrantRoot, $canonicalGrantRoot) | Select-Object -Unique
 foreach ($candidateRoot in $candidateRoots) {
@@ -168,20 +168,17 @@ try {
     $localServices = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '(?i)ForexAI|CapitalFirewall|Grant|Signal|Risk|Operator|Promotion|Admission' } | ForEach-Object { [PSCustomObject]@{ name = $_.Name; status = [string]$_.Status; start_type = [string]$_.StartType } })
 } catch { }
 
-# Make the two relevant filesystem layouts explicit so a path mismatch cannot
-# be mistaken for a missing key everywhere or a provisioned production layout.
+# Explicitly expose whether either known root contains the expected file layout.
+# This makes a path mismatch visible without reading any key material.
 $pathLayoutChecks = @(
     foreach ($root in $candidateRoots) {
         $candidateKeyDir = Join-Path $root 'keys'
-        $candidatePrivate = Join-Path $candidateKeyDir 'capital-firewall-grant.pem'
-        $candidatePublic = Join-Path $candidateKeyDir 'capital-firewall-grant-public.txt'
-        $candidateRegistry = Join-Path $root 'state\grant-registry.sqlite'
         [PSCustomObject]@{
             root = $root
             layout = if ($root -ceq $canonicalGrantRoot) { 'DOCUMENTED_CAPITAL_FIREWALL_LAYOUT' } else { 'REQUESTED_GRANT_ROOT' }
-            private_key_file_exists = [bool](Test-Path -LiteralPath $candidatePrivate -PathType Leaf)
-            public_key_file_exists = [bool](Test-Path -LiteralPath $candidatePublic -PathType Leaf)
-            registry_file_exists = [bool](Test-Path -LiteralPath $candidateRegistry -PathType Leaf)
+            private_key_file_exists = [bool](Test-Path -LiteralPath (Join-Path $candidateKeyDir 'capital-firewall-grant.pem') -PathType Leaf)
+            public_key_file_exists = [bool](Test-Path -LiteralPath (Join-Path $candidateKeyDir 'capital-firewall-grant-public.txt') -PathType Leaf)
+            registry_file_exists = [bool](Test-Path -LiteralPath (Join-Path $root 'state\grant-registry.sqlite') -PathType Leaf)
         }
     }
 )
