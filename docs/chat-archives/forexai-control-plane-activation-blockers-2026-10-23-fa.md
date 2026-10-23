@@ -36,7 +36,7 @@ Readiness artifact در Run `40016934331` موارد زیر را گزارش کر
 
 ## شکست مرحلهٔ مجوز سرمایه
 
-Capital Firewall Authorization Preflight، Run `40016967810`, завершился `failure` چون تشخیص فقط‌خواندنی این مانع‌ها را ثبت کرد:
+Capital Firewall Authorization Preflight، Run `40016967810`, با نتیجهٔ `failure` تمام شد چون تشخیص فقط‌خواندنی این مانع‌ها را ثبت کرد:
 
 1. `AUTHENTICATED_ENVELOPE_FILE_MISSING`
 2. `MQL5_AUTHORIZATION_RECORD_MISSING`
