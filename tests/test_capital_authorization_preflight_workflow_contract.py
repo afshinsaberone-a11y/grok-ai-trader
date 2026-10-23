@@ -24,7 +24,7 @@ def test_capital_authorization_preflight_is_manual_or_after_readiness_read_only_
     assert "CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED" in workflow
     assert "CANDIDATE_ID: ${{ inputs.candidate_id || '2' }}" in workflow
     assert "runs-on: [self-hosted, windows, mt5]" in workflow
-    assert workflow.count("shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}") == 4
+    assert workflow.count("shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}") == 5
     assert "-m tools.diagnose_capital_authorization_prerequisites_v1" in workflow
     assert "-m tools.diagnose_capital_authorization_prerequisites_v1" in workflow
     assert "Push-Location -LiteralPath $env:GITHUB_WORKSPACE" in workflow
@@ -128,3 +128,27 @@ def test_successful_readiness_dispatches_read_only_preflight_for_exact_sha():
     assert "CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED" in preflight
     assert "permissions:\n  contents: read\n  actions: read" in preflight
     assert "workflow_run:" not in preflight
+
+
+
+def test_preflight_runs_only_redacted_runner_inventory_and_deletes_raw_report():
+    workflow = (
+        ROOT / ".github" / "workflows" / "forexai-capital-firewall-authorization-preflight.yml"
+    ).read_text(encoding="utf-8")
+    inventory_step = workflow.split(
+        "- name: Read-only bounded inventory on the MT5 runner (redacted)", 1
+    )[1].split("- name: Upload redacted prerequisite report", 1)[0]
+
+    assert "if: always()" in inventory_step
+    assert "continue-on-error: true" in inventory_step
+    assert "tools\\\\diagnose_control_plane_storage_inventory_v1.ps1" in inventory_step
+    assert "Group-Object category" in inventory_step
+    assert "candidate_category_counts" in inventory_step
+    assert "local_path" not in inventory_step
+    assert "filename_candidates" in inventory_step
+    assert "Remove-Item -LiteralPath $inventoryPath -Force" in inventory_step
+    assert "CONTROL_PLANE_RUNNER_INVENTORY_STATUS=FAILED_REDACTED" in inventory_step
+    assert "order_send" not in inventory_step.lower()
+    assert "authorization_record_created" not in inventory_step.lower()
+    assert "ledger_mutated" not in inventory_step.lower()
+    assert "GITHUB_STEP_SUMMARY" in inventory_step

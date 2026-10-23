@@ -6,9 +6,11 @@ This is a bounded, local-only discovery helper for the next step recorded in Git
 
 The helper searches a short allowlist of likely ForexAI application directories plus existing parent directories of the three configured file variables. It checks filenames and filesystem metadata only; it does not parse, open, or validate candidate documents. It is **not** an authorization check.
 
+The Capital Firewall Preflight workflow now invokes this helper on the MT5 runner through a dedicated redacted wrapper. The wrapper keeps the raw report in runner temporary storage, never uploads or prints candidate filenames/full paths, emits only target existence flags, root labels/counters, candidate category counts, and safety flags, then deletes the raw report. A wrapper failure is supplemental diagnostic evidence only; it cannot make a blocked Preflight pass or create trading permission. Do not invoke the raw report-output mode directly inside public workflow steps or publish its unredacted JSON.
+
 ## Run locally on the Windows host
 
-Run from a local PowerShell session under the intended interactive Windows account. Do not run this command in a public GitHub Actions workflow: the report deliberately contains full local paths to discovered filename candidates, which should remain private.
+Run from a local PowerShell session under the intended interactive Windows account. Do not run this script directly in a public GitHub Actions workflow or expose its raw report: it contains full local paths and candidate filenames, which must remain private. The Capital Firewall Preflight uses the helper only through the documented redacted wrapper above; that wrapper filters the report to safe counters/flags and deletes the raw temporary report.
 
 From the checked-out repository root:
 
