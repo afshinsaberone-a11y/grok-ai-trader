@@ -19,7 +19,7 @@ function Get-PublicKeyInfo {
         $raw = [Convert]::FromBase64String($trimmed)
         if ($raw.Length -ne 32 -or [Convert]::ToBase64String($raw) -cne $trimmed) { return [PSCustomObject]@{ status = 'INVALID_BASE64_OR_LENGTH'; fingerprint = $null } }
         $sha = [System.Security.Cryptography.SHA256]::Create()
-        try { $fingerprint = ([BitConverter]::ToString($sha.ComputeHash($raw))).Replace('-', '').ToLowerInvariant().Substring(0, 16) }
+        try { $fingerprint = ([BitConverter]::ToString($sha.ComputeHash($raw))).Replace('-', '').ToLowerInvariant() }
         finally { $sha.Dispose() }
         return [PSCustomObject]@{ status = 'VALID_32_BYTE_ED25519_SHAPE'; fingerprint = $fingerprint }
     } catch { return [PSCustomObject]@{ status = 'INVALID_BASE64_OR_LENGTH'; fingerprint = $null } }
