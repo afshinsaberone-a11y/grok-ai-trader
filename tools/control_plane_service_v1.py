@@ -776,7 +776,6 @@ def main() -> int:
     parser.add_argument("--now-utc", default=None)
     args = parser.parse_args()
 
-    now_utc = args.now_utc or datetime.now(timezone.utc).isoformat()
     try:
         if args.admission_request.resolve() in {
             args.ledger.resolve(), args.authenticated_envelope_output.resolve()
@@ -806,6 +805,9 @@ def main() -> int:
         mt5 = gateway.mt5
         gateway._initialize()
         try:
+            # Do not age the live signal against a timestamp captured before
+            # MT5 initialization; terminal startup may take several seconds.
+            execution_now_utc = args.now_utc or datetime.now(timezone.utc).isoformat()
             report = produce_authority(
                 request,
                 ledger_path=args.ledger,
@@ -814,7 +816,7 @@ def main() -> int:
                 admission_public_key=admission_public_key,
                 expected_demo_account_fingerprint=expected_demo_account_fingerprint,
                 envelope_secret=envelope_secret,
-                now_utc=now_utc,
+                now_utc=execution_now_utc,
                 materialize_authorization_record=args.materialize_mql5_authorization_record,
             )
         finally:
