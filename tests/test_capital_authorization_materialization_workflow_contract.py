@@ -60,7 +60,10 @@ def test_failed_post_materialization_audit_cleans_only_the_unchanged_run_owned_r
     assert "MATERIALIZE_AUTH_CREATED_BY_RUN=true" in text
     assert "MATERIALIZE_AUTH_SHA256=$authHash" in text
     assert "MATERIALIZE_AUDIT_PASS=true" in text
-    assert "if: failure()" in text
+    cleanup = text.split(
+        "- name: Remove only this run's authorization record after failed post-audit", 1
+    )[1].split("- name: Upload redacted materialization report", 1)[0]
+    assert "if: always()" in cleanup  # also attempt guarded cleanup when a run is cancelled
     assert "MQL5_AUTH_FAILURE_CLEANUP_OWNERSHIP_PROOF_MISSING" in text
     assert "MQL5_AUTH_FAILURE_CLEANUP_HASH_MISMATCH_MANUAL_REVIEW_REQUIRED" in text
     assert "Remove-Item -LiteralPath $env:MATERIALIZE_AUTH_PATH -Force" in text
