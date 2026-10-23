@@ -1,8 +1,3 @@
-[CmdletBinding()]
-param(
-    [string]$ProviderRoot = 'C:\ProgramData\ForexAI-Provider'
-)
-
 # Read-only audit of the Provider service identity, issuance-registry ACLs, and
 # backup inventory. This script never opens SQLite or changes files/services/ACLs.
 $ErrorActionPreference = 'Stop'
