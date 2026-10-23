@@ -4,7 +4,7 @@ This script is an inventory, not a production acceptance gate or trading authori
 
     .\tools\diagnose_capital_firewall_laptop_v1.ps1
 
-It inventories six public trust-anchor environment variables in Process/User/Machine scopes, checks canonical base64 raw-32-byte key shape and duplicate public-key material per scope, compares the Grant public-key file against environment anchors, reports ACL rules for the private-key file/public-key file/key directory, and checks candidate Grant SQLite registries through a read-only connection.
+It inventories six public trust-anchor environment variables in Process/User/Machine scopes, checks canonical base64 raw-32-byte key shape and duplicate public-key material per scope, compares the Grant public-key file against environment anchors, reports ACL rules for the private-key file/public-key file/key directory, and checks candidate Grant SQLite registries through a read-only connection. Registry discovery checks Process/User/Machine registry-path variables plus both the requested root and the issuer documentation's canonical `C:\\ProgramData\\CapitalFirewall` layout. The report also shows whether key and registry files exist under each root so a local path-layout mismatch is visible without reading key contents.
 
 The script never prints key values or passphrases, reads private-key contents, changes ACLs/environment/files/services/registry, initializes or resets a database, issues a Grant, creates an Admission request, or submits an order. Production authorization flags are hard-coded false. Public-key fingerprints are SHA-256 hashes of public keys.
 
