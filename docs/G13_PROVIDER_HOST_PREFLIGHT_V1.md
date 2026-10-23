@@ -8,11 +8,14 @@ redacted, machine-readable report for six public trust anchors and the
 configured issuance-registry location.
 
 The diagnostic checks canonical base64 encoding of raw 32-byte Ed25519 public
-keys, ensures the configured key material is not duplicated, and performs a
-disposable SQLite create/commit/reopen/read/delete probe in the registry's
-parent directory. It does not open, create, initialize, or modify the configured
-production registry file. Temporary probe files are deleted; a cleanup failure
-is reported as a failed preflight.
+keys, ensures the configured key material is not duplicated, checks that the
+configured Provider issuance-registry target is an existing non-symlink file,
+and performs a disposable SQLite create/commit/reopen/read/delete probe in the
+registry's parent directory. It never opens or modifies the configured
+production registry file and does not validate its schema or integrity.
+Temporary probe files are deleted; a cleanup failure is reported as a failed
+preflight. The issuer separately requires a pre-initialized, versioned schema
+and refuses to create or migrate the registry during admission issuance.
 
 ## Run
 
@@ -26,6 +29,45 @@ C:\ProgramData\ForexAI-Provider\venv\Scripts\python.exe C:\ProgramData\ForexAI-P
 Exit code 0 means the *host configuration shape* passed. Exit code 2 means the
 preflight is blocked. The JSON report never prints key values, private key
 material, or the registry path.
+
+## Provider issuance registry (one-time provisioning)
+
+The variable `FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH` identifies the Admission
+Provider's durable anti-replay registry. It is **not** the separate Capital
+Firewall Grant registry.
+
+Do not create this file with `New-Item`, `sqlite3`, an ad-hoc Python snippet,
+or a placeholder database. First approve and record the absolute target path,
+intended runtime identity, parent-directory ACLs, persistence/backup policy,
+and recovery owner. The parent directory must already exist and be protected.
+Then run the initializer exactly once under the approved Provider runtime
+identity (or the approved provisioning identity with explicit write access):
+
+```powershell
+python C:\ProgramData\ForexAI-Provider\source\tools\control_plane_admission_provider_v1.py --initialize-registry --confirmation INITIALIZE_FOREXAI_PROVIDER_ISSUANCE_REGISTRY
+```
+
+The configured environment variable must resolve to the previously approved
+absolute path. Initialization refuses a relative path, a repository-local
+path, a target symlink, a missing parent, an existing target, or a missing/
+incorrect confirmation. It never overwrites or resets an existing registry.
+The output must say `REGISTRY_INITIALIZED` and also keeps
+`signed_request_created=false`, `demo_trading_authorized=false`, and
+`live_trading_allowed=false`. Initialization creates no grant, source packet,
+ledger record, authenticated envelope, or order.
+
+Run the host preflight again after initialization. The preflight checks target
+file presence without opening it; it intentionally does not prove the schema is
+valid. On a subsequent genuine issuance, the Provider opens the existing file
+without create mode, verifies the schema version and required unique indexes,
+then commits replay-prevention claims. Missing or incompatible registry state
+blocks issuance; no implicit schema migration is performed.
+
+**Do not run this initializer on the current Provider host yet** while the
+service identity, Promotion key custody/mismatch, missing Signal/Risk/Operator/
+Grant anchors, and source-evidence path remain unresolved. This section
+documents the reviewed provisioning contract; it does not approve an immediate
+production initialization.
 
 ## Non-authorization guarantee
 
