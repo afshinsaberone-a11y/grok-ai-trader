@@ -416,6 +416,29 @@ def test_registry_initialization_requires_confirmation_and_never_overwrites(tmp_
         )
 
 
+def test_registry_refuses_unknown_schema_without_migrating_it(tmp_path: Path):
+    registry = tmp_path / "issued.sqlite3"
+    with sqlite3.connect(registry) as db:
+        db.execute("CREATE TABLE legacy_state (value TEXT)")
+        db.commit()
+    request = _build()
+
+    with pytest.raises(
+        AdmissionProviderError,
+        match="PROVIDER_ISSUANCE_REGISTRY_SCHEMA_INVALID",
+    ):
+        record_issuance(request, registry, PROVIDER_PRIVATE_KEY.public_key())
+
+    with sqlite3.connect(registry) as db:
+        tables = {
+            row[0]
+            for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    assert tables == {"legacy_state"}
+
+
 def test_registry_rejects_tampered_request_without_recording_it(tmp_path: Path):
     registry = tmp_path / "provider-state" / "issued.sqlite3"
     _initialize_registry_for_test(registry)
