@@ -610,7 +610,8 @@ def _resolve_registry_path(registry_path: str | Path, *, require_existing: bool)
     """Resolve an approved absolute registry path without creating it."""
     if not isinstance(registry_path, (str, Path)) or not str(registry_path).strip():
         raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_NOT_CONFIGURED")
-    raw_path = Path(registry_path).expanduser()
+    expanded_path = os.path.expandvars(str(registry_path).strip())
+    raw_path = Path(expanded_path).expanduser()
     if not raw_path.is_absolute():
         raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_PATH_NOT_ABSOLUTE")
     if raw_path.is_symlink():
