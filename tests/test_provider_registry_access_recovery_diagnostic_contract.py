@@ -26,7 +26,7 @@ def test_registry_recovery_diagnostic_checks_identity_acl_and_backup_inventory()
         "UNRESOLVED_ACL_PRINCIPAL_MISMATCH",
         "PROVIDER_SERVICE_IDENTITY_ACL_PRINCIPAL_MISMATCH_REVIEW",
         "PROVIDER_MULTIPLE_SERVICE_NAMED_ACL_PRINCIPALS_REVIEW",
-        'NT SERVICE\ForexAIProviderSvc',
+        r'NT SERVICE\ForexAIProviderSvc',
         '$localServicePrincipal = "$env:COMPUTERNAME\ForexAIProviderSvc"',
         "effective_access_calculated = $false",
         "EFFECTIVE_ACCESS_TEST_UNDER_PROVIDER_IDENTITY_REQUIRED",
