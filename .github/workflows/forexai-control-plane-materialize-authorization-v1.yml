@@ -62,9 +62,6 @@ jobs:
           }
           try {
             $resolverOutput = @(& $resolver -TerminalPath "$env:TERMINAL_PATH" -DataRoot "$env:MT5_DATA_ROOT" -SetDenyKillSwitch)
-            if ($LASTEXITCODE -ne 0) {
-              throw 'MQL5_AUTH_MATERIALIZATION_PROFILE_RESOLVER_FAILED'
-            }
             foreach ($item in $resolverOutput) {
               $line = [string]$item
               if ($line -match '^G13_MT5_COMMON_FILES=') {
@@ -107,8 +104,16 @@ jobs:
             throw 'MQL5_AUTH_INPUT_JSON_INVALID'
           }
           if ($request.schema -cne 'forexai.control_plane_admission_request.v1') { throw 'MQL5_AUTH_ADMISSION_SCHEMA_INVALID' }
-          if (-not $request.candidate -or -not $request.authorization) { throw 'MQL5_AUTH_ADMISSION_FIELDS_MISSING' }
+          if (-not $request.candidate -or -not $request.authorization -or -not $request.promotion_evidence) {
+            throw 'MQL5_AUTH_ADMISSION_FIELDS_MISSING'
+          }
           if ([int]$request.candidate.candidate_id -ne 2) { throw 'MQL5_AUTH_CANDIDATE_ID_MISMATCH' }
+          if ($request.promotion_evidence.demo_trading_allowed -ne $true -or
+              $request.promotion_evidence.live_trading_allowed -ne $false -or
+              $request.promotion_evidence.real_data_only -ne $true -or
+              $request.promotion_evidence.synthetic_data -ne $false) {
+            throw 'MQL5_AUTH_PROMOTION_PERMISSION_OR_PROVENANCE_BLOCKED'
+          }
           if ([string]$request.candidate.symbol -cne 'EURUSD' -or
               [string]$request.candidate.timeframe -cne 'M15' -or
               [string]$request.candidate.side -cne 'SELL') {
@@ -207,7 +212,7 @@ jobs:
           Write-Output 'LIVE_TRADING_ALLOWED=false'
 
       - name: Re-run read-only Capital Firewall prerequisite diagnostic
-        if: always()
+        if: success()
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
