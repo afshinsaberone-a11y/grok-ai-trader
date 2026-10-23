@@ -2,6 +2,12 @@
 
 **Status: operator-assisted preparation only. No cloud VM is provisioned and no signing capability is activated. A conditional no-new-VPS route for an independent Windows client workstation is documented in [the workstation runbook](../../docs/CAPITAL_FIREWALL_GRANT_SIGNER_WORKSTATION_V1.md).**
 
+## Selected Route C: dedicate the HP ProBook 650 G2 as a Linux workstation
+
+The current decision is **do not cancel the project; reuse the existing physical laptop**, but not under the currently reported Windows 10 version 1703 installation. Follow [the dedicated Linux workstation runbook](../../docs/CAPITAL_FIREWALL_GRANT_SIGNER_LINUX_WORKSTATION_V1.md) before any key generation. The path requires a verified backup and clean Ubuntu 24.04 LTS install with LUKS passphrase full-disk encryption, Secure Boot where supported and verified, current security updates, no MT5 or Actions Runner, and reviewed independent custody/role assignments.
+
+This does not provision the machine or prove independence. The runbook's exact guardrails remain in force. If Secure Boot or disk encryption cannot be verified, or a genuinely separate review/custody boundary cannot be established, the laptop must not be accepted as the production Grant signer; do not weaken the bootstrap or activate a key. Do not import the previously tested Windows candidate keypair.
+
 ## Route A: use an existing independent Windows client workstation
 
 Review [bootstrap-windows-workstation-v1.ps1](bootstrap-windows-workstation-v1.ps1) and [the workstation runbook](../../docs/CAPITAL_FIREWALL_GRANT_SIGNER_WORKSTATION_V1.md) first. It is permitted only on a separate supported Windows client workstation that passes the dated release-and-patch matrix in the workstation runbook (as of 2026-10-22: 24H2 only for supported Enterprise/Education/LTSC editions, or 25H2/26H2; at least UBR 9711), with TPM ready, UEFI Secure Boot enabled, and a fully encrypted/protected BitLocker system volume. It must have no self-hosted Actions Runner service or active MT5 terminal, and the host administrator and Grant key custodian must be independent from the Provider/Runner trust boundary. It is not a fully air-gapped signer: the current issuer requires outbound read-only GitHub API checks. The bootstrap creates only a non-admin runtime account and empty protected directories.
