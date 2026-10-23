@@ -268,6 +268,58 @@ jobs:
             throw "CAPITAL_AUTH_PREFLIGHT_NOT_READY:$reason"
           }
 
+      - name: Read-only bounded inventory on the MT5 runner (redacted)
+        if: always()
+        continue-on-error: true
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $inventoryPath = Join-Path $env:RUNNER_TEMP (
+            'forexai-control-plane-runner-inventory-' + [Guid]::NewGuid().ToString('N') + '.json'
+          )
+          try {
+            $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tools\\diagnose_control_plane_storage_inventory_v1.ps1'
+            # Keep all script output, including its private report path, out of CI logs.
+            & $scriptPath -OutputPath $inventoryPath *> $null
+            if (-not (Test-Path -LiteralPath $inventoryPath -PathType Leaf)) {
+              throw 'INVENTORY_REPORT_NOT_CREATED'
+            }
+            $inventory = Get-Content -LiteralPath $inventoryPath -Raw | ConvertFrom-Json
+            $candidateCounts = @(
+              $inventory.filename_candidates |
+                Group-Object category |
+                ForEach-Object {
+                  [ordered]@{ category = [string]$_.Name; count = [int]$_.Count }
+                }
+            )
+            $safe = [ordered]@{
+              status = [string]$inventory.status
+              summary = $inventory.summary
+              configured_targets = @(
+                $inventory.configured_targets |
+                  Select-Object variable, process_configured, user_configured, machine_configured,
+                    process_target_file_exists, user_target_file_exists, machine_target_file_exists
+              )
+              scanned_roots = @(
+                $inventory.scanned_roots |
+                  Select-Object root_label, root_exists, directories_visited, files_examined, scan_errors
+              )
+              candidate_category_counts = $candidateCounts
+              safety = $inventory.safety
+            }
+            $safeJson = $safe | ConvertTo-Json -Depth 8
+            Write-Output 'CONTROL_PLANE_RUNNER_INVENTORY_SUMMARY_BEGIN'
+            Write-Output $safeJson
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '### Read-only Control Plane runner inventory (redacted)'
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ('```json' + "`n" + $safeJson + "`n" + '```')
+          } catch {
+            # Never print exception text; it can include local paths or filenames.
+            Write-Output 'CONTROL_PLANE_RUNNER_INVENTORY_STATUS=FAILED_REDACTED'
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value 'Control Plane runner inventory: FAILED (details suppressed to protect local paths).'
+          } finally {
+            Remove-Item -LiteralPath $inventoryPath -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Upload redacted prerequisite report
         if: always()
         uses: actions/upload-artifact@v4
