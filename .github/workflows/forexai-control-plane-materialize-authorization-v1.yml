@@ -262,7 +262,7 @@ jobs:
           Write-Output 'CAPITAL_AUTH_PREFLIGHT=PASS_PREREQUISITES_PRESENT_NO_EXECUTION'
           "MATERIALIZE_AUDIT_PASS=true" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Remove only this run's authorization record after failed post-audit
+      - name: Remove only this run's authorization record after incomplete post-audit
         if: always()
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
