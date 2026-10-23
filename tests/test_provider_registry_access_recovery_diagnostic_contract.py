@@ -22,12 +22,12 @@ def test_registry_recovery_diagnostic_checks_identity_acl_and_backup_inventory()
         "Get-LocalServiceAccountSummary",
         "registry_parent_expected_identity_acl",
         "registry_parent_similar_named_local_account_acl",
-        "identity_decision_required",
+        "decision_required",
         "UNRESOLVED_ACL_PRINCIPAL_MISMATCH",
         "PROVIDER_SERVICE_IDENTITY_ACL_PRINCIPAL_MISMATCH_REVIEW",
         "PROVIDER_MULTIPLE_SERVICE_NAMED_ACL_PRINCIPALS_REVIEW",
         r'NT SERVICE\ForexAIProviderSvc',
-        '$localServicePrincipal = "$env:COMPUTERNAME\ForexAIProviderSvc"',
+        r'$localServicePrincipal = "$env:COMPUTERNAME\ForexAIProviderSvc"',
         "effective_access_calculated = $false",
         "EFFECTIVE_ACCESS_TEST_UNDER_PROVIDER_IDENTITY_REQUIRED",
         "REGISTRY_BACKUP_RESTORE_REHEARSAL_AND_REPLAY_RECONCILIATION_REQUIRED",
@@ -86,7 +86,7 @@ def test_local_service_named_account_is_not_treated_as_virtual_service_identity(
     assert r'$localServicePrincipal = "$env:COMPUTERNAME\ForexAIProviderSvc"' in script
     assert "Win32_UserAccount" in script
     assert "PROVIDER_SERVICE_IDENTITY_ACL_PRINCIPAL_MISMATCH_REVIEW" in script
-    assert "identity_decision_required = [bool]$identityDecisionRequired" in script
+    assert "decision_required = [bool]$identityDecisionRequired" in script
     assert "effective_access_calculated = $false" in script
     assert "Set-Acl" not in script
     assert "SetEnvironmentVariable(" not in script
