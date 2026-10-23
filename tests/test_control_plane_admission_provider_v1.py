@@ -5,6 +5,7 @@ import base64
 import copy
 import hashlib
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from tools.control_plane_admission_provider_v1 import (
     build_admission_request,
     canonical_json,
     load_packet,
+    initialize_issuance_registry,
     record_issuance,
     verify_provider_key_matches,
     write_request_new,
@@ -367,19 +369,70 @@ def _with_new_signal(request: dict, signal_id: str, *, request_id: str) -> dict:
     return changed
 
 
-def test_registry_rejects_tampered_request_before_creating_its_database(tmp_path: Path):
+
+def _initialize_registry_for_test(registry: Path) -> None:
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    initialize_issuance_registry(
+        registry,
+        "INITIALIZE_FOREXAI_PROVIDER_ISSUANCE_REGISTRY",
+    )
+
+
+def test_registry_missing_file_fails_closed_without_creating_path(tmp_path: Path):
     registry = tmp_path / "provider-state" / "issued.sqlite3"
+    registry.parent.mkdir()
+    request = _build()
+
+    with pytest.raises(AdmissionProviderError, match="PROVIDER_ISSUANCE_REGISTRY_NOT_INITIALIZED"):
+        record_issuance(request, registry, PROVIDER_PRIVATE_KEY.public_key())
+
+    assert not registry.exists()
+
+
+def test_registry_initialization_requires_confirmation_and_never_overwrites(tmp_path: Path):
+    registry = tmp_path / "provider-state" / "issued.sqlite3"
+    registry.parent.mkdir()
+
+    with pytest.raises(
+        AdmissionProviderError,
+        match="PROVIDER_REGISTRY_INITIALIZATION_CONFIRMATION_REQUIRED",
+    ):
+        initialize_issuance_registry(registry, "wrong-confirmation")
+    assert not registry.exists()
+
+    initialize_issuance_registry(
+        registry,
+        "INITIALIZE_FOREXAI_PROVIDER_ISSUANCE_REGISTRY",
+    )
+    assert registry.is_file()
+
+    with pytest.raises(
+        AdmissionProviderError,
+        match="PROVIDER_ISSUANCE_REGISTRY_ALREADY_EXISTS",
+    ):
+        initialize_issuance_registry(
+            registry,
+            "INITIALIZE_FOREXAI_PROVIDER_ISSUANCE_REGISTRY",
+        )
+
+
+def test_registry_rejects_tampered_request_without_recording_it(tmp_path: Path):
+    registry = tmp_path / "provider-state" / "issued.sqlite3"
+    _initialize_registry_for_test(registry)
     tampered = _build()
     tampered["authorization"]["reservation_id"] = "reservation-tampered"
     with pytest.raises(
         AdmissionProviderError, match="PROVIDER_REGISTRY_ADMISSION_SIGNATURE_INVALID"
     ):
         record_issuance(tampered, registry, PROVIDER_PRIVATE_KEY.public_key())
-    assert not registry.exists()
+    assert registry.is_file()
+    with sqlite3.connect(registry) as db:
+        assert db.execute("SELECT COUNT(*) FROM issued_admissions").fetchone() == (0,)
 
 
 def test_registry_rejects_replay_even_when_request_id_and_output_path_change(tmp_path: Path):
     registry = tmp_path / "provider-state" / "issued.sqlite3"
+    _initialize_registry_for_test(registry)
     first = _build()
     record_issuance(first, registry, PROVIDER_PRIVATE_KEY.public_key())
 
@@ -400,6 +453,7 @@ def test_registry_prevents_reusing_reservation_or_authorization_for_new_signal(
     tmp_path: Path, duplicate_field: str
 ):
     registry = tmp_path / f"{duplicate_field}.sqlite3"
+    _initialize_registry_for_test(registry)
     first = _build()
     record_issuance(first, registry, PROVIDER_PRIVATE_KEY.public_key())
 
@@ -427,6 +481,7 @@ def test_registry_prevents_reusing_reservation_or_authorization_for_new_signal(
 
 def test_registry_record_is_not_released_after_output_failure(tmp_path: Path):
     registry = tmp_path / "provider-state" / "issued.sqlite3"
+    _initialize_registry_for_test(registry)
     request = _build()
     record_issuance(request, registry, PROVIDER_PRIVATE_KEY.public_key())
 
@@ -470,6 +525,7 @@ def test_capital_firewall_grant_must_match_the_risk_reservation():
 
 def test_grant_id_is_one_shot_even_if_signal_and_request_ids_change(tmp_path: Path):
     registry = tmp_path / "provider-state" / "issued.sqlite3"
+    _initialize_registry_for_test(registry)
     first = _build()
     record_issuance(first, registry, PROVIDER_PRIVATE_KEY.public_key())
 
