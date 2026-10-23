@@ -92,6 +92,19 @@ function Get-EnvironmentPresence {
     return [PSCustomObject]$result
 }
 
+function Get-PublicKeyFingerprint {
+    param([AllowNull()][string]$Value)
+    $canonical = Get-CanonicalPublicKey -Value $Value
+    if ($null -eq $canonical) { return $null }
+    try {
+        $raw = [Convert]::FromBase64String($canonical)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($sha.ComputeHash($raw))).Replace('-', '').ToLowerInvariant() }
+        finally { $sha.Dispose() }
+    }
+    catch { return $null }
+}
+
 function Get-PublicKeyConsistency {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -112,11 +125,14 @@ function Get-PublicKeyConsistency {
     if ($fileStatus -eq 'EXISTS_FILE') {
         $fileStatus = if ($null -eq $fileKey) { 'INVALID_FORMAT' } else { 'VALID_32_BYTE_KEY' }
     }
+    $fileFingerprint = if ($null -ne $fileKey) { Get-PublicKeyFingerprint -Value $fileKey } else { $null }
 
     $scopeChecks = [ordered]@{}
+    $scopeFingerprints = [ordered]@{}
     foreach ($scope in $scopes) {
         $envValue = [Environment]::GetEnvironmentVariable($EnvironmentName, $scope)
         $envKey = Get-CanonicalPublicKey -Value $envValue
+        $scopeFingerprints[$scope] = if ($null -ne $envKey) { Get-PublicKeyFingerprint -Value $envKey } else { $null }
         if ([string]::IsNullOrWhiteSpace($envValue)) {
             $scopeStatus = 'NOT_CONFIGURED'
         }
@@ -139,7 +155,9 @@ function Get-PublicKeyConsistency {
         role = $Name
         public_file_name = [System.IO.Path]::GetFileName($FilePath)
         public_file_status = $fileStatus
+        public_file_fingerprint_sha256 = $fileFingerprint
         environment_variable_name = $EnvironmentName
+        environment_fingerprint_sha256_by_scope = [PSCustomObject]$scopeFingerprints
         match_status_by_scope = [PSCustomObject]$scopeChecks
     }
 }
@@ -185,6 +203,12 @@ $publicKeyChecks = @(
     Get-PublicKeyConsistency -Name 'Promotion Attestor' -FilePath (Join-Path $keysDirectory 'promotion-attestor-public-key.txt') -EnvironmentName 'FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY'
 )
 
+# This historical public-key file is a comparison candidate only. It is not
+# implicitly trusted, activated, or allowed to satisfy the active anchor gate.
+$publicKeyCandidateChecks = @(
+    Get-PublicKeyConsistency -Name 'Admission rotation 2026-10-20 (comparison only)' -FilePath (Join-Path $keysDirectory 'admission-provider-public-key.rotation-20261020.txt') -EnvironmentName 'FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY'
+)
+
 $privateKeyHeaders = [ordered]@{
     admission = Get-PemHeaderType -Path (Join-Path $keysDirectory 'admission-provider-ed25519.pem')
     promotion_attestor = Get-PemHeaderType -Path (Join-Path $keysDirectory 'promotion-attestor-ed25519.pem')
@@ -225,6 +249,18 @@ if (-not [string]::IsNullOrWhiteSpace($registryPath)) {
         $registryParentStatus = if ((Get-PathStatus -Path $registryParent) -eq 'EXISTS_DIRECTORY') { 'EXISTS_DIRECTORY' } else { 'MISSING_OR_INACCESSIBLE' }
     }
     catch { $registryParentStatus = 'INVALID_PATH' }
+}
+
+# Check only target-file presence by scope. Never open or mutate the configured
+# production registry; path values are deliberately omitted from the report.
+$registryFileStatusByScope = [ordered]@{}
+foreach ($scope in $scopes) {
+    $scopeRegistryPath = [Environment]::GetEnvironmentVariable('FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH', $scope)
+    if ([string]::IsNullOrWhiteSpace($scopeRegistryPath)) {
+        $registryFileStatusByScope[$scope] = 'NOT_CONFIGURED'
+    } else {
+        $registryFileStatusByScope[$scope] = Get-PathStatus -Path $scopeRegistryPath
+    }
 }
 
 $blockers = [System.Collections.Generic.List[string]]::new()
@@ -279,12 +315,15 @@ $report = [PSCustomObject]@{
     directory_inventory = [PSCustomObject]$inventory
     source_packet_status = $sourcePacketStatus
     public_key_checks = $publicKeyChecks
+    public_key_candidate_checks = $publicKeyCandidateChecks
+    public_key_fingerprints_are_sha256_of_raw_public_key = $true
     private_key_headers = [PSCustomObject]$privateKeyHeaders
     public_environment_presence = [PSCustomObject]$environmentPresence
     passphrase_environment_presence = [PSCustomObject]$passphrasePresence
     registry = [PSCustomObject]@{
         environment_presence = $registryPresence
         parent_status = $registryParentStatus
+        file_status_by_scope = [PSCustomObject]$registryFileStatusByScope
         path_printed = $false
         production_registry_opened = $false
     }
