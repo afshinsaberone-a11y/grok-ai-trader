@@ -27,8 +27,11 @@ C:\ProgramData\ForexAI-Provider\venv\Scripts\python.exe C:\ProgramData\ForexAI-P
 ```
 
 Exit code 0 means the *host configuration shape* passed. Exit code 2 means the
-preflight is blocked. The JSON report never prints key values, private key
-material, or the registry path.
+preflight is blocked. If the parent-directory SQLite probe passes but the
+configured target file is missing, the report remains `BLOCKED` with
+`registry_check.status=REGISTRY_FILE_NOT_FOUND`; a successful parent probe
+does not establish that the durable registry exists. The JSON report never
+prints key values, private key material, or the registry path.
 
 ## Provider issuance registry (one-time provisioning)
 
