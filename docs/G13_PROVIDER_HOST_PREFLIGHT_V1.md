@@ -17,6 +17,60 @@ Temporary probe files are deleted; a cleanup failure is reported as a failed
 preflight. The issuer separately requires a pre-initialized, versioned schema
 and refuses to create or migrate the registry during admission issuance.
 
+## Promotion trust anchor and Provider execution identity (required before deployment)
+
+### Promotion key: authority is currently unresolved
+
+The read-only host report of 2026-10-23 records two different SHA-256 fingerprints:
+- promotion public-key file: `94dd89a41f0edec19bc565ae50c750c82d9ed75ba3272f0cf77da24de96f67c3`
+- active Process/Machine environment anchor: `da1ae490ea6d77b2a13bbf7911d9c654aacfbf54eaad1bc18745ce3621fd2cd8`
+
+Neither fingerprint is recorded as the approved authority. Do not select one just to clear the mismatch. The host also reported a Promotion private-key file on the Provider host, which is inconsistent with the intended separately administered attestor boundary.
+
+Before changing the active anchor:
+1. Name the accountable Promotion Attestor owner and identify the separately administered host or secret-manager boundary where its private key is controlled.
+2. Have that owner provide the raw Ed25519 public key and its SHA-256 fingerprint through an independently authenticated channel. Confirm the fingerprint out of band with the authorized owner; do not use the Provider's current environment value or local file as its own source of truth.
+3. Have the independent attestor verify the exact current G13 workflow runs, artifacts, promoted candidate IDs and frozen configuration hashes, and perform proof-of-possession tests: a valid attestation verifies with the approved public key, while a tampered attestation and a signature from a different test key are rejected.
+4. Approve and record a coordinated trust-anchor cutover and rollback plan before changing the Provider Process/Machine value or the file. Keep private material off the Provider host. Do not copy, delete, or activate the existing local Promotion private key without the designated key owner and a documented custody/rotation decision.
+
+A matching public-key fingerprint proves only equality of bytes, not who controls the corresponding private key or whether the key is authorized.
+
+### Intended Provider service identity
+
+The proposed least-privilege Windows service identity is `NT SERVICE\ForexAIProviderSvc` (a dedicated virtual service account), not LocalSystem, an administrator account, the interactive user, or the MT5 Runner account. This is a target policy, not a statement that the service exists: the current host inventory reports the service as unregistered.
+
+The tracked repository does not currently provide a dedicated persistent service wrapper for the one-shot `tools/control_plane_admission_provider_v1.py` CLI. **Do not register that CLI directly as a Windows service.** Before service installation, approve or implement a service entry point with bounded polling, single-instance protection, clear stop/restart semantics, input validation, and sanitized operational logs. Then confirm the actual Windows service `StartName` equals `NT SERVICE\ForexAIProviderSvc`.
+
+Minimum intended permissions, to be validated from the service's effective token rather than inferred from ACL text alone:
+- read/execute the pinned Provider code and its virtual environment;
+- read only the approved public trust-anchor files and encrypted Admission signing key;
+- no access to Promotion Attestor private-key material;
+- write only to the approved inbound/outbound folders and dedicated persistent Provider state/registry directory;
+- no interactive login and no access to MT5 terminal credentials or broker execution folders unless a separate reviewed contract requires it.
+
+Do not put passphrases in persistent User/Machine environment variables. Inject them into the specific process from the approved secret manager only after the key owner, service identity, and retrieval permissions are approved.
+
+### Registry access and recovery diagnostic
+
+The 2026-10-23 inventory found no candidate registry files in the bounded search locations; the configured Provider target itself was absent. Do not infer or print the configured path into tickets/chat, and do not create a placeholder database. The Provider issuance registry is durable anti-replay state and is not the separate Capital Firewall Grant registry.
+
+From a trusted repository checkout on the Provider host, run the read-only diagnostic first in an elevated inventory shell and again after the service is provisioned under its intended runtime identity:
+
+```powershell
+$diagnostic = Join-Path (Get-Location).Path 'tools\diagnose_provider_registry_access_recovery_v1.ps1'
+if (-not (Test-Path -LiteralPath $diagnostic -PathType Leaf)) {
+    throw 'DIAGNOSTIC_SCRIPT_NOT_FOUND: run from the repository checkout root.'
+}
+& $diagnostic
+$LASTEXITCODE
+```
+
+It does not print the target paths, open either SQLite database, read private keys, modify ACLs, install/start services, or create/delete files. It reports ACL entries and a bounded backup-file inventory only. An ACL snapshot is not an effective-access calculation: a controlled read/write test under the actual service identity and a documented backup restore rehearsal are mandatory. Because this is anti-replay state, recovery must reconcile every previously issued request/grant against the durable issuance/audit evidence; never restore a stale backup or reset the registry merely to bypass a duplicate claim.
+
+The diagnostic expects the infrastructure owner to approve a separate absolute backup-directory path represented by `FOREXAI_PROVIDER_ISSUANCE_REGISTRY_BACKUP_DIR`. Do not set this variable to an arbitrary or guessed directory. Confirm backup ownership, restrictive ACLs, retention, monitoring, and restore responsibility before configuring it.
+
+**Do not initialize the Provider registry or install the service yet.** First resolve the Promotion anchor/custody mismatch, approve the service entry point and runtime identity, agree on the registry and backup path/owners, and provision the independent Signal, Risk/reservation, Operator and Capital Firewall Grant sources. After those gates pass, initialize the registry once using the explicit procedure below and rerun the preflight under the actual service identity.
+
 ## Run
 
 From the Provider host with the Provider service identity and its production
@@ -109,7 +163,7 @@ not create real private keys, signed admissions, source evidence, or orders.
 
 ## Deployment inventory diagnostic
 
-The repository also includes `tools/diagnose_provider_host_deployment_v1.ps1`. This is a **repository-root tool**, not part of the Provider installation payload by default. Its tracked location is `tools/diagnose_provider_host_deployment_v1.ps1`, not `C:\ProgramData\ForexAI-Provider\source\tools\`.
+The repository also includes `tools/diagnose_provider_host_deployment_v1.ps1`. This is a **repository-root tool**, not part of the Provider installation payload by default. Its tracked location is `tools/diagnose_provider_host_deployment_v1.ps1`, not `C:\ProgramData\ForexAI-Provider\source\tools`.
 
 From the repository checkout root, run:
 
