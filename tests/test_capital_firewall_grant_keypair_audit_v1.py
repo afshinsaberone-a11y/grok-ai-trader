@@ -68,7 +68,7 @@ def test_audit_rejects_wrong_passphrase(tmp_path: Path) -> None:
             private_path,
             public_path,
             passphrase="this-is-the-wrong-passphrase",
-            repository_root=tmp_path / "repository",
+            repository_root=_repo_root(tmp_path),
         )
 
 
@@ -86,7 +86,7 @@ def test_audit_rejects_mismatched_public_key(tmp_path: Path) -> None:
             private_path,
             public_path,
             passphrase=PASSPHRASE,
-            repository_root=tmp_path / "repository",
+            repository_root=_repo_root(tmp_path),
         )
 
 
@@ -105,7 +105,7 @@ def test_audit_rejects_unencrypted_private_key(tmp_path: Path) -> None:
             private_path,
             public_path,
             passphrase=PASSPHRASE,
-            repository_root=tmp_path / "repository",
+            repository_root=_repo_root(tmp_path),
         )
 
 
@@ -134,5 +134,5 @@ def test_audit_rejects_noncanonical_public_key_encoding(tmp_path: Path) -> None:
             private_path,
             public_path,
             passphrase=PASSPHRASE,
-            repository_root=tmp_path / "repository",
+            repository_root=_repo_root(tmp_path),
         )
