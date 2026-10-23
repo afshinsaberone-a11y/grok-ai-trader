@@ -76,3 +76,18 @@ PR #301 هنوز Draft و ادغام‌نشده است. شاخهٔ اصلی هم
 - `real-data-smoke` اجرا نشد و وضعیت آن `skipped` بود. شش گردش‌کار قدیمی‌تر cost-aware/execution-integrity نیز در push یادشده شکست خوردند؛ بنابراین نمی‌توان کل CI را سبز اعلام کرد.
 
 این نتیجه صرفاً صحت آزمون‌های کد و قرارداد را نشان می‌دهد؛ هیچ منبع دادهٔ زنده، حساب MT5 فعال، مرجع اعتماد عملیاتی یا اختیار معامله از این نتایج استنباط نمی‌شود. PR #301 و PR آرشیو #300 همچنان Draft هستند؛ `main` روی SHA `84a1cc078925f77af155027a7ec8db3189867f2c` باقی مانده است.
+
+## ۷. تکمیل محافظ لغو اجرا و اعتبارسنجی head نهایی PR #301
+
+در head نهایی `d8dcc1a494ec3941e42407a0f563e41ff44deb4d`، مرحلهٔ cleanup از `if: failure()` به `if: always()` تغییر کرد تا پس از شکست یا لغو اجرا هم تلاش محدودشده برای پاک‌سازی انجام شود. این مرحله در حالت موفق به فایل دست نمی‌زند: وجود نشانگر مالکیت همان اجرا لازم است، موفق‌شدن ممیزی نهایی پاک‌سازی را متوقف می‌کند و فایل فقط در صورت تطبیق هش SHA-256 ثبت‌شده قابل حذف است. آزمون قراردادی این نگهبان‌ها را بررسی می‌کند.
+
+وضعیت checkها برای head نهایی:
+- تست‌های push: [run 39979007627](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39979007627) — **۶۹۱ تست موفق، ۱ هشدار**؛ `real-data-smoke` skipped.
+- تست‌های PR: [run 39978997865](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978997865) — موفق.
+- اعتبارسنجی ایستای G13: [run 39978997959](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978997959) — موفق.
+- Agent Runtime: [run 39978998059](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978998059) — موفق.
+- Project Repair Loop: [run 39979007739](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39979007739) — موفق.
+
+گردش‌کارهای قدیمی cost-aware و execution-integrity همچنان شکست دارند؛ نمونه‌های مربوط به همین head شامل [39978995378](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978995378)، [39978997990](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978997990)، [39979001487](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39979001487)، [39979003699](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39979003699) و [39979005491](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39979005491). نتیجهٔ دقیق این است که checks مرتبط با PR #301 موفق‌اند، نه اینکه کل CI مخزن موفق باشد.
+
+PR #301 همچنان Draft و main همچنان روی `84a1cc078925f77af155027a7ec8db3189867f2c` است. این commit مجوز، Grant، درخواست Admission، Ledger، Envelope یا رکورد عملیاتی MQL5 صادر نکرده است. تا زمان provision شدن واقعی مرزهای اعتماد و منابع مستقل، Kill Switch باید DENY بماند، Demo غیرمجاز، Live قفل و سفارش ارسالی صفر باشد.
