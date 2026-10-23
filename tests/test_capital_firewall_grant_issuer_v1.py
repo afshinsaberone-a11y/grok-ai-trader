@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
@@ -437,3 +438,93 @@ def test_registry_bootstrap_rejects_repository_location(tmp_path: Path):
             confirmation="INITIALIZE_CAPITAL_FIREWALL_GRANT_REGISTRY",
         )
     assert not registry_inside_repository.exists()
+
+
+def test_cli_can_prompt_for_read_only_github_token_without_persisting_it(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+
+    class InteractiveInput:
+        @staticmethod
+        def isatty():
+            return True
+
+    monkeypatch.setattr(grant_issuer.sys, "stdin", InteractiveInput())
+    monkeypatch.setattr(grant_issuer, "getpass", lambda _prompt: "test-read-only-token")
+
+    assert grant_issuer._read_github_read_token() == "test-read-only-token"
+    assert "GITHUB_TOKEN" not in os.environ
+    assert "GH_TOKEN" not in os.environ
+
+
+def test_cli_blocks_when_github_token_missing_and_input_is_not_interactive(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+
+    class NonInteractiveInput:
+        @staticmethod
+        def isatty():
+            return False
+
+    monkeypatch.setattr(grant_issuer.sys, "stdin", NonInteractiveInput())
+    with pytest.raises(GrantIssuerError, match="GITHUB_READ_TOKEN_NOT_CONFIGURED"):
+        grant_issuer._read_github_read_token()
+
+
+def test_encrypted_grant_private_key_can_be_unlocked_with_hidden_interactive_prompt(tmp_path: Path, monkeypatch):
+    private_path = tmp_path / "grant-private.pem"
+    key = Ed25519PrivateKey.generate()
+    private_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.BestAvailableEncryption(b"test-interactive-passphrase-long"),
+        )
+    )
+    try:
+        private_path.chmod(0o600)
+    except OSError:
+        pass
+
+    class InteractiveInput:
+        @staticmethod
+        def isatty():
+            return True
+
+    monkeypatch.setattr(grant_issuer.sys, "stdin", InteractiveInput())
+    monkeypatch.setattr(
+        grant_issuer, "getpass",
+        lambda _prompt: "test-interactive-passphrase-long",
+    )
+
+    loaded = grant_issuer._load_private_key(private_path, "wrong-inherited-passphrase-that-must-be-ignored")
+    assert isinstance(loaded, Ed25519PrivateKey)
+
+
+def test_interactive_token_prompt_ignores_inherited_environment_tokens(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "inherited-token-must-not-be-used")
+    monkeypatch.setenv("GH_TOKEN", "another-inherited-token-must-not-be-used")
+
+    class InteractiveInput:
+        @staticmethod
+        def isatty():
+            return True
+
+    monkeypatch.setattr(grant_issuer.sys, "stdin", InteractiveInput())
+    monkeypatch.setattr(grant_issuer, "getpass", lambda _prompt: "explicit-read-only-token")
+
+    assert grant_issuer._read_github_read_token() == "explicit-read-only-token"
+    assert os.environ["GITHUB_TOKEN"] == "inherited-token-must-not-be-used"
+    assert os.environ["GH_TOKEN"] == "another-inherited-token-must-not-be-used"
+
+
+def test_noninteractive_token_comes_from_process_environment(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "injected-read-only-token")
+
+    class NonInteractiveInput:
+        @staticmethod
+        def isatty():
+            return False
+
+    monkeypatch.setattr(grant_issuer.sys, "stdin", NonInteractiveInput())
+    assert grant_issuer._read_github_read_token() == "injected-read-only-token"

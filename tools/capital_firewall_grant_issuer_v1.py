@@ -13,6 +13,7 @@ import argparse
 import base64
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
+from getpass import getpass
 import hashlib
 import hmac
 import json
@@ -802,8 +803,23 @@ def issue_grant_from_cache_files(
     return receipt
 
 
+def _read_github_read_token() -> str:
+    """Always prompt on a TTY; use environment tokens only for approved non-interactive runs."""
+    if sys.stdin.isatty():
+        token = getpass("Read-only GitHub token (input hidden; env values ignored): ").strip()
+    else:
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    if not token:
+        raise GrantIssuerError("CAPITAL_FIREWALL_GITHUB_READ_TOKEN_NOT_CONFIGURED")
+    return token
+
+
 def _load_private_key(path: str | Path, passphrase: str | None) -> Ed25519PrivateKey:
     _resolve_distinct_paths({"key": str(path)})
+    if sys.stdin.isatty():
+        # Do not trust an inherited/persistently configured passphrase in an
+        # interactive operator session; read it with hidden input for this run.
+        passphrase = getpass("Capital Firewall Grant private-key passphrase: ")
     try:
         key = serialization.load_pem_private_key(
             Path(path).read_bytes(),
@@ -973,9 +989,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise GrantIssuerError("CAPITAL_FIREWALL_PREPARE_ARGUMENTS_MISSING")
             if any((args.evidence_cache, args.source_packet, args.registry)):
                 raise GrantIssuerError("CAPITAL_FIREWALL_PREPARE_ARGUMENTS_INVALID")
-            token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
-            if not token:
-                raise GrantIssuerError("CAPITAL_FIREWALL_GITHUB_READ_TOKEN_NOT_CONFIGURED")
+            token = _read_github_read_token()
             receipt = prepare_evidence_cache_from_files(
                 metadata_path=args.metadata_request,
                 private_key_path=args.grant_private_key,
@@ -996,7 +1010,7 @@ def main(argv: list[str] | None = None) -> int:
         if not all((args.evidence_cache, args.source_packet, args.grant_private_key,
                     args.output, args.receipt_output, args.registry)):
             raise GrantIssuerError("CAPITAL_FIREWALL_ISSUANCE_ARGUMENTS_MISSING")
-        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+        token = _read_github_read_token()
         if not token:
             raise GrantIssuerError("CAPITAL_FIREWALL_GITHUB_READ_TOKEN_NOT_CONFIGURED")
         receipt = issue_grant_from_cache_files(
