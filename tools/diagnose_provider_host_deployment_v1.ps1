@@ -251,6 +251,18 @@ if (-not [string]::IsNullOrWhiteSpace($registryPath)) {
     catch { $registryParentStatus = 'INVALID_PATH' }
 }
 
+# Check only target-file presence by scope. Never open or mutate the configured
+# production registry; path values are deliberately omitted from the report.
+$registryFileStatusByScope = [ordered]@{}
+foreach ($scope in $scopes) {
+    $scopeRegistryPath = [Environment]::GetEnvironmentVariable('FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH', $scope)
+    if ([string]::IsNullOrWhiteSpace($scopeRegistryPath)) {
+        $registryFileStatusByScope[$scope] = 'NOT_CONFIGURED'
+    } else {
+        $registryFileStatusByScope[$scope] = Get-PathStatus -Path $scopeRegistryPath
+    }
+}
+
 $blockers = [System.Collections.Generic.List[string]]::new()
 if (-not $serviceSummary.registered) { $blockers.Add('PROVIDER_SERVICE_NOT_REGISTERED') }
 foreach ($name in $publicEnvironmentNames) {
@@ -311,6 +323,7 @@ $report = [PSCustomObject]@{
     registry = [PSCustomObject]@{
         environment_presence = $registryPresence
         parent_status = $registryParentStatus
+        file_status_by_scope = [PSCustomObject]$registryFileStatusByScope
         path_printed = $false
         production_registry_opened = $false
     }
