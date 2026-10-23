@@ -22,6 +22,7 @@ from tools.control_plane_service_v1 import (
 from tools.runtime_authorization_auth_v1 import verify_authenticated_envelope_current
 from tools.capital_firewall_v1 import CapitalFirewall
 from tools.trade_ledger_v1 import TradeLedger
+from tools.runtime_authorization_record_v1 import parse_mql5_authorization_record
 
 
 NOW = "2026-10-12T12:00:00+00:00"
@@ -227,6 +228,7 @@ def _run(
     request=None,
     mt5=None,
     expected_demo_account_fingerprint: str | None = None,
+    materialize_authorization_record: bool = False,
 ):
     request = request or _signed_request()
     mt5 = mt5 or FakeMT5(tmp_path / "mt5-common")
@@ -243,6 +245,7 @@ def _run(
         ),
         envelope_secret=ENVELOPE_SECRET,
         now_utc=NOW,
+        materialize_authorization_record=materialize_authorization_record,
     )
 
 
@@ -449,3 +452,57 @@ def test_current_data_must_be_real_and_non_synthetic(tmp_path: Path):
     with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_REAL_DATA_POLICY_FAILED"):
         _run(tmp_path, request=request)
     assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+
+
+def test_signed_demo_request_materializes_create_only_mql5_record(tmp_path: Path):
+    mt5 = FakeMT5(tmp_path / "mt5-common")
+    report = _run(
+        tmp_path,
+        mt5=mt5,
+        materialize_authorization_record=True,
+    )
+    auth_path = tmp_path / "mt5-common" / "Files" / "ForexAI_Authorization_130002_EURUSD.auth"
+    serialized = auth_path.read_text(encoding="utf-8")
+    parsed = parse_mql5_authorization_record(
+        serialized,
+        now_utc=NOW,
+        expected_trade_id="FOREXAI-G13-C2-S",
+    )
+    assert report["authorization_record_created"] is True
+    assert report["authenticated_envelope_written"] is True
+    assert parsed["trade_id"] == "FOREXAI-G13-C2-S"
+    assert parsed["authorization_id"] == "auth-001"
+    assert mt5.order_send_calls == 0
+    assert (tmp_path / "mt5-common" / "Files" / "g13_demo_kill_switch.txt").read_text().strip() == "DENY"
+
+
+def test_existing_authenticated_envelope_is_never_overwritten_or_ledger_mutated(tmp_path: Path):
+    mt5 = FakeMT5(tmp_path / "mt5-common")
+    output = tmp_path / "runtime" / "authenticated-envelope.json"
+    output.parent.mkdir(parents=True)
+    output.write_text('{"existing":"do-not-replace"}\\n', encoding="utf-8")
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_ENVELOPE_OUTPUT_ALREADY_EXISTS"):
+        _run(tmp_path, mt5=mt5, materialize_authorization_record=True)
+    assert output.read_text(encoding="utf-8") == '{"existing":"do-not-replace"}\\n'
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+    assert not (tmp_path / "mt5-common" / "Files" / "ForexAI_Authorization_130002_EURUSD.auth").exists()
+    assert mt5.order_send_calls == 0
+
+
+def test_existing_mql5_record_blocks_before_ledger_is_touched(tmp_path: Path):
+    mt5 = FakeMT5(tmp_path / "mt5-common")
+    auth_path = tmp_path / "mt5-common" / "Files" / "ForexAI_Authorization_130002_EURUSD.auth"
+    auth_path.write_text("existing-record-must-not-be-overwritten\\n", encoding="utf-8")
+    with pytest.raises(ControlPlaneError, match="CONTROL_PLANE_AUTHORIZATION_RECORD_ALREADY_EXISTS"):
+        _run(tmp_path, mt5=mt5, materialize_authorization_record=True)
+    assert auth_path.read_text(encoding="utf-8") == "existing-record-must-not-be-overwritten\\n"
+    assert not (tmp_path / "ledger" / "trade-ledger.jsonl").exists()
+    assert not (tmp_path / "runtime" / "authenticated-envelope.json").exists()
+    assert mt5.order_send_calls == 0
+
+
+def test_default_control_plane_producer_does_not_create_mql5_record(tmp_path: Path):
+    mt5 = FakeMT5(tmp_path / "mt5-common")
+    report = _run(tmp_path, mt5=mt5)
+    assert report["authorization_record_created"] is False
+    assert not (tmp_path / "mt5-common" / "Files" / "ForexAI_Authorization_130002_EURUSD.auth").exists()
