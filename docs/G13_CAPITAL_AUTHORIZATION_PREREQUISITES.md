@@ -44,3 +44,47 @@ If this file does not exist either, there is no Trade ID ready for the controlle
 ## Freshness and execution boundary
 
 The MQL5 authorization record is freshness-checked at order time (the configured maximum record age is 10 seconds). The actual materialization must therefore be coordinated with a current Demo signal; creating a record well before the signal and waiting is not a reliable execution procedure. The diagnostic never runs the materializer and never changes the kill switch away from `DENY`. Live authorization remains locked.
+
+
+## One-shot Control Plane materialization (only after a real signed request exists)
+
+The Control Plane producer now has an explicit `--materialize-mql5-authorization-record` option. With this option, one invocation first verifies the fresh provider-signed one-signal Demo Admission Request and the current MT5 Demo account/tick, checks that the Kill Switch is already `DENY`, appends the real authorization/reservation lifecycle to the TradeLedger, and publishes both the authenticated runtime envelope and a create-only MQL5 `.auth` record in the *Common Files directory resolved from the actual MT5 terminal*. The MQL5 record is validated against the same current ledger and authenticated envelope. It never changes `DENY` to `ALLOW` and never submits a broker order.
+
+Because the signed Admission Request is deliberately very short lived (25 seconds) and its signal must be at most 10 seconds old, **do not schedule this materialization via a delayed GitHub Actions dispatch**. It must be invoked by the trusted local execution integration immediately after a fresh signed request is delivered, with its protected HMAC secret injected from the approved secret mechanism into that process only. The provider's private key and source-role private keys remain on their independent source/attestor systems; this local consumer must not create or sign source attestations.
+
+The expected local invocation shape is:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$request = $env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH
+$ledger = $env:FOREXAI_TRADE_LEDGER_PATH
+$envelope = $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH
+
+if ([string]::IsNullOrWhiteSpace($request) -or
+    -not (Test-Path -LiteralPath $request -PathType Leaf)) {
+    throw 'CONTROL_PLANE_SIGNED_ADMISSION_REQUEST_MISSING'
+}
+if ([string]::IsNullOrWhiteSpace($ledger) -or
+    [string]::IsNullOrWhiteSpace($envelope)) {
+    throw 'CONTROL_PLANE_RUNTIME_OUTPUT_PATH_NOT_CONFIGURED'
+}
+
+python -m tools.control_plane_service_v1 `
+  --admission-request $request `
+  --ledger $ledger `
+  --authenticated-envelope-output $envelope `
+  --terminal-path 'C:\Program Files\MetaTrader 5\terminal64.exe' `
+  --materialize-mql5-authorization-record
+
+if ($LASTEXITCODE -ne 0) {
+    throw 'CONTROL_PLANE_AUTHORITY_MATERIALIZATION_FAILED'
+}
+```
+
+Do not run it now unless the valid signed request has been securely delivered and the request/signal are still fresh. The current inventory/Preflight records show that request is not present, so this command cannot unblock today's state on its own. It also intentionally refuses to replace an existing authenticated envelope or MQL5 authorization record: if a previous attempt partially materialized authority, stop and reconcile the append-only ledger and artifacts instead of rerunning or deleting them to bypass replay protection.
+
+After a successful invocation, run the read-only Capital Firewall prerequisite diagnostic immediately. It must report `PREREQUISITES_PRESENT_NO_EXECUTION` and no blockers. The Kill Switch remains `DENY`; any subsequent controlled Demo execution requires its separate, reviewed one-signal execution procedure. Live remains disabled.
+
+### Timing hardening
+
+The consumer captures its execution timestamp **after MT5 initialization**, not before it. This avoids treating a live tick as fresher than it is when terminal initialization takes several seconds. Expired/stale requests are rejected before the ledger lifecycle is appended.
