@@ -23,6 +23,7 @@ def _configured_environment(tmp_path: Path) -> dict[str, str]:
 def test_valid_configuration_passes_only_non_authorizing_preflight(tmp_path: Path):
     environment = _configured_environment(tmp_path)
     registry = Path(environment[REGISTRY_ENVIRONMENT])
+    registry.touch()
 
     report = inspect_environment(environment)
 
@@ -32,15 +33,31 @@ def test_valid_configuration_passes_only_non_authorizing_preflight(tmp_path: Pat
         for name in KEY_ENVIRONMENTS
     )
     assert report["registry_check"]["status"] == "PASS"
+    assert report["registry_check"]["target_file_exists"] is True
+    assert report["registry_check"]["target_is_symlink"] is False
     assert report["registry_check"]["sqlite_probe"] == "PASS"
     assert report["admission_issuance_authorized"] is False
     assert report["signed_request_created"] is False
     assert report["orders_submitted"] is False
     assert report["demo_trading_authorized"] is False
     assert report["live_trading_allowed"] is False
-    # The diagnostic must never create, initialize, or alter the production registry.
-    assert not registry.exists()
+    # The diagnostic must never open or alter the configured registry itself.
+    assert registry.is_file()
+    assert registry.read_bytes() == b""
     assert list(tmp_path.glob(".forexai-provider-preflight-*")) == []
+
+
+def test_missing_registry_file_blocks_even_when_parent_sqlite_probe_passes(tmp_path: Path):
+    environment = _configured_environment(tmp_path)
+    registry = Path(environment[REGISTRY_ENVIRONMENT])
+
+    report = inspect_environment(environment)
+
+    assert report["status"] == "BLOCKED"
+    assert report["registry_check"]["status"] == "REGISTRY_FILE_NOT_FOUND"
+    assert report["registry_check"]["target_file_exists"] is False
+    assert report["registry_check"]["sqlite_probe"] == "PASS"
+    assert not registry.exists()
 
 
 def test_missing_source_key_blocks_and_still_never_authorizes(tmp_path: Path):
