@@ -240,7 +240,7 @@ def write_mql5_authorization_record_new(
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
-            newline="\\n",
+            newline="\n",
             dir=target.parent,
             prefix=target.name + ".",
             suffix=".tmp",
