@@ -123,8 +123,12 @@ def test_audit_rejects_key_material_inside_repository(tmp_path: Path) -> None:
 
 def test_audit_rejects_noncanonical_public_key_encoding(tmp_path: Path) -> None:
     private_path, public_path, public_raw = _write_pair(tmp_path / "external-keys")
-    # Insert whitespace into the encoding so it is not the single canonical line.
-    public_path.write_text(base64.b64encode(public_raw).decode("ascii") + " \n", encoding="ascii")
+    # Change only unused base64 pad bits: it decodes to the same bytes but is noncanonical.
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    encoded = base64.b64encode(public_raw).decode("ascii")
+    pad_index = alphabet.index(encoded[-2])
+    noncanonical = encoded[:-2] + alphabet[pad_index | 1] + "="
+    public_path.write_text(noncanonical + "\n", encoding="ascii")
     with pytest.raises(GrantKeyAuditError, match="PUBLIC_KEY_BASE64_NOT_CANONICAL"):
         audit_keypair(
             private_path,
