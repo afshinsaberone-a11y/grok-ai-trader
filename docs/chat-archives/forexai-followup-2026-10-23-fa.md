@@ -67,3 +67,12 @@
 - تعدادی workflow قدیمی‌تر مربوط به cost-aware و execution-integrity در همان push شکست خوردند؛ این شکست‌ها جدا از بررسی materialization هستند و کل CI را سبز نمی‌کنند.
 
 PR #301 هنوز Draft و ادغام‌نشده است. شاخهٔ اصلی همچنان روی `84a1cc078925f77af155027a7ec8db3189867f2c` قرار دارد. این تغییر فقط fail-closed cleanup را تقویت می‌کند؛ کلیدها و trust anchor عملیاتی ایجاد/فعال نشده‌اند، منبع امضاشدهٔ مستقل Admission/Signal/Risk/Operator/Grant هنوز پیش‌نیاز است، مجوز Demo صادر نشده، Kill Switch باید DENY بماند، Live غیرفعال است و هیچ سفارشی ارسال نشده است.
+
+### به‌روزرسانی نهایی CI برای head `902f3bf3b772cd2fe5aed1570f8a99acc05ea296`
+
+- آزمون‌های push در [run 39978215917](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978215917) با **۶۹۱ تست موفق و ۱ هشدار** تمام شدند.
+- آزمون‌های PR در [run 39978216273](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978216273) موفق شدند.
+- اعتبارسنجی ایستای گردش‌کار G13 در [run 39978216193](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978216193)، Agent Runtime در [run 39978216226](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978216226) و Project Repair Loop در [run 39978215852](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978215852) موفق شدند.
+- `real-data-smoke` اجرا نشد و وضعیت آن `skipped` بود. شش گردش‌کار قدیمی‌تر cost-aware/execution-integrity نیز در push یادشده شکست خوردند؛ بنابراین نمی‌توان کل CI را سبز اعلام کرد.
+
+این نتیجه صرفاً صحت آزمون‌های کد و قرارداد را نشان می‌دهد؛ هیچ منبع دادهٔ زنده، حساب MT5 فعال، مرجع اعتماد عملیاتی یا اختیار معامله از این نتایج استنباط نمی‌شود. PR #301 و PR آرشیو #300 همچنان Draft هستند؛ `main` روی SHA `84a1cc078925f77af155027a7ec8db3189867f2c` باقی مانده است.
