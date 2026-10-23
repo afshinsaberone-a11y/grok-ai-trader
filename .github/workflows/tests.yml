@@ -32,6 +32,31 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pytest -q
 
+
+  control-plane-inventory-powershell-parse:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse bounded inventory script without executing it
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scriptPath = (Resolve-Path 'tools\\diagnose_control_plane_storage_inventory_v1.ps1').Path
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $scriptPath,
+            [ref]$tokens,
+            [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object {
+              Write-Error ("Line {0}: {1}" -f $_.Extent.StartLineNumber, $_.Message)
+            }
+            exit 1
+          }
+          Write-Output 'CONTROL_PLANE_INVENTORY_POWERSHELL_PARSE=PASS'
+
   real-data-smoke:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
