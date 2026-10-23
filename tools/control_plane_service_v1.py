@@ -37,6 +37,10 @@ from tools.runtime_authorization_auth_v1 import (
     load_control_plane_secret,
 )
 from tools.runtime_authorization_envelope_v1 import build_runtime_envelope
+from tools.runtime_authorization_record_v1 import (
+    build_mql5_authorization_record,
+    write_mql5_authorization_record_new,
+)
 from tools.trade_ledger_v1 import TradeLedger
 
 
@@ -490,6 +494,7 @@ def inspect_demo_runtime(
         "tick_age_seconds": round(max(0.0, tick_age), 3),
         "account_fingerprint": account_fingerprint,
         "terminal_build": str(getattr(terminal, "build", "")),
+        "common_files_path": str(common_files.resolve()),
         "kill_switch": "DENY",
     }
 
@@ -513,6 +518,37 @@ def _append_state(
         event_id=f"cpv1:{request_id}:{suffix}",
         timestamp_utc=timestamp_utc,
     )
+
+
+def _atomic_write_json_new(path: Path, value: Mapping[str, Any]) -> None:
+    """Atomically publish JSON without replacing an existing authority file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="\n",
+            dir=path.parent, prefix=path.name + ".", suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            json.dump(value, handle, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temp_path, path)
+        except FileExistsError as exc:
+            raise ControlPlaneError("CONTROL_PLANE_ENVELOPE_OUTPUT_ALREADY_EXISTS") from exc
+        except OSError as exc:
+            if path.exists():
+                raise ControlPlaneError("CONTROL_PLANE_ENVELOPE_OUTPUT_ALREADY_EXISTS") from exc
+            raise ControlPlaneError("CONTROL_PLANE_ENVELOPE_ATOMIC_PUBLISH_FAILED") from exc
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -549,6 +585,7 @@ def produce_authority(
     expected_demo_account_fingerprint: str,
     envelope_secret: str | bytes,
     now_utc: str,
+    materialize_authorization_record: bool = False,
 ) -> dict[str, Any]:
     """Validate external consent/evidence, verify real Demo state, then publish authority.
 
@@ -570,10 +607,38 @@ def produce_authority(
         expected_account_fingerprint=expected_demo_account_fingerprint,
     )
 
-    ledger_target = Path(ledger_path)
-    output_target = Path(authenticated_envelope_output)
+    ledger_target = Path(ledger_path).expanduser()
+    output_target = Path(authenticated_envelope_output).expanduser()
+    if ledger_target.is_symlink():
+        raise ControlPlaneError("CONTROL_PLANE_LEDGER_SYMLINK_NOT_ALLOWED")
+    if output_target.is_symlink():
+        raise ControlPlaneError("CONTROL_PLANE_ENVELOPE_OUTPUT_SYMLINK_NOT_ALLOWED")
+    if output_target.exists():
+        # A provider request is one-shot. Never replace an earlier authority
+        # envelope or risk hiding a partially completed issuance.
+        raise ControlPlaneError("CONTROL_PLANE_ENVELOPE_OUTPUT_ALREADY_EXISTS")
     if ledger_target.resolve() == output_target.resolve():
         raise ControlPlaneError("CONTROL_PLANE_LEDGER_AND_ENVELOPE_PATH_COLLIDE")
+
+    authorization_target: Path | None = None
+    if materialize_authorization_record:
+        common_files = Path(str(broker["common_files_path"]))
+        if not common_files.is_dir() or common_files.is_symlink():
+            raise ControlPlaneError("CONTROL_PLANE_MT5_COMMON_FILES_INVALID")
+        authorization_target = common_files / (
+            f"ForexAI_Authorization_{130000 + int(parsed['candidate_id'])}_{candidate['symbol']}.auth"
+        )
+        if authorization_target.is_symlink():
+            raise ControlPlaneError("CONTROL_PLANE_AUTHORIZATION_RECORD_SYMLINK_NOT_ALLOWED")
+        if authorization_target.exists():
+            raise ControlPlaneError("CONTROL_PLANE_AUTHORIZATION_RECORD_ALREADY_EXISTS")
+        resolved_targets = {
+            ledger_target.resolve(),
+            output_target.resolve(),
+            authorization_target.resolve(),
+        }
+        if len(resolved_targets) != 3:
+            raise ControlPlaneError("CONTROL_PLANE_OUTPUT_PATH_COLLISION")
     signal_payload_hash = candidate["input_hash"]
     event_payload = {
         "request_id": parsed["request_id"],
@@ -662,7 +727,22 @@ def produce_authority(
         secret=envelope_secret,
         key_id=DEFAULT_KEY_ID,
     )
-    _atomic_write_json(output_target, authenticated)
+    # Validate the optional MQL5 transport record before publishing outputs.
+    # The final write is create-only and keeps the EA blocked by DENY; this
+    # producer never turns the kill switch to ALLOW.
+    mql5_record = None
+    if authorization_target is not None:
+        mql5_record = build_mql5_authorization_record(
+            firewall,
+            authenticated,
+            control_plane_secret=envelope_secret,
+            now_utc=now_utc,
+            expected_trade_id=trade_id,
+            expected_key_id=DEFAULT_KEY_ID,
+        )
+    _atomic_write_json_new(output_target, authenticated)
+    if authorization_target is not None and mql5_record is not None:
+        write_mql5_authorization_record_new(authorization_target, mql5_record)
     return {
         "schema": "forexai.control_plane_producer_report.v1",
         "status": "PASS",
@@ -678,6 +758,7 @@ def produce_authority(
         "ledger_event_count": len(ledger.events),
         "envelope_hash": envelope["envelope_hash"],
         "authenticated_envelope_written": True,
+        "authorization_record_created": authorization_target is not None,
     }
 
 
@@ -686,11 +767,15 @@ def main() -> int:
     parser.add_argument("--admission-request", required=True, type=Path)
     parser.add_argument("--ledger", required=True, type=Path)
     parser.add_argument("--authenticated-envelope-output", required=True, type=Path)
+    parser.add_argument(
+        "--materialize-mql5-authorization-record",
+        action="store_true",
+        help="Create a fresh create-only MQL5 authorization record in the verified terminal Common Files directory; never changes DENY or submits orders",
+    )
     parser.add_argument("--terminal-path", default=None)
     parser.add_argument("--now-utc", default=None)
     args = parser.parse_args()
 
-    now_utc = args.now_utc or datetime.now(timezone.utc).isoformat()
     try:
         if args.admission_request.resolve() in {
             args.ledger.resolve(), args.authenticated_envelope_output.resolve()
@@ -720,6 +805,9 @@ def main() -> int:
         mt5 = gateway.mt5
         gateway._initialize()
         try:
+            # Do not age the live signal against a timestamp captured before
+            # MT5 initialization; terminal startup may take several seconds.
+            execution_now_utc = args.now_utc or datetime.now(timezone.utc).isoformat()
             report = produce_authority(
                 request,
                 ledger_path=args.ledger,
@@ -728,7 +816,8 @@ def main() -> int:
                 admission_public_key=admission_public_key,
                 expected_demo_account_fingerprint=expected_demo_account_fingerprint,
                 envelope_secret=envelope_secret,
-                now_utc=now_utc,
+                now_utc=execution_now_utc,
+                materialize_authorization_record=args.materialize_mql5_authorization_record,
             )
         finally:
             gateway._shutdown()
