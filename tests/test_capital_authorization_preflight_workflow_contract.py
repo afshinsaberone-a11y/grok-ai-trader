@@ -24,7 +24,7 @@ def test_capital_authorization_preflight_is_manual_or_after_readiness_read_only_
     assert "CAPITAL_AUTH_PREFLIGHT_MAIN_SHA_MOVED" in workflow
     assert "CANDIDATE_ID: ${{ inputs.candidate_id || '2' }}" in workflow
     assert "runs-on: [self-hosted, windows, mt5]" in workflow
-    assert workflow.count("shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}") == 4
+    assert workflow.count("shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}") == 5
     assert "-m tools.diagnose_capital_authorization_prerequisites_v1" in workflow
     assert "-m tools.diagnose_capital_authorization_prerequisites_v1" in workflow
     assert "Push-Location -LiteralPath $env:GITHUB_WORKSPACE" in workflow
