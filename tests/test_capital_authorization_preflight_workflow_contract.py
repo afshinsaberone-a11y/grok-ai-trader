@@ -148,5 +148,7 @@ def test_preflight_runs_only_redacted_runner_inventory_and_deletes_raw_report():
     assert "filename_candidates" in inventory_step
     assert "Remove-Item -LiteralPath $inventoryPath -Force" in inventory_step
     assert "CONTROL_PLANE_RUNNER_INVENTORY_STATUS=FAILED_REDACTED" in inventory_step
-    assert "AUTHORIZATION_RECORD_CREATED=false" in inventory_step
-    assert "ORDER_SUBMISSION_PERFORMED=false" in inventory_step
+    assert "order_send" not in inventory_step.lower()
+    assert "authorization_record_created" not in inventory_step.lower()
+    assert "ledger_mutated" not in inventory_step.lower()
+    assert "GITHUB_STEP_SUMMARY" in inventory_step
