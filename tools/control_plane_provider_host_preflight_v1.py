@@ -120,6 +120,8 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
         "status": "NOT_CONFIGURED",
         "absolute_path": False,
         "parent_directory_exists": False,
+        "target_file_exists": False,
+        "target_is_symlink": False,
         "sqlite_probe": "NOT_RUN",
     }
     raw_path = env.get(REGISTRY_ENVIRONMENT, "").strip()
@@ -136,11 +138,20 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
                     registry_check["status"] = "PARENT_DIRECTORY_MISSING_OR_INACCESSIBLE"
                 else:
                     registry_check["parent_directory_exists"] = True
+                    registry_check["target_file_exists"] = path.is_file()
+                    registry_check["target_is_symlink"] = path.is_symlink()
                     probe = _probe_sqlite_parent(parent)
                     registry_check["sqlite_probe"] = probe
-                    registry_check["status"] = (
-                        "PASS" if probe == "PASS" else "SQLITE_PROBE_FAILED"
-                    )
+                    if probe != "PASS":
+                        registry_check["status"] = "SQLITE_PROBE_FAILED"
+                    elif path.is_symlink():
+                        registry_check["status"] = "REGISTRY_TARGET_SYMLINK_NOT_ALLOWED"
+                    elif not path.exists():
+                        registry_check["status"] = "REGISTRY_FILE_NOT_FOUND"
+                    elif not path.is_file():
+                        registry_check["status"] = "REGISTRY_TARGET_NOT_REGULAR_FILE"
+                    else:
+                        registry_check["status"] = "PASS"
         except (OSError, ValueError, RuntimeError):
             registry_check["status"] = "PATH_INSPECTION_FAILED"
 

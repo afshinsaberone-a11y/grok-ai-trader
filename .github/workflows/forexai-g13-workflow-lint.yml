@@ -43,6 +43,8 @@ on:
       - 'tests/test_g13_robustness_cache_v1.py'
       - 'tests/test_mt5_common_files_profile_workflow_contract.py'
       - 'tools/control_plane_provider_host_preflight_v1.py'
+      - 'tools/control_plane_admission_provider_v1.py'
+      - 'tests/test_control_plane_admission_provider_v1.py'
       - 'tools/resolve_mt5_common_files_v1.ps1'
       - 'tools/diagnose_provider_host_deployment_v1.ps1'
       - 'tests/test_control_plane_provider_host_preflight_v1.py'
@@ -84,6 +86,8 @@ on:
       - 'tests/test_g13_oos_watchdog_contract.py'
       - 'tests/test_mt5_common_files_profile_workflow_contract.py'
       - 'tools/control_plane_provider_host_preflight_v1.py'
+      - 'tools/control_plane_admission_provider_v1.py'
+      - 'tests/test_control_plane_admission_provider_v1.py'
       - 'tools/resolve_mt5_common_files_v1.ps1'
       - 'tools/diagnose_provider_host_deployment_v1.ps1'
       - 'tests/test_control_plane_provider_host_preflight_v1.py'
@@ -126,6 +130,11 @@ jobs:
 
       - name: Test read-only Provider host diagnostic contract
         run: python -m pytest -q tests/test_control_plane_provider_host_preflight_v1.py
+
+      - name: Test explicit Provider issuance registry lifecycle
+        run: |
+          python -m py_compile tools/control_plane_admission_provider_v1.py tools/control_plane_provider_host_preflight_v1.py
+          python -m pytest -q tests/test_control_plane_admission_provider_v1.py tests/test_control_plane_provider_host_preflight_v1.py
 
       - name: Test G13 watchdog orchestration contract
         run: python -m pytest -q tests/test_g13_oos_watchdog_contract.py
