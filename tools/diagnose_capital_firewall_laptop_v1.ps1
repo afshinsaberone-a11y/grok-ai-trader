@@ -33,9 +33,12 @@ function Get-PublicKeyInfo {
 }
 
 function Get-AclInventory {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ResourceName
+    )
     if (-not (Test-Path -LiteralPath $Path)) {
-        return [PSCustomObject]@{ path = $Path; status = 'NOT_FOUND'; owner = $null; rules = @(); broad_write_access_present_in_acl = $null; effective_access_evaluated = $false }
+        return [PSCustomObject]@{ resource = $ResourceName; status = 'NOT_FOUND'; owner = $null; rules = @(); broad_write_access_present_in_acl = $null; effective_access_evaluated = $false }
     }
     try {
         $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
@@ -56,7 +59,7 @@ function Get-AclInventory {
             }
         )
         return [PSCustomObject]@{
-            path = $Path
+            resource = $ResourceName
             status = 'ACL_READ'
             owner = [string]$acl.Owner
             are_access_rules_protected = [bool]$acl.AreAccessRulesProtected
@@ -65,7 +68,7 @@ function Get-AclInventory {
             rules = $rules
         }
     } catch {
-        return [PSCustomObject]@{ path = $Path; status = 'ACL_READ_FAILED'; owner = $null; rules = @(); broad_write_access_present_in_acl = $null; effective_access_evaluated = $false }
+        return [PSCustomObject]@{ resource = $ResourceName; status = 'ACL_READ_FAILED'; owner = $null; rules = @(); broad_write_access_present_in_acl = $null; effective_access_evaluated = $false }
     }
 }
 
@@ -184,28 +187,31 @@ print(json.dumps(out, sort_keys=True))
 '@
 
 $registryChecks = @()
+$registryIndex = 0
 foreach ($path in $registryCandidates) {
+    $registryIndex += 1
+    $candidateId = "registry_candidate_$registryIndex"
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        $registryChecks += [PSCustomObject]@{ path = $path; status = 'NOT_FOUND'; read_only = $true; integrity = 'NOT_RUN'; schema = 'NOT_RUN'; registry_mutated = $false }
+        $registryChecks += [PSCustomObject]@{ candidate = $candidateId; status = 'NOT_FOUND'; read_only = $true; integrity = 'NOT_RUN'; schema = 'NOT_RUN'; registry_mutated = $false }
         continue
     }
     if ($null -eq $python) {
-        $registryChecks += [PSCustomObject]@{ path = $path; status = 'EXISTS_PYTHON_UNAVAILABLE'; read_only = $true; integrity = 'NOT_RUN'; schema = 'NOT_RUN'; registry_mutated = $false }
+        $registryChecks += [PSCustomObject]@{ candidate = $candidateId; status = 'EXISTS_PYTHON_UNAVAILABLE'; read_only = $true; integrity = 'NOT_RUN'; schema = 'NOT_RUN'; registry_mutated = $false }
         continue
     }
     try {
         $raw = @(& $python.Source -c $pythonCode $path 2>$null)
         $parsed = ($raw -join [Environment]::NewLine) | ConvertFrom-Json -ErrorAction Stop
-        $registryChecks += [PSCustomObject]@{ path = $path; status = $parsed.status; read_only = [bool]$parsed.read_only; integrity = $parsed.integrity; schema = $parsed.schema; registry_mutated = [bool]$parsed.registry_mutated; error_type = $parsed.error_type }
+        $registryChecks += [PSCustomObject]@{ candidate = $candidateId; status = $parsed.status; read_only = [bool]$parsed.read_only; integrity = $parsed.integrity; schema = $parsed.schema; registry_mutated = [bool]$parsed.registry_mutated; error_type = $parsed.error_type }
     } catch {
-        $registryChecks += [PSCustomObject]@{ path = $path; status = 'READ_ONLY_CHECK_FAILED'; read_only = $true; integrity = 'NOT_RUN'; schema = 'NOT_RUN'; registry_mutated = $false; error_type = 'PowerShellOrPythonInvocationError' }
+        $registryChecks += [PSCustomObject]@{ candidate = $candidateId; status = 'READ_ONLY_CHECK_FAILED'; read_only = $true; integrity = 'NOT_RUN'; schema = 'NOT_RUN'; registry_mutated = $false; error_type = 'PowerShellOrPythonInvocationError' }
     }
 }
 
 $aclInventory = [ordered]@{
-    private_key = Get-AclInventory -Path $grantPrivateKey
-    public_key = Get-AclInventory -Path $grantPublicKey
-    keys_directory = Get-AclInventory -Path $keyDir
+    private_key = Get-AclInventory -Path $grantPrivateKey -ResourceName 'GRANT_PRIVATE_KEY_FILE'
+    public_key = Get-AclInventory -Path $grantPublicKey -ResourceName 'GRANT_PUBLIC_KEY_FILE'
+    keys_directory = Get-AclInventory -Path $keyDir -ResourceName 'GRANT_KEYS_DIRECTORY'
 }
 $localServices = @()
 try {
@@ -218,7 +224,6 @@ $pathLayoutChecks = @(
     foreach ($root in $candidateRoots) {
         $candidateKeyDir = Join-Path $root 'keys'
         [PSCustomObject]@{
-            root = $root
             layout = if ($root -ceq $canonicalGrantRoot) { 'DOCUMENTED_CAPITAL_FIREWALL_LAYOUT' } else { 'REQUESTED_GRANT_ROOT' }
             private_key_file_exists = [bool](Test-Path -LiteralPath (Join-Path $candidateKeyDir 'capital-firewall-grant.pem') -PathType Leaf)
             public_key_file_exists = [bool](Test-Path -LiteralPath (Join-Path $candidateKeyDir 'capital-firewall-grant-public.txt') -PathType Leaf)
@@ -250,8 +255,7 @@ $report = [PSCustomObject]@{
         public_key_file_status = $pubFileStatus
         public_key_file_fingerprint = if ($pubFileInfo) { $pubFileInfo.fingerprint } else { $null }
         public_key_file_match_by_scope = $grantFileEnvMatch
-        private_key_path = $grantPrivateKey
-        public_key_path = $grantPublicKey
+        key_directory_label = 'REQUESTED_GRANT_ROOT_KEYS_DIRECTORY'
     }
     acl_review = $aclInventory
     path_layout_checks = $pathLayoutChecks
