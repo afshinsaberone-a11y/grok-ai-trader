@@ -51,7 +51,8 @@ def test_compile_retry_state_race_is_not_misclassified_as_a_completed_failure():
     assert "failed_observed_status=" in workflow
     assert "failed_observed_conclusion=" in workflow
     assert "G13_COMPILE_PARITY_FAILURE_STATE_CHANGED=true" in workflow
-    assert 'if [[ "$failed_observed_status" != "completed" || "$failed_observed_conclusion" != "failure" ]]; then' in workflow
+    assert 'if [[ "$failed_observed_status" != "completed" ]]; then' in workflow
+    assert 'G13_COMPILE_PARITY_NON_RETRYABLE_CONCLUSION=$failed_observed_conclusion' in workflow
 
 
 def test_watchdog_refreshes_runtime_probe_before_preflight_and_binds_exact_sha():
@@ -166,3 +167,21 @@ def test_watchdog_bounds_stalled_github_api_reads_and_retries_them():
     # Only read-only API calls enter the wrapper's retry loop; writes bypass it.
     assert 'if [[ "$retryable" != "1" ]]; then' in workflow
     assert 'if [[ "$arg" == "--method" || "$arg" == "-X" ]]; then' in workflow
+
+
+def test_watchdog_retries_only_empty_step_runner_startup_timeouts_and_bounds_parity_job():
+    watchdog = WORKFLOW_PATH.read_text(encoding="utf-8")
+    parity = Path(".github/workflows/forexai-g13-mt5-compile-parity.yml").read_text(encoding="utf-8")
+
+    # A stuck self-hosted runner can time out before GitHub records any steps.
+    # Retry once only for a zero-step startup timeout, or an explicit Set up job
+    # failure. Real compile/parity step failures must never be retried as setup.
+    assert 'failed[0].get("conclusion") in {"failure","timed_out","startup_failure"}' in watchdog
+    assert 'len(failed[0].get("steps") or [])==0' in watchdog
+    assert 'failed[0].get("steps") or [])[0].get("name")=="Set up job"' in watchdog
+    assert 'compile_setup_retry_used="0"' in watchdog
+    lines = parity.splitlines()
+    job_start = lines.index("  compile-and-parity:")
+    job_lines = lines[job_start + 1 : job_start + 16]
+    timeout_lines = [line.strip() for line in job_lines if line.strip().startswith("timeout-minutes:")]
+    assert timeout_lines == ["timeout-minutes: 60"]
