@@ -91,3 +91,23 @@ PR #301 هنوز Draft و ادغام‌نشده است. شاخهٔ اصلی هم
 گردش‌کارهای قدیمی cost-aware و execution-integrity همچنان شکست دارند؛ نمونه‌های مربوط به همین head شامل [39978995378](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978995378)، [39978997990](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978997990)، [39979001487](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39979001487)، [39979003699](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39979003699) و [39979005491](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39979005491). نتیجهٔ دقیق این است که checks مرتبط با PR #301 موفق‌اند، نه اینکه کل CI مخزن موفق باشد.
 
 PR #301 همچنان Draft و main همچنان روی `84a1cc078925f77af155027a7ec8db3189867f2c` است. این commit مجوز، Grant، درخواست Admission، Ledger، Envelope یا رکورد عملیاتی MQL5 صادر نکرده است. تا زمان provision شدن واقعی مرزهای اعتماد و منابع مستقل، Kill Switch باید DENY بماند، Demo غیرمجاز، Live قفل و سفارش ارسالی صفر باشد.
+
+## ۸. برنامهٔ اجرایی گام بعد — اقدام بیرونی لازم (۲۳ اکتبر ۲۰۲۶)
+
+### اولین اقدام کاربر
+ابتدا مرز امنیتی مستقل امضاکنندهٔ Grant را فراهم یا مشخص کنید. مسیر ویندوزی روی لپ‌تاپ‌های فعلی تأیید نشده و نباید برای نگهداری کلید عملیاتی استفاده شود. مسیر مستند جایگزین، VM اختصاصی Ubuntu 22.04/24.04 LTS در حساب/پروژهٔ ابری و مرز مدیریتی جدا از Provider یعنی `WIN-P7MA35DRF6Q` و MT5 Runner است.
+
+قبل از ساخت کلید یا رجیستری، یک change record غیرمحرمانه بسازید که این موارد را ثبت کند: شناسهٔ حساب/پروژهٔ ابری و VM، hostname/instance ID، مدیر میزبان، متولی کلید Grant، بازبین مستقل و مسئول لغو/ابطال. این نقش‌ها نباید صرفاً بر اساس مالکیت مخزن فرض شوند. ابزارهای متصل در این گفتگو دسترسی به حساب ابری برای ساخت VM ندارند؛ اطلاعات ورود یا کلید خصوصی را در چت نفرستید.
+
+### ترتیب کار پس از تهیهٔ میزبان
+1. با commit ثابت و بازبینی‌شدهٔ کد استقرار کار کنید. bootstrap رسمی Ubuntu فقط کاربر غیرقابل‌ورود `capital-firewall` و پوشه‌های خالی با مجوز `0700` می‌سازد؛ SSH/firewall، سرویس، کلید، رجیستری، Grant یا مجوز معامله را راه‌اندازی نمی‌کند. خروجی مورد انتظار فقط `CAPITAL_FIREWALL_HOST_BOOTSTRAP=PASS_EMPTY_LAYOUT_ONLY` است. اگر `BLOCKED` یا خطای میانی دیدید، اجرای کورکورانهٔ دوباره ممنوع است و میزبان باید دستی بررسی شود.
+2. مالکان/متولیان واقعی این نقش‌ها را تعیین و اعتبارسنجی کنید: Promotion Attestor، Live Signal، Risk Engine به‌همراه رزرو پایدار، تأیید امضاشدهٔ اپراتور، Grant Issuer و Admission Provider. کلید Promotion که روی Provider host ناهماهنگ گزارش شده فقط با تصمیم متولی واقعی و cutover/rotation هماهنگ اصلاح شود؛ کلید خصوصی را از Provider به signer منتقل نکنید.
+3. پس از تأیید منابع مستقل، تولید شواهد G13 دقیقاً برای `main` جاری را آماده کنید؛ attestationهای تازهٔ Signal/Risk+Reservation/Operator را امضا کنید؛ Grant تک‌سیگنالی Demo بسازید؛ Promotion Attestor آن را بررسی کند؛ سپس Provider درخواست Admission تازه و امضاشده صادر کند.
+4. فقط پس از وصول درخواست واقعی و تازه، روی Windows MT5 Runner متصل به حساب Demo مجاز، گردش‌کار `ForexAI Control Plane Producer v1` را اجرا کنید؛ بعد از بازبینی و تأیید PR #301، گردش‌کار Materialization را اجرا و Authorization Preflight را تکرار کنید. نتیجهٔ پذیرش: `PREREQUISITES_PRESENT_NO_EXECUTION` با صفر blocker و بدون ارسال سفارش.
+
+### وضعیت ثبت‌شدهٔ کد هنگام این تصمیم
+- `main` روی `84a1cc078925f77af155027a7ec8db3189867f2c` است.
+- PR #301 با head `d8dcc1a494ec3941e42407a0f563e41ff44deb4d` همچنان Draft است. ۶۹۱ تست موفق با یک هشدار، تست‌های PR، G13 Workflow Static Validation، Agent Runtime و Project Repair Loop موفق‌اند؛ `real-data-smoke` اجرا نشده و تعدادی workflow قدیمی cost-aware/execution-integrity هنوز شکست دارند.
+- PR #295 نیز Draft است؛ میزبان مستقل، مالکیت کلید و منابع مستقل عملیاتی تأیید نشده‌اند.
+
+**شرط ایمنی ثابت:** Kill Switch روی DENY، Demo غیرمجاز، Live غیرفعال و تعداد سفارش‌های ارسال‌شده صفر. سبزبودن تست‌ها جای منبع واقعی امضاشده یا تأیید میزبان را نمی‌گیرد.
