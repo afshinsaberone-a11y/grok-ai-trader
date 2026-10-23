@@ -207,6 +207,11 @@ jobs:
           if (-not (Test-Path -LiteralPath $env:MATERIALIZE_AUTH_PATH -PathType Leaf)) {
             throw 'MQL5_AUTH_MATERIALIZATION_OUTPUT_MISSING'
           }
+          # Record ownership of the output before running any later validation.
+          # Cleanup is allowed only when this run's exact file hash still matches.
+          $authHash = (Get-FileHash -LiteralPath $env:MATERIALIZE_AUTH_PATH -Algorithm SHA256).Hash.ToLowerInvariant()
+          "MATERIALIZE_AUTH_CREATED_BY_RUN=true" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "MATERIALIZE_AUTH_SHA256=$authHash" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Output 'MQL5_AUTHORIZATION_RECORD_CREATED=true'
           Write-Output 'ORDER_SUBMISSION_PERFORMED=false'
           Write-Output 'LIVE_TRADING_ALLOWED=false'
@@ -255,6 +260,37 @@ jobs:
             throw 'MQL5_AUTH_POST_MATERIALIZATION_PREREQUISITES_BLOCKED'
           }
           Write-Output 'CAPITAL_AUTH_PREFLIGHT=PASS_PREREQUISITES_PRESENT_NO_EXECUTION'
+          "MATERIALIZE_AUDIT_PASS=true" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Remove only this run's authorization record after failed post-audit
+        if: failure()
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:MATERIALIZE_AUTH_CREATED_BY_RUN -cne 'true' -or
+              $env:MATERIALIZE_AUDIT_PASS -ceq 'true') {
+            Write-Output 'MQL5_AUTH_FAILURE_CLEANUP=NOT_REQUIRED'
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:MATERIALIZE_AUTH_PATH) -or
+              [string]::IsNullOrWhiteSpace($env:MATERIALIZE_AUTH_SHA256)) {
+            throw 'MQL5_AUTH_FAILURE_CLEANUP_OWNERSHIP_PROOF_MISSING'
+          }
+          if (-not (Test-Path -LiteralPath $env:MATERIALIZE_AUTH_PATH -PathType Leaf)) {
+            Write-Output 'MQL5_AUTH_FAILURE_CLEANUP=ALREADY_ABSENT'
+            exit 0
+          }
+          $currentHash = (Get-FileHash -LiteralPath $env:MATERIALIZE_AUTH_PATH -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($currentHash -cne $env:MATERIALIZE_AUTH_SHA256) {
+            throw 'MQL5_AUTH_FAILURE_CLEANUP_HASH_MISMATCH_MANUAL_REVIEW_REQUIRED'
+          }
+          Remove-Item -LiteralPath $env:MATERIALIZE_AUTH_PATH -Force
+          if (Test-Path -LiteralPath $env:MATERIALIZE_AUTH_PATH) {
+            throw 'MQL5_AUTH_FAILURE_CLEANUP_REMOVE_FAILED'
+          }
+          Write-Output 'MQL5_AUTH_FAILURE_CLEANUP=REMOVED_THIS_RUN_RECORD'
+          Write-Output 'ORDER_SUBMISSION_PERFORMED=false'
+          Write-Output 'LIVE_TRADING_ALLOWED=false'
 
       - name: Upload redacted materialization report
         if: always()
