@@ -170,6 +170,79 @@ function Get-AclSnapshot {
     }
 }
 
+function Get-PrincipalAclSummary {
+    param(
+        [AllowNull()][object]$Snapshot,
+        [Parameter(Mandatory = $true)][string]$Principal
+    )
+
+    if ($null -eq $Snapshot -or $Snapshot.status -ne 'READ_OK') {
+        return [PSCustomObject]@{
+            status = if ($null -eq $Snapshot) { 'NOT_AVAILABLE' } else { [string]$Snapshot.status }
+            principal = $Principal
+            explicit_allow_found = $false
+            explicit_deny_found = $false
+            matching_rules = @()
+            effective_access_calculated = $false
+        }
+    }
+
+    $matching = @(
+        $Snapshot.entries | Where-Object {
+            [string]::Equals(
+                [string]$_.identity,
+                $Principal,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        }
+    )
+    $allow = @($matching | Where-Object { $_.access_type -eq 'Allow' })
+    $deny = @($matching | Where-Object { $_.access_type -eq 'Deny' })
+
+    return [PSCustomObject]@{
+        status = 'READ_OK'
+        principal = $Principal
+        explicit_allow_found = ($allow.Count -gt 0)
+        explicit_deny_found = ($deny.Count -gt 0)
+        matching_rules = @($matching)
+        effective_access_calculated = $false
+    }
+}
+
+function Get-LocalServiceAccountSummary {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    try {
+        $accounts = @(
+            Get-CimInstance Win32_UserAccount -Filter ("LocalAccount=True AND Name='{0}'" -f $Name) -ErrorAction Stop
+        )
+        if ($accounts.Count -eq 0) {
+            return [PSCustomObject]@{
+                status = 'NOT_FOUND'
+                name = $Name
+                sid = $null
+                disabled = $null
+            }
+        }
+
+        $account = $accounts[0]
+        return [PSCustomObject]@{
+            status = 'FOUND'
+            name = [string]$account.Name
+            sid = [string]$account.SID
+            disabled = [bool]$account.Disabled
+        }
+    }
+    catch {
+        return [PSCustomObject]@{
+            status = 'QUERY_FAILED'
+            name = $Name
+            sid = $null
+            disabled = $null
+        }
+    }
+}
+
 function Get-BackupInventory {
     param([AllowNull()][string]$Path)
 
@@ -347,6 +420,32 @@ if ($null -ne $backupAcl) {
     }
 }
 
+# A local Windows user named ForexAIProviderSvc is not the same principal as
+# the proposed virtual service account NT SERVICE\ForexAIProviderSvc. Report
+# exact-principal ACL entries side by side; never infer the approved identity
+# from a pre-existing ACL entry or account name.
+$localServicePrincipal = "$env:COMPUTERNAME\ForexAIProviderSvc"
+$localServiceAccount = Get-LocalServiceAccountSummary -Name 'ForexAIProviderSvc'
+$registryParentExpectedIdentityAcl = Get-PrincipalAclSummary -Snapshot $registryParentAcl -Principal $expectedServiceIdentity
+$registryParentSimilarNamedLocalAcl = Get-PrincipalAclSummary -Snapshot $registryParentAcl -Principal $localServicePrincipal
+$registryTargetExpectedIdentityAcl = Get-PrincipalAclSummary -Snapshot $registryTargetAcl -Principal $expectedServiceIdentity
+$registryTargetSimilarNamedLocalAcl = Get-PrincipalAclSummary -Snapshot $registryTargetAcl -Principal $localServicePrincipal
+$backupExpectedIdentityAcl = Get-PrincipalAclSummary -Snapshot $backupAcl -Principal $expectedServiceIdentity
+$backupSimilarNamedLocalAcl = Get-PrincipalAclSummary -Snapshot $backupAcl -Principal $localServicePrincipal
+
+$identityDecisionRequired = $false
+if ($registryParentSimilarNamedLocalAcl.explicit_allow_found -and
+    -not $registryParentExpectedIdentityAcl.explicit_allow_found) {
+    $identityDecisionRequired = $true
+    $configurationBlockers.Add('PROVIDER_SERVICE_IDENTITY_ACL_PRINCIPAL_MISMATCH_REVIEW')
+}
+elseif ($registryParentSimilarNamedLocalAcl.explicit_allow_found) {
+    # Both principals have grants. The unused principal still requires an
+    # owner-approved rationale and scope review; this tool does not alter ACLs.
+    $identityDecisionRequired = $true
+    $configurationBlockers.Add('PROVIDER_MULTIPLE_SERVICE_NAMED_ACL_PRINCIPALS_REVIEW')
+}
+
 # ACL snapshots do not prove effective access through group membership/deny ACEs.
 # A successful restore drill is separately required before issuance is considered.
 $manualRequirements.Add('EFFECTIVE_ACCESS_TEST_UNDER_PROVIDER_IDENTITY_REQUIRED')
@@ -359,6 +458,18 @@ $report = [PSCustomObject]@{
     diagnostic_process_identity = $currentIdentity
     expected_provider_service_identity = $expectedServiceIdentity
     provider_service = $serviceSummary
+    identity_resolution = [PSCustomObject]@{
+        status = if ($identityDecisionRequired) { 'UNRESOLVED_ACL_PRINCIPAL_MISMATCH' } elseif ($serviceSummary.identity_check -eq 'MATCH') { 'SERVICE_START_NAME_MATCH_ONLY' } else { 'NOT_VERIFIED' }
+        decision_required = [bool]$identityDecisionRequired
+        local_account_candidate = $localServiceAccount
+        registry_parent_expected_identity_acl = $registryParentExpectedIdentityAcl
+        registry_parent_similar_named_local_account_acl = $registryParentSimilarNamedLocalAcl
+        registry_target_expected_identity_acl = $registryTargetExpectedIdentityAcl
+        registry_target_similar_named_local_account_acl = $registryTargetSimilarNamedLocalAcl
+        backup_expected_identity_acl = $backupExpectedIdentityAcl
+        backup_similar_named_local_account_acl = $backupSimilarNamedLocalAcl
+        effective_access_calculated = $false
+    }
     registry = [PSCustomObject]@{
         environment_variable = $registryVariable
         selected_environment_scope = $registryConfig.selected_scope
