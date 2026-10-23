@@ -54,3 +54,16 @@
 - کامنت ثبت ممیزی: https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/254#issuecomment-6367445011
 
 مانع منبع همچنان پابرجاست: درخواست جاری Admission با امضای واقعی منبع مستقل، شواهد معتبر Risk/Reservation و تأیید اپراتور هنوز فراهم/تأیید نشده است. هیچ‌کدام از این تغییرات trust anchor یا رجیستری تولیدی را فعال نکرده؛ Grant صادر نشده، Kill Switch روی DENY است، Demo غیرمجاز و Live غیرفعال است و سفارشی ارسال نشده است.
+
+## ۶. ممیزی fail-closed گردش‌کار materialization (۲۳ اکتبر ۲۰۲۶)
+
+در Draft PR #301 بازبینی تکمیلی نشان داد که اگر رکورد MQL5 `.auth` ساخته شود اما تشخیص read-only بعدی شکست بخورد، فایل تازه‌ساخته‌شده ممکن بود باقی بماند. برای بستن این مسیر:
+
+- commit `947ff94ab7c337fc540cce8e62292794f49772cb` — گردش‌کار SHA-256 رکورد ساخته‌شده در همان اجرا را ثبت می‌کند؛ فقط وقتی ممیزی نهایی با `PREREQUISITES_PRESENT_NO_EXECUTION` و صفر blocker موفق شود، اجرا را موفق علامت می‌زند؛ در صورت شکست، فقط همان فایل را در صورت تطبیق هش پاک می‌کند.
+- commit `902f3bf3b772cd2fe5aed1570f8a99acc05ea296` — آزمون قراردادی برای پاک‌سازی محدودشده به فایل همان اجرا اضافه شد. نبود مدرک مالکیت یا عدم تطابق هش، پاک‌سازی را متوقف و بررسی دستی را الزامی می‌کند. فایل موجود از قبل overwrite یا حذف نمی‌شود.
+- بررسی ایستای G13 در run [39978216193](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978216193) موفق شد.
+- Agent Runtime در run [39978216226](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978216226) موفق شد.
+- اجرای تست‌های push در run [39978215917](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978215917) موفق شد؛ مرحلهٔ `real-data-smoke` به‌صورت `skipped` باقی ماند. در اجرای PR با شناسهٔ [39978216273](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/39978216273)، مرحلهٔ `pytest -q` موفق گزارش شد؛ وضعیت نهایی run در زمان این ثبت هنوز نهایی نشده بود.
+- تعدادی workflow قدیمی‌تر مربوط به cost-aware و execution-integrity در همان push شکست خوردند؛ این شکست‌ها جدا از بررسی materialization هستند و کل CI را سبز نمی‌کنند.
+
+PR #301 هنوز Draft و ادغام‌نشده است. شاخهٔ اصلی همچنان روی `84a1cc078925f77af155027a7ec8db3189867f2c` قرار دارد. این تغییر فقط fail-closed cleanup را تقویت می‌کند؛ کلیدها و trust anchor عملیاتی ایجاد/فعال نشده‌اند، منبع امضاشدهٔ مستقل Admission/Signal/Risk/Operator/Grant هنوز پیش‌نیاز است، مجوز Demo صادر نشده، Kill Switch باید DENY بماند، Live غیرفعال است و هیچ سفارشی ارسال نشده است.
