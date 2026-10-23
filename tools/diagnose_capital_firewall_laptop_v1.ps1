@@ -238,7 +238,9 @@ $report = [PSCustomObject]@{
     }
     read_only = $true
     key_values_printed = $false
-    private_key_contents_read = $false
+    private_key_header_only_checked = [bool]($privateStatus -eq 'EXISTS_FILE')
+    private_key_material_loaded = $false
+    private_key_passphrase_read_or_printed = $false
     passphrase_values_read_or_printed = $false
     public_anchor_checks_by_scope = $anchorChecks
     distinctness_by_scope = $distinctness
@@ -263,7 +265,7 @@ $report = [PSCustomObject]@{
     orders_submitted = $false
     demo_trading_authorized = $false
     live_trading_allowed = $false
-    note = 'ACL rules are not a Windows effective-access calculation. No key values, private-key bytes or passphrases are printed or loaded.'
+    note = 'ACL rules are not a Windows effective-access calculation. Only the private-key PEM header is inspected; key material and passphrases are never loaded or printed.'
 }
 $report | ConvertTo-Json -Depth 12
 exit 0
