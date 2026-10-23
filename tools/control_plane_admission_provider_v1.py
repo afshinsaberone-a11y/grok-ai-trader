@@ -67,6 +67,8 @@ REQUIRED_GATES = {
 SAFE_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+REGISTRY_INITIALIZATION_CONFIRMATION = "INITIALIZE_FOREXAI_PROVIDER_ISSUANCE_REGISTRY"
+REGISTRY_SCHEMA_VERSION = 1
 
 PACKET_FIELDS = {"schema", "promotion", "signal", "risk", "operator_approval"}
 ATTESTATION_FIELDS = {
@@ -603,6 +605,153 @@ def write_request_new(path: str | Path, request: Mapping[str, Any]) -> None:
                 pass
 
 
+
+def _resolve_registry_path(registry_path: str | Path, *, require_existing: bool) -> Path:
+    """Resolve an approved absolute registry path without creating it."""
+    if not isinstance(registry_path, (str, Path)) or not str(registry_path).strip():
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_NOT_CONFIGURED")
+    raw_path = Path(registry_path).expanduser()
+    if not raw_path.is_absolute():
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_PATH_NOT_ABSOLUTE")
+    if raw_path.is_symlink():
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_SYMLINK_NOT_ALLOWED")
+
+    target = raw_path.resolve(strict=False)
+    repository_root = Path(__file__).resolve().parents[1]
+    try:
+        target.relative_to(repository_root)
+    except ValueError:
+        pass
+    else:
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_INSIDE_REPOSITORY")
+
+    if not target.parent.is_dir():
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_PARENT_UNAVAILABLE")
+    if require_existing:
+        if not target.is_file():
+            raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_NOT_INITIALIZED")
+    elif target.exists():
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_ALREADY_EXISTS")
+    return target
+
+
+def _validate_registry_schema(db: sqlite3.Connection) -> None:
+    """Reject missing, legacy, or unexpected schema without migrating it."""
+    try:
+        version_row = db.execute("PRAGMA user_version").fetchone()
+        rows = db.execute("PRAGMA table_info(issued_admissions)").fetchall()
+        indexes = db.execute("PRAGMA index_list('issued_admissions')").fetchall()
+    except sqlite3.Error as exc:
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_SCHEMA_INVALID") from exc
+
+    expected_columns = [
+        "signal_id", "reservation_id", "authorization_id", "request_id",
+        "trade_id", "input_hash", "issued_at_utc", "grant_id",
+    ]
+    if version_row != (REGISTRY_SCHEMA_VERSION,) or [row[1] for row in rows] != expected_columns:
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_SCHEMA_INVALID")
+
+    by_name = {row[1]: row for row in rows}
+    required_text = {
+        "signal_id", "reservation_id", "authorization_id", "request_id",
+        "trade_id", "input_hash", "issued_at_utc", "grant_id",
+    }
+    for name in required_text:
+        if str(by_name[name][2]).upper() != "TEXT":
+            raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_SCHEMA_INVALID")
+    if by_name["signal_id"][5] != 1:
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_SCHEMA_INVALID")
+    for name in ("reservation_id", "authorization_id", "request_id", "trade_id", "input_hash", "issued_at_utc"):
+        if by_name[name][3] != 1:
+            raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_SCHEMA_INVALID")
+
+    unique_column_sets: set[tuple[str, ...]] = set()
+    for index_row in indexes:
+        if index_row[2] != 1:
+            continue
+        index_name = str(index_row[1]).replace('"', '""')
+        try:
+            index_columns = tuple(
+                str(column_row[2])
+                for column_row in db.execute(f'PRAGMA index_info("{index_name}")').fetchall()
+            )
+        except sqlite3.Error as exc:
+            raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_SCHEMA_INVALID") from exc
+        unique_column_sets.add(index_columns)
+
+    required_unique_sets = {
+        ("signal_id",), ("reservation_id",), ("authorization_id",),
+        ("request_id",), ("grant_id",),
+    }
+    if not required_unique_sets.issubset(unique_column_sets):
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_SCHEMA_INVALID")
+
+
+def initialize_issuance_registry(
+    registry_path: str | Path,
+    confirmation: str,
+) -> None:
+    """Explicitly initialize a new empty Provider issuance registry once."""
+    if confirmation != REGISTRY_INITIALIZATION_CONFIRMATION:
+        raise AdmissionProviderError("PROVIDER_REGISTRY_INITIALIZATION_CONFIRMATION_REQUIRED")
+    target = _resolve_registry_path(registry_path, require_existing=False)
+    created = False
+    try:
+        descriptor = os.open(
+            str(target),
+            os.O_CREAT | os.O_EXCL | os.O_RDWR | getattr(os, "O_BINARY", 0),
+            0o600,
+        )
+        created = True
+        os.close(descriptor)
+        with closing(
+            sqlite3.connect(
+                target.as_uri() + "?mode=rw",
+                uri=True,
+                timeout=10.0,
+                isolation_level=None,
+            )
+        ) as db:
+            db.execute("PRAGMA busy_timeout = 10000")
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                """
+                CREATE TABLE issued_admissions (
+                    signal_id TEXT PRIMARY KEY,
+                    reservation_id TEXT NOT NULL UNIQUE,
+                    authorization_id TEXT NOT NULL UNIQUE,
+                    request_id TEXT NOT NULL UNIQUE,
+                    trade_id TEXT NOT NULL,
+                    input_hash TEXT NOT NULL,
+                    issued_at_utc TEXT NOT NULL,
+                    grant_id TEXT
+                )
+                """
+            )
+            db.execute(
+                "CREATE UNIQUE INDEX idx_issued_admissions_grant_id "
+                "ON issued_admissions(grant_id)"
+            )
+            db.execute(f"PRAGMA user_version = {REGISTRY_SCHEMA_VERSION}")
+            db.commit()
+            _validate_registry_schema(db)
+            if db.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_INITIALIZATION_FAILED")
+    except Exception as exc:
+        if created:
+            try:
+                target.unlink(missing_ok=True)
+            except OSError as cleanup_exc:
+                raise AdmissionProviderError(
+                    "PROVIDER_ISSUANCE_REGISTRY_INITIALIZATION_CLEANUP_FAILED"
+                ) from cleanup_exc
+        if isinstance(exc, AdmissionProviderError):
+            raise
+        if isinstance(exc, FileExistsError):
+            raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_ALREADY_EXISTS") from exc
+        raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_INITIALIZATION_FAILED") from exc
+
+
 def record_issuance(
     request: Mapping[str, Any],
     registry_path: str | Path,
@@ -714,32 +863,18 @@ def record_issuance(
         authorization.get("authorization_id"), "PROVIDER_REGISTRY_AUTHORIZATION_ID_INVALID"
     )
 
-    target = Path(registry_path).expanduser().resolve(strict=False)
+    target = _resolve_registry_path(registry_path, require_existing=True)
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(str(target), timeout=10.0, isolation_level=None)) as db:
+        with closing(
+            sqlite3.connect(
+                target.as_uri() + "?mode=rw",
+                uri=True,
+                timeout=10.0,
+                isolation_level=None,
+            )
+        ) as db:
             db.execute("PRAGMA busy_timeout = 10000")
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS issued_admissions (
-                    signal_id TEXT PRIMARY KEY,
-                    reservation_id TEXT NOT NULL UNIQUE,
-                    authorization_id TEXT NOT NULL UNIQUE,
-                    request_id TEXT NOT NULL UNIQUE,
-                    trade_id TEXT NOT NULL,
-                    input_hash TEXT NOT NULL,
-                    issued_at_utc TEXT NOT NULL,
-                    grant_id TEXT
-                )
-                """
-            )
-            columns = {row[1] for row in db.execute("PRAGMA table_info(issued_admissions)")}
-            if "grant_id" not in columns:
-                db.execute("ALTER TABLE issued_admissions ADD COLUMN grant_id TEXT")
-            db.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_issued_admissions_grant_id "
-                "ON issued_admissions(grant_id)"
-            )
+            _validate_registry_schema(db)
             db.execute("BEGIN IMMEDIATE")
             try:
                 db.execute(
@@ -797,14 +932,40 @@ def _validate_cli_paths(packet_path: str, output_path: str, private_key_path: st
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--packet", required=True, help="Path to the four-source attestation packet")
-    parser.add_argument("--output", required=True, help="New one-time output admission JSON path")
-    parser.add_argument("--provider-private-key", required=True, help="External Ed25519 PKCS#8 PEM path")
+    parser.add_argument("--packet", help="Path to the four-source attestation packet")
+    parser.add_argument("--output", help="New one-time output admission JSON path")
+    parser.add_argument("--provider-private-key", help="External Ed25519 PKCS#8 PEM path")
+    parser.add_argument(
+        "--initialize-registry",
+        action="store_true",
+        help="Initialize a new empty issuance registry; never authorizes or issues a request",
+    )
+    parser.add_argument(
+        "--confirmation",
+        help="Required exact confirmation for --initialize-registry",
+    )
     args = parser.parse_args(argv)
     try:
         registry_path = os.environ.get("FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH", "")
         if not registry_path.strip():
             raise AdmissionProviderError("PROVIDER_ISSUANCE_REGISTRY_NOT_CONFIGURED")
+        if args.initialize_registry:
+            if args.packet or args.output or args.provider_private_key:
+                raise AdmissionProviderError("PROVIDER_REGISTRY_INITIALIZATION_ARGUMENTS_INVALID")
+            initialize_issuance_registry(registry_path, args.confirmation or "")
+            print(json.dumps({
+                "status": "REGISTRY_INITIALIZED",
+                "registry_initialized": True,
+                "signed_request_created": False,
+                "orders_submitted": False,
+                "demo_trading_authorized": False,
+                "live_trading_allowed": False,
+            }, sort_keys=True))
+            return 0
+        if args.confirmation is not None:
+            raise AdmissionProviderError("PROVIDER_REGISTRY_CONFIRMATION_REQUIRES_INITIALIZATION_MODE")
+        if not args.packet or not args.output or not args.provider_private_key:
+            raise AdmissionProviderError("PROVIDER_ADMISSION_ARGUMENTS_REQUIRED")
         _validate_cli_paths(args.packet, args.output, args.provider_private_key, registry_path)
         if Path(args.output).expanduser().exists():
             raise AdmissionProviderError("PROVIDER_OUTPUT_ALREADY_EXISTS")
