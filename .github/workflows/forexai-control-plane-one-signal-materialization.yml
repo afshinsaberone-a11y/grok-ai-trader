@@ -1,0 +1,268 @@
+name: ForexAI Control Plane One-Signal Demo Materialization
+
+# Consumes only a fresh provider-signed admission request. Never creates source
+# attestations/grants, changes DENY to ALLOW, or submits a broker order.
+on:
+  workflow_dispatch:
+    inputs:
+      readiness_run_id:
+        description: "Successful current-main G13 Demo Readiness Gate run ID"
+        required: true
+        type: string
+      readiness_sha:
+        description: "Exact current-main SHA bound to readiness_run_id"
+        required: true
+        type: string
+      confirm_one_signal_demo:
+        description: "Type I_CONFIRM_ONE_SIGNAL_DEMO_ONLY to materialize the signed request"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: forexai-control-plane-one-signal-materialization
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 12
+    env:
+      PYTHONUNBUFFERED: "1"
+      TERMINAL_PATH: 'C:\Program Files\MetaTrader 5\terminal64.exe'
+      MT5_DATA_ROOT: 'C:\Users\Star\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
+      READINESS_RUN_ID: ${{ inputs.readiness_run_id }}
+      READINESS_SHA_INPUT: ${{ inputs.readiness_sha }}
+      CONFIRM_ONE_SIGNAL_DEMO: ${{ inputs.confirm_one_signal_demo }}
+    steps:
+      - name: Checkout exact main revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.readiness_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate operator confirmation and exact successful readiness
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF -ne 'refs/heads/main') { throw 'CP_MATERIALIZE_MAIN_BRANCH_REQUIRED' }
+          if ($env:CONFIRM_ONE_SIGNAL_DEMO -cne 'I_CONFIRM_ONE_SIGNAL_DEMO_ONLY') {
+            throw 'CP_MATERIALIZE_OPERATOR_CONFIRMATION_MISMATCH'
+          }
+          if ($env:READINESS_SHA_INPUT -notmatch '^[0-9a-f]{40}$') { throw 'CP_MATERIALIZE_READINESS_SHA_INVALID' }
+          [long]$runId = 0
+          if (-not [long]::TryParse($env:READINESS_RUN_ID, [ref]$runId) -or $runId -le 0) {
+            throw 'CP_MATERIALIZE_READINESS_RUN_ID_INVALID'
+          }
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $main = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/commits/main" -Headers $headers
+          if ($main.sha -ne $env:READINESS_SHA_INPUT) { throw 'CP_MATERIALIZE_MAIN_SHA_MOVED' }
+          $checkedOut = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $checkedOut -ne $env:READINESS_SHA_INPUT) { throw 'CP_MATERIALIZE_CHECKOUT_SHA_MISMATCH' }
+          $readiness = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$runId" -Headers $headers
+          if ($readiness.name -ne 'ForexAI G13 Demo Readiness Gate M15') { throw 'CP_MATERIALIZE_READINESS_WORKFLOW_MISMATCH' }
+          if ($readiness.status -ne 'completed' -or $readiness.conclusion -ne 'success' -or $readiness.head_branch -ne 'main' -or $readiness.head_sha -ne $env:READINESS_SHA_INPUT) {
+            throw 'CP_MATERIALIZE_READINESS_NOT_CURRENT_SUCCESS'
+          }
+          Write-Output 'CP_MATERIALIZE_READINESS_BOUND=true'
+          Write-Output 'CP_MATERIALIZE_OPERATOR_CONFIRMATION=PASS'
+
+      - name: Initialize redacted failure report
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'artifacts/control-plane-one-signal-materialization'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $report = [ordered]@{
+            schema = 'forexai.control_plane_one_signal_materialization_report.v1'
+            status = 'BLOCKED'
+            stage = 'NOT_STARTED'
+            blockers = @('CP_MATERIALIZATION_NOT_COMPLETED')
+            admission_request_verified = $false
+            ledger_events_appended = $false
+            authenticated_envelope_written = $false
+            authorization_record_created = $false
+            kill_switch_changed = $false
+            kill_switch_remains_deny = $true
+            orders_submitted = $false
+            live_trading_allowed = $false
+          }
+          $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $dir 'report.json') -Encoding utf8
+
+      - name: Resolve MT5 owner profile and enforce DENY
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $resolver = Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_mt5_profile_or_desktop_v1.ps1'
+          & $resolver -TerminalPath $env:TERMINAL_PATH -DataRoot $env:MT5_DATA_ROOT -SetDenyKillSwitch |
+            ForEach-Object {
+              $line = [string]$_
+              if ($line -match '^G13_MT5_COMMON_FILES=') { Write-Output 'G13_MT5_COMMON_FILES=[REDACTED]' }
+              elseif ($line -match '^G13_MT5_TERMINAL_OWNER=') { Write-Output 'G13_MT5_TERMINAL_OWNER=[REDACTED]' }
+              elseif ($line -match '^G13_MT5_TERMINAL_PIDS=') { Write-Output 'G13_MT5_TERMINAL_PIDS=[REDACTED]' }
+              else { Write-Output $line }
+            }
+          if ($LASTEXITCODE -ne 0) { throw 'CP_MATERIALIZE_MT5_PROFILE_RESOLUTION_FAILED' }
+
+      - name: Validate real admission request and output paths privately
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $requestPath = [string]$env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH
+          $ledgerPath = [string]$env:FOREXAI_TRADE_LEDGER_PATH
+          $envelopePath = [string]$env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH
+          if ([string]::IsNullOrWhiteSpace($requestPath)) { throw 'CP_MATERIALIZE_ADMISSION_PATH_NOT_CONFIGURED' }
+          if ([string]::IsNullOrWhiteSpace($ledgerPath)) { throw 'CP_MATERIALIZE_LEDGER_PATH_NOT_CONFIGURED' }
+          if ([string]::IsNullOrWhiteSpace($envelopePath)) { throw 'CP_MATERIALIZE_ENVELOPE_PATH_NOT_CONFIGURED' }
+          foreach ($entry in @(@{path=$requestPath; role='REQUEST'}, @{path=$ledgerPath; role='LEDGER'}, @{path=$envelopePath; role='ENVELOPE'})) {
+            if (-not [IO.Path]::IsPathRooted($entry.path)) { throw "CP_MATERIALIZE_$($entry.role)_PATH_NOT_ABSOLUTE" }
+          }
+          $requestPath = [IO.Path]::GetFullPath($requestPath)
+          $ledgerPath = [IO.Path]::GetFullPath($ledgerPath)
+          $envelopePath = [IO.Path]::GetFullPath($envelopePath)
+          if ($requestPath -eq $ledgerPath -or $requestPath -eq $envelopePath -or $ledgerPath -eq $envelopePath) {
+            throw 'CP_MATERIALIZE_CONFIGURED_PATH_COLLISION'
+          }
+          if (-not (Test-Path -LiteralPath $requestPath -PathType Leaf)) { throw 'CP_MATERIALIZE_SIGNED_ADMISSION_REQUEST_MISSING' }
+          $requestFile = Get-Item -LiteralPath $requestPath -Force
+          if (($requestFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'CP_MATERIALIZE_ADMISSION_REQUEST_REPARSE_POINT_NOT_ALLOWED' }
+          if ($requestFile.Length -le 0 -or $requestFile.Length -gt 1048576) { throw 'CP_MATERIALIZE_ADMISSION_REQUEST_SIZE_INVALID' }
+          if (Test-Path -LiteralPath $envelopePath) { throw 'CP_MATERIALIZE_ENVELOPE_OUTPUT_ALREADY_EXISTS' }
+          if (Test-Path -LiteralPath $ledgerPath) {
+            $ledgerItem = Get-Item -LiteralPath $ledgerPath -Force
+            if ($ledgerItem.PSIsContainer -or ($ledgerItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              throw 'CP_MATERIALIZE_LEDGER_TARGET_INVALID'
+            }
+          }
+          $request = Get-Content -LiteralPath $requestPath -Raw | ConvertFrom-Json
+          if (-not $request.candidate -or -not $request.promotion_evidence) { throw 'CP_MATERIALIZE_REQUEST_CONTRACT_INVALID' }
+          if ($request.promotion_evidence.commit_sha -ne $env:READINESS_SHA_INPUT) { throw 'CP_MATERIALIZE_REQUEST_SHA_MISMATCH' }
+          if ($request.promotion_evidence.readiness_status -ne 'READY_FOR_CONTROLLED_DEMO_AUDIT') { throw 'CP_MATERIALIZE_READINESS_CLAIM_INVALID' }
+          if ($request.promotion_evidence.demo_trading_allowed -ne $true -or $request.promotion_evidence.live_trading_allowed -ne $false) {
+            throw 'CP_MATERIALIZE_PERMISSION_POLICY_INVALID'
+          }
+          $candidateId = 0
+          if (-not [int]::TryParse([string]$request.candidate.candidate_id, [ref]$candidateId) -or $candidateId -le 0) {
+            throw 'CP_MATERIALIZE_CANDIDATE_ID_INVALID'
+          }
+          $tradeId = [string]$request.candidate.trade_id
+          if ($tradeId -notmatch '^FOREXAI-G13-C[0-9]+-S$') { throw 'CP_MATERIALIZE_TRADE_ID_INVALID' }
+          if ($request.candidate.symbol -ne 'EURUSD' -or $request.candidate.timeframe -ne 'M15' -or $request.candidate.side -ne 'SELL') {
+            throw 'CP_MATERIALIZE_SIGNAL_SCOPE_INVALID'
+          }
+          $common = [string]$env:FOREXAI_MT5_COMMON_FILES
+          if ([string]::IsNullOrWhiteSpace($common) -or -not (Test-Path -LiteralPath $common -PathType Container)) {
+            throw 'CP_MATERIALIZE_COMMON_FILES_NOT_RESOLVED'
+          }
+          $authName = "ForexAI_Authorization_$((130000 + $candidateId))_EURUSD.auth"
+          $authPath = Join-Path $common $authName
+          if (Test-Path -LiteralPath $authPath) { throw 'CP_MATERIALIZE_AUTH_RECORD_ALREADY_EXISTS' }
+          "FOREXAI_EXPECTED_TRADE_ID=$tradeId" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "FOREXAI_EXPECTED_CANDIDATE_ID=$candidateId" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'CP_MATERIALIZE_SIGNED_REQUEST_PRESENT=true'
+          Write-Output 'CP_MATERIALIZE_RUNTIME_OUTPUTS_AVAILABLE=true'
+          Write-Output 'CP_MATERIALIZE_NO_EXISTING_AUTH_RECORD=true'
+
+      - name: Resolve Python runtime
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidatePaths = @(
+            (Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+            'C:\Users\Star\AppData\Local\Programs\Python\Python312\python.exe',
+            'C:\Program Files\Python312\python.exe'
+          ) | Where-Object { $_ }
+          $pythonExe = $null
+          foreach ($candidate in $candidatePaths) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+              try {
+                $version = (& $candidate -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>$null | Select-Object -Last 1).Trim()
+                if ($LASTEXITCODE -eq 0 -and $version -match '^3 (11|12|13)$') { $pythonExe = $candidate; break }
+              } catch { }
+            }
+          }
+          if (-not $pythonExe) { throw 'CP_MATERIALIZE_PYTHON_NOT_FOUND' }
+          "PYTHON_EXE=$pythonExe" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'CP_MATERIALIZE_PYTHON=PASS'
+
+      - name: Produce one-signal Demo authority from the signed request
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_HMAC_SECRET)) { throw 'CP_MATERIALIZE_HMAC_SECRET_NOT_CONFIGURED' }
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY)) { throw 'CP_MATERIALIZE_ADMISSION_PUBLIC_KEY_NOT_CONFIGURED' }
+          if ([string]::IsNullOrWhiteSpace($env:FOREXAI_EXPECTED_DEMO_ACCOUNT_FINGERPRINT)) { throw 'CP_MATERIALIZE_DEMO_ACCOUNT_FINGERPRINT_NOT_CONFIGURED' }
+          Push-Location -LiteralPath $env:GITHUB_WORKSPACE
+          try {
+            & $env:PYTHON_EXE -m tools.control_plane_service_v1 --admission-request $env:FOREXAI_CONTROL_PLANE_ADMISSION_REQUEST_PATH --ledger $env:FOREXAI_TRADE_LEDGER_PATH --authenticated-envelope-output $env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH --terminal-path $env:TERMINAL_PATH --materialize-mql5-authorization-record
+            $producerExit = $LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
+          if ($producerExit -ne 0) { throw "CP_MATERIALIZE_AUTHORITY_PRODUCER_FAILED:$producerExit" }
+
+      - name: Verify materialized artifacts and rerun read-only prerequisite diagnostic
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          FOREXAI_CONTROL_PLANE_HMAC_SECRET: ${{ secrets.FOREXAI_CONTROL_PLANE_HMAC_SECRET }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ledger = [string]$env:FOREXAI_TRADE_LEDGER_PATH
+          $envelope = [string]$env:FOREXAI_AUTHENTICATED_ENVELOPE_PATH
+          if (-not (Test-Path -LiteralPath $ledger -PathType Leaf) -or -not (Test-Path -LiteralPath $envelope -PathType Leaf)) {
+            throw 'CP_MATERIALIZE_EXPECTED_OUTPUT_MISSING'
+          }
+          $common = [string]$env:FOREXAI_MT5_COMMON_FILES
+          $authPath = Join-Path $common ("ForexAI_Authorization_$((130000 + [int]$env:FOREXAI_EXPECTED_CANDIDATE_ID))_EURUSD.auth")
+          if (-not (Test-Path -LiteralPath $authPath -PathType Leaf)) { throw 'CP_MATERIALIZE_AUTH_RECORD_OUTPUT_MISSING' }
+          $switchPath = Join-Path $common 'g13_demo_kill_switch.txt'
+          if ((Get-Content -LiteralPath $switchPath -Raw).Trim() -ne 'DENY') { throw 'CP_MATERIALIZE_KILL_SWITCH_NOT_DENY' }
+          $reportDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts/control-plane-one-signal-materialization'
+          $reportPath = Join-Path $reportDirectory 'report.json'
+          Push-Location -LiteralPath $env:GITHUB_WORKSPACE
+          try {
+            & $env:PYTHON_EXE -m tools.diagnose_capital_authorization_prerequisites_v1 --candidate-id ([int]$env:FOREXAI_EXPECTED_CANDIDATE_ID) --common-files $common --ledger-path $ledger --authenticated-envelope-path $envelope --expected-trade-id $env:FOREXAI_EXPECTED_TRADE_ID --report-out $reportPath
+            $diagnosticExit = $LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
+          if ($diagnosticExit -ne 0) { throw "CP_MATERIALIZE_POST_DIAGNOSTIC_FAILED:$diagnosticExit" }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.status -ne 'PREREQUISITES_PRESENT_NO_EXECUTION' -or @($report.blockers).Count -gt 0) {
+            throw 'CP_MATERIALIZE_POST_DIAGNOSTIC_BLOCKED'
+          }
+          "CONTROL_PLANE_MATERIALIZATION_STATUS=PASS" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "LEDGER_EVENTS_APPENDED=true" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "AUTHENTICATED_ENVELOPE_WRITTEN=true" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "MQL5_AUTHORIZATION_RECORD_CREATED=true" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "KILL_SWITCH_REMAINS_DENY=true" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "ORDER_SUBMISSION_PERFORMED=false" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "LIVE_TRADING_ALLOWED=false" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          Write-Output 'CONTROL_PLANE_MATERIALIZATION_STATUS=PASS'
+          Write-Output 'LEDGER_EVENTS_APPENDED=true'
+          Write-Output 'AUTHENTICATED_ENVELOPE_WRITTEN=true'
+          Write-Output 'MQL5_AUTHORIZATION_RECORD_CREATED=true'
+          Write-Output 'KILL_SWITCH_REMAINS_DENY=true'
+          Write-Output 'ORDER_SUBMISSION_PERFORMED=false'
+          Write-Output 'LIVE_TRADING_ALLOWED=false'
+
+      - name: Upload redacted materialization report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-control-plane-one-signal-materialization
+          path: artifacts/control-plane-one-signal-materialization/report.json
+          if-no-files-found: warn
+          retention-days: 7
