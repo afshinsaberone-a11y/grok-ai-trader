@@ -176,7 +176,7 @@ def test_watchdog_retries_only_empty_step_runner_startup_timeouts_and_bounds_par
     # A stuck self-hosted runner can time out before GitHub records any steps.
     # Retry once only for a zero-step startup timeout, or an explicit Set up job
     # failure. Real compile/parity step failures must never be retried as setup.
-    assert 'failed[0].get("conclusion") in {"timed_out","startup_failure"}' in watchdog
+    assert 'failed[0].get("conclusion") in {"failure","timed_out","startup_failure"}' in watchdog
     assert 'len(failed[0].get("steps") or [])==0' in watchdog
     assert 'failed[0].get("steps") or [])[0].get("name")=="Set up job"' in watchdog
     assert 'compile_setup_retry_used="0"' in watchdog
