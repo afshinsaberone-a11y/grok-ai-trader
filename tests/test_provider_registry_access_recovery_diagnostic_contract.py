@@ -12,7 +12,7 @@ def test_registry_recovery_diagnostic_checks_identity_acl_and_backup_inventory()
 
     for token in (
         "forexai.provider_registry_access_recovery_diagnostic.v1",
-        "NT SERVICE\\\\ForexAIProviderSvc",
+        r"NT SERVICE\ForexAIProviderSvc",
         "FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH",
         "FOREXAI_PROVIDER_ISSUANCE_REGISTRY_BACKUP_DIR",
         "Get-CimInstance Win32_Service",
@@ -49,12 +49,12 @@ def test_registry_recovery_diagnostic_contains_no_direct_mutation_commands():
     # Check command positions rather than comments/docstrings so that the safety
     # contract does not fail because prose describes a prohibited operation.
     forbidden_command = re.compile(
-        r"(?im)^\\s*(?:"
+        r"(?im)^\s*(?:"
         r"Set-Acl|New-Item|Remove-Item|Move-Item|Copy-Item|"
         r"Start-Service|Stop-Service|Restart-Service|"
         r"Set-Service|Register-ScheduledTask|Unregister-ScheduledTask|"
-        r"SetEnvironmentVariable|sc\\.exe\\s+(?:create|config|delete)"
-        r")\\b"
+        r"SetEnvironmentVariable|sc\.exe\s+(?:create|config|delete)"
+        r")\b"
     )
     assert forbidden_command.search(script) is None
     assert "sqlite3.connect" not in script
@@ -64,6 +64,6 @@ def test_registry_recovery_diagnostic_contains_no_direct_mutation_commands():
 
 def test_service_identity_is_a_proposed_dedicated_virtual_account_not_admin():
     script = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "$expectedServiceIdentity = 'NT SERVICE\\\\ForexAIProviderSvc'" in script
+    assert r"$expectedServiceIdentity = 'NT SERVICE\ForexAIProviderSvc'" in script
     assert "LocalSystem" not in script
     assert "Administrator" not in script
