@@ -10,7 +10,7 @@ The Capital Firewall Preflight workflow now invokes this helper on the MT5 runne
 
 ## Run locally on the Windows host
 
-Run from a local PowerShell session under the intended interactive Windows account. Do not run this command in a public GitHub Actions workflow: the report deliberately contains full local paths to discovered filename candidates, which should remain private.
+Run from a local PowerShell session under the intended interactive Windows account. Do not run this script directly in a public GitHub Actions workflow or expose its raw report: it contains full local paths and candidate filenames, which must remain private. The Capital Firewall Preflight uses the helper only through the documented redacted wrapper above; that wrapper filters the report to safe counters/flags and deletes the raw temporary report.
 
 From the checked-out repository root:
 
