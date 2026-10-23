@@ -14,6 +14,17 @@ After the independent host/custodian review and ACL check, the Grant key can be 
 
 `bootstrap-ubuntu-lts-v1.sh` remains the first-run bootstrap for the dedicated Linux VPS path.
 
+
+## Read-only audit of an existing candidate keypair
+
+The repository also provides `tools/capital_firewall_grant_keypair_audit_v1.py` for checking an already-generated candidate without making or changing any key:
+
+```powershell
+python -m tools.capital_firewall_grant_keypair_audit_v1 --private-key 'C:\\ProgramData\\ForexAI-CapitalFirewall\\keys\\capital-firewall-grant.pem' --public-key 'C:\\ProgramData\\ForexAI-CapitalFirewall\\keys\\capital-firewall-grant-public.txt'
+```
+
+In an interactive terminal the audit prompts for the passphrase with hidden input. It prints the public-key SHA-256 fingerprint and a redacted status only. It requires an encrypted PKCS#8 Ed25519 private key, canonical base64 raw public key, and a matching public/private pair. It never prints private key material or modifies files, registry, trust anchors, Grants, or trading permissions. Both files must remain outside the repository checkout. A passing keypair audit is a format/match check only: it does not approve host custody, activate a trust anchor, initialize the production registry, issue a Grant, or authorize trading.
+
 ## Scope
 
 `bootstrap-ubuntu-lts-v1.sh` is a narrowly scoped, first-run bootstrap for a **new, separately administered Ubuntu 22.04/24.04 LTS VM**. It creates a non-login system identity `capital-firewall` and empty, mode-0700 storage directories under `/var/lib/capital-firewall/`:
