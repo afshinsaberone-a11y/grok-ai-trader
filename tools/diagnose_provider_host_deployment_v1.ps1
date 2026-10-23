@@ -92,6 +92,19 @@ function Get-EnvironmentPresence {
     return [PSCustomObject]$result
 }
 
+function Get-PublicKeyFingerprint {
+    param([AllowNull()][string]$Value)
+    $canonical = Get-CanonicalPublicKey -Value $Value
+    if ($null -eq $canonical) { return $null }
+    try {
+        $raw = [Convert]::FromBase64String($canonical)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($sha.ComputeHash($raw))).Replace('-', '').ToLowerInvariant() }
+        finally { $sha.Dispose() }
+    }
+    catch { return $null }
+}
+
 function Get-PublicKeyConsistency {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -112,11 +125,14 @@ function Get-PublicKeyConsistency {
     if ($fileStatus -eq 'EXISTS_FILE') {
         $fileStatus = if ($null -eq $fileKey) { 'INVALID_FORMAT' } else { 'VALID_32_BYTE_KEY' }
     }
+    $fileFingerprint = if ($null -ne $fileKey) { Get-PublicKeyFingerprint -Value $fileKey } else { $null }
 
     $scopeChecks = [ordered]@{}
+    $scopeFingerprints = [ordered]@{}
     foreach ($scope in $scopes) {
         $envValue = [Environment]::GetEnvironmentVariable($EnvironmentName, $scope)
         $envKey = Get-CanonicalPublicKey -Value $envValue
+        $scopeFingerprints[$scope] = if ($null -ne $envKey) { Get-PublicKeyFingerprint -Value $envKey } else { $null }
         if ([string]::IsNullOrWhiteSpace($envValue)) {
             $scopeStatus = 'NOT_CONFIGURED'
         }
@@ -139,7 +155,9 @@ function Get-PublicKeyConsistency {
         role = $Name
         public_file_name = [System.IO.Path]::GetFileName($FilePath)
         public_file_status = $fileStatus
+        public_file_fingerprint_sha256 = $fileFingerprint
         environment_variable_name = $EnvironmentName
+        environment_fingerprint_sha256_by_scope = [PSCustomObject]$scopeFingerprints
         match_status_by_scope = [PSCustomObject]$scopeChecks
     }
 }
@@ -183,6 +201,12 @@ foreach ($relativePath in @(
 $publicKeyChecks = @(
     Get-PublicKeyConsistency -Name 'Admission Provider' -FilePath (Join-Path $keysDirectory 'admission-provider-public-key.txt') -EnvironmentName 'FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY'
     Get-PublicKeyConsistency -Name 'Promotion Attestor' -FilePath (Join-Path $keysDirectory 'promotion-attestor-public-key.txt') -EnvironmentName 'FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY'
+)
+
+# This historical public-key file is a comparison candidate only. It is not
+# implicitly trusted, activated, or allowed to satisfy the active anchor gate.
+$publicKeyCandidateChecks = @(
+    Get-PublicKeyConsistency -Name 'Admission rotation 2026-10-20 (comparison only)' -FilePath (Join-Path $keysDirectory 'admission-provider-public-key.rotation-20261020.txt') -EnvironmentName 'FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY'
 )
 
 $privateKeyHeaders = [ordered]@{
@@ -279,6 +303,8 @@ $report = [PSCustomObject]@{
     directory_inventory = [PSCustomObject]$inventory
     source_packet_status = $sourcePacketStatus
     public_key_checks = $publicKeyChecks
+    public_key_candidate_checks = $publicKeyCandidateChecks
+    public_key_fingerprints_are_sha256_of_raw_public_key = $true
     private_key_headers = [PSCustomObject]$privateKeyHeaders
     public_environment_presence = [PSCustomObject]$environmentPresence
     passphrase_environment_presence = [PSCustomObject]$passphrasePresence
