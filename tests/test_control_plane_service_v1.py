@@ -20,9 +20,12 @@ from tools.control_plane_service_v1 import (
     verify_admission_request,
 )
 from tools.runtime_authorization_auth_v1 import verify_authenticated_envelope_current
-from tools.capital_firewall_v1 import CapitalFirewall
+from tools.capital_firewall_v1 import AuthorizationError, CapitalFirewall
 from tools.trade_ledger_v1 import TradeLedger
-from tools.runtime_authorization_record_v1 import parse_mql5_authorization_record
+from tools.runtime_authorization_record_v1 import (
+    parse_mql5_authorization_record,
+    write_mql5_authorization_record_new,
+)
 
 
 NOW = "2026-10-12T12:00:00+00:00"
@@ -472,6 +475,9 @@ def test_signed_demo_request_materializes_create_only_mql5_record(tmp_path: Path
     assert report["authenticated_envelope_written"] is True
     assert parsed["trade_id"] == "FOREXAI-G13-C2-S"
     assert parsed["authorization_id"] == "auth-001"
+    with pytest.raises(AuthorizationError, match="MQL5_AUTH_RECORD_ALREADY_EXISTS"):
+        write_mql5_authorization_record_new(auth_path, parsed)
+    assert auth_path.read_text(encoding="utf-8") == serialized
     assert mt5.order_send_calls == 0
     assert (tmp_path / "mt5-common" / "Files" / "g13_demo_kill_switch.txt").read_text().strip() == "DENY"
 
