@@ -60,6 +60,7 @@ jobs:
               exit 1
             }
           }
+          Write-Output 'CONTROL_PLANE_INVENTORY_POWERSHELL_PARSE=PASS'
           Write-Output 'CONTROL_PLANE_POWERSHELL_DIAGNOSTICS_PARSE=PASS'
 
   real-data-smoke:
