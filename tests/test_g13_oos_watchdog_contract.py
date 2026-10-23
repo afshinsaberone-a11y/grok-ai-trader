@@ -180,6 +180,8 @@ def test_watchdog_retries_only_empty_step_runner_startup_timeouts_and_bounds_par
     assert 'len(failed[0].get("steps") or [])==0' in watchdog
     assert 'failed[0].get("steps") or [])[0].get("name")=="Set up job"' in watchdog
     assert 'compile_setup_retry_used="0"' in watchdog
-    parity_job = parity.split("  compile-and-parity:\\n", 1)[1].split("\\n  ", 1)[0]
+    parity_job_start = parity.index("  compile-and-parity:")
+    parity_steps_start = parity.index("    steps:\\n", parity_job_start)
+    parity_job = parity[parity_job_start:parity_steps_start]
     assert "timeout-minutes: 60" in parity_job
     assert "timeout-minutes: 240" not in parity_job
