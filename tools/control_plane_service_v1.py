@@ -526,13 +526,13 @@ def _atomic_write_json_new(path: Path, value: Mapping[str, Any]) -> None:
     temp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", newline="\\n",
+            mode="w", encoding="utf-8", newline="\n",
             dir=path.parent, prefix=path.name + ".", suffix=".tmp",
             delete=False,
         ) as handle:
             temp_path = Path(handle.name)
             json.dump(value, handle, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)
-            handle.write("\\n")
+            handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
         try:
