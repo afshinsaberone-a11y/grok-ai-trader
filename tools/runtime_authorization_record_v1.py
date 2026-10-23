@@ -220,6 +220,55 @@ def write_mql5_authorization_record(
 
 
 
+
+def write_mql5_authorization_record_new(
+    path: str | Path,
+    record: Mapping[str, str],
+) -> None:
+    """Atomically publish a record only when no previous record exists.
+
+    The authenticated one-signal Control Plane producer uses this method so a
+    new authorization can never silently replace a stale or unconsumed record.
+    If the target already exists, recovery/reconciliation is required.
+    """
+    target = Path(path)
+    if not target.parent.is_dir():
+        raise AuthorizationError("MQL5_AUTH_RECORD_PARENT_DIRECTORY_MISSING")
+    payload = serialize_mql5_authorization_record(record)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\\n",
+            dir=target.parent,
+            prefix=target.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            # Same-directory hard-link publication is atomic and create-only on
+            # NTFS and POSIX filesystems. It prevents overwriting an existing
+            # one-signal record during a concurrent/replayed materialization.
+            os.link(temp_path, target)
+        except FileExistsError as exc:
+            raise AuthorizationError("MQL5_AUTH_RECORD_ALREADY_EXISTS") from exc
+        except OSError as exc:
+            if target.exists():
+                raise AuthorizationError("MQL5_AUTH_RECORD_ALREADY_EXISTS") from exc
+            raise AuthorizationError("MQL5_AUTH_RECORD_ATOMIC_PUBLISH_FAILED") from exc
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def parse_mql5_authorization_record(
     serialized: str,
     *,
