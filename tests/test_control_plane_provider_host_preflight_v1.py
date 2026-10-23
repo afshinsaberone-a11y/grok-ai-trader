@@ -144,6 +144,9 @@ def test_windows_provider_deployment_diagnostic_is_read_only_and_redacted():
         "environment_fingerprint_sha256_by_scope",
         "publicKeyCandidateChecks",
         "Admission rotation 2026-10-20 (comparison only)",
+        "file_status_by_scope = [PSCustomObject]$registryFileStatusByScope",
+        "registryFileStatusByScope",
+        "production_registry_opened = $false",
         "ENCRYPTED_PKCS8",
         "PUBLIC_KEY_ENV_FILE_MISMATCH",
         "PROMOTION_PRIVATE_KEY_PRESENT_ON_PROVIDER_HOST_VERIFY_TRUST_BOUNDARY",
@@ -224,6 +227,9 @@ def test_provider_host_diagnostic_does_not_expose_public_key_or_passphrase_value
     assert "public_key_candidate_checks = $publicKeyCandidateChecks" in script
     assert "public_key_value =" not in script
     assert "private_key_material =" not in script
+    assert "production_registry_opened = $false" in script
+    assert "Get-PathStatus -Path $scopeRegistryPath" in script
+    assert "sqlite3.connect" not in script
 
 def test_provider_host_runbook_uses_the_tracked_diagnostic_path():
     root = Path(__file__).resolve().parents[1]
