@@ -134,7 +134,7 @@ jobs:
     needs: resolve-promotion
     if: needs.resolve-promotion.result == 'success'
     runs-on: [self-hosted, windows, mt5]
-    timeout-minutes: 240
+    timeout-minutes: 60
     env:
       PYTHONOPTIMIZE: '0'
       PROMOTION_RUN_ID: ${{ needs.resolve-promotion.outputs.promotion_run_id }}
