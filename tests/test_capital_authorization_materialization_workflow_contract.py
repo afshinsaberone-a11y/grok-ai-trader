@@ -54,3 +54,16 @@ def test_materialization_never_enables_switch_live_or_order_submission() -> None
     assert "LIVE_TRADING_ALLOWED=false" in text
     assert "ORDER_SEND(" not in text.upper()
     assert "OrderSend(" not in text
+
+def test_failed_post_materialization_audit_cleans_only_the_unchanged_run_owned_record() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "MATERIALIZE_AUTH_CREATED_BY_RUN=true" in text
+    assert "MATERIALIZE_AUTH_SHA256=$authHash" in text
+    assert "MATERIALIZE_AUDIT_PASS=true" in text
+    assert "if: failure()" in text
+    assert "MQL5_AUTH_FAILURE_CLEANUP_OWNERSHIP_PROOF_MISSING" in text
+    assert "MQL5_AUTH_FAILURE_CLEANUP_HASH_MISMATCH_MANUAL_REVIEW_REQUIRED" in text
+    assert "Remove-Item -LiteralPath $env:MATERIALIZE_AUTH_PATH -Force" in text
+    assert text.index("CAPITAL_AUTH_PREFLIGHT=PASS_PREREQUISITES_PRESENT_NO_EXECUTION") < text.index(
+        "MATERIALIZE_AUDIT_PASS=true"
+    )
