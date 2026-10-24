@@ -8,6 +8,17 @@ def test_watchdog_dispatches_and_binds_exact_current_sha_safety_audit():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "Dispatch exact Execution Safety Audit after Promotion" in workflow
+    dispatch = _workflow_step(
+        workflow,
+        "Dispatch exact Execution Safety Audit after Promotion",
+        "Resolve exact successful Execution Safety Audit",
+    )
+    # The dispatch request must define its payload in this step; a payload
+    # from another step is not available under bash -u and must fail tests.
+    payload_assignment = 'payload="$(python -c \'import json,sys; print(json.dumps({"ref":"main","inputs":{"promotion_run_id":sys.argv[1]}}))\' "$PROMOTION_RUN_ID")"'
+    assert payload_assignment in dispatch
+    assert dispatch.index(payload_assignment) < dispatch.index('status="$(curl')
+    assert '            --data "$payload")"' in dispatch
     assert "forexai-g13-execution-safety-audit-m15.yml/dispatches" in workflow
     assert '"promotion_run_id":sys.argv[1]' in workflow
     assert 'G13_SAFETY_AUDIT_BASELINE_ID=$safety_baseline_id' in workflow
