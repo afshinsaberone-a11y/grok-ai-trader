@@ -4,8 +4,12 @@
 
 Run `tools/control_plane_provider_host_preflight_v1.py` under the actual
 `ForexAIProviderSvc` identity before any provider deployment test. It gives a
-redacted, machine-readable report for six public trust anchors and the
-configured issuance-registry location.
+redacted, machine-readable report for the five public keys consumed by the Provider
+(Admission plus Promotion, Signal, Risk, and Operator Approval) and the configured
+issuance-registry location. The Capital Firewall Grant public key is intentionally
+owned by the separately administered Grant/Promotion-attestor boundary: the
+Promotion Attestor verifies the signed Grant before it signs Promotion evidence,
+so the Provider does not consume a second Grant trust anchor.
 
 The diagnostic checks canonical base64 encoding of raw 32-byte Ed25519 public
 keys, ensures the configured key material is not duplicated, checks that the
@@ -43,7 +47,19 @@ The latest Provider report (2026-10-23) exposes an identity mismatch that must b
 
 Do not silently switch the service to the local account because that account already has an ACL entry; do not install the virtual account and assume inherited/effective access. The accountable Windows/Provider owner must explicitly approve one exact identity. If the virtual account is approved, ACLs must be reconciled for that exact principal, and the similarly named local account's existing grant reviewed before it is removed or retained. If the local account is approved instead, document its SID, lifecycle/password policy, service-logon rights, and custody controls, and update the identity policy consistently before provisioning. The updated read-only diagnostic reports exact-principal ACL matches and flags this ambiguity; it does not change ACLs or calculate effective access.
 
-The tracked repository does not currently provide a dedicated persistent service wrapper for the one-shot `tools/control_plane_admission_provider_v1.py` CLI. **Do not register that CLI directly as a Windows service.** Before service installation, approve or implement a service entry point with bounded polling, single-instance protection, clear stop/restart semantics, input validation, and sanitized operational logs. Then confirm the actual Windows service `StartName` equals `NT SERVICE\ForexAIProviderSvc`.
+The repository now includes `tools/control_plane_provider_service_v1.py` as a persistent entry point around the one-shot `tools/control_plane_admission_provider_v1.py` CLI. It uses bounded polling, an OS-enforced single-instance lock, stable packet snapshots, content-bound create-only output names, graceful SIGINT/SIGTERM handling, and redacted structured logs. Each packet hash is attempted at most once per process; a rejected, stale, or consumed packet must be replaced by a newly signed fresh packet. The wrapper does not create directories, initialize the registry, fetch or invent attestations, modify the ledger/envelope, change the Kill Switch, or submit orders. **Do not register the one-shot issuer directly as a Windows service.**
+
+The wrapper is code only; the current Provider host still requires an owner-approved service identity, secret-manager injection, registry/backup controls, ACL/effective-access tests, and independent source systems before installation. After those gates are approved, a reviewed service supervisor can launch the wrapper and must be configured to forward stop signals. Confirm the actual Windows service `StartName` equals `NT SERVICE\ForexAIProviderSvc`.
+
+For a reviewed manual smoke test after all prerequisite gates are satisfied, run from the installed, pinned Provider source root (this starts a foreground polling process; it does not install a service):
+
+```powershell
+Set-Location 'C:\ProgramData\ForexAI-Provider\source'
+& 'C:\ProgramData\ForexAI-Provider\venv\Scripts\python.exe' -m tools.control_plane_provider_service_v1
+if ($LASTEXITCODE -ne 0) { throw 'PROVIDER_SERVICE_START_BLOCKED' }
+```
+
+The passphrase must already have been injected into this process by the approved secret manager. Do not set it persistently with `setx` or Machine/User environment variables. Do not run this command against the current host while its documented gates remain blocked.
 
 Minimum intended permissions, to be validated from the service's effective token rather than inferred from ACL text alone:
 - read/execute the pinned Provider code and its virtual environment;
@@ -73,7 +89,7 @@ It does not print the target paths, open either SQLite database, read private ke
 
 The diagnostic expects the infrastructure owner to approve a separate absolute backup-directory path represented by `FOREXAI_PROVIDER_ISSUANCE_REGISTRY_BACKUP_DIR`. Do not set this variable to an arbitrary or guessed directory. Confirm backup ownership, restrictive ACLs, retention, monitoring, and restore responsibility before configuring it.
 
-**Do not initialize the Provider registry or install the service yet.** First resolve the Promotion anchor/custody mismatch, approve the service entry point and runtime identity, agree on the registry and backup path/owners, and provision the independent Signal, Risk/reservation, Operator and Capital Firewall Grant sources. After those gates pass, initialize the registry once using the explicit procedure below and rerun the preflight under the actual service identity.
+**Do not initialize the Provider registry or install the service yet.** First resolve the Promotion anchor/custody mismatch, approve the runtime identity and service supervisor, agree on the registry and backup path/owners, and provision the independent Signal, Risk/reservation, Operator and Capital Firewall Grant sources. The Grant public key is required at the independent Grant/Promotion-attestor boundary, not as a redundant Provider anchor. After those gates pass, initialize the registry once using the explicit procedure below and rerun the preflight under the actual service identity.
 
 ## Run
 
@@ -125,10 +141,11 @@ then commits replay-prevention claims. Missing or incompatible registry state
 blocks issuance; no implicit schema migration is performed.
 
 **Do not run this initializer on the current Provider host yet** while the
-service identity, Promotion key custody/mismatch, missing Signal/Risk/Operator/
-Grant anchors, and source-evidence path remain unresolved. This section
-documents the reviewed provisioning contract; it does not approve an immediate
-production initialization.
+service identity, Promotion key custody/mismatch, missing Signal/Risk/Operator
+anchors, external Grant trust boundary, and source-evidence path remain unresolved.
+The Grant public key belongs at the independent Grant/Promotion-attestor boundary,
+not in the Provider's direct key set. This section documents the reviewed
+provisioning contract; it does not approve an immediate production initialization.
 
 ## Non-authorization guarantee
 
