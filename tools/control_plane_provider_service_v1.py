@@ -48,6 +48,7 @@ def _emit(status: str, reason: str | None = None, packet_sha256: str | None = No
         "schema": SCHEMA,
         "timestamp_utc": _utc_now(),
         "status": status,
+        "signed_request_created": status == "PASS",
         "orders_submitted": False,
         "demo_trading_authorized": False,
         "live_trading_allowed": False,
