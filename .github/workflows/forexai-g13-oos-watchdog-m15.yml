@@ -107,6 +107,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          validation_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-validation-m15.yml/runs?branch=main&per_page=100")"
+          validation_baseline_id="$(printf '%s' "$validation_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
+          robustness_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-robustness-m15.yml/runs?branch=main&per_page=100")"
+          robustness_baseline_id="$(printf '%s' "$robustness_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
+          echo "G13_VALIDATION_BASELINE_ID=$validation_baseline_id" >> "$GITHUB_ENV"
+          echo "G13_ROBUSTNESS_BASELINE_ID=$robustness_baseline_id" >> "$GITHUB_ENV"
+
           dispatch_workflow() {
             local workflow_file="$1"
             local body="$2"
@@ -142,6 +149,8 @@ jobs:
       - name: Resolve exact successful Validation and Robustness
         env:
           GH_TOKEN: ${{ github.token }}
+          VALIDATION_BASELINE_ID: ${{ env.G13_VALIDATION_BASELINE_ID }}
+          ROBUSTNESS_BASELINE_ID: ${{ env.G13_ROBUSTNESS_BASELINE_ID }}
         run: |
           set -euo pipefail
 
@@ -149,9 +158,10 @@ jobs:
             local workflow_file="$1"
             local workflow_name="$2"
             local label="$3"
+            local baseline_id="$4"
             for attempt in $(seq 1 100); do
               payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_file/runs?branch=main&per_page=50")"
-              state="$(printf '%s' "$payload" | LABEL="$label" TARGET_SHA="$GITHUB_SHA" EXPECTED_NAME="$workflow_name" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; name=os.environ["EXPECTED_NAME"]; label=os.environ["LABEL"]; rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("name")==name and r.get("head_branch")=="main" and r.get("head_sha")==target]; success=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
+              state="$(printf '%s' "$payload" | LABEL="$label" TARGET_SHA="$GITHUB_SHA" EXPECTED_NAME="$workflow_name" BASELINE_ID="$baseline_id" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; baseline=int(os.environ["BASELINE_ID"]); name=os.environ["EXPECTED_NAME"]; label=os.environ["LABEL"]; rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if int(r.get("id",0))>baseline and r.get("name")==name and r.get("head_branch")=="main" and r.get("head_sha")==target]; success=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
               case "$state" in
                 SUCCESS\|*)
                   echo "G13_${label}_SUCCESS=true RUN=${state#SUCCESS|} SHA=$GITHUB_SHA"
@@ -171,8 +181,8 @@ jobs:
             return 1
           }
 
-          resolve_success "forexai-g13-validation-m15.yml" "ForexAI G13 Validation M15" "VALIDATION"
-          resolve_success "forexai-g13-robustness-m15.yml" "ForexAI G13 Robustness M15" "ROBUSTNESS"
+          resolve_success "forexai-g13-validation-m15.yml" "ForexAI G13 Validation M15" "VALIDATION" "$VALIDATION_BASELINE_ID"
+          resolve_success "forexai-g13-robustness-m15.yml" "ForexAI G13 Robustness M15" "ROBUSTNESS" "$ROBUSTNESS_BASELINE_ID"
           echo "G13_EXACT_SOURCE_EVIDENCE_READY=true SHA=$GITHUB_SHA"
 
       - name: Dispatch official OOS only after source evidence is ready
@@ -256,6 +266,9 @@ jobs:
             echo "G13_PROMOTION_DISPATCH_STALE_SHA=true CURRENT_MAIN=$current_main TARGET_SHA=$GITHUB_SHA"
             exit 1
           }
+          promotion_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&per_page=100")"
+          promotion_baseline_id="$(printf '%s' "$promotion_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
+          echo "G13_PROMOTION_BASELINE_ID=$promotion_baseline_id" >> "$GITHUB_ENV"
           payload='{"ref":"main"}'
           status="$(curl -sS -o /tmp/dispatch-response.txt -w '%{http_code}' -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
@@ -273,12 +286,13 @@ jobs:
       - name: Resolve exact successful Promotion
         env:
           GH_TOKEN: ${{ github.token }}
+          PROMOTION_BASELINE_ID: ${{ env.G13_PROMOTION_BASELINE_ID }}
         run: |
           set -euo pipefail
           promotion_run_id=""
           for attempt in $(seq 1 100); do
             payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-promotion-m15.yml/runs?branch=main&per_page=50")"
-            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("name")=="ForexAI G13 Final Promotion M15" and r.get("head_branch")=="main" and r.get("head_sha")==target]; success=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
+            state="$(printf '%s' "$payload" | TARGET_SHA="$GITHUB_SHA" BASELINE_ID="$PROMOTION_BASELINE_ID" python -c 'import json,os,sys; target=os.environ["TARGET_SHA"]; baseline=int(os.environ["BASELINE_ID"]); rs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if int(r.get("id",0))>baseline and r.get("name")=="ForexAI G13 Final Promotion M15" and r.get("head_branch")=="main" and r.get("head_sha")==target]; success=[r for r in rs if r.get("status")=="completed" and r.get("conclusion")=="success"]; pending=[r for r in rs if r.get("status") in {"queued","in_progress","waiting","requested","pending"}]; failed=[r for r in rs if r.get("status")=="completed" and r.get("conclusion") in {"failure","cancelled","timed_out","action_required","startup_failure"}]; print(("SUCCESS|"+str(max(success,key=lambda x:x["id"])["id"])) if success else ("PENDING|" if pending else ("FAILED|"+str(max(failed,key=lambda x:x["id"])["id"]) if failed else "NOT_STARTED|")))' )"
             case "$state" in
               SUCCESS\|*)
                 promotion_run_id="${state#SUCCESS|}"
