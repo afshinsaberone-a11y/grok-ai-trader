@@ -55,6 +55,32 @@ def test_compile_retry_state_race_is_not_misclassified_as_a_completed_failure():
     assert 'G13_COMPILE_PARITY_NON_RETRYABLE_CONCLUSION=$failed_observed_conclusion' in workflow
 
 
+def test_compile_parity_resolver_only_accepts_run_started_after_dispatch_baseline():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    dispatch = _workflow_step(
+        workflow,
+        "Dispatch exact MT5 Compile + Signal Parity",
+        "Resolve exact successful MT5 Compile + Signal Parity",
+    )
+    resolve = _workflow_step(
+        workflow,
+        "Resolve exact successful MT5 Compile + Signal Parity",
+        "Dispatch exact MT5 Runtime Safety Probe after successful parity",
+    )
+
+    # The resolver must not mistake an older successful run on the same SHA
+    # for the fresh Compile/Parity run that this Watchdog invocation dispatched.
+    baseline_export = 'echo "G13_COMPILE_PARITY_BASELINE_ID=$compile_baseline_id" >> "$GITHUB_ENV"'
+    assert baseline_export in dispatch
+    assert dispatch.index(baseline_export) < dispatch.index(
+        "forexai-g13-mt5-compile-parity.yml/dispatches"
+    )
+    assert "COMPILE_BASELINE_ID: ${{ env.G13_COMPILE_PARITY_BASELINE_ID }}" in resolve
+    assert 'BASELINE_ID="$COMPILE_BASELINE_ID"' in resolve
+    assert 'int(r.get("id",0))>baseline' in resolve
+    assert "G13_COMPILE_PARITY_SUCCESS_RESOLVED=true" in resolve
+
+
 def test_watchdog_refreshes_runtime_probe_before_preflight_and_binds_exact_sha():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
