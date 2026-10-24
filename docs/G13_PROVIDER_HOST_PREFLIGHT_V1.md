@@ -51,6 +51,16 @@ The repository now includes `tools/control_plane_provider_service_v1.py` as a pe
 
 The wrapper is code only; the current Provider host still requires an owner-approved service identity, secret-manager injection, registry/backup controls, ACL/effective-access tests, and independent source systems before installation. After those gates are approved, a reviewed service supervisor can launch the wrapper and must be configured to forward stop signals. Confirm the actual Windows service `StartName` equals `NT SERVICE\ForexAIProviderSvc`.
 
+For a reviewed manual smoke test after all prerequisite gates are satisfied, run from the installed, pinned Provider source root (this starts a foreground polling process; it does not install a service):
+
+```powershell
+Set-Location 'C:\ProgramData\ForexAI-Provider\source'
+& 'C:\ProgramData\ForexAI-Provider\venv\Scripts\python.exe' -m tools.control_plane_provider_service_v1
+if ($LASTEXITCODE -ne 0) { throw 'PROVIDER_SERVICE_START_BLOCKED' }
+```
+
+The passphrase must already have been injected into this process by the approved secret manager. Do not set it persistently with `setx` or Machine/User environment variables. Do not run this command against the current host while its documented gates remain blocked.
+
 Minimum intended permissions, to be validated from the service's effective token rather than inferred from ACL text alone:
 - read/execute the pinned Provider code and its virtual environment;
 - read only the approved public trust-anchor files and encrypted Admission signing key;
