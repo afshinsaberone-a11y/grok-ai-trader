@@ -4,8 +4,12 @@
 
 Run `tools/control_plane_provider_host_preflight_v1.py` under the actual
 `ForexAIProviderSvc` identity before any provider deployment test. It gives a
-redacted, machine-readable report for six public trust anchors and the
-configured issuance-registry location.
+redacted, machine-readable report for the five public keys consumed by the Provider
+(Admission plus Promotion, Signal, Risk, and Operator Approval) and the configured
+issuance-registry location. The Capital Firewall Grant public key is intentionally
+owned by the separately administered Grant/Promotion-attestor boundary: the
+Promotion Attestor verifies the signed Grant before it signs Promotion evidence,
+so the Provider does not consume a second Grant trust anchor.
 
 The diagnostic checks canonical base64 encoding of raw 32-byte Ed25519 public
 keys, ensures the configured key material is not duplicated, checks that the
@@ -73,7 +77,7 @@ It does not print the target paths, open either SQLite database, read private ke
 
 The diagnostic expects the infrastructure owner to approve a separate absolute backup-directory path represented by `FOREXAI_PROVIDER_ISSUANCE_REGISTRY_BACKUP_DIR`. Do not set this variable to an arbitrary or guessed directory. Confirm backup ownership, restrictive ACLs, retention, monitoring, and restore responsibility before configuring it.
 
-**Do not initialize the Provider registry or install the service yet.** First resolve the Promotion anchor/custody mismatch, approve the service entry point and runtime identity, agree on the registry and backup path/owners, and provision the independent Signal, Risk/reservation, Operator and Capital Firewall Grant sources. After those gates pass, initialize the registry once using the explicit procedure below and rerun the preflight under the actual service identity.
+**Do not initialize the Provider registry or install the service yet.** First resolve the Promotion anchor/custody mismatch, approve the runtime identity and service supervisor, agree on the registry and backup path/owners, and provision the independent Signal, Risk/reservation, Operator and Capital Firewall Grant sources. The Grant public key is required at the independent Grant/Promotion-attestor boundary, not as a redundant Provider anchor. After those gates pass, initialize the registry once using the explicit procedure below and rerun the preflight under the actual service identity.
 
 ## Run
 
