@@ -32,6 +32,28 @@ def test_runtime_probe_uses_extensionless_mt5_startup_script_names():
     assert "Script=$scriptRel.ex5" not in workflow
 
 
+def test_runtime_probe_fails_fast_if_target_terminal_is_already_running():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    preflight = _step(
+        workflow,
+        "Require MT5 terminal stopped before startup probe",
+        "Run Auth OFF probe",
+    )
+
+    # MT5 may reuse an existing desktop terminal and ignore the run-specific
+    # startup config. Detect that condition before launching the task; never kill
+    # an interactive terminal or risk interrupting an operator-managed account.
+    assert "Get-CimInstance -ClassName Win32_Process" in preflight
+    assert "G13_RUNTIME_AUTH_OFF_TERMINAL_ALREADY_RUNNING" in preflight
+    assert "G13_RUNTIME_NO_PREEXISTING_TERMINAL=PASS" in preflight
+    assert "G13_RUNTIME_TERMINAL_PROBE_PREFLIGHT_READ_ONLY=true" in preflight
+    assert "Stop-Process" not in preflight
+    assert "Register-ScheduledTask" not in preflight
+    assert workflow.index("Require MT5 terminal stopped before startup probe") < workflow.index(
+        "Run Auth OFF probe"
+    )
+
+
 def test_runtime_probe_requires_identity_verified_connected_demo_markers():
     workflow = WORKFLOW.read_text(encoding="utf-8")
     for required in (

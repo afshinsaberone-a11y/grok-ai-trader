@@ -177,6 +177,30 @@ jobs:
           }
           Write-Host "KILL_SWITCH_SNAPSHOT_CREATED"
 
+      - name: Require MT5 terminal stopped before startup probe
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $terminal = [System.IO.Path]::GetFullPath((Join-Path $env:MT5_ROOT 'terminal64.exe'))
+          $allTerminals = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'terminal64.exe'" -ErrorAction Stop)
+          $targetTerminals = @($allTerminals | Where-Object {
+            $exe = [string]$_.ExecutablePath
+            if ([string]::IsNullOrWhiteSpace($exe)) {
+              $true
+            } else {
+              try {
+                [System.IO.Path]::GetFullPath($exe).Equals(
+                  $terminal, [System.StringComparison]::OrdinalIgnoreCase
+                )
+              } catch { $true }
+            }
+          })
+          if ($targetTerminals.Count -gt 0) {
+            Write-Host "G13_RUNTIME_PREEXISTING_TERMINAL_COUNT=$($targetTerminals.Count)"
+            throw 'G13_RUNTIME_AUTH_OFF_TERMINAL_ALREADY_RUNNING; close MT5 normally after confirming no open positions/orders, then retry'
+          }
+          Write-Host 'G13_RUNTIME_NO_PREEXISTING_TERMINAL=PASS'
+          Write-Host 'G13_RUNTIME_TERMINAL_PROBE_PREFLIGHT_READ_ONLY=true'
+
       - name: Run Auth OFF probe
         timeout-minutes: 5
         run: |
