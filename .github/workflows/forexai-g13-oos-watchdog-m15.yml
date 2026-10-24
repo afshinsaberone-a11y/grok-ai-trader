@@ -311,6 +311,7 @@ jobs:
           safety_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-execution-safety-audit-m15.yml/runs?branch=main&per_page=50")"
           safety_baseline_id="$(printf '%s' "$safety_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
           echo "G13_SAFETY_AUDIT_BASELINE_ID=$safety_baseline_id" >> "$GITHUB_ENV"
+          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"promotion_run_id":sys.argv[1]}}))' "$PROMOTION_RUN_ID")"
           status="$(curl -sS --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors --retry-delay 2 \
             -o /tmp/g13-safety-dispatch-response.txt -w '%{http_code}' \
             -X POST \
