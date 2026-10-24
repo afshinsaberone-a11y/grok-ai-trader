@@ -131,6 +131,56 @@ def test_supplementary_parity_diagnostics_upload_is_nonblocking_but_core_evidenc
     assert "continue-on-error: true" not in required_evidence
 
 
+
+
+def test_validation_and_robustness_resolvers_only_accept_runs_after_dispatch_baselines():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    dispatch = _workflow_step(
+        workflow,
+        "Dispatch exact Validation and Robustness producers",
+        "Resolve exact successful Validation and Robustness",
+    )
+    resolve = _workflow_step(
+        workflow,
+        "Resolve exact successful Validation and Robustness",
+        "Dispatch official OOS only after source evidence is ready",
+    )
+
+    validation_export = 'echo "G13_VALIDATION_BASELINE_ID=$validation_baseline_id" >> "$GITHUB_ENV"'
+    robustness_export = 'echo "G13_ROBUSTNESS_BASELINE_ID=$robustness_baseline_id" >> "$GITHUB_ENV"'
+    assert validation_export in dispatch and robustness_export in dispatch
+    first_dispatch = dispatch.index('dispatch_workflow "forexai-g13-validation-m15.yml"')
+    assert dispatch.index(validation_export) < first_dispatch
+    assert dispatch.index(robustness_export) < first_dispatch
+    assert "VALIDATION_BASELINE_ID: ${{ env.G13_VALIDATION_BASELINE_ID }}" in resolve
+    assert "ROBUSTNESS_BASELINE_ID: ${{ env.G13_ROBUSTNESS_BASELINE_ID }}" in resolve
+    assert 'local baseline_id="$4"' in resolve
+    assert 'BASELINE_ID="$baseline_id"' in resolve
+    assert 'int(r.get("id",0))>baseline' in resolve
+
+
+def test_promotion_resolver_only_accepts_the_newly_dispatched_promotion_run():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    dispatch = _workflow_step(
+        workflow,
+        "Dispatch exact Promotion after successful OOS",
+        "Resolve exact successful Promotion",
+    )
+    resolve = _workflow_step(
+        workflow,
+        "Resolve exact successful Promotion",
+        "Dispatch exact Execution Safety Audit after Promotion",
+    )
+
+    baseline_export = 'echo "G13_PROMOTION_BASELINE_ID=$promotion_baseline_id" >> "$GITHUB_ENV"'
+    assert baseline_export in dispatch
+    assert dispatch.index(baseline_export) < dispatch.index(
+        "forexai-g13-promotion-m15.yml/dispatches"
+    )
+    assert "PROMOTION_BASELINE_ID: ${{ env.G13_PROMOTION_BASELINE_ID }}" in resolve
+    assert 'BASELINE_ID="$PROMOTION_BASELINE_ID"' in resolve
+    assert 'int(r.get("id",0))>baseline' in resolve
+
 def _workflow_step(workflow: str, name: str, next_name: str) -> str:
     start = workflow.index(f"      - name: {name}\n")
     end = workflow.index(f"      - name: {next_name}\n", start + 1)
