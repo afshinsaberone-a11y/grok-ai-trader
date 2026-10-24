@@ -131,10 +131,11 @@ then commits replay-prevention claims. Missing or incompatible registry state
 blocks issuance; no implicit schema migration is performed.
 
 **Do not run this initializer on the current Provider host yet** while the
-service identity, Promotion key custody/mismatch, missing Signal/Risk/Operator/
-Grant anchors, and source-evidence path remain unresolved. This section
-documents the reviewed provisioning contract; it does not approve an immediate
-production initialization.
+service identity, Promotion key custody/mismatch, missing Signal/Risk/Operator
+anchors, external Grant trust boundary, and source-evidence path remain unresolved.
+The Grant public key belongs at the independent Grant/Promotion-attestor boundary,
+not in the Provider's direct key set. This section documents the reviewed
+provisioning contract; it does not approve an immediate production initialization.
 
 ## Non-authorization guarantee
 
