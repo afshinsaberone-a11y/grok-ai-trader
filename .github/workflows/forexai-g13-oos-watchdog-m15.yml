@@ -311,14 +311,6 @@ jobs:
           safety_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-execution-safety-audit-m15.yml/runs?branch=main&per_page=50")"
           safety_baseline_id="$(printf '%s' "$safety_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
           echo "G13_SAFETY_AUDIT_BASELINE_ID=$safety_baseline_id" >> "$GITHUB_ENV"
-          # Capture the newest Compile/Parity run before dispatch. Without this
-          # baseline, the resolver below can accept a prior successful run for the
-          # same SHA while the run we just dispatched is still queued.
-          compile_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-compile-parity.yml/runs?branch=main&per_page=100")"
-          compile_baseline_id="$(printf '%s' "$compile_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
-          echo "G13_COMPILE_PARITY_BASELINE_ID=$compile_baseline_id"
-          echo "G13_COMPILE_PARITY_BASELINE_ID=$compile_baseline_id" >> "$GITHUB_ENV"
-          payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"promotion_run_id":sys.argv[1]}}))' "$PROMOTION_RUN_ID")"
           status="$(curl -sS --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors --retry-delay 2 \
             -o /tmp/g13-safety-dispatch-response.txt -w '%{http_code}' \
             -X POST \
@@ -382,6 +374,13 @@ jobs:
             echo "G13_COMPILE_PARITY_DISPATCH_STALE_SHA=true CURRENT_MAIN=$current_main TARGET_SHA=$GITHUB_SHA"
             exit 1
           }
+          # Capture the newest Compile/Parity run before dispatch. Without this
+          # baseline, the resolver below can accept a prior successful run for the
+          # same SHA while the run we just dispatched is still queued.
+          compile_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forexai-g13-mt5-compile-parity.yml/runs?branch=main&per_page=100")"
+          compile_baseline_id="$(printf '%s' "$compile_before" | python -c 'import json,sys; rs=json.load(sys.stdin).get("workflow_runs",[]); print(max((int(r.get("id",0)) for r in rs),default=0))')"
+          echo "G13_COMPILE_PARITY_BASELINE_ID=$compile_baseline_id"
+          echo "G13_COMPILE_PARITY_BASELINE_ID=$compile_baseline_id" >> "$GITHUB_ENV"
           payload="$(python -c 'import json,sys; print(json.dumps({"ref":"main","inputs":{"promotion_run_id":sys.argv[1]}}))' "$PROMOTION_RUN_ID")"
           status="$(curl -sS -o /tmp/dispatch-response.txt -w '%{http_code}' \
             -X POST \
