@@ -29,6 +29,23 @@ The runner must have MetaTrader 5 installed. By default the workflow expects:
 
 A different installation root can be supplied when dispatching the workflow.
 
+## GitHub Actions action-download prerequisite
+
+On 2026-10-24, two attempts of the exact-SHA Compile/Parity workflow failed during runner setup, before any checkout or compile step: the self-hosted host timed out downloading the pinned `actions/checkout` and `actions/download-artifact` archives from `codeload.github.com`. Re-running the workflow cannot fix an outbound network policy on the runner.
+
+Run this read-only diagnostic locally on the same Windows computer that hosts `FOREXAI-WINDOWS-MT5`, from the repository checkout root:
+
+```powershell
+$diagnostic = Join-Path (Get-Location).Path 'tools\\diagnose_github_runner_network_v1.ps1'
+if (-not (Test-Path -LiteralPath $diagnostic -PathType Leaf)) {
+    throw 'RUNNER_NETWORK_DIAGNOSTIC_NOT_FOUND: run from the repository checkout root.'
+}
+& $diagnostic -TimeoutSeconds 10
+$LASTEXITCODE
+```
+
+Exit code `2` means one or both representative `codeload.github.com` HTTPS probes did not pass. The diagnostic performs DNS checks and bounded HTTPS `HEAD` requests only; it sends no tokens/cookies, reads no secrets, and changes no files, services, firewall rules, or runner settings. Give the redacted result to the network administrator and check outbound TCP 443, DNS, TLS inspection, and proxy/allow-list policy for `codeload.github.com`. Do not disable security controls globally or paste credentials into logs. Exit code `0` shows those archive endpoints responded, but does not by itself certify every GitHub Actions endpoint.
+
 ## Compile gate
 
 The workflow regenerates the 15 EAs from:

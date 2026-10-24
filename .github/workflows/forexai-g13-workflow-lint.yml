@@ -94,7 +94,8 @@ jobs:
           $scripts = @(
             'tools/diagnose_provider_host_deployment_v1.ps1',
             'tools/diagnose_provider_registry_access_recovery_v1.ps1',
-            'tools/diagnose_capital_firewall_laptop_v1.ps1'
+            'tools/diagnose_capital_firewall_laptop_v1.ps1',
+            'tools/diagnose_github_runner_network_v1.ps1'
           )
           foreach ($script in $scripts) {
             $tokens = $null
