@@ -4,6 +4,7 @@ from copy import deepcopy
 
 import pytest
 
+import tools.audit_capital_firewall_github_environment_v1 as audit_module
 from tools.audit_capital_firewall_github_environment_v1 import (
     SCHEMA,
     audit_configuration,
@@ -187,3 +188,40 @@ def test_invalid_repo_is_rejected_before_network_access():
         token="not-a-real-token",
     )
     assert report["reason"] == "REPOSITORY_NAME_INVALID"
+
+
+
+def test_run_audit_uses_only_read_endpoints_and_returns_partial_for_documented_api_shape(monkeypatch):
+    environment = _environment()
+    environment.pop("can_admins_bypass")
+    branches = _branch_policies()
+    branches["branch_policies"][0].pop("type")
+    calls = []
+
+    def fake_get_json(url, token):
+        calls.append((url, token))
+        if url.endswith("/deployment-branch-policies"):
+            return branches
+        return environment
+
+    monkeypatch.setattr(audit_module, "_get_json", fake_get_json)
+    report = audit_module.run_audit(
+        repo=REPO,
+        actor=ACTOR,
+        expected_reviewer=REVIEWER,
+        token="dummy-read-token",
+    )
+
+    assert len(calls) == 2
+    assert calls[0][0].endswith("/repos/" + REPO + "/environments/capital-firewall-production")
+    assert calls[1][0].endswith("/repos/" + REPO + "/environments/capital-firewall-production/deployment-branch-policies")
+    assert calls[0][1] == calls[1][1] == "dummy-read-token"
+    assert report["status"] == "PARTIAL_CONFIGURATION_REVIEW_REQUIRED"
+    assert report["verification_gaps"] == [
+        "ADMIN_BYPASS_NOT_EXPOSED_BY_DOCUMENTED_READ_API",
+        "DEPLOYMENT_BRANCH_TAG_TYPE_NOT_EXPOSED_BY_DOCUMENTED_READ_API",
+    ]
+    assert report["grant_issued"] is False
+    assert report["orders_submitted"] is False
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
