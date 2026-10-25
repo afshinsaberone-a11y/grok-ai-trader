@@ -361,3 +361,12 @@ The operator reports that the ACL repair completed successfully for the existing
 This is an operator-reported ACL result; the current hostname/session was not separately re-established in this message. The earlier key manifest fingerprint check had matched the generated public key fingerprint `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`, and the key was reported encrypted. Do not print or transfer the private key or passphrase.
 
 This completes only the local ACL hardening step. It does not activate the Admission public key, reconcile the MT5 verifier trust anchor, establish an admission issuer, install/initialize the Provider service or production registry, create missing signed source evidence/TradeLedger/authenticated envelope/MQL5 authorization record, or authorize trading. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off. Latest CI for the current PR head must be checked separately; do not infer a CI result from this host output.
+
+
+## 17. Admission key read-only validation passed — 2026-10-25
+
+The operator reran the read-only validation on host `WIN-32DFDCJOHEF`. Results: `provider-admission`, key ID `forexai-demo-admission-provider-v1`, public key length 32 bytes, `FingerprintMatches=True`, and `PrivateKeyEncrypted=True`. The recomputed fingerprint matches the manifest and expected value `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`.
+
+ACL inspection of the directory and both files succeeded with zero failed files. Only `WIN-32DFDCJOHEF\Administrator` and `NT AUTHORITY\SYSTEM` are listed; the file ACEs are inherited. No private-key contents or passphrase were printed or recorded.
+
+This validates the reported local file permissions and public-key metadata only. It does not activate or publish this key, verify the active MT5 trust anchor, initialize the admission issuer/service/registry, create source attestations, a signed admission, authenticated envelope, MQL5 authorization record, or TradeLedger, or authorize trading. A previous public-key value exists in historical repository material; do not rotate the consumer anchor without comparing the current effective value and preparing an owner-approved rotation/rollback plan. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
