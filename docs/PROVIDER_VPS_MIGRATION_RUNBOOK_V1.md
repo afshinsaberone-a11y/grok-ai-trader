@@ -528,3 +528,12 @@ The bootstrap on the current PR branch now:
 The contract test tests/test_provider_host_bootstrap_contract.py asserts these properties. On the updated PR head, full Python tests and PowerShell parser checks passed; G13 static validation, Agent Runtime and the Project Repair Loop also passed. The real-data smoke path was skipped. This source-level contract and CI do not replace running the script on the actual target host in a reviewed maintenance window.
 
 Use only the updated, reviewed PR source if this bootstrap is eventually approved. Do not run an earlier copy still using %TEMP%. The bootstrap remains a software setup tool: it does not install the Provider service, establish independent authorities, initialize production registries, authorize Demo/Live, or submit orders.
+
+
+## 29. Elevated Provider target path validation — 2026-10-25
+
+A further source review checked the caller-controlled -ProviderRoot parameter. Because this script runs elevated, accepting an arbitrary or relative path would widen the write target beyond the intended deployment root.
+
+The current PR branch now requires an absolute Provider root whose parent is exactly the actual Windows CommonApplicationData directory, rejects a reparse-point ProgramData parent, normalizes the path before use, creates the target without -Force, and rechecks the created root for reparse-point attributes. A contract test covers the fail-closed guards.
+
+These are source and CI checks only; no new Provider service, trust anchor, key, or registry was configured. Execute only a reviewed version after CI and an independent review. If the target path already exists or validation fails, stop and inspect rather than deleting or adopting that state.
