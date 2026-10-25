@@ -32,10 +32,7 @@ function Assert-Administrator {
 }
 
 function New-ProtectedWorkRoot {
-    # Do not put elevated installer downloads under the invoking user's TEMP.
-    # A user-writable TEMP path can be replaced with a junction before this
-    # Administrator script runs. Use an unpredictable, newly-created root in
-    # CommonApplicationData, then remove inheritance and verify its final DACL.
+    # Elevated installers must not be downloaded under a potentially user-writable TEMP.
     $programData = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
     if ([string]::IsNullOrWhiteSpace($programData) -or -not (Test-Path -LiteralPath $programData -PathType Container)) {
         throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_PARENT_UNAVAILABLE'
@@ -51,13 +48,42 @@ function New-ProtectedWorkRoot {
             throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_CREATE_FAILED'
         }
 
-        $directoryItem = Get-Item -LiteralPath $candidate -Force
-        if (($directoryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_IS_REPARSE_POINT'
+        $item = Get-Item -LiteralPath $candidate -Force
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'BOOTSTRAP_WORK_ROOT_REPARSE_POINT'
+        }
+        $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        & icacls.exe $candidate /inheritance:r /grant:r "*$($sid):(OI)(CI)F" /grant '*S-1-5-18:(OI)(CI)F' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'BOOTSTRAP_WORK_ROOT_ACL_SETUP_FAILED' }
+        foreach ($extraSid in @('*S-1-5-32-544', '*S-1-3-4')) {
+            & icacls.exe $candidate /remove $extraSid | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'BOOTSTRAP_WORK_ROOT_ACL_SETUP_FAILED' }
         }
 
-        $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-        if ($currentSid -notmatch '^S-1-\d+(?:-\d+)+
+        $acl = Get-Acl -LiteralPath $candidate
+        if (-not $acl.AreAccessRulesProtected) { throw 'BOOTSTRAP_WORK_ROOT_INHERITANCE_ENABLED' }
+        $rules = @($acl.Access)
+        if ($rules.Count -ne 2) { throw 'BOOTSTRAP_WORK_ROOT_UNEXPECTED_ACL_COUNT' }
+        $allowed = @($sid, 'S-1-5-18')
+        foreach ($rule in $rules) {
+            $ruleSid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+            if ($ruleSid -notin $allowed -or
+                $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+                $rule.IsInherited -or
+                $rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl) {
+                throw 'BOOTSTRAP_WORK_ROOT_UNEXPECTED_ACL'
+            }
+        }
+        $item = Get-Item -LiteralPath $candidate -Force
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'BOOTSTRAP_WORK_ROOT_REPARSE_POINT'
+        }
+        return $candidate
+    }
+    throw 'BOOTSTRAP_WORK_ROOT_COLLISION'
+}
+
+function Get-VerifiedInstaller {
     param(
         [Parameter(Mandatory = $true)][string]$Uri,
         [Parameter(Mandatory = $true)][string]$Destination,
@@ -65,8 +91,7 @@ function New-ProtectedWorkRoot {
         [string]$RequiredSignerSubstring
     )
 
-    # WorkRoot is fresh and ACL-verified. Never silently delete/adopt a
-    # pre-existing installer file or a possible unexpected path occupant.
+    # WorkRoot is newly-created and ACL-verified; never remove/adopt an unexpected path.
     if (Test-Path -LiteralPath $Destination) {
         throw 'INSTALLER_DESTINATION_ALREADY_EXISTS'
     }
@@ -119,258 +144,7 @@ try {
 
     $workRoot = New-ProtectedWorkRoot
     $installerRoot = Join-Path $workRoot 'installers'
-    # Parent was created by this elevated process and has a verified DACL.
     New-Item -ItemType Directory -Path $installerRoot -ErrorAction Stop | Out-Null
-
-    $gitInstaller = Join-Path $installerRoot 'Git-2.56.0.3-64-bit.exe'
-    $pythonInstaller = Join-Path $installerRoot 'python-3.13.17-amd64.exe'
-    $gitInstallerReport = $null
-    $pythonInstallerReport = $null
-
-    if (-not (Test-Path -LiteralPath $gitExe -PathType Leaf)) {
-        $gitInstallerReport = Get-VerifiedInstaller -Uri $gitInstallerUrl -Destination $gitInstaller -ExpectedSha256 $gitInstallerSha256
-
-        $gitArgs = '/VERYSILENT /NORESTART /SP- /SUPPRESSMSGBOXES /DIR="' + $gitInstallRoot + '"'
-        $gitProcess = Start-Process -FilePath $gitInstaller -ArgumentList $gitArgs -Wait -PassThru
-        if ($gitProcess.ExitCode -ne 0) {
-            throw 'GIT_FOR_WINDOWS_INSTALL_FAILED'
-        }
-    }
-
-    if (-not (Test-Path -LiteralPath $gitExe -PathType Leaf)) {
-        throw 'PINNED_GIT_EXECUTABLE_NOT_FOUND_AFTER_INSTALL'
-    }
-
-    $gitVersion = (& $gitExe --version | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $gitVersion -notmatch '^git version 2\.56\.0\.windows\.3(?:\s|$)') {
-        throw 'GIT_VERSION_NOT_THE_REVIEWED_PIN'
-    }
-
-    if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
-        $pythonInstallerReport = Get-VerifiedInstaller -Uri $pythonInstallerUrl -Destination $pythonInstaller -ExpectedSha256 $pythonInstallerSha256 -RequiredSignerSubstring 'Python Software Foundation'
-
-        $pythonArgs = '/quiet InstallAllUsers=1 TargetDir="' + $pythonInstallRoot + '" Include_pip=1 Include_test=0 PrependPath=0 AppendPath=0 InstallLauncherAllUsers=1 Shortcuts=0'
-        $pythonProcess = Start-Process -FilePath $pythonInstaller -ArgumentList $pythonArgs -Wait -PassThru
-        if ($pythonProcess.ExitCode -ne 0) {
-            throw 'PYTHON_INSTALL_FAILED'
-        }
-    }
-
-    if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
-        throw 'PINNED_PYTHON_EXECUTABLE_NOT_FOUND_AFTER_INSTALL'
-    }
-
-    $detectedPython = (& $pythonExe -c "import sys; print('.'.join(map(str, sys.version_info[:3])))" | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $detectedPython -ne $pythonVersion) {
-        throw 'PYTHON_VERSION_NOT_THE_REVIEWED_PIN'
-    }
-
-    # Create the target only after installer verification and tool checks.
-    New-Item -ItemType Directory -Path $ProviderRoot | Out-Null
-    $sourceRoot = Join-Path $ProviderRoot 'source'
-    $venvRoot = Join-Path $ProviderRoot 'venv'
-
-    & $gitExe -c core.longpaths=true clone --quiet --no-checkout $repositoryUrl $sourceRoot
-    if ($LASTEXITCODE -ne 0) {
-        throw 'GITHUB_SOURCE_CLONE_FAILED'
-    }
-
-    & $gitExe -C $sourceRoot checkout --quiet --detach $ExpectedCommit
-    if ($LASTEXITCODE -ne 0) {
-        throw 'PINNED_SOURCE_CHECKOUT_FAILED'
-    }
-
-    $actualCommit = (& $gitExe -C $sourceRoot rev-parse HEAD | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $actualCommit -ne $ExpectedCommit) {
-        throw 'CHECKED_OUT_SOURCE_SHA_MISMATCH'
-    }
-
-    $gitStatus = @(& $gitExe -C $sourceRoot status --porcelain=v1)
-    if ($LASTEXITCODE -ne 0 -or $gitStatus.Count -gt 0) {
-        throw 'SOURCE_CHECKOUT_NOT_CLEAN'
-    }
-
-    & $pythonExe -m venv $venvRoot
-    if ($LASTEXITCODE -ne 0) {
-        throw 'PROVIDER_VENV_CREATION_FAILED'
-    }
-
-    $venvPython = Join-Path $venvRoot 'Scripts\python.exe'
-    if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
-        throw 'PROVIDER_VENV_PYTHON_NOT_FOUND'
-    }
-
-    & $venvPython -m pip install --disable-pip-version-check --upgrade pip
-    if ($LASTEXITCODE -ne 0) {
-        throw 'PIP_BOOTSTRAP_FAILED'
-    }
-
-    & $venvPython -m pip install --disable-pip-version-check -r (Join-Path $sourceRoot 'requirements.txt')
-    if ($LASTEXITCODE -ne 0) {
-        throw 'PROJECT_DEPENDENCY_INSTALL_FAILED'
-    }
-
-    & $venvPython -c "import cryptography, numpy, pandas, backtesting, pytest; print('PYTHON_DEPENDENCIES=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
-    if ($LASTEXITCODE -ne 0) {
-        throw 'PROJECT_DEPENDENCY_IMPORT_FAILED'
-    }
-
-    $focusedTests = @(
-        'tests/test_control_plane_provider_host_preflight_v1.py',
-        'tests/test_control_plane_admission_provider_v1.py',
-        'tests/test_control_plane_provider_service_v1.py',
-        'tests/test_control_plane_service_v1.py'
-    )
-    $testPaths = $focusedTests | ForEach-Object { Join-Path $sourceRoot $_ }
-    & $venvPython -m pytest -q -p no:cacheprovider $testPaths
-    if ($LASTEXITCODE -ne 0) {
-        throw 'FOCUSED_PROVIDER_CONTRACT_TESTS_FAILED'
-    }
-
-    $report = [ordered]@{
-        schema = 'forexai.provider_clean_host_bootstrap.v1'
-        status = 'BOOTSTRAP_COMPLETE_AUTHORITY_SETUP_STILL_BLOCKED'
-        host = $env:COMPUTERNAME
-        os_caption = [string]$os.Caption
-        os_build = [string]$os.BuildNumber
-        git_version = $gitVersion
-        python_version = $detectedPython
-        repository_url = $repositoryUrl
-        source_commit = $actualCommit
-        provider_root = $ProviderRoot
-        source_directory_created = $true
-        virtual_environment_created = $true
-        git_installer = $gitInstallerReport
-        python_installer = $pythonInstallerReport
-        focused_provider_contract_tests = 'PASS'
-        provider_service_installed = $false
-        issuance_registry_created = $false
-        public_trust_anchors_configured = $false
-        private_keys_or_passphrases_migrated = $false
-        source_packet_created = $false
-        ledger_envelope_or_mql5_auth_record_created = $false
-        demo_trading_authorized = $false
-        live_trading_allowed = $false
-        orders_submitted = $false
-        next_gate = 'OWNER_APPROVED_KEY_CUSTODY_SOURCE_AUTHORITIES_AND_REGISTRY_PLAN'
-    }
-
-    $reportPath = Join-Path $workRoot 'bootstrap-result.json'
-    $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reportPath -Encoding UTF8
-    $report | ConvertTo-Json -Depth 6
-    Write-Output "BOOTSTRAP_REPORT=$reportPath"
-    Write-Output 'PROVIDER_SERVICE_NOT_INSTALLED'
-    Write-Output 'PRODUCTION_REGISTRY_NOT_CREATED'
-    Write-Output 'TRADING_AUTHORIZATION_NOT_GRANTED'
-}
-catch {
-    Write-Error ("PROVIDER_BOOTSTRAP_ABORTED: " + $_.Exception.Message)
-    throw
-}
-) {
-            throw 'BOOTSTRAP_CURRENT_WINDOWS_SID_UNAVAILABLE'
-        }
-
-        & icacls.exe $candidate /inheritance:r /grant:r "*$($currentSid):(OI)(CI)F" /grant '*S-1-5-18:(OI)(CI)F' /remove '*S-1-5-32-544' /remove '*S-1-3-4' | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_ACL_SETUP_FAILED'
-        }
-
-        $acl = Get-Acl -LiteralPath $candidate
-        if (-not $acl.AreAccessRulesProtected) {
-            throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_INHERITANCE_STILL_ENABLED'
-        }
-        $rules = @($acl.Access)
-        if ($rules.Count -ne 2) {
-            throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_UNEXPECTED_ACL_RULE_COUNT'
-        }
-        $observedSids = @()
-        foreach ($rule in $rules) {
-            $ruleSid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
-            $observedSids += $ruleSid
-            if ($ruleSid -notin @($currentSid, 'S-1-5-18') -or
-                $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
-                $rule.IsInherited -or
-                $rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl) {
-                throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_UNEXPECTED_ACL'
-            }
-        }
-        if (@($observedSids | Sort-Object -Unique).Count -ne 2) {
-            throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_REQUIRED_SIDS_MISSING'
-        }
-
-        $directoryItem = Get-Item -LiteralPath $candidate -Force
-        if (($directoryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_CHANGED_TO_REPARSE_POINT'
-        }
-
-        return $candidate
-    }
-
-    throw 'BOOTSTRAP_PROTECTED_WORK_ROOT_NAME_COLLISION'
-}
-
-function Get-VerifiedInstaller {
-    param(
-        [Parameter(Mandatory = $true)][string]$Uri,
-        [Parameter(Mandatory = $true)][string]$Destination,
-        [Parameter(Mandatory = $true)][string]$ExpectedSha256,
-        [string]$RequiredSignerSubstring
-    )
-
-    if (Test-Path -LiteralPath $Destination) {
-        Remove-Item -LiteralPath $Destination -Force
-    }
-
-    Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $Destination
-
-    $actualHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actualHash -ne $ExpectedSha256.ToLowerInvariant()) {
-        throw 'INSTALLER_SHA256_MISMATCH'
-    }
-
-    $signature = Get-AuthenticodeSignature -LiteralPath $Destination
-    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw 'INSTALLER_AUTHENTICODE_SIGNATURE_INVALID'
-    }
-    if ($RequiredSignerSubstring -and $signature.SignerCertificate.Subject -notmatch [regex]::Escape($RequiredSignerSubstring)) {
-        throw 'INSTALLER_SIGNER_SUBJECT_MISMATCH'
-    }
-
-    return [PSCustomObject]@{
-        path = $Destination
-        sha256 = $actualHash
-        signature_status = [string]$signature.Status
-        signer_subject = [string]$signature.SignerCertificate.Subject
-    }
-}
-
-try {
-    Assert-Administrator
-
-    if (-not [Environment]::Is64BitOperatingSystem) {
-        throw 'BOOTSTRAP_REQUIRES_64_BIT_WINDOWS'
-    }
-
-    $os = Get-CimInstance -ClassName Win32_OperatingSystem
-    if ([int]$os.BuildNumber -lt 20348 -or [int]$os.ProductType -eq 1) {
-        throw 'BOOTSTRAP_EXPECTS_WINDOWS_SERVER_2022_OR_NEWER'
-    }
-
-    if ($ExpectedCommit -notmatch '^[0-9a-f]{40}$') {
-        throw 'EXPECTED_COMMIT_MUST_BE_FULL_SHA'
-    }
-
-    # Never overlay a previous install or silently adopt existing state.
-    if (Test-Path -LiteralPath $ProviderRoot) {
-        throw 'PROVIDER_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RESUME'
-    }
-
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-    $workRoot = Join-Path $env:TEMP 'ForexAI-Provider-Bootstrap-v1'
-    $installerRoot = Join-Path $workRoot 'installers'
-    New-Item -ItemType Directory -Path $installerRoot -Force | Out-Null
 
     $gitInstaller = Join-Path $installerRoot 'Git-2.56.0.3-64-bit.exe'
     $pythonInstaller = Join-Path $installerRoot 'python-3.13.17-amd64.exe'
