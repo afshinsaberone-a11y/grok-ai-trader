@@ -1,8 +1,8 @@
 # ForexAI Provider VPS Migration Runbook v1
 
-**Status:** PRE-CUTOVER / BLOCKED — destination access has not yet been verified.  
+**Status:** DESTINATION ACCESS VERIFIED; CLEAN-HOST BOOTSTRAP PENDING; CUTOVER BLOCKED.  
 **Last reviewed:** 2026-10-25  
-**Repository baseline reviewed:** `610a958fb7eb8051e814834a6462bac823aaf503`
+**Old Provider source baseline:** `610a958fb7eb8051e814834a6462bac823aaf503`; **current-main evidence/bootstrap baseline:** `41883f30d32747d07d7b7772f8ee7c656a95e4a1`
 
 This runbook covers replacing the old MobinHost Windows Provider host with the proposed Netherlands VPS while retaining the G13 history and fail-closed security model. It is a checklist, not proof that a migration has occurred or permission to trade.
 
@@ -162,3 +162,54 @@ Its redacted report states that no authorization record was created and no order
 At the same time, the old Provider host report confirms the reviewed source SHA and a working Python 3.13.16 venv when invoked through its explicit path. The Provider remains blocked: its configured issuance-registry target is absent; `in`/`out` are empty; no source packet or registered Provider service exists; Signal, Risk, and Operator public anchors are absent; the Promotion file/environment fingerprints mismatch and the Promotion private-key file is present on the Provider host; the Admission signing passphrase is not available in the process environment. The Netherlands destination is not yet accessible, so no destination deployment or cutover has occurred.
 
 Preserve this section as a dated addendum. It does not supersede the 2026-10-24 evidence table above; it records the newer chain for the later SHA and keeps the prior history intact.
+
+
+## 9. Netherlands destination first access and clean-host bootstrap — 2026-10-25
+
+The destination was reached for the first time. The user-provided read-only inventory reports:
+
+- Hostname: `WIN-32DFDCJOHEF`; OS: Microsoft Windows Server 2022 Datacenter, build `20348`; interactive account: `WIN-32DFDCJOHEF\Administrator`.
+- `C:\ProgramData\ForexAI-Provider` does not exist. No `source`, `venv`, `keys`, `in`, `out`, or `state` directories exist.
+- No Python candidate or Git source checkout was found by that diagnostic; the diagnostic did not establish whether another Git executable exists outside its search.
+- `ForexAIProviderSvc` is not registered.
+- Every inspected Process/User/Machine scope is unconfigured for the Admission, Promotion, Signal, Risk, Operator public anchors; Provider issuance registry path; Admission signer passphrase; Promotion attestor passphrase; and Control Plane HMAC secret.
+
+This is a clean destination baseline, not an operational Provider. It is safe to prepare code/runtime, but no authority key, production state, service, or trading permission should be imported automatically.
+
+### Pinned first-stage bootstrap
+
+The new `tools/bootstrap_provider_host_v1.ps1` is designed for this clean Windows Server 2022+ x64 destination. It:
+
+1. Requires an elevated administrator and aborts if the Provider root already exists, to avoid overwriting unexpected state.
+2. Downloads Git for Windows `2.56.0(3)` and Python `3.13.17` only if their pinned executable path is absent; verifies official release SHA-256 and Authenticode before running installers.
+3. Clones the repository, checks out exact SHA `41883f30d32747d07d7b7772f8ee7c656a95e4a1` and verifies the checkout is clean.
+4. Creates a fresh virtual environment, installs `requirements.txt`, checks core dependency imports and runs focused Provider contract tests.
+5. Does **not** configure keys/secrets, create the Provider or Grant registry, create an input source packet, create Ledger/Envelope/MQL5 authorization files, install/register the Provider service, enable Demo/Live or place an order.
+
+Pinned installer provenance:
+- [Python 3.13.17 official release](https://www.python.org/downloads/release/python-31317/) — Windows x64 installer SHA-256: `5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190`.
+- [Git for Windows v2.56.0.windows.3 official release](https://github.com/git-for-windows/git/releases/tag/v2.56.0.windows.3) — x64 installer SHA-256: `dc6d3db061999136e139f31376c5582a9ed6f36a4ea12f15e54ad7fa2bfc0bf2`.
+
+The bootstrap script itself is in a review branch while CI checks its contract; use the exact pinned revision referenced in the associated PR/runbook, not a mutable unreviewed copy. Because the script is first-run and fail-closed, if it stops after creating the root, inspect partial state rather than deleting or rerunning over it blindly.
+
+### Fresh G13/Readiness snapshot at the exact bootstrap SHA
+
+The current-main SHA reviewed for this bootstrap is `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. The following Actions runs were reported successful on this exact SHA:
+
+| Gate | Run |
+|---|---:|
+| Validation M15 | [40176071204](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176071204) |
+| Robustness M15 | [40176072462](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176072462) |
+| OOS M15 Current | [40176214390](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176214390) |
+| Final Promotion M15 | [40176324110](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176324110) |
+| MT5 Compile + Signal Parity | [40176443408](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176443408) |
+| Runtime Safety Probe M15 v2 | [40176693755](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176693755) |
+| Controlled Demo Package Preflight | [40176790887](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176790887) |
+| Execution Safety Audit M15 | [40176809457](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176809457) |
+| Demo Readiness Gate M15 | [40176825695](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176825695) |
+
+The run-bound [Capital Firewall Authorization Preflight](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176844505) failed on this same SHA. The MT5/Control Plane blockers remain `AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING`, and `TRADE_LEDGER_FILE_MISSING`. Readiness is not trading authorization: `demo_trading_allowed=false`, `live_trading_allowed=false`, and `orders_submitted=false`.
+
+### Cutover remains blocked
+
+The new host being reachable does not resolve the old host's missing issuance registry, Promotion trust-anchor mismatch/private-key custody issue, absent Signal/Risk/Operator authorities, missing Admission passphrase, or absent signed source packet. Do not migrate the Promotion private key to this Provider. Keep the old host/snapshot and the preserved local diagnostic until data and key custody have been reconciled. Install no Provider service, initialize no production registry and keep Demo unauthorized/Live disabled until independent source owners and the runtime identity/registry controls are verified.
