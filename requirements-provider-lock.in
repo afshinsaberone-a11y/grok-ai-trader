@@ -1,0 +1,4 @@
+# Input for the review-only provider dependency lock candidate workflow.
+# This includes project dependency ranges; output must be reviewed and committed
+# as requirements-provider.lock.txt before elevated bootstrap can pass.
+-r requirements.txt
