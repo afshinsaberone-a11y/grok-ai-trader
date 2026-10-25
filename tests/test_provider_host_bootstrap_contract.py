@@ -85,3 +85,26 @@ def test_elevated_bootstrap_installer_workspace_is_not_user_temp_and_is_acl_veri
     # Never delete a pre-existing installer-path occupant and then overwrite it.
     assert "INSTALLER_DESTINATION_ALREADY_EXISTS" in script
     assert "Remove-Item -LiteralPath $Destination -Force" not in script
+
+
+
+def test_elevated_bootstrap_requires_a_committed_hash_lock_and_never_upgrades_pip():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "tools" / "bootstrap_provider_host_v1.ps1").read_text(encoding="utf-8")
+
+    # Dependency resolution must not happen on the elevated host. The fixed
+    # reviewed source SHA must carry a reviewed complete lock or bootstrap stops.
+    assert "$providerLockPath = Join-Path $sourceRoot 'requirements-provider.lock.txt'" in script
+    assert "HASH_LOCKED_PROVIDER_REQUIREMENTS_MISSING" in script
+    assert "HASH_LOCKED_PROVIDER_REQUIREMENTS_INVALID" in script
+    assert script.index("$providerLockPath = Join-Path $sourceRoot") < script.index("& $pythonExe -m venv $venvRoot")
+    assert "--require-hashes" in script
+    assert "--only-binary=:all:" in script
+    assert "dependency_lock_sha256 =" in script
+
+    # pip shipped with the SHA-256-pinned Python installer remains in place;
+    # don't upgrade to an unpinned latest release or use the range-based input.
+    assert "--upgrade pip" not in script
+    assert "-r (Join-Path $sourceRoot 'requirements.txt')" not in script
+    assert "-r $providerLockPath" in script
+    assert "PROJECT_HASH_LOCKED_DEPENDENCY_INSTALL_FAILED" in script
