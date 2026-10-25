@@ -132,6 +132,32 @@ def test_refuses_relative_or_short_passphrase_without_creating_files(tmp_path: P
     assert not (tmp_path / "short-passphrase").exists()
 
 
+def test_does_not_clean_an_output_directory_if_creation_races(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output_dir = tmp_path / "authority-race"
+    original_mkdir = Path.mkdir
+
+    def race_directory_creation(path: Path, *args, **kwargs):
+        if path == output_dir:
+            original_mkdir(path, *args, **kwargs)
+            sentinel = path / "created-by-other-process.txt"
+            sentinel.write_text("preserve", encoding="utf-8")
+            raise FileExistsError("simulated directory creation race")
+        return original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", race_directory_creation)
+    with pytest.raises(FileExistsError):
+        generate_authority_keypair(
+            output_dir,
+            "provider-admission",
+            "long-enough-test-passphrase",
+            repository_root=repository,
+        )
+
+    assert (output_dir / "created-by-other-process.txt").read_text(encoding="utf-8") == "preserve"
+
+
 def test_all_required_roles_have_distinct_key_ids_and_correct_environment_names():
     assert set(ROLES) == {
         "provider-admission",
