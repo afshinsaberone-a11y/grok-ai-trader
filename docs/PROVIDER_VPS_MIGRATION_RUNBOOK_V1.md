@@ -213,3 +213,45 @@ The run-bound [Capital Firewall Authorization Preflight](https://github.com/afsh
 ### Cutover remains blocked
 
 The new host being reachable does not resolve the old host's missing issuance registry, Promotion trust-anchor mismatch/private-key custody issue, absent Signal/Risk/Operator authorities, missing Admission passphrase, or absent signed source packet. Do not migrate the Promotion private key to this Provider. Keep the old host/snapshot and the preserved local diagnostic until data and key custody have been reconciled. Install no Provider service, initialize no production registry and keep Demo unauthorized/Live disabled until independent source owners and the runtime identity/registry controls are verified.
+
+
+## 10. Clean-host bootstrap result — 2026-10-25
+
+The administrator supplied the following bootstrap report from destination host `WIN-32DFDCJOHEF` on 2026-10-25. The report has no wall-clock timestamp, so none is inferred here.
+
+- OS: Microsoft Windows Server 2022 Datacenter, build `20348`.
+- Git: `2.56.0.windows.3`; Python: `3.13.17`.
+- Pinned repository checkout: `41883f30d32747d07d7b7772f8ee7c656a95e4a1`.
+- Provider root: `C:\\ProgramData\\ForexAI-Provider`; source directory and virtual environment were created.
+- Git and Python installers passed Authenticode validation. Reported SHA-256 values matched the bootstrap's pins:
+  - Git: `dc6d3db061999136e139f31376c5582a9ed6f36a4ea12f15e54ad7fa2bfc0bf2`
+  - Python: `5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190`
+- Focused Provider contract tests: `PASS`; bootstrap process exit code: `0`.
+
+The same report explicitly says:
+
+| Gate | Observed result |
+|---|---|
+| `ForexAIProviderSvc` installed/registered | `false` |
+| Provider issuance registry created | `false` |
+| Public trust anchors configured | `false` |
+| Private keys or passphrases migrated | `false` |
+| Source packet created | `false` |
+| TradeLedger, authenticated envelope or MQL5 authorization record created | `false` |
+| Demo trading authorized | `false` |
+| Live trading allowed | `false` |
+| Orders submitted | `false` |
+
+The report's next gate is `OWNER_APPROVED_KEY_CUSTODY_SOURCE_AUTHORITIES_AND_REGISTRY_PLAN`. Exit code zero means only that this bootstrap stage completed; it is not a Provider preflight pass, production cutover, or trading authorization.
+
+### Required next steps
+
+1. Preserve the current clean-host source tree and venv. Do not rerun the one-shot bootstrap over the existing Provider root; inspect any partial state before any repair.
+2. Before configuring anchors, obtain an owner-approved register of each authority's owner, key ID, independently verified public-key fingerprint, source-of-truth/signing service, custody boundary, and rotation/revocation owner. Record metadata only, never private keys or passphrases.
+3. Obtain distinct real Admission, Promotion, Signal, Risk and Operator Approval public keys and prove their independent source signatures. Resolve the old Promotion-key mismatch/custody issue with its owner; do not move a Promotion private key into Provider.
+4. Reconcile issuance/admission/grant audit history and failed deliveries. Only after explicit approval of the absolute registry path, service identity, ACLs, backup/restore and recovery plan may the documented one-time registry initializer be considered. Never invent a registry or reset replay state.
+5. Only after the above owners approve, configure the trust anchors and secret delivery, run the explicit-venv read-only host preflight, install the persistent Provider service under the approved identity, and test start/stop, ACLs, replay rejection and failure handling without consuming production packets.
+6. Independently resolve the MT5-side blockers `AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING`, and `TRADE_LEDGER_FILE_MISSING` from authentic signed workflow artifacts. Do not create empty substitutes.
+7. Keep Kill Switch DENY, Demo unauthorized, Live disabled and order submission off until fresh upstream attestations and a separately approved one-signal Demo authorization pass all execution-boundary checks.
+
+This addendum updates the destination bootstrap status only. It does not replace earlier evidence or declare migration cutover complete.
