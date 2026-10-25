@@ -322,3 +322,24 @@ This is operator-reported command output, not an independent inspection of the V
 **Not activated and not authorized:** do not put the new public key into Provider/Repository/runner configuration yet. Existing consumers verify signatures against the approved Admission trust anchor and key ID; this is a key-rotation event that must be coordinated with the MT5-side verifier and have an owner-approved rollback. The public fingerprint alone does not prove source-service independence or authorize requests.
 
 The rest of the earlier blocked state is unchanged unless independently verified: no Provider service or production registry was reported as created, no authentic signed source packet/Admission request was reported, and the MT5-side authenticated envelope, MQL5 authorization record, and TradeLedger blockers remain unresolved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off. Do not generate the other five roles on Provider; their private keys must be created and retained only in the actual independent authority boundaries.
+
+
+## 14. Admission key metadata PASS; ACL hardening follow-up — 2026-10-25
+
+The administrator supplied a read-only validation from `WIN-32DFDCJOHEF` after local Provider Admission key generation:
+
+- Manifest schema, role, key ID and environment variable matched the expected Provider Admission contract.
+- Decoded raw Ed25519 public key length was 32 bytes.
+- SHA-256 computed from the manifest's decoded public key matched the manifest fingerprint: `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`.
+- The private-key PEM header was `-----BEGIN ENCRYPTED PRIVATE KEY-----`.
+
+The directory ACL output contained these explicit principals: the interactive `WIN-32DFDCJOHEF\\Administrator` SID, `NT AUTHORITY\\SYSTEM`, `BUILTIN\\Administrators`, and `OWNER RIGHTS`. The presence of `BUILTIN\\Administrators` and `OWNER RIGHTS` means the actual directory DACL does **not** match the utility's stated intent to grant explicit directory access only to the current user SID and SYSTEM. The public-key fingerprint is a metadata PASS; ACL hardening is a separate follow-up and must not be reported as passed.
+
+A code fix was committed on the working branch to remove the two extra explicit ACEs during future key generation and fail closed if that cleanup cannot be completed; focused tests were added. The current already-created directory is **not** changed by that source-code patch. Verify the two expected files and remove the extra explicit ACEs from the existing directory and its files in place; do not delete/recreate the directory or regenerate the key. Inspect the effective ACLs of all three paths afterward. The public manifest and private key must remain in place.
+
+Recorded code changes:
+- ACL correction in `tools/create_control_plane_authority_key_v1.py`: commit `a3242cf189963985857b09cddf5fa0ab4904f4ee`.
+- Windows ACL contract tests in `tests/test_create_control_plane_authority_key_v1.py`: commit `361bbb512a9b1ae370d2707c7370b954884e8262`.
+- This patch set has not yet been verified by a fresh CI run; do not describe the latest change as CI-passed until then.
+
+No public trust anchor has been configured or activated, no Provider service or production registry has been reported as installed/initialized, and no new source evidence, authenticated envelope, MQL5 authorization record, or TradeLedger has been created by this step. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
