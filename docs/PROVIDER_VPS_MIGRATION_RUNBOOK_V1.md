@@ -370,3 +370,14 @@ The operator reran the read-only validation on host `WIN-32DFDCJOHEF`. Results: 
 ACL inspection of the directory and both files succeeded with zero failed files. Only `WIN-32DFDCJOHEF\Administrator` and `NT AUTHORITY\SYSTEM` are listed; the file ACEs are inherited. No private-key contents or passphrase were printed or recorded.
 
 This validates the reported local file permissions and public-key metadata only. It does not activate or publish this key, verify the active MT5 trust anchor, initialize the admission issuer/service/registry, create source attestations, a signed admission, authenticated envelope, MQL5 authorization record, or TradeLedger, or authorize trading. A previous public-key value exists in historical repository material; do not rotate the consumer anchor without comparing the current effective value and preparing an owner-approved rotation/rollback plan. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+
+## 18. GitHub Admission consumer fingerprint confirmed on the historical anchor — 2026-10-25
+
+The operator locally computed the SHA-256 fingerprint of the current GitHub repository variable `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY` without sending the Base64 key. Reported output: `CurrentVariableFingerprint=0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc`, `MatchesNewAdmissionKey=False`, and `MatchesHistoricalArchivedValue=True`.
+
+This is consistent with the older Admission trust anchor previously reported on the legacy Provider host, whose Admission public-key file and Process/Machine anchor matched at fingerprint `0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc`. The new key generated on `WIN-32DFDCJOHEF` has fingerprint `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`. The mismatch is now confirmed; do not copy the new key into GitHub Variables or change a Provider anchor as an isolated step.
+
+Next decision: determine whether the legacy issuer's encrypted private key can be recovered and verified through its approved secret manager, without exposing the passphrase. If continuity cannot be restored, perform a documented, owner-approved coordinated rotation across the Admission signer and every verifier/consumer (including the MT5 Runner and Provider runtime), with a tested rollback path and keypair proof-of-possession before changing the repository variable. The separate historical staged Admission candidate with fingerprint `42ae424123acd85e3d0f0dcef2e2844d43a9378c7ec8acf6868bcfe28436174a` is not the newly generated key and is not implicitly approved. Do not guess between candidates.
+
+No provider signature, service, registry, MT5 authorization record, envelope, ledger, or trade permission was created. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
