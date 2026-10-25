@@ -412,3 +412,12 @@ The earlier blocked lookup was only a path mismatch: `keys\\admission-v1\\privat
 Next gate: locally unlock the legacy encrypted PEM using the approved password manager/secret-custody process, derive its Ed25519 public key in memory, and compare its fingerprint to the historical active value. Print only PASS/FAIL and the derived public fingerprint; never print or transmit the passphrase, private PEM, or public Base64. If the passphrase is unavailable, stop and plan owner-approved coordinated rotation; do not substitute the 2026-10-20 candidate by guessing.
 
 No Provider service, issuance registry, signed request, authenticated envelope, MQL5 authorization record, TradeLedger, or trading permission was created. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
+
+
+## 21. Legacy Admission key inventory — 2026-10-25
+
+The operator's read-only inventory on `WIN-P7MA35DRF6Q` found the legacy Admission PEM at `C:\ProgramData\ForexAI-Provider\keys\admission-provider-ed25519.pem` (302 bytes; header classified as `ENCRYPTED_PKCS8`). The adjacent public-key text file fingerprint is `0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc`, matching the current GitHub repository variable reported earlier.
+
+A separate 2026-10-20 rotation candidate remains present. Its public-key fingerprint is `42ae424123acd85e3d0f0dcef2e2844d43a9378c7ec8acf6868bcfe28436174a`, which is not the current trusted fingerprint; it stays comparison-only absent owner-approved coordinated rotation. The earlier missing-file result checked `keys\admission-v1\private-key.pem`, a new-host path, not this legacy layout. No key was created, moved, deleted, or activated during the inventory.
+
+Next gate: use only the approved key-custody/password-manager process to unlock the legacy PEM locally and derive its Ed25519 public-key fingerprint in memory. Output only whether it matches the current trusted fingerprint, plus the derived fingerprint; never print a passphrase or private-key contents. If the passphrase is unavailable, stop and prepare owner-approved coordinated rotation instead of substituting the 2026-10-20 candidate. No trading authority was created; keep Kill Switch DENY, Demo unauthorized, Live disabled, orders off.
