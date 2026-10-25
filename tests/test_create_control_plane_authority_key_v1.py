@@ -162,6 +162,7 @@ def test_does_not_clean_an_output_directory_if_creation_races(tmp_path: Path, mo
 def test_windows_key_directory_acl_removes_default_admin_and_owner_rights(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
+    original_os_name = keygen.os.name
     monkeypatch.setattr(keygen.os, "name", "nt")
     calls: list[list[str]] = []
 
@@ -176,7 +177,12 @@ def test_windows_key_directory_acl_removes_default_admin_and_owner_rights(
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(keygen.subprocess, "run", fake_run)
-    keygen._secure_private_directory(tmp_path)
+    try:
+        keygen._secure_private_directory(tmp_path)
+    finally:
+        # os.name is process-global. Restore it before pytest formats assertions
+        # so pathlib does not try to instantiate WindowsPath on a POSIX runner.
+        keygen.os.name = original_os_name
 
     acl_calls = [args for args in calls if args[0] == "icacls"]
     assert len(acl_calls) == 3
@@ -190,6 +196,7 @@ def test_windows_key_directory_acl_removes_default_admin_and_owner_rights(
 def test_windows_key_directory_acl_failure_to_remove_extra_ace_blocks(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
+    original_os_name = keygen.os.name
     monkeypatch.setattr(keygen.os, "name", "nt")
 
     def fake_run(args, **kwargs):
@@ -204,8 +211,11 @@ def test_windows_key_directory_acl_failure_to_remove_extra_ace_blocks(
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(keygen.subprocess, "run", fake_run)
-    with pytest.raises(AuthorityKeyGenerationError, match="PRIVATE_DIRECTORY_ACL_SETUP_FAILED"):
-        keygen._secure_private_directory(tmp_path)
+    try:
+        with pytest.raises(AuthorityKeyGenerationError, match="PRIVATE_DIRECTORY_ACL_SETUP_FAILED"):
+            keygen._secure_private_directory(tmp_path)
+    finally:
+        keygen.os.name = original_os_name
 
 
 def test_all_required_roles_have_distinct_key_ids_and_correct_environment_names():
