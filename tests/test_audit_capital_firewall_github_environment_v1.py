@@ -40,7 +40,7 @@ def _environment():
 
 
 def _branch_policies():
-    return {"total_count": 1, "branch_policies": [{"id": 1, "name": "main"}]}
+    return {"total_count": 1, "branch_policies": [{"id": 1, "name": "main", "type": "branch"}]}
 
 
 def _audit(environment=None, branches=None, **overrides):
@@ -132,6 +132,27 @@ def test_expected_reviewer_must_be_configured_and_not_owner_or_triggering_actor(
 def test_deployment_branch_policy_allows_only_main(branches, reason):
     report = _audit(branches=branches)
     assert report["reason"] == reason
+
+
+def test_branch_policy_without_documented_type_is_partial_not_full_pass():
+    branches = _branch_policies()
+    del branches["branch_policies"][0]["type"]
+    report = _audit(branches=branches)
+    assert report["status"] == "PARTIAL_CONFIGURATION_REVIEW_REQUIRED"
+    assert report["reason"] == "DEPLOYMENT_BRANCH_TAG_TYPE_NOT_EXPOSED_BY_DOCUMENTED_READ_API"
+    assert report["deployment_branch_policy_type_status"] == "NOT_EXPOSED_BY_DOCUMENTED_READ_API"
+    assert "DEPLOYMENT_BRANCH_TAG_TYPE_NOT_EXPOSED_BY_DOCUMENTED_READ_API" in report["verification_gaps"]
+    assert report["grant_issued"] is False
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
+
+
+def test_tag_deployment_policy_is_rejected():
+    branches = _branch_policies()
+    branches["branch_policies"][0]["type"] = "tag"
+    report = _audit(branches=branches)
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "DEPLOYMENT_POLICY_IS_NOT_BRANCH"
 
 
 def test_documented_github_environment_response_without_admin_bypass_field_is_partial():
