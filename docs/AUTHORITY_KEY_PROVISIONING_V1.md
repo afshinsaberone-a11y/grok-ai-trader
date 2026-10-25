@@ -4,7 +4,7 @@
 
 ## Security boundary
 
-The utility `tools/create_control_plane_authority_key_v1.py` generates exactly one Ed25519 keypair per invocation. It encrypts the PKCS#8 private key with a passphrase entered interactively, restricts the newly created key directory to the current Windows security identifier plus SYSTEM (or `0700` directory permissions on POSIX), and writes a public-only JSON manifest. It refuses relative paths, directories inside the checked-out repository, output directory reuse, and passphrases shorter than 16 characters. It does not accept a passphrase argument or read it from an environment variable. Private key material and passphrases are not printed.
+The utility `tools/create_control_plane_authority_key_v1.py` generates exactly one Ed25519 keypair per invocation. It encrypts the PKCS#8 private key with a passphrase entered interactively, restricts the newly created key directory to the current Windows security identifier plus SYSTEM, removes the explicit default `BUILTIN\\Administrators` and `OWNER RIGHTS` ACEs (and blocks generation if that ACL cleanup fails), or uses `0700` directory permissions on POSIX, and writes a public-only JSON manifest. It refuses relative paths, directories inside the checked-out repository, output directory reuse, and passphrases shorter than 16 characters. It does not accept a passphrase argument or read it from an environment variable. Private key material and passphrases are not printed.
 
 This tool is **not** an authority service. A generated key does not produce signed source evidence, a risk reservation, human approval, a valid Grant, or Demo permission.
 
