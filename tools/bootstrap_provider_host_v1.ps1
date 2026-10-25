@@ -142,6 +142,24 @@ try {
         throw 'PYTHON_INSTALL_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RESUME'
     }
 
+    # The elevated installation target must be a direct child of the actual
+    # CommonApplicationData directory. Do not accept arbitrary paths, relative
+    # paths, or a reparse-point parent supplied by the caller.
+    if (-not [IO.Path]::IsPathRooted($ProviderRoot)) {
+        throw 'PROVIDER_ROOT_MUST_BE_ABSOLUTE'
+    }
+    $programDataRoot = [IO.Path]::GetFullPath([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)).TrimEnd([char[]]@('\', '/'))
+    $normalizedProviderRoot = [IO.Path]::GetFullPath($ProviderRoot)
+    $providerParent = [IO.Path]::GetDirectoryName($normalizedProviderRoot)
+    if (-not [string]::Equals($providerParent.TrimEnd([char[]]@('\', '/')), $programDataRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'PROVIDER_ROOT_MUST_BE_DIRECT_PROGRAMDATA_CHILD'
+    }
+    $programDataItem = Get-Item -LiteralPath $programDataRoot -Force
+    if (($programDataItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'PROVIDER_ROOT_PARENT_MUST_NOT_BE_REPARSE_POINT'
+    }
+    $ProviderRoot = $normalizedProviderRoot
+
     # Never overlay a previous install or silently adopt existing state.
     if (Test-Path -LiteralPath $ProviderRoot) {
         throw 'PROVIDER_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RESUME'
@@ -199,7 +217,12 @@ try {
     }
 
     # Create the target only after installer verification and tool checks.
-    New-Item -ItemType Directory -Path $ProviderRoot | Out-Null
+    # No -Force: a competing path occupant must stop this elevated bootstrap.
+    New-Item -ItemType Directory -Path $ProviderRoot -ErrorAction Stop | Out-Null
+    $createdProviderItem = Get-Item -LiteralPath $ProviderRoot -Force
+    if (($createdProviderItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'PROVIDER_ROOT_CREATED_AS_REPARSE_POINT'
+    }
     $sourceRoot = Join-Path $ProviderRoot 'source'
     $venvRoot = Join-Path $ProviderRoot 'venv'
 
