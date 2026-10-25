@@ -303,3 +303,22 @@ Supported roles align with the current contract key IDs: Provider Admission, Pro
 The Provider Admission pair must be generated/stored only on the Provider host and must be rolled out as a coordinated trust-anchor change with the MT5-side verifier. Do not merely change the Provider environment variable. Public keys may be copied only through approved configuration controls after the owner/custodian has verified the public fingerprint. No private key, passphrase, or broker credentials are stored in GitHub or chat.
 
 Run the contract tests and wait for CI before executing the utility on any host. If the user has no genuinely separate authority services/hosts and custodians, stop after the Admission key and provision the missing source boundaries rather than pretending keypairs create independent services. Keep Provider service uninstalled/non-consuming, registry uninitialized until history/ACL/backup reconciliation is approved, Kill Switch DENY, Demo false, Live false, and orders off.
+
+
+## 13. Provider Admission keypair generated locally — 2026-10-25
+
+The operator supplied a successful local key-generation result from the clean Provider host. The command returned `KEYPAIR_CREATED_LOCAL_ONLY` and exit code `0`. The generated role is `provider-admission` with key ID `forexai-demo-admission-provider-v1`. The reported public-key SHA-256 fingerprint is:
+
+`a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`
+
+Reported outputs:
+- Encrypted private key path: `C:\\ProgramData\\ForexAI-Provider\\keys\\admission-v1\\private-key.pem`
+- Public-only manifest path: `C:\\ProgramData\\ForexAI-Provider\\keys\\admission-v1\\public-key.json`
+- Manifest environment variable name: `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY`
+- The tool reported `private_key_encrypted=true`, `private_key_material_printed=false`, and `passphrase_printed=false`.
+
+This is operator-reported command output, not an independent inspection of the VPS filesystem. The utility's successful return indicates that its generation/self-check path completed, including its private-directory protection step, but the manifest and effective ACL should still receive a separate read-only inspection.
+
+**Not activated and not authorized:** do not put the new public key into Provider/Repository/runner configuration yet. Existing consumers verify signatures against the approved Admission trust anchor and key ID; this is a key-rotation event that must be coordinated with the MT5-side verifier and have an owner-approved rollback. The public fingerprint alone does not prove source-service independence or authorize requests.
+
+The rest of the earlier blocked state is unchanged unless independently verified: no Provider service or production registry was reported as created, no authentic signed source packet/Admission request was reported, and the MT5-side authenticated envelope, MQL5 authorization record, and TradeLedger blockers remain unresolved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off. Do not generate the other five roles on Provider; their private keys must be created and retained only in the actual independent authority boundaries.
