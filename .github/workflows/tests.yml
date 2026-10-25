@@ -30,8 +30,7 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt
-      - name: Run full Python suite with verbose test identity for diagnostics
-        run: pytest -vv --tb=short
+      - run: pytest -q
 
   control-plane-inventory-powershell-parse:
     runs-on: windows-latest
