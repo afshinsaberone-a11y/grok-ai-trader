@@ -9,6 +9,11 @@ def test_provider_clean_host_bootstrap_is_pinned_and_fail_closed():
     # The bootstrap must install only hash/signature-verified official tools
     # and checkout the exact SHA that has matching current-main G13 evidence.
     assert "41883f30d32747d07d7b7772f8ee7c656a95e4a1" in script
+    # An elevated bootstrap runs the checked-out code and dependencies. A caller
+    # must not be able to substitute an arbitrary commit at invocation time.
+    assert "$expectedCommit = '41883f30d32747d07d7b7772f8ee7c656a95e4a1'" in script
+    assert "[string]$ExpectedCommit" not in script
+    assert "$ExpectedCommit =" not in script
     assert "python-3.13.17-amd64.exe" in script
     assert "5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190" in script
     assert "Git-2.56.0.3-64-bit.exe" in script
