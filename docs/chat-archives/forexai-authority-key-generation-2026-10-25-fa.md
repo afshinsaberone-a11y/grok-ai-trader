@@ -182,3 +182,14 @@ PEM قدیمی Admission روی Provider قبلی موجود است، اما ک�
 روی commit e0c99423d22125c496e1b0d21c6826f57abe983f نتیجهٔ pytest -q برابر ۷۳۰ تست موفق و یک هشدار در ۶٫۴۹ ثانیه بود. workflow تست هم در رویداد push و هم pull_request موفق شد. Windows PowerShell diagnostic parsing، G13 Workflow Static Validation، ForexAI Agent Runtime Check و ForexAI Project Repair Loop v1 نیز موفق بودند. این مورد نرم‌افزاری CI رفع شد، اما به‌خودی‌خود هیچ مرجع تولیدی یا مجوز معامله‌ای ایجاد نمی‌کند.
 
 موانع عملیاتی هنوز BLOCKED هستند: anchor/سرویس مستقل Operator، Promotion، Risk/Reservation و Signal موجود یا تأیید نشده‌اند؛ مسیر مصوب رجیستری ضدتکرار Provider تنظیم نشده؛ مشکل custody/trust سمت Promotion روی میزبان قدیمی نیازمند تصمیم مجاز مالک است؛ source packet / درخواست Admission امضاشده / authenticated envelope / رکورد مجوز MQL5 / TradeLedger تازه وجود ندارد؛ و Grant مستقل یک‌سیگنال Demo صادر نشده است. در این وضعیت Provider را اجرا، رجیستری تولیدی را مقداردهی اولیه یا معامله را فعال نکنید. Kill Switch باید DENY بماند، Demo غیرمجاز، Live غیرفعال و سفارش‌ها خاموش.
+
+## افزودهٔ بعدی — رفع مانع تست و موفقیت CI
+
+بررسی workflow ناموفق 40202381290 نشان داد نسخهٔ قدیمی tests/test_create_control_plane_authority_key_v1.py مستقیماً keygen.os.name را تغییر می‌داد. چون keygen.os همان ماژول سراسری os بود، شبیه‌سازی Windows می‌توانست وضعیت سراسری سیستم‌عامل را به pytest نشت دهد و در زمان گزارش یک assertion ناموفق، خود pytest با NotImplementedError برای WindowsPath روی Linux از کار بیفتد و خطای اصلی را پنهان کند.
+
+commit b68b54834545396e7b1ec7cd5bf38d2dcb2b805b تست را اصلاح کرد تا فقط مرجع keygen.os با یک SimpleNamespace محلی شبیه‌سازی شود؛ os.name سراسری تغییر نمی‌کند. CI روی این commit موفق شد:
+- اجرای Full tests شمارهٔ 40206023513: 730 passed, 1 warning in 6.05s؛ job تجزیهٔ PowerShell نیز PASS شد. تست REAL-data به‌درستی skipped ماند، چون فقط با dispatch دستی اجرا می‌شود.
+- G13 Workflow Static Validation، اجرا 40206023449: موفق.
+- Agent Runtime Check، اجرا 40206023353: موفق.
+
+این اصلاح مانع تست/CI را برطرف می‌کند، نه مانع مجوز Provider را. Preflight هنوز BLOCKED است چون anchor و سیستم‌های مستقل Promotion، Signal، Risk و Operator موجود/پیکربندی‌شده نیستند و مسیر مصوب رجیستری پایدار Provider تعیین نشده است. Capital Firewall Grant مستقل و مرز مالکیت کلید آن نیز هنوز provision نشده‌اند. سمت MT5 همچنان به شواهد واقعی و امضاشده برای envelope، authorization record و TradeLedger نیاز دارد؛ فایل جایگزین خالی نسازید. تا تأیید مالکیت، custody، هویت runtime، مسیر، ACL، پشتیبان‌گیری/بازیابی و تطبیق تاریخچهٔ صدور، سرویس Provider را اجرا و رجیستری تولیدی را مقداردهی اولیه نکنید. Kill Switch باید DENY بماند؛ Demo غیرمجاز، Live غیرفعال و سفارش‌ها خاموش.
