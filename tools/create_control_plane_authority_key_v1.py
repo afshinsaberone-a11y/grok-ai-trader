@@ -142,14 +142,23 @@ def _secure_private_directory(directory: Path) -> None:
 
 
 def _write_new_file(path: Path, data: bytes, private: bool) -> None:
+    created_by_this_call = False
     try:
         with path.open("xb") as stream:
+            created_by_this_call = True
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
         if os.name != "nt":
             os.chmod(path, 0o600 if private else 0o644)
     except OSError as exc:
+        # A failed exclusive open means this invocation did not create the path;
+        # never delete a file that already existed at the requested name.
+        if created_by_this_call:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
         raise AuthorityKeyGenerationError("KEY_FILE_WRITE_FAILED") from exc
 
 
@@ -176,6 +185,16 @@ def generate_authority_keypair(
         target.mkdir(mode=0o700)
         created_directory = True
         _secure_private_directory(target)
+
+        # The output path must be newly created and empty. If an unexpected
+        # file appeared between the path check and ACL hardening, preserve it
+        # for review rather than treating it as ours or deleting it on failure.
+        try:
+            unexpected_entry = next(target.iterdir(), None)
+        except OSError as exc:
+            raise AuthorityKeyGenerationError("OUTPUT_DIR_INSPECTION_FAILED") from exc
+        if unexpected_entry is not None:
+            raise AuthorityKeyGenerationError("OUTPUT_DIR_NOT_EMPTY_AFTER_CREATION")
 
         private_key = Ed25519PrivateKey.generate()
         public_raw = private_key.public_key().public_bytes(
@@ -233,10 +252,11 @@ def generate_authority_keypair(
         }
     except Exception:
         if created_directory:
-            # The output directory was created exclusively by this invocation.
-            # Never touch files if mkdir lost a race to another process.
-            cleanup_candidates = [manifest_path, private_path, *reversed(created_files)]
-            for path in cleanup_candidates:
+            # Only unlink files successfully created and recorded by this call.
+            # Never delete colliding or unexpected files that this process did
+            # not successfully create. _write_new_file removes its own partial
+            # file if a later write/flush/chmod operation fails.
+            for path in reversed(created_files):
                 try:
                     path.unlink(missing_ok=True)
                 except OSError:
