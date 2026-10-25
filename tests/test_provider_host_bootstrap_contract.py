@@ -39,3 +39,26 @@ def test_provider_clean_host_bootstrap_is_pinned_and_fail_closed():
     assert "demo_trading_authorized = $false" in script
     assert "live_trading_allowed = $false" in script
     assert "orders_submitted = $false" in script
+
+
+def test_elevated_bootstrap_installer_workspace_is_not_user_temp_and_is_acl_verified():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "tools" / "bootstrap_provider_host_v1.ps1").read_text(encoding="utf-8")
+
+    # Installer downloads happen only after creation of a fresh, unpredictable
+    # CommonApplicationData child with inheritance disabled and its final DACL
+    # checked. The elevated script must not follow a user's TEMP junction.
+    assert "$workRoot = New-ProtectedWorkRoot" in script
+    assert "[Environment+SpecialFolder]::CommonApplicationData" in script
+    assert "[Guid]::NewGuid().ToString('N')" in script
+    assert "$workRoot = Join-Path $env:TEMP" not in script
+    assert "/inheritance:r" in script
+    assert "Get-Acl -LiteralPath $candidate" in script
+    assert "AreAccessRulesProtected" in script
+    assert "BOOTSTRAP_WORK_ROOT_UNEXPECTED_ACL" in script
+    assert "[IO.FileAttributes]::ReparsePoint" in script
+    assert "New-Item -ItemType Directory -Path $installerRoot -ErrorAction Stop" in script
+
+    # Never delete a pre-existing installer-path occupant and then overwrite it.
+    assert "INSTALLER_DESTINATION_ALREADY_EXISTS" in script
+    assert "Remove-Item -LiteralPath $Destination -Force" not in script
