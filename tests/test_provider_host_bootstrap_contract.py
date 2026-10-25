@@ -40,6 +40,17 @@ def test_provider_clean_host_bootstrap_is_pinned_and_fail_closed():
     assert "live_trading_allowed = $false" in script
     assert "orders_submitted = $false" in script
 
+    # Do not adopt an executable that was already present and only claims the
+    # expected version; install verified packages into dedicated empty paths.
+    assert "ForexAI-Pinned-Git-2.56.0.3" in script
+    assert "ForexAI-Pinned-Python-3.13.17" in script
+    assert "GIT_INSTALL_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RESUME" in script
+    assert "PYTHON_INSTALL_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RESUME" in script
+    assert "GIT_INSTALL_ROOT_APPEARED_DURING_BOOTSTRAP" in script
+    assert "PYTHON_INSTALL_ROOT_APPEARED_DURING_BOOTSTRAP" in script
+    assert "if (-not (Test-Path -LiteralPath $gitExe -PathType Leaf)) {" + "\n        $gitInstallerReport" not in script
+    assert "if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {" + "\n        $pythonInstallerReport" not in script
+
 
 def test_elevated_bootstrap_installer_workspace_is_not_user_temp_and_is_acl_verified():
     root = Path(__file__).resolve().parents[1]
