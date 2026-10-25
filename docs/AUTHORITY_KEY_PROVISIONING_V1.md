@@ -60,7 +60,7 @@ Each successful run creates, in the selected new directory:
 
 Copy only the public manifest through the approved configuration/change process. Independently verify its fingerprint and role/key ID with the service owner. Do not configure it until the corresponding private key has been verified against it and the owner has approved trust-anchor activation. For Provider Admission, coordinate the new public trust anchor with the MT5-side verifier as a deliberate key rotation; setting only the Provider environment variable is insufficient and may break verification.
 
-The tool does not overwrite old keys. If a key already exists or a role's custody/rotation is uncertain, stop and reconcile; do not delete or regenerate it to get a clean preflight.
+The tool does not overwrite old keys. It also checks that its newly created output directory is empty after ACL hardening; if an unexpected entry or colliding output file appears, it aborts and preserves that entry for operator review. During failure cleanup it removes only files successfully created by that invocation, and it removes its own partial file if a write/flush fails. If a key already exists or a role's custody/rotation is uncertain, stop and reconcile; do not delete or regenerate it to get a clean preflight.
 
 ## Required validation after generation
 
