@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -156,6 +157,55 @@ def test_does_not_clean_an_output_directory_if_creation_races(tmp_path: Path, mo
         )
 
     assert (output_dir / "created-by-other-process.txt").read_text(encoding="utf-8") == "preserve"
+
+
+def test_windows_key_directory_acl_removes_default_admin_and_owner_rights(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setattr(keygen.os, "name", "nt")
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        calls.append(list(args))
+        if args[0] == "whoami":
+            return SimpleNamespace(
+                returncode=0,
+                stdout='"HOST\\TestUser","S-1-5-21-111-222-333-1001"\\n',
+                stderr="",
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(keygen.subprocess, "run", fake_run)
+    keygen._secure_private_directory(tmp_path)
+
+    acl_calls = [args for args in calls if args[0] == "icacls"]
+    assert len(acl_calls) == 3
+    assert "/inheritance:r" in acl_calls[0]
+    assert "*S-1-5-21-111-222-333-1001:(OI)(CI)F" in acl_calls[0]
+    assert "*S-1-5-18:(OI)(CI)F" in acl_calls[0]
+    assert ["icacls", str(tmp_path), "/remove", "*S-1-5-32-544"] in acl_calls
+    assert ["icacls", str(tmp_path), "/remove", "*S-1-3-4"] in acl_calls
+
+
+def test_windows_key_directory_acl_failure_to_remove_extra_ace_blocks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setattr(keygen.os, "name", "nt")
+
+    def fake_run(args, **kwargs):
+        if args[0] == "whoami":
+            return SimpleNamespace(
+                returncode=0,
+                stdout='"HOST\\TestUser","S-1-5-21-111-222-333-1001"\\n',
+                stderr="",
+            )
+        if "/remove" in args:
+            return SimpleNamespace(returncode=1, stdout="", stderr="simulated ACL error")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(keygen.subprocess, "run", fake_run)
+    with pytest.raises(AuthorityKeyGenerationError, match="PRIVATE_DIRECTORY_ACL_SETUP_FAILED"):
+        keygen._secure_private_directory(tmp_path)
 
 
 def test_all_required_roles_have_distinct_key_ids_and_correct_environment_names():
