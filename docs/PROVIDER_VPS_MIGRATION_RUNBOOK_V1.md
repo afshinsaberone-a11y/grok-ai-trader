@@ -537,3 +537,16 @@ A further source review checked the caller-controlled -ProviderRoot parameter. B
 The current PR branch now requires an absolute Provider root whose parent is exactly the actual Windows CommonApplicationData directory, rejects a reparse-point ProgramData parent, normalizes the path before use, creates the target without -Force, and rechecks the created root for reparse-point attributes. A contract test covers the fail-closed guards.
 
 These are source and CI checks only; no new Provider service, trust anchor, key, or registry was configured. Execute only a reviewed version after CI and an independent review. If the target path already exists or validation fails, stop and inspect rather than deleting or adopting that state.
+
+
+## 30. Fixed reviewed source pin and signer-key ACL readback — 2026-10-25
+
+A follow-up static security review closed three gaps on PR #331:
+
+- The elevated bootstrap no longer accepts a caller-supplied `ExpectedCommit`; it is pinned in source to reviewed SHA `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. This avoids allowing a caller to substitute code/dependencies whose tests run from an Administrator shell.
+- The authority key utility now verifies the post-change Windows DACL using a read-back query and fails closed unless inheritance is disabled and the only two ACEs are explicit Allow/FullControl entries for the current SID and SYSTEM. The contract tests reject an injected extra Administrators ACE.
+- Private key files request restrictive mode at exclusive creation time on POSIX, rather than writing first and tightening mode afterward.
+
+Verified on PR head `16923ef4991331ef940ac4637e6e557718f88fdd`: Python tests and PowerShell parser [PASS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40223256926); G13 static validation [PASS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40223256873); Agent Runtime [PASS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40223256934). The real-data smoke job was skipped.
+
+**Cutover remains blocked.** No real-host bootstrap or production key/service/registry setup was performed. Do not authorize Demo/Live or submit orders from these CI results. PR #331 remains unmerged and requires independent review; after any approved merge, rerun/rebind the complete G13 evidence chain to the exact resulting main SHA before any Promotion or Grant operation.
