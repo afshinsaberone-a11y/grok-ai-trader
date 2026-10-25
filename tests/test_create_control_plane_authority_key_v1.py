@@ -37,6 +37,10 @@ def test_generates_encrypted_private_key_and_public_only_manifest(tmp_path: Path
     manifest_path = Path(result["public_manifest_path"])
     private_pem = private_path.read_bytes()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Private files must never be created with group/world read permissions, even
+    # transiently; the writer now requests 0600 at exclusive-open time on POSIX.
+    if os.name != "nt":
+        assert private_path.stat().st_mode & 0o077 == 0
 
     assert private_pem.startswith(b"-----BEGIN ENCRYPTED PRIVATE KEY-----")
     assert manifest["schema"] == MANIFEST_SCHEMA
@@ -165,7 +169,9 @@ def test_windows_key_directory_acl_removes_default_admin_and_owner_rights(
     # Replace the module's os reference rather than mutating os.name globally.
     # pathlib and pytest also read os.name, so a global change can break failure
     # reporting on POSIX runners if an assertion fails.
-    monkeypatch.setattr(keygen, "os", SimpleNamespace(name="nt", chmod=os.chmod))
+    monkeypatch.setattr(
+        keygen, "os", SimpleNamespace(name="nt", chmod=os.chmod, environ=os.environ)
+    )
     calls: list[list[str]] = []
 
     def fake_run(args, **kwargs):
@@ -174,6 +180,19 @@ def test_windows_key_directory_acl_removes_default_admin_and_owner_rights(
             return SimpleNamespace(
                 returncode=0,
                 stdout='"HOST\\TestUser","S-1-5-21-111-222-333-1001"\n',
+                stderr="",
+            )
+        if args[0] == "powershell.exe":
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({
+                    "protected": True,
+                    "full_control_rights": 2032127,
+                    "rules": [
+                        {"sid": "S-1-5-21-111-222-333-1001", "access_type": "Allow", "inherited": False, "rights": 2032127},
+                        {"sid": "S-1-5-18", "access_type": "Allow", "inherited": False, "rights": 2032127},
+                    ],
+                }),
                 stderr="",
             )
         return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -194,7 +213,9 @@ def test_windows_key_directory_acl_failure_to_remove_extra_ace_blocks(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     # Isolate the Windows branch without mutating the process-global os module.
-    monkeypatch.setattr(keygen, "os", SimpleNamespace(name="nt", chmod=os.chmod))
+    monkeypatch.setattr(
+        keygen, "os", SimpleNamespace(name="nt", chmod=os.chmod, environ=os.environ)
+    )
 
     def fake_run(args, **kwargs):
         if args[0] == "whoami":
@@ -268,7 +289,17 @@ def test_failed_new_file_write_removes_only_its_own_partial_file(
     monkeypatch.setattr(
         keygen,
         "os",
-        SimpleNamespace(name="posix", chmod=real_os.chmod, fsync=fail_fsync),
+        SimpleNamespace(
+            name="posix",
+            chmod=real_os.chmod,
+            fsync=fail_fsync,
+            open=real_os.open,
+            fdopen=real_os.fdopen,
+            close=real_os.close,
+            O_WRONLY=real_os.O_WRONLY,
+            O_CREAT=real_os.O_CREAT,
+            O_EXCL=real_os.O_EXCL,
+        ),
     )
     path = tmp_path / "partial-private-key.pem"
     with pytest.raises(AuthorityKeyGenerationError, match="KEY_FILE_WRITE_FAILED"):
@@ -285,3 +316,38 @@ def test_failed_exclusive_open_never_deletes_preexisting_file(tmp_path: Path):
         keygen._write_new_file(path, b"replacement-key-material", private=True)
 
     assert path.read_bytes() == original
+
+
+def test_windows_key_directory_acl_readback_blocks_extra_entry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setattr(
+        keygen, "os", SimpleNamespace(name="nt", chmod=os.chmod, environ=os.environ)
+    )
+
+    def fake_run(args, **kwargs):
+        if args[0] == "whoami":
+            return SimpleNamespace(
+                returncode=0,
+                stdout='"HOST\\TestUser","S-1-5-21-111-222-333-1001"\n',
+                stderr="",
+            )
+        if args[0] == "powershell.exe":
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({
+                    "protected": True,
+                    "full_control_rights": 2032127,
+                    "rules": [
+                        {"sid": "S-1-5-21-111-222-333-1001", "access_type": "Allow", "inherited": False, "rights": 2032127},
+                        {"sid": "S-1-5-18", "access_type": "Allow", "inherited": False, "rights": 2032127},
+                        {"sid": "S-1-5-32-544", "access_type": "Allow", "inherited": False, "rights": 2032127},
+                    ],
+                }),
+                stderr="",
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(keygen.subprocess, "run", fake_run)
+    with pytest.raises(AuthorityKeyGenerationError, match="PRIVATE_DIRECTORY_ACL_VERIFY_FAILED"):
+        keygen._secure_private_directory(tmp_path)
