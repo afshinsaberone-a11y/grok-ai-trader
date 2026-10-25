@@ -1,0 +1,133 @@
+# ForexAI Provider VPS Migration Runbook v1
+
+**Status:** PRE-CUTOVER / BLOCKED — destination access has not yet been verified.  
+**Last reviewed:** 2026-10-25  
+**Repository baseline reviewed:** `610a958fb7eb8051e814834a6462bac823aaf503`
+
+This runbook covers replacing the old MobinHost Windows Provider host with the proposed Netherlands VPS while retaining the G13 history and fail-closed security model. It is a checklist, not proof that a migration has occurred or permission to trade.
+
+## 1. Current evidence from the old host
+
+The last diagnostic on `WIN-P7MA35DRF6Q` established:
+
+- Provider checkout is on `main` at `610a958fb7eb8051e814834a6462bac823aaf503`.
+- Python `3.13.16` runs from `C:\ProgramData\ForexAI-Provider\venv\Scripts\python.exe`; `cryptography` imports successfully. The bare `python` command was not on PATH, so call the virtual-environment executable explicitly.
+- `ForexAIProviderSvc` is not registered. There is no registered service StartName to migrate.
+- The Provider preflight is BLOCKED. Its configured issuance-registry target does not exist, though the parent directory exists and a disposable SQLite probe in that parent passes. This probe is not a production registry or schema validation.
+- Provider `in` and `out` were empty; `current-source-packet.json` was absent. The diagnostic printed no entries under `state`.
+- Admission public-key file and active Process/Machine anchor matched, fingerprint `0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc`.
+- Promotion public-key file fingerprint was `94dd89a41f0edec19bc565ae50c750c82d9ed75ba3272f0cf77da24de96f67c3`, while the active Process/Machine environment anchor fingerprint was `da1ae490ea6d77b2a13bbf7911d9c654aacfbf54eaad1bc18745ce3621fd2cd8`. Do not choose one by guesswork.
+- The Admission and Promotion private-key files have encrypted-PKCS#8 headers. The Promotion private-key file was present on the Provider host, which is contrary to the intended independent attestor boundary. The Admission signing passphrase was absent from Process/User/Machine scopes; the Promotion passphrase was absent from those scopes too.
+- Signal, Risk and Operator public-key anchors were not configured. No signed source packet was present.
+
+The diagnostic is read-only and explicitly reports no signed request, ledger mutation, authenticated envelope, Demo permission, Live permission, or order submission.
+
+## 2. Migration policy
+
+1. Keep the old VPS, its disks and its local preserved diagnostic file intact until the destination is reachable and the required backups have been validated. If the contract is expiring, request a short extension or provider snapshot/backup immediately; do not assume a snapshot replaces a separate data/key backup.
+2. Do not copy the whole `C:\ProgramData\ForexAI-Provider` tree blindly. Source code is recoverable from Git; secrets, replay state, source attestations, audit records and environment-specific configuration need separate handling.
+3. Never send private keys, passphrases, HMAC secrets, broker credentials or full sensitive environment dumps through chat, GitHub issues/PRs, public artifacts, or ordinary shared storage.
+4. Keep the Kill Switch at DENY, Demo unauthorized, and Live disabled throughout the migration. A green code test or host preflight is not trading authority.
+5. Do not fabricate empty ledgers, authenticated envelopes, MQL5 authorization records, source packets, grants or SQLite registries to make a check pass.
+6. Do not install/start a Provider service until an accountable owner approves the exact service identity, ACLs, secret delivery, durable registry and backup/recovery runbook.
+
+## 3. What comes from GitHub versus what requires controlled migration
+
+| Component | Destination action | Gate |
+|---|---|---|
+| Source code, tests and docs | Clone/fetch the reviewed repository baseline from GitHub; verify the exact commit. Do not copy the old checkout as the source of truth. | Git SHA and clean checkout recorded |
+| Python runtime/dependencies | Install a supported Python 3.11–3.13 runtime and recreate a new venv on the target. Do not copy the old venv directory. | Interpreter and dependency import checks pass |
+| Admission public trust anchor | Obtain from the approved configuration/authority record; compare its fingerprint to the exact key used by the MT5 verifier. | Independent owner confirms fingerprint |
+| Admission encrypted private key | Transfer through an approved secret-manager/key-custodian process only if the key owner approves continuity; otherwise perform a documented coordinated rotation. Verify keypair without printing secret material. | Key owner, custody, passphrase recovery and keypair validation confirmed |
+| Promotion private key | **Do not migrate to the new Provider.** It belongs in the separately administered Promotion Attestor boundary; resolve custody/mismatch with its owner and use approved rotation if required. | Owner-approved trust-anchor cutover and proof-of-possession tests |
+| Signal/Risk/Operator trust anchors | Obtain three distinct, real public keys from their respective source services. Do not generate placeholders or reuse keys. | All three source owners and signatures validated |
+| Provider issuance SQLite registry | Not found on the old host at the configured target. Do not copy a fabricated file or initialize the new registry until operators reconcile issuance/audit history across all relevant systems and approve the target/ACL/backup/recovery plan. | Reconciliation shows no missing history; one-time initialization approved if truly needed |
+| `in`, `out`, `state` | Copy only identified, owned, needed operational records through a protected channel, preserving hashes/timestamps and access control. Current diagnostic found no packet and empty `in`/`out`; no state entries were printed. | Owner review; signature/freshness revalidation after transfer |
+| Windows service identity/ACLs | Select one exact principal with the accountable host owner. Do not assume `NT SERVICE\ForexAIProviderSvc` and `HOST\ForexAIProviderSvc` are the same account. Recreate minimal ACLs on the destination for the approved SID/principal. | Effective access test under the final service identity |
+| Logs, diagnostics and audit evidence | Transfer redacted, needed historical evidence separately from secret files. Keep prior chat archives append-only. | Retention/access policy confirmed |
+| MT5 runner files, broker login or Demo terminal session | Not part of Provider migration; maintain a separate trust boundary and do not copy credentials into Provider. | No accidental runner/Provider co-location |
+
+### Key roles must not be conflated
+
+The current Provider's direct public-key contract is Admission, Promotion, Signal, Risk and Operator Approval. The Capital Firewall Grant public key belongs to the separately administered Grant/Promotion-attestor boundary; the Grant is verified by the Promotion Attestor before it signs Promotion evidence. The Grant signer has its own six-key verification contract and separate persistent Grant registry. Do not set `FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY` on the Provider just to clear a stale/deployed preflight, and do not merge the Provider and Grant registries.
+
+## 4. Destination bootstrap sequence (only after login works)
+
+### A. Establish access and record target identity
+
+- Confirm provider account, billing/renewal window, server state, public IP, OS build, hostname, administrator access and available console recovery method.
+- Enable only the required management ingress (for example, RDP restricted to approved source IPs); validate recovery before changing firewall rules.
+- Record the final hostname and OS identity. Do not paste passwords, private keys, token values or sensitive connection strings into the migration record.
+
+### B. Fetch pinned code and create a clean runtime
+
+- Clone the repository to an approved source directory.
+- Verify `git rev-parse HEAD` against the reviewed SHA before deploying.
+- Install supported Python and recreate the venv from the repository dependency file.
+- Always run the provider preflight with the explicit venv executable, not a bare `python` command that may not exist on PATH:
+
+```powershell
+$python = 'C:\ProgramData\ForexAI-Provider\venv\Scripts\python.exe'
+& $python -V
+& $python -c "import cryptography; print('cryptography=OK')"
+& $python -m tools.control_plane_provider_host_preflight_v1
+```
+
+- A nonzero Preflight exit means it remains blocked; do not mask the code or report failure as success.
+
+### C. Secure trust, state and service
+
+- Record the owner, key ID, independently verified public-key fingerprint, custody location name, rotation/revocation owner, and source-of-truth for every authority. Record names/fingerprints only, never private key material.
+- Verify each source authority has a separate key and independent signing system. Obtain actual fresh signed attestations; a key-shaped environment variable is not evidence that the service exists.
+- Resolve Promotion key mismatch/custody before any cutover. Remove/rotate any misplaced Promotion private key only through the accountable key owner's approved procedure; do not silently delete it or declare it trusted.
+- Approve the registry's durable absolute path, runtime identity, parent ACL, backup retention and restore owner. Reconcile all previously issued IDs and failed deliveries first. If the registry is confirmed genuinely uninitialized, use only the documented one-time initializer under the approved provisioning identity. Never reset an existing registry.
+- Deliver encrypted key passphrases to the service process from the approved secret manager. Do not persist passphrases in User/Machine environment variables.
+- Only after these gates pass, install the persistent wrapper `tools/control_plane_provider_service_v1.py`, not the one-shot issuer CLI directly as a Windows service. Verify the installed service StartName and actual effective ACLs.
+
+### D. Test before cutover
+
+- Run read-only host and key-fingerprint diagnostics; preserve redacted output.
+- Test keypair proof-of-possession, positive and negative signature verification, rejection of tampered/wrong-key/stale packets, expiry, duplicate IDs, and one-shot replay denial using isolated test-only fixtures.
+- Test registry backup/restore in a non-production fixture or approved rehearsal without replacing production replay state.
+- Confirm no service auto-start or request consumption is enabled prematurely.
+- Confirm no broker order is submitted; Live remains disabled and Demo permission remains false until valid upstream authorities explicitly grant one signal and the separate execution policy approves it.
+
+## 5. Separate G13 evidence status
+
+At the reviewed SHA `610a958fb7eb8051e814834a6462bac823aaf503`, these GitHub Actions runs reported success on 2026-10-24:
+
+| Gate | Run |
+|---|---:|
+| Validation | [40112053439](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40112053439) |
+| Robustness | [40112055448](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40112055448) |
+| OOS M15 | [40112224804](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40112224804) |
+| Promotion | [40112356685](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40112356685) |
+| Compile + Signal Parity | [40112495323](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40112495323) |
+| Execution Safety Audit | [40112928692](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40112928692) |
+| Controlled Demo Package Preflight | [40112907074](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40112907074) |
+| Demo Readiness Gate | [40112948059](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40112948059) |
+
+These passes validate the respective code/data/evidence gates at that SHA; they do **not** authorize execution. The Readiness artifact said `READY_FOR_CONTROLLED_DEMO_AUDIT` while `demo_trading_allowed=false` and `live_trading_allowed=false`. The Capital Firewall Authorization Preflight [40112967900](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40112967900) failed because the MT5-side admission-request, authenticated-envelope and TradeLedger files were missing. Those are a separate MT5/Control Plane storage problem and should not be fabricated or assumed fixed by the Provider host migration.
+
+## 6. Cutover and rollback criteria
+
+Do not retire the old VPS until all of the following are documented:
+
+- Destination login/recovery verified and destination host identity recorded.
+- Source SHA pinned; runtime/dependencies verified.
+- All necessary data categorized, copied via approved secure channels, hashed, and restored/validated.
+- All key owners have verified fingerprints and custody; Promotion is independently administered and the stale anchor mismatch is resolved.
+- Correct source systems, signatures, public trust anchors and explicit source-governed Demo permission exist. Until then, operational status stays BLOCKED.
+- Provider registry is valid, durable, protected, backed up and restore-tested; if the old registry was absent, issuance history has been reconciled with the actual Grant/Admission audit sources before initialization.
+- Service identity, ACLs, secret injection and restart/stop behavior are verified; the service remains disabled from consuming production packets until authorized cutover.
+- A written rollback plan identifies who can restore access/data/old host without resetting replay state or duplicating a one-shot request.
+
+If any evidence is missing, keep the new service non-operational and retain the old host/snapshot or request an extension. Never move directly from code readiness to Demo or Live trading authorization.
+
+## 7. References
+
+- [Provider Host Preflight](G13_PROVIDER_HOST_PREFLIGHT_V1.md)
+- [Admission Provider contract](CONTROL_PLANE_ADMISSION_PROVIDER_V1.md)
+- [Capital Firewall authority ownership register](CAPITAL_FIREWALL_AUTHORITY_OWNERSHIP_REGISTER_V1.md)
+- [Capital Firewall Grant issuer](CAPITAL_FIREWALL_GRANT_ISSUER_V1.md)
+- [Control Plane storage inventory](G13_CONTROL_PLANE_STORAGE_INVENTORY_V1.md)
