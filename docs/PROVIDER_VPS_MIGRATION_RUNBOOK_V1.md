@@ -435,3 +435,13 @@ Recovery options, in order:
 A rotation must be coordinated across the Provider signer configuration and the GitHub Repository Variable consumed by the MT5/runner verifier; it requires a recorded approver, backup of current public configuration metadata, successful proof-of-possession using the new encrypted key, a planned rollback, and post-change verification. Never change only one side or copy private-key material into GitHub/chat. The 2026-10-20 staged candidate remains unapproved and must not be selected by guesswork.
 
 No trust anchor was changed and no trading authority was granted. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+## 23. New Admission encrypted key proof-of-possession check passed — 2026-10-25
+
+The operator successfully unlocked the new-host Admission private key using its known passphrase. The locally derived Ed25519 public fingerprint was a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea; the operator reported MATCHES_EXPECTED_FINGERPRINT=True, MATCHES_MANIFEST_PUBLIC_KEY=True, and MANIFEST_FINGERPRINT_MATCH=True, with overall KEY_VALIDATION=PASS. No private key, passphrase, or public Base64 value was included in the report.
+
+The old Admission PEM is present on the legacy Provider host, but its passphrase is forgotten. Its adjacent public key still matches the currently trusted GitHub fingerprint 0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc. The old PEM therefore remains preserved for audit/backup, but cannot currently be used for signing. The 2026-10-20 staged candidate remains a different, unapproved key.
+
+This validates the new keypair and establishes a viable candidate for coordinated rotation; it does NOT by itself approve or perform the trust-anchor cutover. Before changing the Repository Variable or persistent Provider configuration, ensure the authorized operator intends the rotation and keep a copy of the prior public-key metadata/fingerprint for audit. Do not move private-key material. The public key may be copied from the new manifest via approved configuration UI only. Coordinate the Provider environment variable FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY with the GitHub Repository Variable of the same name used by the verifier. Verify both resulting fingerprints against the new fingerprint after configuration. If any side fails, keep the Provider non-operational and issue no new admissions; rollback to the old key is unavailable unless the old passphrase is recovered.
+
+No Provider service/production registry, source evidence, signed Admission request, authenticated envelope, MQL5 authorization record or TradeLedger was created. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
