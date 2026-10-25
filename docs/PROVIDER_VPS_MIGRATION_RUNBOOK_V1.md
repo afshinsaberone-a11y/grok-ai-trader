@@ -131,3 +131,34 @@ If any evidence is missing, keep the new service non-operational and retain the 
 - [Capital Firewall authority ownership register](CAPITAL_FIREWALL_AUTHORITY_OWNERSHIP_REGISTER_V1.md)
 - [Capital Firewall Grant issuer](CAPITAL_FIREWALL_GRANT_ISSUER_V1.md)
 - [Control Plane storage inventory](G13_CONTROL_PLANE_STORAGE_INVENTORY_V1.md)
+
+
+## 8. Fresh G13 evidence and unresolved authorization blockers — 2026-10-25
+
+A fresh G13 chain was completed on the current main SHA `531bb0e135076d52d6387b7cc48b019e40c8886d`. The run links below are run-bound to that SHA and were reported successful:
+
+| Gate | Run |
+|---|---:|
+| Repository Python tests | [40173452793](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40173452793) |
+| G13 OOS Watchdog M15 | [40173452711](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40173452711) |
+| Validation M15 | [40173464641](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40173464641) |
+| Robustness M15 | [40173466131](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40173466131) |
+| OOS M15 Current | [40173570589](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40173570589) |
+| Final Promotion M15 | [40173677214](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40173677214) |
+| MT5 Compile + Signal Parity | [40173788665](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40173788665) |
+| Controlled Demo Package Preflight | [40174106949](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40174106949) |
+| Execution Safety Audit M15 | [40174124217](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40174124217) |
+| Demo Readiness Gate M15 | [40174152405](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40174152405) |
+
+The downloaded parity artifact reports `status=PASS`, `real_data_only=true`, `synthetic_data=false`, `selection_performed=false`, `optimization_enabled=false`, and 9 of 9 promoted candidate IDs passing parity. The readiness artifact reports `READY_FOR_CONTROLLED_DEMO_AUDIT` and a Demo account/identity match in that probe, but promotion `demo_trading_allowed=false`, `live_trading_allowed=false`, and `orders_submitted=false`. These are evidence results at that SHA/run time, not current authorization.
+
+The run-bound Capital Firewall Authorization Preflight [40174171049](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40174171049) correctly failed with:
+- `AUTHENTICATED_ENVELOPE_FILE_MISSING`
+- `MQL5_AUTHORIZATION_RECORD_MISSING`
+- `TRADE_LEDGER_FILE_MISSING`
+
+Its redacted report states that no authorization record was created and no order was submitted. These files are in the MT5/Control Plane execution boundary, not in the Provider's issuance-registry path. Do not create empty stand-ins or treat the preflight as an execution permission. The actual signed Admission request and explicit source-governed one-signal Demo permission are still prerequisites.
+
+At the same time, the old Provider host report confirms the reviewed source SHA and a working Python 3.13.16 venv when invoked through its explicit path. The Provider remains blocked: its configured issuance-registry target is absent; `in`/`out` are empty; no source packet or registered Provider service exists; Signal, Risk, and Operator public anchors are absent; the Promotion file/environment fingerprints mismatch and the Promotion private-key file is present on the Provider host; the Admission signing passphrase is not available in the process environment. The Netherlands destination is not yet accessible, so no destination deployment or cutover has occurred.
+
+Preserve this section as a dated addendum. It does not supersede the 2026-10-24 evidence table above; it records the newer chain for the later SHA and keeps the prior history intact.
