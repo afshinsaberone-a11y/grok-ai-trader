@@ -463,3 +463,16 @@ Preflight remains `BLOCKED` / exit code 2. `FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY
 Remaining gates include independently signed fresh Promotion evidence tied to verified G13 runs/artifacts, a fresh real Signal attestation, a signed Risk decision with actual durable reservation, signed human `ONE_SIGNAL_DEMO_ONLY` approval, a valid independent Capital Firewall Grant, and explicit source-governed one-signal Demo permission. Do not manufacture keys/attestations, configure guessed anchors, or choose a production registry path without a designated source owner and documented history/ACL/backup/restore approval. The Promotion key-custody/trust mismatch on the legacy host remains an independently tracked issue.
 
 This output demonstrates the Admission-anchor change alone did not open issuance, Demo, Live, or order submission. Do not start the Provider service or initialize the registry until those prerequisites and the approved service identity are resolved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+## 26. CI repair: Windows ACL simulation test fixed and full suite passing — 2026-10-25
+
+On branch ops/bootstrap-provider-host-v1-20261025, CI initially failed at roughly 33% of the Python suite. Verbose pytest identified tests/test_create_control_plane_authority_key_v1.py::test_windows_key_directory_acl_removes_default_admin_and_owner_rights. The test temporarily changed process-global os.name to nt on a Linux runner and its simulated whoami output used a literal backslash+n instead of a newline. That prevented correct SID parsing and also caused pytest's failure reporter to raise NotImplementedError: cannot instantiate 'WindowsPath' on your system, hiding the original assertion.
+
+Fixes committed:
+- 33a9bbadc9e5d0c4157ee1fb4466c55cb43efc6f: restore the original os.name in finally before assertions/failure reporting.
+- 2426a0e93fec6b9e6b794107ec6f3b7ab1dd6db2: correct both simulated whoami newline fixtures.
+- 03af1a45b73ac516b930821dffb740880f44d4ac temporarily enabled verbose pytest to expose the failing test; this diagnostic-only change was reverted by e0c99423d22125c496e1b0d21c6826f57abe983f, restoring pytest -q.
+
+Verified on commit e0c99423d22125c496e1b0d21c6826f57abe983f: pytest -q reported 730 passed, 1 warning in 6.49s. The tests workflow passed for both push and pull-request events, as did Windows PowerShell diagnostic parsing, G13 Workflow Static Validation, ForexAI Agent Runtime Check, and ForexAI Project Repair Loop v1. This resolves the Python CI blocker on the current branch. It does not authorize or provision any production authority.
+
+Operational gates are still BLOCKED on the new Provider host: Operator, Promotion, Risk/Reservation and Signal public anchors/independent services are absent; the approved Provider anti-replay registry target is not configured; Promotion key custody/trust separation on the old host needs owner-approved resolution; no fresh signed source packet / Admission request / authenticated envelope / MQL5 authorization record / TradeLedger exists; and no source-governed one-signal Demo grant has been issued. Do not start the Provider service, initialize the production registry, or enable trading while these remain unresolved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, orders off.
