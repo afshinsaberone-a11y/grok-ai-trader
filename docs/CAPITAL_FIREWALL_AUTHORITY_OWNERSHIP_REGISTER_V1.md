@@ -82,3 +82,27 @@ Afshin Saber (افشین صابر) is the accountable ForexAI project owner, per
 ## 7. Definition of “provisioned”
 
 A role is provisioned only when a named accountable owner and key custodian are verified, the service runs in the required trust boundary, its public key is confirmed from its real private key without exposing that private key, real source data and signatures validate, positive and negative tests pass, and the operational runbook/revocation path exists. A key-shaped environment variable or green host preflight alone is never sufficient.
+
+
+## 8. Append-only status revalidation — 2026-10-25
+
+This supplement preserves the prior register and its historical baseline above. It records a fresh read-only review against repository `main` at `41883f30d32747d07d7b7772f8ee7c656a95e4a1`; that SHA is the inspected baseline for this supplement, not a claim that all listed controls are deployed.
+
+| Authority / control | Latest revalidated status | Evidence boundary / next acceptance condition |
+|---|---|---|
+| Capital Firewall Grant signer | **NOT PROVISIONED** | The repository has issuer/preflight code; no separately administered production signer endpoint, host administrator, or key custodian was verified. |
+| Promotion Attestor | **BLOCKED — owner/custody unresolved** | Last confirmed host report still records public-file fingerprint `94dd89a41f0edec19bc565ae50c750c82d9ed75ba3272f0cf77da24de96f67c3` versus Process/Machine anchor `da1ae490ea6d77b2a13bbf7911d9c654aacfbf54eaad1bc18745ce3621fd2cd8`. No approved record selects either fingerprint; the private Promotion key was found on Provider. Require authenticated owner approval, custody/separation decision, rollback-ready rotation and positive/negative signature tests. |
+| Real Signal source | **NOT IDENTIFIED / NOT VERIFIED** | No live production service, authenticated data path, independently held Signal key, or fresh signed EURUSD/M15 signal was evidenced. |
+| Risk + durable Reservation | **NOT IDENTIFIED / NOT VERIFIED** | No production Risk signer and no operational durable atomic reservation authority were evidenced. Test fixtures do not satisfy this prerequisite. |
+| Human Operator Approval | **NOT PROVISIONED** | No authenticated source signing a short-lived `ONE_SIGNAL_DEMO_ONLY` approval bound to the same signal/trade/authorization/reservation was verified. |
+| Independent administrative boundary | **NOT VERIFIED** | The repository owner's accountability is not evidence of an independent key custodian/reviewer. No independent PR review was recorded for PR #332 as of this supplement. |
+| PR #332 software status | **Draft; targeted CI passed on head `bc05757d3543179245013bbbb0f5d62e3b878fcb`** | Full repository tests, G13 static validation, P0 Quant Trust and Agent Runtime passed. The real-data smoke job was skipped; the read-only GitHub environment audit has not run against a provisioned production environment. These results establish code/test behavior only. |
+| Trading state | **DENY / NO AUTHORIZATION** | `grant_issued=false`, `orders_submitted=false`, `demo_trading_authorized=false`, `live_trading_allowed=false`. Do not initialize the production registry or submit orders to compensate for missing evidence. |
+
+### Current no-go rule
+
+No status may be changed to `PROVISIONED` on the strength of repository code, an unapproved key fingerprint, a local private/public keypair match, CI success, or a user-entered/environment-variable assertion alone. Each role needs a named operational owner and custodian, an independently reviewable custody boundary, a verified public-key fingerprint, real signed source evidence, replay/negative tests, and a revocation/rotation runbook. The Grant must cross-link the same candidate and frozen configuration, signal, Trade, authorization and committed reservation; risk remains capped at 0.6%; the scope remains one EURUSD/M15/SELL Demo signal and Live must remain disabled.
+
+Related tracking issues: [#254 independent owners and Grant signer](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/254), [#303 Promotion trust-anchor mismatch](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/303), [#304 Signal source](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/304), [#305 Risk + Reservation](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/305), and [#306 Operator Approval](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/306).
+
+This supplement is a read-only evidence/status record. It does not prove that no service exists in an uninspected account, does not change any key/configuration/registry/service, and grants no trading authority.
