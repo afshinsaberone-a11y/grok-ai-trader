@@ -290,3 +290,16 @@ This result is consistent with an unconfigured clean host; it is not a Python or
 7. Separately resolve the MT5-side missing authenticated envelope, MQL5 authorization record and TradeLedger using authentic signed workflow evidence. Never create empty stand-ins.
 
 Until these controls pass, keep Kill Switch DENY, Provider service uninstalled/non-consuming, Demo unauthorized, Live disabled, and order submission off. This dated result extends the history and does not supersede or delete any earlier archive.
+
+
+## 12. Authority key provisioning utility — 2026-10-25
+
+Added the local utility `tools/create_control_plane_authority_key_v1.py`, its contract tests, and `docs/AUTHORITY_KEY_PROVISIONING_V1.md`. The tool generates one Ed25519 pair per run, encrypts the PKCS#8 private PEM using an interactively entered passphrase, restricts the new output directory, and emits a public-only manifest with canonical base64 public key and SHA-256 fingerprint. It refuses an output path inside the active checkout, non-absolute output paths, an existing target directory, and passphrases shorter than 16 characters. It has no option to print or pass a private key/passphrase in command-line arguments.
+
+Supported roles align with the current contract key IDs: Provider Admission, Promotion Attestor, Live Signal, Risk + Reservation, Operator Approval, and Capital Firewall Grant.
+
+**Important:** this commit adds key-generation code; it does not create or configure any production key. The tool must be run once per real authority host, not for all roles on the Provider VPS. Promotion, Signal, Risk, Operator, and Capital Firewall private keys must remain in their respective independent signing boundaries. The Grant public anchor belongs to the separately administered Capital Firewall/Promotion-Attestor boundary and is not a sixth Provider preflight variable.
+
+The Provider Admission pair must be generated/stored only on the Provider host and must be rolled out as a coordinated trust-anchor change with the MT5-side verifier. Do not merely change the Provider environment variable. Public keys may be copied only through approved configuration controls after the owner/custodian has verified the public fingerprint. No private key, passphrase, or broker credentials are stored in GitHub or chat.
+
+Run the contract tests and wait for CI before executing the utility on any host. If the user has no genuinely separate authority services/hosts and custodians, stop after the Admission key and provision the missing source boundaries rather than pretending keypairs create independent services. Keep Provider service uninstalled/non-consuming, registry uninitialized until history/ACL/backup reconciliation is approved, Kill Switch DENY, Demo false, Live false, and orders off.
