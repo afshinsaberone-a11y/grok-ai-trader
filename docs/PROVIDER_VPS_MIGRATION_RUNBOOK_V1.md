@@ -343,3 +343,12 @@ Recorded code changes:
 - This patch set has not yet been verified by a fresh CI run; do not describe the latest change as CI-passed until then.
 
 No public trust anchor has been configured or activated, no Provider service or production registry has been reported as installed/initialized, and no new source evidence, authenticated envelope, MQL5 authorization record, or TradeLedger has been created by this step. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
+
+
+## 15. ACL repair command halted because Admission key directory was not found — 2026-10-25
+
+The operator supplied the result of a guarded ACL repair command. It stopped immediately with `BLOCKED: Admission key directory is missing.` for the expected path `C:\\ProgramData\\ForexAI-Provider\\keys\\admission-v1`. The command therefore did not inspect or change the ACL and did not delete, recreate, or regenerate key material.
+
+This differs from the preceding operator-reported metadata check, which had read the manifest and private-key header at the expected path. Cause is not established: possible explanations include a different host/session, a changed path, or the directory/files being moved or removed. Do not infer which occurred without a read-only inventory. Do not rerun the generator, create a replacement directory, or search the entire disk indiscriminately. First compare the current hostname, Provider root existence, keys-directory contents, and narrowly bounded occurrences of `public-key.json` under the Provider root; report names/paths only and never print private-key contents. If the files are missing on the same host, pause and investigate backup/audit history before any replacement or trust-anchor change.
+
+No trust anchor was activated by this failed repair. Keep the Provider non-operational, Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
