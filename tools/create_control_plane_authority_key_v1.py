@@ -216,7 +216,10 @@ def generate_authority_keypair(
             "passphrase_printed": False,
         }
     except Exception:
-        for path in reversed(created_files):
+        # The output directory was created exclusively by this invocation. Clean
+        # only the two known output files; never recurse-delete unexpected state.
+        cleanup_candidates = [manifest_path, private_path, *reversed(created_files)]
+        for path in cleanup_candidates:
             try:
                 path.unlink(missing_ok=True)
             except OSError:
