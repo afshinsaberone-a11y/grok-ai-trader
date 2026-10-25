@@ -223,3 +223,65 @@ def test_all_required_roles_have_distinct_key_ids_and_correct_environment_names(
     }
     assert len({value["key_id"] for value in ROLES.values()}) == len(ROLES)
     assert len({value["environment_variable"] for value in ROLES.values()}) == len(ROLES)
+
+
+
+def test_preserves_unexpected_colliding_file_and_aborts_key_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output_dir = tmp_path / "authority-race"
+
+    def simulate_unexpected_entry(directory: Path) -> None:
+        # Represents an unexpected/colliding file appearing before key writes.
+        # Use the exact private-key output name to exercise collision cleanup.
+        (directory / "private-key.pem").write_bytes(b"not-created-by-this-invocation")
+
+    monkeypatch.setattr(keygen, "_secure_private_directory", simulate_unexpected_entry)
+
+    with pytest.raises(
+        AuthorityKeyGenerationError,
+        match="OUTPUT_DIR_NOT_EMPTY_AFTER_CREATION",
+    ):
+        generate_authority_keypair(
+            output_dir,
+            "provider-admission",
+            "test-only-passphrase-long-enough",
+            repository_root=repository,
+        )
+
+    assert (output_dir / "private-key.pem").read_bytes() == b"not-created-by-this-invocation"
+    assert not (output_dir / "public-key.json").exists()
+    # The directory remains for operator review; no recursive deletion occurs.
+    assert output_dir.is_dir()
+
+
+def test_failed_new_file_write_removes_only_its_own_partial_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    real_os = os
+
+    def fail_fsync(_descriptor: int) -> None:
+        raise OSError("simulated disk flush failure")
+
+    monkeypatch.setattr(
+        keygen,
+        "os",
+        SimpleNamespace(name="posix", chmod=real_os.chmod, fsync=fail_fsync),
+    )
+    path = tmp_path / "partial-private-key.pem"
+    with pytest.raises(AuthorityKeyGenerationError, match="KEY_FILE_WRITE_FAILED"):
+        keygen._write_new_file(path, b"partial-key-data", private=True)
+    assert not path.exists()
+
+
+def test_failed_exclusive_open_never_deletes_preexisting_file(tmp_path: Path):
+    path = tmp_path / "already-owned.pem"
+    original = b"external-owner-file"
+    path.write_bytes(original)
+
+    with pytest.raises(AuthorityKeyGenerationError, match="KEY_FILE_WRITE_FAILED"):
+        keygen._write_new_file(path, b"replacement-key-material", private=True)
+
+    assert path.read_bytes() == original
