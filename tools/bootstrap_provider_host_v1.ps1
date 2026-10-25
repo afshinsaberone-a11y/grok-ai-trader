@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$ProviderRoot = 'C:\ProgramData\ForexAI-Provider',
-    [string]$ExpectedCommit = '41883f30d32747d07d7b7772f8ee7c656a95e4a1'
+    [string]$ProviderRoot = 'C:\ProgramData\ForexAI-Provider'
 )
 
 # One-time clean-host bootstrap for the external Provider.
@@ -13,6 +12,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $repositoryUrl = 'https://github.com/afshinsaberone-a11y/grok-ai-trader.git'
+# Fixed reviewed source revision; callers cannot override code executed by the elevated bootstrap.
+$expectedCommit = '41883f30d32747d07d7b7772f8ee7c656a95e4a1'
 $pythonVersion = '3.13.17'
 $pythonInstallRoot = 'C:\Program Files\ForexAI-Pinned-Python-3.13.17'
 $pythonExe = Join-Path $pythonInstallRoot 'python.exe'
@@ -131,7 +132,7 @@ try {
         throw 'BOOTSTRAP_EXPECTS_WINDOWS_SERVER_2022_OR_NEWER'
     }
 
-    if ($ExpectedCommit -notmatch '^[0-9a-f]{40}$') {
+    if ($expectedCommit -notmatch '^[0-9a-f]{40}$') {
         throw 'EXPECTED_COMMIT_MUST_BE_FULL_SHA'
     }
 
@@ -231,13 +232,13 @@ try {
         throw 'GITHUB_SOURCE_CLONE_FAILED'
     }
 
-    & $gitExe -C $sourceRoot checkout --quiet --detach $ExpectedCommit
+    & $gitExe -C $sourceRoot checkout --quiet --detach $expectedCommit
     if ($LASTEXITCODE -ne 0) {
         throw 'PINNED_SOURCE_CHECKOUT_FAILED'
     }
 
     $actualCommit = (& $gitExe -C $sourceRoot rev-parse HEAD | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $actualCommit -ne $ExpectedCommit) {
+    if ($LASTEXITCODE -ne 0 -or $actualCommit -ne $expectedCommit) {
         throw 'CHECKED_OUT_SOURCE_SHA_MISMATCH'
     }
 
