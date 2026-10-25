@@ -74,12 +74,14 @@ def audit_configuration(
     # "Prevent administrators from bypassing configured protection rules"
     # UI setting. If an API response ever supplies can_admins_bypass, honor it;
     # otherwise continue checking observable controls but never claim a full pass.
+    verification_gaps: list[str] = []
     if "can_admins_bypass" in environment_data:
         if environment_data.get("can_admins_bypass") is not False:
             return fail("ADMIN_BYPASS_NOT_EXPLICITLY_DISABLED")
         admin_bypass_status = "VERIFIED_DISABLED"
     else:
         admin_bypass_status = "NOT_EXPOSED_BY_DOCUMENTED_READ_API"
+        verification_gaps.append("ADMIN_BYPASS_NOT_EXPOSED_BY_DOCUMENTED_READ_API")
 
     protection_rules = environment_data.get("protection_rules")
     if not isinstance(protection_rules, list):
@@ -128,6 +130,13 @@ def audit_configuration(
     policy = policies[0]
     if not isinstance(policy, Mapping) or policy.get("name") != "main":
         return fail("DEPLOYMENT_BRANCH_MUST_BE_MAIN_ONLY")
+    if "type" in policy and policy.get("type") != "branch":
+        return fail("DEPLOYMENT_POLICY_IS_NOT_BRANCH")
+    if "type" in policy:
+        branch_policy_type_status = "VERIFIED_BRANCH"
+    else:
+        branch_policy_type_status = "NOT_EXPOSED_BY_DOCUMENTED_READ_API"
+        verification_gaps.append("DEPLOYMENT_BRANCH_TAG_TYPE_NOT_EXPOSED_BY_DOCUMENTED_READ_API")
 
     report = {
         "schema": SCHEMA,
@@ -141,6 +150,8 @@ def audit_configuration(
         "can_admins_bypass": False if admin_bypass_status == "VERIFIED_DISABLED" else None,
         "admin_bypass_status": admin_bypass_status,
         "deployment_branches": ["main"],
+        "deployment_branch_policy_type_status": branch_policy_type_status,
+        "verification_gaps": verification_gaps,
         "scope": "GITHUB_ENVIRONMENT_CONFIGURATION_ONLY",
         "source_authorities_verified": False,
         "private_key_or_secret_inspected": False,
@@ -150,13 +161,13 @@ def audit_configuration(
         "live_trading_allowed": False,
         "note": "This checks observable GitHub environment settings only; it does not prove independent custody or source readiness.",
     }
-    if admin_bypass_status != "VERIFIED_DISABLED":
+    if verification_gaps:
         report["status"] = "PARTIAL_CONFIGURATION_REVIEW_REQUIRED"
-        report["reason"] = "ADMIN_BYPASS_NOT_EXPOSED_BY_DOCUMENTED_READ_API"
+        report["reason"] = verification_gaps[0]
         report["note"] = (
-            "Reviewer and deployment-branch settings passed, but administrator-bypass "
-            "prevention is not exposed by the documented read API. Verify it manually in "
-            "repository Settings before any release. This is not a full configuration pass."
+            "Observable reviewer and deployment-name controls passed, but some security "
+            "properties are not exposed by the documented read APIs. Verify every item in "
+            "verification_gaps manually in repository Settings. This is not a full configuration pass."
         )
     return report
 
