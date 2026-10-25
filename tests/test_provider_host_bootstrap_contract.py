@@ -39,6 +39,13 @@ def test_provider_clean_host_bootstrap_is_pinned_and_fail_closed():
     assert "demo_trading_authorized = $false" in script
     assert "live_trading_allowed = $false" in script
     assert "orders_submitted = $false" in script
+    # The elevated target is restricted to one fresh direct child of the actual
+    # CommonApplicationData directory; reject relative/arbitrary/reparse paths.
+    assert "PROVIDER_ROOT_MUST_BE_ABSOLUTE" in script
+    assert "PROVIDER_ROOT_MUST_BE_DIRECT_PROGRAMDATA_CHILD" in script
+    assert "PROVIDER_ROOT_PARENT_MUST_NOT_BE_REPARSE_POINT" in script
+    assert "PROVIDER_ROOT_CREATED_AS_REPARSE_POINT" in script
+    assert "New-Item -ItemType Directory -Path $ProviderRoot -ErrorAction Stop" in script
 
     # Do not adopt an executable that was already present and only claims the
     # expected version; install verified packages into dedicated empty paths.
