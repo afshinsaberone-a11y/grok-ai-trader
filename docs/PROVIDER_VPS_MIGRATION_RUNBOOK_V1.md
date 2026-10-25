@@ -421,3 +421,17 @@ The operator's read-only inventory on `WIN-P7MA35DRF6Q` found the legacy Admissi
 A separate 2026-10-20 rotation candidate remains present. Its public-key fingerprint is `42ae424123acd85e3d0f0dcef2e2844d43a9378c7ec8acf6868bcfe28436174a`, which is not the current trusted fingerprint; it stays comparison-only absent owner-approved coordinated rotation. The earlier missing-file result checked `keys\admission-v1\private-key.pem`, a new-host path, not this legacy layout. No key was created, moved, deleted, or activated during the inventory.
 
 Next gate: use only the approved key-custody/password-manager process to unlock the legacy PEM locally and derive its Ed25519 public-key fingerprint in memory. Output only whether it matches the current trusted fingerprint, plus the derived fingerprint; never print a passphrase or private-key contents. If the passphrase is unavailable, stop and prepare owner-approved coordinated rotation instead of substituting the 2026-10-20 candidate. No trading authority was created; keep Kill Switch DENY, Demo unauthorized, Live disabled, orders off.
+
+
+## 22. Legacy Admission passphrase unavailable — coordinated rotation decision needed — 2026-10-25
+
+The operator reports that the legacy Admission private-key passphrase is forgotten. The encrypted PEM remains present on the legacy Provider host and its adjacent public-key file matches the currently trusted GitHub Repository Variable fingerprint, but no private/public proof-of-possession test has yet succeeded. A forgotten passphrase cannot be inferred from the public key or fingerprint. Do not run brute-force attempts, alter the encrypted PEM, or continue repeated guesses.
+
+Recovery options, in order:
+1. Check the operator's approved password manager, secure notes, or authorized organizational secret manager for the exact legacy Admission passphrase and any documented recovery record.
+2. If unavailable, preserve the old host and key files for audit/rollback, but treat the old private key as unavailable for signing.
+3. Prepare a documented, owner-approved coordinated Admission key rotation to the already generated new-host key (fingerprint a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea) only after confirming the new key's passphrase is recoverable from the operator's approved password manager and verifying that its public key is derived from that private key. If the new-key passphrase is also unavailable, create a separate approved recovery/rotation plan rather than activating an unusable key.
+
+A rotation must be coordinated across the Provider signer configuration and the GitHub Repository Variable consumed by the MT5/runner verifier; it requires a recorded approver, backup of current public configuration metadata, successful proof-of-possession using the new encrypted key, a planned rollback, and post-change verification. Never change only one side or copy private-key material into GitHub/chat. The 2026-10-20 staged candidate remains unapproved and must not be selected by guesswork.
+
+No trust anchor was changed and no trading authority was granted. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
