@@ -159,3 +159,13 @@ PEM قدیمی Admission روی Provider قبلی موجود است، اما ک�
 این گزارش هماهنگی اثرانگشت GitHub و Machine میزبان Provider را تأیید می‌کند. هیچ کلید خصوصی یا رمز عبوری منتقل نشده است. چون متغیر Machine به فرایندهای تازه‌اجراشده به ارث می‌رسد، قبل از هر استفادهٔ بعدی باید مقدار آن از نشست PowerShell جدید یا تشخیص فقط‌خواندنی دوباره بررسی شود. سرویس Provider را هنوز نصب/اجرا نکنید: anchor و سرویس مستقل Promotion، Signal، Risk/Reservation و Operator هنوز تأیید نشده‌اند؛ مسئلهٔ مالکیت/اعتماد Promotion حل نشده و رجیستری تولیدی صدور هم راه‌اندازی نشده است. موانع سمت MT5 یعنی `AUTHENTICATED_ENVELOPE_FILE_MISSING`، `MQL5_AUTHORIZATION_RECORD_MISSING` و `TRADE_LEDGER_FILE_MISSING` نیز با چرخش کلید برطرف نمی‌شوند.
 
 هیچ درخواست Admission، source packet، مجوز معامله یا سفارشی ایجاد/ارسال نشد. Kill Switch باید DENY بماند؛ Demo غیرمجاز، Live غیرفعال و سفارش‌ها خاموش.
+
+## افزودهٔ بعدی — Preflight بعد از هماهنگی Admission هنوز مسدود است
+
+کاربر روی میزبان `WIN-32DFDCJOHEF` پس از هماهنگی Trust Anchor، Preflight را اجرا کرد. کنترل‌های ابتدایی گزارش دادند `HostMatches=True`، `ManifestMatchesExpected=True`، `MachineAnchorMatchesExpected=True` و اثرانگشت Process برابر کلید جدید `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea` است. کنترل Admission در Preflight برابر `FORMAT_PASS` شد.
+
+با این وجود Preflight با کد خروج ۲ و وضعیت `BLOCKED` پایان یافت. کلیدهای عمومی `FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY`، `FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY`، `FOREXAI_PROVIDER_RISK_PUBLIC_KEY` و `FOREXAI_PROVIDER_SIGNAL_PUBLIC_KEY` هنوز `NOT_CONFIGURED` هستند. رجیستری ضدتکرار Provider نیز `NOT_CONFIGURED` است؛ مسیر مطلق مصوب یا پوشهٔ والد تعیین نشده و SQLite probe اجرا نشده است. گزارش صریحاً نشان می‌دهد `admission_issuance_authorized=false`، `demo_trading_authorized=false`، `live_trading_allowed=false`، `signed_request_created=false` و `orders_submitted=false`.
+
+موانع باقی‌مانده شامل Promotion attestation تازه و مستقل متصل به اجرای واقعی G13 و آرتیفکت‌های تأییدشده، Signal واقعی و تازه، تصمیم Risk امضاشده با رزرو پایدار واقعی، تأیید انسانی امضاشده با دامنهٔ دقیق `ONE_SIGNAL_DEMO_ONLY`، Capital Firewall Grant معتبر از مرجع مستقل و مجوز صریح منبع‌حکومت‌شده برای یک سیگنال Demo است. کلید/attestation ساختگی نسازید، anchor حدسی تنظیم نکنید و پیش از تعیین مالک منبع و تأیید مستند سابقه/ACL/backup/restore مسیر رجیستری تولیدی را انتخاب نکنید. مشکل مالکیت/اعتماد کلید Promotion روی میزبان قدیمی نیز همچنان جداگانه حل‌نشده است.
+
+این خروجی نشان می‌دهد اصلاح Admission به‌تنهایی صدور مجوز، Demo، Live یا ارسال سفارش را فعال نکرده است. تا زمان حل پیش‌نیازها و تأیید هویت سرویس، Provider را راه‌اندازی و رجیستری را مقداردهی اولیه نکنید. Kill Switch باید DENY بماند؛ Demo غیرمجاز، Live غیرفعال و سفارش‌ها خاموش.
