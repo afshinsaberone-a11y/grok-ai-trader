@@ -117,7 +117,7 @@ def audit_configuration(
         return fail("CUSTOM_DEPLOYMENT_BRANCH_POLICY_NOT_ENABLED")
 
     policies = branch_policy_data.get("branch_policies")
-    if not isinstance(policies, list) or len(policies) != 1:
+    if branch_policy_data.get("total_count") != 1 or not isinstance(policies, list) or len(policies) != 1:
         return fail("EXACTLY_MAIN_DEPLOYMENT_BRANCH_REQUIRED")
     policy = policies[0]
     if not isinstance(policy, Mapping) or policy.get("name") != "main":
