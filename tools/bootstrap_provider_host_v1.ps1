@@ -14,11 +14,11 @@ $ProgressPreference = 'SilentlyContinue'
 
 $repositoryUrl = 'https://github.com/afshinsaberone-a11y/grok-ai-trader.git'
 $pythonVersion = '3.13.17'
-$pythonInstallRoot = 'C:\Program Files\Python313'
+$pythonInstallRoot = 'C:\Program Files\ForexAI-Pinned-Python-3.13.17'
 $pythonExe = Join-Path $pythonInstallRoot 'python.exe'
 $pythonInstallerUrl = 'https://www.python.org/ftp/python/3.13.17/python-3.13.17-amd64.exe'
 $pythonInstallerSha256 = '5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190'
-$gitInstallRoot = 'C:\Program Files\Git'
+$gitInstallRoot = 'C:\Program Files\ForexAI-Pinned-Git-2.56.0.3'
 $gitExe = Join-Path $gitInstallRoot 'cmd\git.exe'
 $gitInstallerUrl = 'https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.3/Git-2.56.0.3-64-bit.exe'
 $gitInstallerSha256 = 'dc6d3db061999136e139f31376c5582a9ed6f36a4ea12f15e54ad7fa2bfc0bf2'
@@ -135,6 +135,13 @@ try {
         throw 'EXPECTED_COMMIT_MUST_BE_FULL_SHA'
     }
 
+    if (Test-Path -LiteralPath $gitInstallRoot) {
+        throw 'GIT_INSTALL_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RESUME'
+    }
+    if (Test-Path -LiteralPath $pythonInstallRoot) {
+        throw 'PYTHON_INSTALL_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RESUME'
+    }
+
     # Never overlay a previous install or silently adopt existing state.
     if (Test-Path -LiteralPath $ProviderRoot) {
         throw 'PROVIDER_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RESUME'
@@ -151,14 +158,16 @@ try {
     $gitInstallerReport = $null
     $pythonInstallerReport = $null
 
-    if (-not (Test-Path -LiteralPath $gitExe -PathType Leaf)) {
-        $gitInstallerReport = Get-VerifiedInstaller -Uri $gitInstallerUrl -Destination $gitInstaller -ExpectedSha256 $gitInstallerSha256
-
-        $gitArgs = '/VERYSILENT /NORESTART /SP- /SUPPRESSMSGBOXES /DIR="' + $gitInstallRoot + '"'
-        $gitProcess = Start-Process -FilePath $gitInstaller -ArgumentList $gitArgs -Wait -PassThru
-        if ($gitProcess.ExitCode -ne 0) {
-            throw 'GIT_FOR_WINDOWS_INSTALL_FAILED'
-        }
+    # Always install the pinned tool into the dedicated, previously absent path.
+    # Never adopt an existing executable based only on its reported version.
+    $gitInstallerReport = Get-VerifiedInstaller -Uri $gitInstallerUrl -Destination $gitInstaller -ExpectedSha256 $gitInstallerSha256
+    if (Test-Path -LiteralPath $gitInstallRoot) {
+        throw 'GIT_INSTALL_ROOT_APPEARED_DURING_BOOTSTRAP'
+    }
+    $gitArgs = '/VERYSILENT /NORESTART /SP- /SUPPRESSMSGBOXES /DIR="' + $gitInstallRoot + '"'
+    $gitProcess = Start-Process -FilePath $gitInstaller -ArgumentList $gitArgs -Wait -PassThru
+    if ($gitProcess.ExitCode -ne 0) {
+        throw 'GIT_FOR_WINDOWS_INSTALL_FAILED'
     }
 
     if (-not (Test-Path -LiteralPath $gitExe -PathType Leaf)) {
@@ -170,14 +179,14 @@ try {
         throw 'GIT_VERSION_NOT_THE_REVIEWED_PIN'
     }
 
-    if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
-        $pythonInstallerReport = Get-VerifiedInstaller -Uri $pythonInstallerUrl -Destination $pythonInstaller -ExpectedSha256 $pythonInstallerSha256 -RequiredSignerSubstring 'Python Software Foundation'
-
-        $pythonArgs = '/quiet InstallAllUsers=1 TargetDir="' + $pythonInstallRoot + '" Include_pip=1 Include_test=0 PrependPath=0 AppendPath=0 InstallLauncherAllUsers=1 Shortcuts=0'
-        $pythonProcess = Start-Process -FilePath $pythonInstaller -ArgumentList $pythonArgs -Wait -PassThru
-        if ($pythonProcess.ExitCode -ne 0) {
-            throw 'PYTHON_INSTALL_FAILED'
-        }
+    $pythonInstallerReport = Get-VerifiedInstaller -Uri $pythonInstallerUrl -Destination $pythonInstaller -ExpectedSha256 $pythonInstallerSha256 -RequiredSignerSubstring 'Python Software Foundation'
+    if (Test-Path -LiteralPath $pythonInstallRoot) {
+        throw 'PYTHON_INSTALL_ROOT_APPEARED_DURING_BOOTSTRAP'
+    }
+    $pythonArgs = '/quiet InstallAllUsers=1 TargetDir="' + $pythonInstallRoot + '" Include_pip=1 Include_test=0 PrependPath=0 AppendPath=0 InstallLauncherAllUsers=1 Shortcuts=0'
+    $pythonProcess = Start-Process -FilePath $pythonInstaller -ArgumentList $pythonArgs -Wait -PassThru
+    if ($pythonProcess.ExitCode -ne 0) {
+        throw 'PYTHON_INSTALL_FAILED'
     }
 
     if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
