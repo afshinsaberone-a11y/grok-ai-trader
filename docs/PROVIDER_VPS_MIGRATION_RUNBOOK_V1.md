@@ -255,3 +255,38 @@ The report's next gate is `OWNER_APPROVED_KEY_CUSTODY_SOURCE_AUTHORITIES_AND_REG
 7. Keep Kill Switch DENY, Demo unauthorized, Live disabled and order submission off until fresh upstream attestations and a separately approved one-signal Demo authorization pass all execution-boundary checks.
 
 This addendum updates the destination bootstrap status only. It does not replace earlier evidence or declare migration cutover complete.
+
+
+## 11. First destination Provider preflight — BLOCKED — 2026-10-25
+
+The administrator supplied a read-only preflight result from `WIN-32DFDCJOHEF` on 2026-10-25. Python and dependency checks passed (`Python 3.13.17`, `cryptography=OK`); the Provider host preflight itself returned exit code 2 and `status=BLOCKED`.
+
+Observed configuration (all values are status labels; no key material was included):
+
+| Check | Observed result |
+|---|---|
+| `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_SIGNAL_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_RISK_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH` | `NOT_CONFIGURED` |
+| Registry absolute path / parent / target | `false / false / false` |
+| Registry SQLite probe | `NOT_RUN` |
+| Admission issuance authorized | `false` |
+| Demo authorized / Live allowed | `false / false` |
+| Signed request created / orders submitted | `false / false` |
+
+This result is consistent with an unconfigured clean host; it is not a Python or cryptography failure. The disposable SQLite probe was not run because no registry path was configured. Do not try to fix this by inventing or reusing key material, choosing an unapproved registry path, initializing an empty production registry, or fabricating source evidence.
+
+### Next gate — approvals before production configuration
+
+1. The project owner must approve a role/custody register naming the independent operational owner and key custodian for each authority, verified public-key fingerprint, source-of-truth/signing service, revocation/rotation owner, and recovery procedure. Account/project ownership is not itself independent signing authority.
+2. Obtain the five Provider trust anchors from their actual source authorities. Keys must be real raw Ed25519 public keys encoded canonically in base64, distinct, and tied to independently verified source services. Do not generate placeholder values for the preflight.
+3. Resolve Promotion key custody and the prior file/environment fingerprint mismatch with the Promotion owner. The Promotion private key must remain in the separately administered Promotion Attestor boundary; do not copy it into Provider.
+4. Reconcile issuance/audit history with Admission/Grant sources before selecting the Provider registry absolute path and authorizing one-time initialization. Obtain explicit approval of service identity, ACL, backup, restore, and recovery controls first.
+5. After those approvals, configure approved public anchors and registry path via the authorized administrative channel, run the read-only preflight again, and require a clean `PREFLIGHT_PASS_SOURCE_EVIDENCE_STILL_REQUIRED` result. This status still does not authorize issuance or trading.
+6. The six source-evidence requirements in the JSON report remain independent blockers: fresh promotion evidence bound to verified G13 runs/artifacts; live-signal attestation; risk decision plus actual reservation; operator approval scoped to `ONE_SIGNAL_DEMO_ONLY`; valid independently signed Capital Firewall grant; and explicit source-governed one-signal Demo permission.
+7. Separately resolve the MT5-side missing authenticated envelope, MQL5 authorization record and TradeLedger using authentic signed workflow evidence. Never create empty stand-ins.
+
+Until these controls pass, keep Kill Switch DENY, Provider service uninstalled/non-consuming, Demo unauthorized, Live disabled, and order submission off. This dated result extends the history and does not supersede or delete any earlier archive.
