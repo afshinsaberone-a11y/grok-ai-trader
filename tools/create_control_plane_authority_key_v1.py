@@ -130,6 +130,71 @@ def _secure_private_directory(directory: Path) -> None:
                 )
                 if removal.returncode != 0:
                     raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_SETUP_FAILED")
+
+            # Do not rely solely on successful icacls exit codes. Read back the
+            # actual DACL and fail closed unless only the current signer SID and
+            # SYSTEM have explicit, non-inherited FullControl entries.
+            powershell = (
+                "$acl = Get-Acl -LiteralPath $env:FOREXAI_ACL_CHECK_PATH; "
+                "$rules = @($acl.Access | ForEach-Object { "
+                "[pscustomobject]@{ "
+                "sid = $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value; "
+                "access_type = [string]$_.AccessControlType; "
+                "inherited = [bool]$_.IsInherited; "
+                "rights = [int]$_.FileSystemRights "
+                "} }); "
+                "[pscustomobject]@{ "
+                "protected = [bool]$acl.AreAccessRulesProtected; "
+                "full_control_rights = [int][System.Security.AccessControl.FileSystemRights]::FullControl; "
+                "rules = $rules "
+                "} | ConvertTo-Json -Compress -Depth 4"
+            )
+            environment = os.environ.copy()
+            environment["FOREXAI_ACL_CHECK_PATH"] = str(directory)
+            verified_acl = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", powershell],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+                timeout=20,
+            )
+            if verified_acl.returncode != 0:
+                raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_VERIFY_FAILED")
+            try:
+                acl_report = json.loads(verified_acl.stdout)
+            except (TypeError, ValueError) as exc:
+                raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_VERIFY_FAILED") from exc
+
+            rules = acl_report.get("rules")
+            if isinstance(rules, dict):
+                rules = [rules]
+            full_control = acl_report.get("full_control_rights")
+            expected_sids = {sid, "S-1-5-18"}
+            actual_sids: set[str] = set()
+            if (
+                acl_report.get("protected") is not True
+                or not isinstance(full_control, int)
+                or not isinstance(rules, list)
+                or len(rules) != 2
+            ):
+                raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_VERIFY_FAILED")
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_VERIFY_FAILED")
+                rule_sid = rule.get("sid")
+                if (
+                    not isinstance(rule_sid, str)
+                    or rule_sid not in expected_sids
+                    or rule.get("access_type") != "Allow"
+                    or rule.get("inherited") is not False
+                    or rule.get("rights") != full_control
+                    or rule_sid in actual_sids
+                ):
+                    raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_VERIFY_FAILED")
+                actual_sids.add(rule_sid)
+            if actual_sids != expected_sids:
+                raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_VERIFY_FAILED")
         except subprocess.TimeoutExpired as exc:
             raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_SETUP_TIMEOUT") from exc
         except (OSError, subprocess.CalledProcessError) as exc:
@@ -143,15 +208,29 @@ def _secure_private_directory(directory: Path) -> None:
 
 def _write_new_file(path: Path, data: bytes, private: bool) -> None:
     created_by_this_call = False
+    descriptor: int | None = None
     try:
-        with path.open("xb") as stream:
-            created_by_this_call = True
+        # On POSIX, choose restrictive creation mode at open time. chmod-after-
+        # write leaves a window in which a private key may be group/world-readable.
+        mode = 0o600 if private else 0o644
+        descriptor = os.open(
+            str(path),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            mode,
+        )
+        created_by_this_call = True
+        stream = os.fdopen(descriptor, "wb")
+        descriptor = None  # fdopen owns the descriptor from this point onward.
+        with stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        if os.name != "nt":
-            os.chmod(path, 0o600 if private else 0o644)
     except OSError as exc:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
         # A failed exclusive open means this invocation did not create the path;
         # never delete a file that already existed at the requested name.
         if created_by_this_call:
