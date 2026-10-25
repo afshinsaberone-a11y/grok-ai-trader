@@ -247,6 +247,20 @@ try {
         throw 'SOURCE_CHECKOUT_NOT_CLEAN'
     }
 
+    # Fail closed unless the exact pinned source checkout contains a reviewed,
+    # complete hash lock. The lock is intentionally not synthesized during an
+    # elevated bootstrap; lock generation/review happens as a separate workflow.
+    $providerLockPath = Join-Path $sourceRoot 'requirements-provider.lock.txt'
+    if (-not (Test-Path -LiteralPath $providerLockPath -PathType Leaf)) {
+        throw 'HASH_LOCKED_PROVIDER_REQUIREMENTS_MISSING'
+    }
+    $providerLockContent = Get-Content -LiteralPath $providerLockPath -Raw
+    if ([string]::IsNullOrWhiteSpace($providerLockContent) -or
+        $providerLockContent -notmatch '(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==[^\s\\]+' -or
+        $providerLockContent -notmatch '(?m)--hash=sha256:[0-9a-fA-F]{64}') {
+        throw 'HASH_LOCKED_PROVIDER_REQUIREMENTS_INVALID'
+    }
+
     & $pythonExe -m venv $venvRoot
     if ($LASTEXITCODE -ne 0) {
         throw 'PROVIDER_VENV_CREATION_FAILED'
@@ -257,14 +271,9 @@ try {
         throw 'PROVIDER_VENV_PYTHON_NOT_FOUND'
     }
 
-    & $venvPython -m pip install --disable-pip-version-check --upgrade pip
+    & $venvPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $providerLockPath
     if ($LASTEXITCODE -ne 0) {
-        throw 'PIP_BOOTSTRAP_FAILED'
-    }
-
-    & $venvPython -m pip install --disable-pip-version-check -r (Join-Path $sourceRoot 'requirements.txt')
-    if ($LASTEXITCODE -ne 0) {
-        throw 'PROJECT_DEPENDENCY_INSTALL_FAILED'
+        throw 'PROJECT_HASH_LOCKED_DEPENDENCY_INSTALL_FAILED'
     }
 
     & $venvPython -c "import cryptography, numpy, pandas, backtesting, pytest; print('PYTHON_DEPENDENCIES=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
@@ -294,6 +303,7 @@ try {
         python_version = $detectedPython
         repository_url = $repositoryUrl
         source_commit = $actualCommit
+        dependency_lock_sha256 = (Get-FileHash -LiteralPath $providerLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
         provider_root = $ProviderRoot
         source_directory_created = $true
         virtual_environment_created = $true
