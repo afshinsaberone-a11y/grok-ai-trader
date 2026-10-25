@@ -476,3 +476,22 @@ Fixes committed:
 Verified on commit e0c99423d22125c496e1b0d21c6826f57abe983f: pytest -q reported 730 passed, 1 warning in 6.49s. The tests workflow passed for both push and pull-request events, as did Windows PowerShell diagnostic parsing, G13 Workflow Static Validation, ForexAI Agent Runtime Check, and ForexAI Project Repair Loop v1. This resolves the Python CI blocker on the current branch. It does not authorize or provision any production authority.
 
 Operational gates are still BLOCKED on the new Provider host: Operator, Promotion, Risk/Reservation and Signal public anchors/independent services are absent; the approved Provider anti-replay registry target is not configured; Promotion key custody/trust separation on the old host needs owner-approved resolution; no fresh signed source packet / Admission request / authenticated envelope / MQL5 authorization record / TradeLedger exists; and no source-governed one-signal Demo grant has been issued. Do not start the Provider service, initialize the production registry, or enable trading while these remain unresolved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, orders off.
+
+## 27. Read-only G13 source artifact inventory for the current main SHA — 2026-10-25
+
+A read-only GitHub Actions API inspection confirmed that the current main branch still points to SHA 41883f30d32747d07d7b7772f8ee7c656a95e4a1. The eight Grant-evidence run categories listed in docs/CAPITAL_FIREWALL_GRANT_ISSUER_V1.md completed successfully on that exact SHA, and the associated artifact metadata returned by GitHub identifies each artifact as non-expired. The SHA-256 values below are GitHub's workflow-artifact ZIP digest fields, not a separately recomputed digest of the files inside each ZIP.
+
+| Evidence stage | Successful run ID | Artifact name | GitHub artifact ZIP SHA-256 |
+|---|---:|---|---|
+| Validation M15 | 40176071204 | g13-validation-m15 | 906acadd228844db5a7c872a40f1eb17a2db4e6396fa843c31a1e2d6018a3a26 |
+| Robustness M15 | 40176072462 | g13-robustness-m15 | 1b80e8de7c3f38a3a36601ab818e7503849a42090fe67e0d4782f8c30cf5dd38 |
+| Current OOS M15 | 40176214390 | g13-oos-m15-2026-current | c0fac4db76e7f1d3f676fb64416d4d222221063f58163299ab9dbc3e3c80c9ad |
+| Final Promotion M15 | 40176324110 | g13-promotion-manifest-m15 | e33388868379b9e8bd2136d8826e421ca307f4feebe5548c7ca451dbda355a53 |
+| MT5 Compile + Signal Parity | 40176443408 | g13-mt5-compile-parity-40176443408 | e2491b380b4846d9fa87257d12276a8537c491d7e456812c46ea6c93fc9adde8 |
+| Controlled Demo Package Preflight M15 | 40176790887 | g13-controlled-demo-package-preflight-m15 | e83982cf36f4bfc7f157f981c896f94e1f7cc0407062ae1a535eae802d64720b |
+| Execution Safety Audit M15 | 40176809457 | g13-execution-safety-audit-m15 | b6095f6f1e7f01a8d883d69beac3fdf82216f53c521b4495d9e894d558a566f0 |
+| Demo Readiness Gate M15 | 40176825695 | g13-demo-readiness-gate-m15 | 48328348653165a01579bdafa2be47d2f3921468763d5bdd0bef8ef8bff68e50 |
+
+The API reported each listed artifact with the same repository ID, main branch, head SHA 41883f30d32747d07d7b7772f8ee7c656a95e4a1, and an expiration date of 2027-01-23. Each corresponding run's required job conclusion was success.
+
+Scope limitation: this confirms run/job/artifact metadata only. It is not an independent Promotion attestation, not a Capital Firewall Grant, not proof of a fresh live signal or risk reservation, and not Demo permission. A separately administered Promotion Attestor must fetch and validate exact artifact contents/digests and bind them to the frozen candidate/configuration. A fresh Signal, actual Risk reservation, signed Operator Approval, independent Grant, and short-lived source-governed Admission are still missing. The current G13 Readiness artifact explicitly does not itself authorize Demo. Do not activate the Provider service or initialize the production issuance registry until ownership, key custody, audit/recovery, and runtime identity gates are approved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, orders off.
