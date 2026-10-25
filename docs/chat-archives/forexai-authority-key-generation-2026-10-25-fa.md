@@ -193,3 +193,9 @@ commit b68b54834545396e7b1ec7cd5bf38d2dcb2b805b تست را اصلاح کرد ت
 - Agent Runtime Check، اجرا 40206023353: موفق.
 
 این اصلاح مانع تست/CI را برطرف می‌کند، نه مانع مجوز Provider را. Preflight هنوز BLOCKED است چون anchor و سیستم‌های مستقل Promotion، Signal، Risk و Operator موجود/پیکربندی‌شده نیستند و مسیر مصوب رجیستری پایدار Provider تعیین نشده است. Capital Firewall Grant مستقل و مرز مالکیت کلید آن نیز هنوز provision نشده‌اند. سمت MT5 همچنان به شواهد واقعی و امضاشده برای envelope، authorization record و TradeLedger نیاز دارد؛ فایل جایگزین خالی نسازید. تا تأیید مالکیت، custody، هویت runtime، مسیر، ACL، پشتیبان‌گیری/بازیابی و تطبیق تاریخچهٔ صدور، سرویس Provider را اجرا و رجیستری تولیدی را مقداردهی اولیه نکنید. Kill Switch باید DENY بماند؛ Demo غیرمجاز، Live غیرفعال و سفارش‌ها خاموش.
+
+## افزودهٔ بعدی — موجودی فقط‌خواندنی Dropbox، منبع عملیاتی مستقلی پیدا نشد
+
+در بررسی فقط‌خواندنی پوشهٔ `/ForexAI` در Dropbox متصل، ساختار پروژه و چند پوشهٔ آرتیفکت تاریخی G13 وجود داشت، اما پوشه‌های زیر هنگام بررسی خالی بودند: `00_CONTROL/Runbooks`، `00_CONTROL/Protocols`، `00_CONTROL/Project_Manifest`، `09_EVIDENCE_LEDGER/Promotion_Decisions`، `11_GITHUB_ACTIONS/Run_Registry` و `11_GITHUB_ACTIONS/Run_Reports`. جست‌وجوهای هدفمند برای مراجع Provider، Capital Firewall Grant signer، source attestation تازه، Risk reservation، TradeLedger و `ONE_SIGNAL_DEMO_ONLY` فایل منطبقی پیدا نکردند. آرتیفکت‌های G13 یافت‌شده در جست‌وجو تاریخی بودند (برای مثال ۹ اکتبر) و جایگزین شواهد تازه و وابسته به اجرای current SHA نمی‌شوند.
+
+محدودیت دامنه: این نتیجه فقط جست‌وجوی Dropbox متصل و پوشه‌های مشخص‌شده را پوشش می‌دهد؛ اثبات نمی‌کند که در حساب ابری، Secret Manager یا میزبان مستقل دیگری هیچ سرویسی وجود ندارد. هیچ فایلی در Dropbox تغییر نکرد. تا زمان ارائهٔ شواهد قابل‌تأیید از مالکیت سرویس و custody مستقل کلید، نقش‌های مفقود `NOT_IDENTIFIED` یا `NOT_PROVISIONED` باقی می‌مانند. هیچ داده یا مرجع ساختگی ایجاد نشده است؛ صدور و معامله مسدود بمانند.
