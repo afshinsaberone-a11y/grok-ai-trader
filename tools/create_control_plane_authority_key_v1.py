@@ -114,6 +114,22 @@ def _secure_private_directory(directory: Path) -> None:
             )
             if acl.returncode != 0:
                 raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_SETUP_FAILED")
+
+            # Newly created Windows directories can contain explicit default DACL
+            # entries even after inherited ACEs are removed. Remove these entries
+            # so the final discretionary ACL grants only the current SID and SYSTEM.
+            # Windows administrators can still take ownership by OS privilege; this
+            # removes broad direct grants and does not claim to defeat host admins.
+            for extra_sid in ("*S-1-5-32-544", "*S-1-3-4"):
+                removal = subprocess.run(
+                    ["icacls", str(directory), "/remove", extra_sid],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                if removal.returncode != 0:
+                    raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_SETUP_FAILED")
         except subprocess.TimeoutExpired as exc:
             raise AuthorityKeyGenerationError("PRIVATE_DIRECTORY_ACL_SETUP_TIMEOUT") from exc
         except (OSError, subprocess.CalledProcessError) as exc:
