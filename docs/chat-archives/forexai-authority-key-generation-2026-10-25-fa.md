@@ -151,3 +151,11 @@ PEM قدیمی Admission روی Provider قبلی موجود است، اما ک�
 آزمون جدید ثابت می‌کند کلید جدید و manifest آن تطبیق دارند و می‌تواند نامزد چرخش هماهنگ باشد؛ اما به‌تنهایی به معنی تأیید یا انجام چرخش trust anchor نیست. پیش از تغییر متغیر Repository یا پیکربندی پایدار Provider، نیت مجاز اپراتور باید مشخص و metadata/اثر انگشت قدیمی برای ممیزی نگه‌داری شود. کلید خصوصی جابه‌جا نشود. فقط کلید عمومی از manifest جدید از مسیر پیکربندی مورد تأیید منتقل شود. متغیر FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY روی Provider باید با متغیر GitHub که verifier مصرف می‌کند هماهنگ باشد و بعد از تغییر هر دو اثرانگشت با مقدار جدید کنترل شود. اگر هر سمت شکست خورد، Provider عملیاتی نشود و Admission صادر نکند؛ rollback به کلید قدیمی فقط زمانی ممکن است که رمز قدیمی بازیابی شود.
 
 هیچ سرویس Provider یا رجیستری تولیدی، شواهد منبع، درخواست Admission امضاشده، envelope، رکورد مجوز MQL5 یا TradeLedger ایجاد نشد. Kill Switch باید DENY بماند؛ Demo غیرمجاز، Live غیرفعال و سفارش‌ها خاموش.
+
+## افزودهٔ بعدی — هماهنگی اثرانگشت Trust Anchor بین GitHub و Provider جدید
+
+کاربر گزارش کرد اثرانگشت مقداری که از Repository Variable در GitHub وارد کرده با manifest کلید Admission جدید تطبیق دارد: `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`. سپس متغیر `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY` در محدودهٔ Machine و Process میزبان جدید تنظیم شد و مقدار Machine دوباره خوانده شد؛ اثرانگشت گزارش‌شده با همان مقدار مورد انتظار برابر بود. خروجی همچنین `ConfigurationOnly=True`، `ServiceStarted=False` و `TradingAuthorized=False` را نشان داد.
+
+این گزارش هماهنگی اثرانگشت GitHub و Machine میزبان Provider را تأیید می‌کند. هیچ کلید خصوصی یا رمز عبوری منتقل نشده است. چون متغیر Machine به فرایندهای تازه‌اجراشده به ارث می‌رسد، قبل از هر استفادهٔ بعدی باید مقدار آن از نشست PowerShell جدید یا تشخیص فقط‌خواندنی دوباره بررسی شود. سرویس Provider را هنوز نصب/اجرا نکنید: anchor و سرویس مستقل Promotion، Signal، Risk/Reservation و Operator هنوز تأیید نشده‌اند؛ مسئلهٔ مالکیت/اعتماد Promotion حل نشده و رجیستری تولیدی صدور هم راه‌اندازی نشده است. موانع سمت MT5 یعنی `AUTHENTICATED_ENVELOPE_FILE_MISSING`، `MQL5_AUTHORIZATION_RECORD_MISSING` و `TRADE_LEDGER_FILE_MISSING` نیز با چرخش کلید برطرف نمی‌شوند.
+
+هیچ درخواست Admission، source packet، مجوز معامله یا سفارشی ایجاد/ارسال نشد. Kill Switch باید DENY بماند؛ Demo غیرمجاز، Live غیرفعال و سفارش‌ها خاموش.
