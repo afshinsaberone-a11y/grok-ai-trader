@@ -169,3 +169,16 @@ PEM قدیمی Admission روی Provider قبلی موجود است، اما ک�
 موانع باقی‌مانده شامل Promotion attestation تازه و مستقل متصل به اجرای واقعی G13 و آرتیفکت‌های تأییدشده، Signal واقعی و تازه، تصمیم Risk امضاشده با رزرو پایدار واقعی، تأیید انسانی امضاشده با دامنهٔ دقیق `ONE_SIGNAL_DEMO_ONLY`، Capital Firewall Grant معتبر از مرجع مستقل و مجوز صریح منبع‌حکومت‌شده برای یک سیگنال Demo است. کلید/attestation ساختگی نسازید، anchor حدسی تنظیم نکنید و پیش از تعیین مالک منبع و تأیید مستند سابقه/ACL/backup/restore مسیر رجیستری تولیدی را انتخاب نکنید. مشکل مالکیت/اعتماد کلید Promotion روی میزبان قدیمی نیز همچنان جداگانه حل‌نشده است.
 
 این خروجی نشان می‌دهد اصلاح Admission به‌تنهایی صدور مجوز، Demo، Live یا ارسال سفارش را فعال نکرده است. تا زمان حل پیش‌نیازها و تأیید هویت سرویس، Provider را راه‌اندازی و رجیستری را مقداردهی اولیه نکنید. Kill Switch باید DENY بماند؛ Demo غیرمجاز، Live غیرفعال و سفارش‌ها خاموش.
+
+## افزودهٔ بعدی — اصلاح CI تست ACL و تأیید کل مجموعه
+
+در شاخهٔ ops/bootstrap-provider-host-v1-20261025 اجرای CI ابتدا در حدود ۳۳٪ تست‌های Python به خطای داخلی رسید. اجرای verbose تست مشخص کرد مورد محرک، تست test_windows_key_directory_acl_removes_default_admin_and_owner_rights بود. این تست روی runner لینوکسی مقدار سراسری os.name را موقتاً به nt تغییر می‌داد، و مقدار شبیه‌سازی‌شدهٔ خروجی whoami به‌جای newline واقعی، متن لفظی backslash+n داشت. در نتیجه SID به‌درستی تجزیه نمی‌شد و گزارشگر Pytest نیز هنگام گزارش خطا با NotImplementedError مربوط به WindowsPath از کار می‌افتاد و assertion اصلی را مخفی می‌کرد.
+
+اصلاحات:
+- commit 33a9bbadc9e5d0c4157ee1fb4466c55cb43efc6f مقدار قبلی os.name را در finally و پیش از assertionها/گزارش خطا برمی‌گرداند.
+- commit 2426a0e93fec6b9e6b794107ec6f3b7ab1dd6db2 هر دو fixture شبیه‌سازی whoami را برای newline واقعی اصلاح کرد.
+- commit 03af1a45b73ac516b930821dffb740880f44d4ac به‌طور موقت pytest verbose را برای یافتن نام تست فعال کرد؛ commit e0c99423d22125c496e1b0d21c6826f57abe983f تنظیم عادی pytest -q را برگرداند.
+
+روی commit e0c99423d22125c496e1b0d21c6826f57abe983f نتیجهٔ pytest -q برابر ۷۳۰ تست موفق و یک هشدار در ۶٫۴۹ ثانیه بود. workflow تست هم در رویداد push و هم pull_request موفق شد. Windows PowerShell diagnostic parsing، G13 Workflow Static Validation، ForexAI Agent Runtime Check و ForexAI Project Repair Loop v1 نیز موفق بودند. این مورد نرم‌افزاری CI رفع شد، اما به‌خودی‌خود هیچ مرجع تولیدی یا مجوز معامله‌ای ایجاد نمی‌کند.
+
+موانع عملیاتی هنوز BLOCKED هستند: anchor/سرویس مستقل Operator، Promotion، Risk/Reservation و Signal موجود یا تأیید نشده‌اند؛ مسیر مصوب رجیستری ضدتکرار Provider تنظیم نشده؛ مشکل custody/trust سمت Promotion روی میزبان قدیمی نیازمند تصمیم مجاز مالک است؛ source packet / درخواست Admission امضاشده / authenticated envelope / رکورد مجوز MQL5 / TradeLedger تازه وجود ندارد؛ و Grant مستقل یک‌سیگنال Demo صادر نشده است. در این وضعیت Provider را اجرا، رجیستری تولیدی را مقداردهی اولیه یا معامله را فعال نکنید. Kill Switch باید DENY بماند، Demo غیرمجاز، Live غیرفعال و سفارش‌ها خاموش.
