@@ -512,3 +512,19 @@ This removes a repository test-runner blocker, not the Provider authorization bl
 A read-only inventory of the connected Dropbox `/ForexAI` root found the project folder structure and multiple historical G13 artifact folders, but these evidence/control directories were empty when checked: `00_CONTROL/Runbooks`, `00_CONTROL/Protocols`, `00_CONTROL/Project_Manifest`, `09_EVIDENCE_LEDGER/Promotion_Decisions`, `11_GITHUB_ACTIONS/Run_Registry`, and `11_GITHUB_ACTIONS/Run_Reports`. Targeted Dropbox searches for Provider source authorities, Capital Firewall Grant signer, fresh source attestation, Risk reservation, TradeLedger and `ONE_SIGNAL_DEMO_ONLY` returned no matching files. The G13 artifacts found through search were historical (e.g. October 9) and cannot substitute for fresh run-bound evidence on current SHA.
 
 Scope limitation: this establishes only what was found in the connected Dropbox search and listed folders; it does not prove that no independent service exists in a different cloud account, secret manager or host. No Dropbox objects were changed. The missing service/source requirements remain `NOT_IDENTIFIED`/`NOT_PROVISIONED` until owners provide independently verifiable service/key-custody evidence. No data or authority was fabricated. Keep issuance and trading blocked.
+
+
+## 28. Elevated bootstrap workspace hardening — 2026-10-25
+
+A security review found that the original clean-host bootstrap downloaded hash-pinned installers beneath \$env:TEMP while requiring an elevated Administrator session. A user-writable temporary directory may be subject to junction/reparse-point planting, so the elevated download target was not an acceptable trust boundary.
+
+The bootstrap on the current PR branch now:
+- chooses an unpredictable, new directory under Windows CommonApplicationData rather than the invoking user's TEMP;
+- refuses to adopt an existing directory on collision and rejects a reparse-point workspace;
+- disables DACL inheritance, grants full control only to the current elevated SID and SYSTEM, removes explicit Administrators/Owner Rights ACEs, and reads back the DACL, failing unless the exact expected ACEs remain;
+- creates the installer subdirectory without -Force;
+- refuses an existing installer destination rather than deleting and overwriting it.
+
+The contract test tests/test_provider_host_bootstrap_contract.py asserts these properties. On the updated PR head, full Python tests and PowerShell parser checks passed; G13 static validation, Agent Runtime and the Project Repair Loop also passed. The real-data smoke path was skipped. This source-level contract and CI do not replace running the script on the actual target host in a reviewed maintenance window.
+
+Use only the updated, reviewed PR source if this bootstrap is eventually approved. Do not run an earlier copy still using %TEMP%. The bootstrap remains a software setup tool: it does not install the Provider service, establish independent authorities, initialize production registries, authorize Demo/Live, or submit orders.
