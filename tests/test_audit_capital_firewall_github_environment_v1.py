@@ -134,11 +134,17 @@ def test_deployment_branch_policy_allows_only_main(branches, reason):
     assert report["reason"] == reason
 
 
-def test_missing_admin_bypass_field_is_not_assumed_safe():
+def test_documented_github_environment_response_without_admin_bypass_field_is_partial():
     environment = _environment()
     del environment["can_admins_bypass"]
     report = _audit(environment=environment)
-    assert report["reason"] == "ADMIN_BYPASS_NOT_EXPLICITLY_DISABLED"
+    assert report["status"] == "PARTIAL_CONFIGURATION_REVIEW_REQUIRED"
+    assert report["reason"] == "ADMIN_BYPASS_NOT_EXPOSED_BY_DOCUMENTED_READ_API"
+    assert report["admin_bypass_status"] == "NOT_EXPOSED_BY_DOCUMENTED_READ_API"
+    assert report["can_admins_bypass"] is None
+    assert report["grant_issued"] is False
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
 
 
 def test_api_token_is_required_and_never_reported():
