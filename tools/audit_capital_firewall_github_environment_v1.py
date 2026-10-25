@@ -70,10 +70,16 @@ def audit_configuration(
     if environment_data.get("name") != environment:
         return fail("ENVIRONMENT_NAME_MISMATCH")
 
-    # GitHub's environment API exposes this field even though not all API docs
-    # list it. Missing is not interpreted as safe.
-    if environment_data.get("can_admins_bypass") is not False:
-        return fail("ADMIN_BYPASS_NOT_EXPLICITLY_DISABLED")
+    # The documented Get environment response does not include the
+    # "Prevent administrators from bypassing configured protection rules"
+    # UI setting. If an API response ever supplies can_admins_bypass, honor it;
+    # otherwise continue checking observable controls but never claim a full pass.
+    if "can_admins_bypass" in environment_data:
+        if environment_data.get("can_admins_bypass") is not False:
+            return fail("ADMIN_BYPASS_NOT_EXPLICITLY_DISABLED")
+        admin_bypass_status = "VERIFIED_DISABLED"
+    else:
+        admin_bypass_status = "NOT_EXPOSED_BY_DOCUMENTED_READ_API"
 
     protection_rules = environment_data.get("protection_rules")
     if not isinstance(protection_rules, list):
@@ -123,7 +129,7 @@ def audit_configuration(
     if not isinstance(policy, Mapping) or policy.get("name") != "main":
         return fail("DEPLOYMENT_BRANCH_MUST_BE_MAIN_ONLY")
 
-    return {
+    report = {
         "schema": SCHEMA,
         "status": "PASS_CONFIGURATION_ONLY",
         "reason": None,
@@ -132,7 +138,8 @@ def audit_configuration(
         "required_reviewer": expected_reviewer,
         "required_reviewer_count": len(configured_user_logins),
         "prevent_self_review": True,
-        "can_admins_bypass": False,
+        "can_admins_bypass": False if admin_bypass_status == "VERIFIED_DISABLED" else None,
+        "admin_bypass_status": admin_bypass_status,
         "deployment_branches": ["main"],
         "scope": "GITHUB_ENVIRONMENT_CONFIGURATION_ONLY",
         "source_authorities_verified": False,
@@ -141,8 +148,17 @@ def audit_configuration(
         "orders_submitted": False,
         "demo_trading_authorized": False,
         "live_trading_allowed": False,
-        "note": "PASS verifies GitHub environment settings only; it does not prove independent custody or source readiness.",
+        "note": "This checks observable GitHub environment settings only; it does not prove independent custody or source readiness.",
     }
+    if admin_bypass_status != "VERIFIED_DISABLED":
+        report["status"] = "PARTIAL_CONFIGURATION_REVIEW_REQUIRED"
+        report["reason"] = "ADMIN_BYPASS_NOT_EXPOSED_BY_DOCUMENTED_READ_API"
+        report["note"] = (
+            "Reviewer and deployment-branch settings passed, but administrator-bypass "
+            "prevention is not exposed by the documented read API. Verify it manually in "
+            "repository Settings before any release. This is not a full configuration pass."
+        )
+    return report
 
 
 def _get_json(url: str, token: str) -> Mapping[str, Any]:
