@@ -171,7 +171,7 @@ def test_windows_key_directory_acl_removes_default_admin_and_owner_rights(
         if args[0] == "whoami":
             return SimpleNamespace(
                 returncode=0,
-                stdout='"HOST\\TestUser","S-1-5-21-111-222-333-1001"\\n',
+                stdout='"HOST\\TestUser","S-1-5-21-111-222-333-1001"\n',
                 stderr="",
             )
         return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -203,7 +203,7 @@ def test_windows_key_directory_acl_failure_to_remove_extra_ace_blocks(
         if args[0] == "whoami":
             return SimpleNamespace(
                 returncode=0,
-                stdout='"HOST\\TestUser","S-1-5-21-111-222-333-1001"\\n',
+                stdout='"HOST\\TestUser","S-1-5-21-111-222-333-1001"\n',
                 stderr="",
             )
         if "/remove" in args:
