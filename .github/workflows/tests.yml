@@ -43,7 +43,7 @@ jobs:
           $scripts = @(
             'tools\\diagnose_control_plane_storage_inventory_v1.ps1',
             'tools\\diagnose_capital_firewall_laptop_v1.ps1',
-            'tools\\bootstrap_provider_host_v1.ps1',
+            'tools\\bootstrap_provider_host_v1.ps1'
           )
           foreach ($script in $scripts) {
             $scriptPath = (Resolve-Path $script).Path
