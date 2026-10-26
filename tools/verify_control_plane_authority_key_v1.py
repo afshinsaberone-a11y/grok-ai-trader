@@ -14,11 +14,11 @@ import argparse
 import base64
 import binascii
 import hashlib
+import getpass
 import json
 import os
 from pathlib import Path
 import stat
-import sys
 from typing import Mapping, Any
 
 from cryptography.hazmat.primitives import serialization
@@ -241,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--manifest", help="Absolute path to the role-specific public-key.json manifest")
     source.add_argument("--public-key-file", help="Absolute path to a canonical base64 raw Ed25519 public-key file")
     args = parser.parse_args(argv)
-    passphrase = __import__("getpass").getpass("Existing private-key passphrase (not echoed): ")
+    passphrase = getpass.getpass("Existing private-key passphrase (not echoed): ")
     report = verify_authority_keypair(
         role=args.role,
         private_key_path=args.private_key,
