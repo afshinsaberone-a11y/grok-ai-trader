@@ -10,7 +10,7 @@ from pathlib import Path
 
 from packaging.utils import canonicalize_name, parse_wheel_filename
 
-PIN = re.compile(r"^\\s*([A-Za-z0-9][A-Za-z0-9._-]*)==([^\\s\\\\]+)(?:\\s|\\\\|$)")
+PIN = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\]+)(?:\s|\\|$)")
 
 
 def sha256(path: Path) -> str:
