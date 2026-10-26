@@ -106,3 +106,10 @@ No status may be changed to `PROVISIONED` on the strength of repository code, an
 Related tracking issues: [#254 independent owners and Grant signer](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/254), [#303 Promotion trust-anchor mismatch](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/303), [#304 Signal source](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/304), [#305 Risk + Reservation](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/305), and [#306 Operator Approval](https://github.com/afshinsaberone-a11y/grok-ai-trader/issues/306).
 
 This supplement is a read-only evidence/status record. It does not prove that no service exists in an uninspected account, does not change any key/configuration/registry/service, and grants no trading authority.
+
+
+## 9. Append-only revalidation — environment reviewer allow-list — 2026-10-26
+
+The read-only environment audit in PR #332 was hardened after reviewing the behavior of required-reviewer rules: **any one configured reviewer may approve** a deployment. A check that only confirms the expected external reviewer exists would still allow another unverified account to approve. The audit now blocks unless the configured reviewer list contains exactly one explicit User and that login exactly matches the nominated reviewer; teams and owner/workflow-actor reviewer entries are rejected. A regression test covers a second alternate reviewer.
+
+This is code-level fail-closed behavior, not proof that the environment is actually configured this way. PR #332 is still draft/unmerged, and the workflow has not verified the actual production environment. Manual repository Settings verification remains necessary for properties the documented API does not expose. No authority custody status changed; Grant, Signal, Risk/Reservation, Operator Approval, Promotion trust-anchor mismatch, and trading authorization remain blocked/denied.
