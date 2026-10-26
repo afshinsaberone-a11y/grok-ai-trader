@@ -18,6 +18,15 @@ def test_source_wheel_builder_has_immutable_sources_and_discloses_signature_stat
     assert {item["name"] for item in specs} == {"cffi", "pycparser", "colorama", "pygments"}
     assert all(re.fullmatch(r"[0-9a-f]{40}", item["commit"]) for item in specs)
     assert all(item["git_url"].startswith("https://github.com/") for item in specs)
+    assert all(item["release_tag"] for item in specs)
+    assert all(item["expected_tag_object_type"] in {"commit", "tag"} for item in specs)
+    assert all(re.fullmatch(r"[0-9a-f]{40}", item["expected_tag_object_sha"]) for item in specs)
+    assert all(item["expected_release_tag_signature_verified"] is False for item in specs)
+    assert "github_release_tag_metadata" in source
+    assert "UPSTREAM_RELEASE_TAG_REF_CHANGED" in source
+    assert "UPSTREAM_RELEASE_TAG_TARGET_COMMIT_MISMATCH" in source
+    assert "UPSTREAM_RELEASE_TAG_SIGNATURE_STATUS_CHANGED" in source
+    assert "upstream_sources_without_verified_commit_or_signed_release_tag" in source
     assert next(item for item in specs if item["name"] == "cffi")["expected_signature_verified"] is True
     assert all(
         item["expected_signature_verified"] is False
@@ -164,3 +173,104 @@ def test_source_build_tool_closure_is_hash_locked_and_manifest_binds_exact_lock(
     assert '"packages_without_verified_pypi_provenance": ["setuptools==80.9.0"]' in builder
     assert '"production_approved": False' in builder
     assert '"bootstrap_approved": False' in builder
+
+
+def test_release_tag_metadata_binds_release_ref_to_exact_commit_and_reports_signature_state(monkeypatch):
+    import importlib.util
+    import json
+
+    root = Path(__file__).resolve().parents[1]
+    builder_path = root / "tools" / "build_provider_source_wheel_candidate_v1.py"
+    spec = importlib.util.spec_from_file_location("provider_source_wheel_builder_tag_test", builder_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    cffi = next(item for item in module.SOURCE_SPECS if item["name"] == "cffi")
+    calls = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = json.dumps(payload).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return self.payload
+
+    def fake_urlopen(request, timeout=25):
+        calls.append(request.full_url)
+        return Response({
+            "ref": "refs/tags/v2.1.1",
+            "object": {
+                "sha": "fd33e7700f0ebafe6f30bd5053f13327221b77a2",
+                "type": "commit",
+                "url": "https://api.github.com/repos/python-cffi/cffi/git/commits/fd33e7700f0ebafe6f30bd5053f13327221b77a2",
+            },
+        })
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+    result = module.github_release_tag_metadata(cffi)
+    assert result["github_release_tag"] == "v2.1.1"
+    assert result["github_release_tag_target_commit"] == cffi["commit"]
+    assert result["github_release_tag_object_type"] == "commit"
+    assert result["github_release_tag_signature_verified"] is False
+    assert result["upstream_release_identity_policy"] == (
+        "UNSIGNED_RELEASE_TAG_REQUIRES_COMMIT_SIGNATURE_OR_INDEPENDENT_REVIEW"
+    )
+    assert len(calls) == 1
+
+    pygments = next(item for item in module.SOURCE_SPECS if item["name"] == "pygments")
+    calls.clear()
+
+    def fake_annotated_urlopen(request, timeout=25):
+        calls.append(request.full_url)
+        if "/git/ref/tags/" in request.full_url:
+            payload = {
+                "ref": "refs/tags/2.21.0",
+                "object": {
+                    "sha": "2ade8335807203e11d67effb4108c78672519f0d",
+                    "type": "tag",
+                    "url": "https://api.github.com/repos/pygments/pygments/git/tags/2ade8335807203e11d67effb4108c78672519f0d",
+                },
+            }
+        else:
+            payload = {
+                "sha": "2ade8335807203e11d67effb4108c78672519f0d",
+                "tag": "2.21.0",
+                "object": {
+                    "sha": "a43b45dcf081b6010c6ab4428f149f7f6d2499c4",
+                    "type": "commit",
+                },
+                "verification": {"verified": False, "reason": "unsigned"},
+            }
+        return Response(payload)
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", fake_annotated_urlopen)
+    annotated = module.github_release_tag_metadata(pygments)
+    assert annotated["github_release_tag_ref_sha"] == pygments["expected_tag_object_sha"]
+    assert annotated["github_release_tag_target_commit"] == pygments["commit"]
+    assert annotated["github_release_tag_signature_verified"] is False
+    assert annotated["github_release_tag_signature_reason"] == "unsigned"
+    assert len(calls) == 2
+
+    def fake_mismatched_urlopen(request, timeout=25):
+        return Response({
+            "ref": "refs/tags/2.21.0",
+            "object": {
+                "sha": "f" * 40,
+                "type": "tag",
+            },
+        })
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", fake_mismatched_urlopen)
+    try:
+        module.github_release_tag_metadata(pygments)
+    except RuntimeError as exc:
+        assert "UPSTREAM_RELEASE_TAG_REF_CHANGED" in str(exc)
+    else:
+        raise AssertionError("unexpectedly moved release tag must fail closed")
