@@ -82,7 +82,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python -m venv .lock-tools
           if ($LASTEXITCODE -ne 0) { throw "LOCK_TOOLS_VENV_FAILED" }
-          .\.lock-tools\Scripts\python.exe -m pip install --disable-pip-version-check "pip==25.3" "pip-tools==7.5.0"
+          .\.lock-tools\Scripts\python.exe -m pip install --disable-pip-version-check "pip-tools==7.6.2"
           if ($LASTEXITCODE -ne 0) { throw "PIP_TOOLS_INSTALL_FAILED" }
           New-Item -ItemType Directory -Path generated-locks -ErrorAction Stop | Out-Null
           .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider.lock.txt requirements-provider.in
