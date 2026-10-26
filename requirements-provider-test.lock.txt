@@ -147,7 +147,7 @@ cryptography==50.0.0 \
     --hash=sha256:c87f62a3d3b9888ed0fdde100ec06aa61ca9cd44bad9057d1dff9a516b5f5bb9 \
     --hash=sha256:c99c003e088647b8a5b7c145d6f78c335f6348332b62e142d411c4b63d1460b9 \
     --hash=sha256:ccdc4a71a4dabae05de219404f9f4abc38e3b58422177ff93d0da05967dafa07 \
-    --hash=sha256:d24fead1d4d076e1bfb006dce392074a3cd8d7b4fc8a595aa64073b2b7a96ba \
+    --hash=sha256:d24fead1d4d076e1bfb006dcec392074a3cd8d7b4fc8a595aa64073b2b7a96ba \
     --hash=sha256:d58c3db7cd6eed54e6c06744db55456b65ebd7492ddeae9c1e93cfca7aa857d3 \
     --hash=sha256:d764dcf130c428ef66786f866dd750f53182bc608813489915e9fc106bb0c82f \
     --hash=sha256:df2a58a472f332225671c35b0a830208b86d004f82baa8530fa3782c85646533 \
@@ -167,7 +167,7 @@ packaging==26.3 \
     --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
     # via pytest
 pluggy==1.7.0 \
-    --hash=sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34b90ba8 \
+    --hash=sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec \
     --hash=sha256:d1eaa46ebb595891b860ab086b4d09c8588af65ebd4361b8e8f4bb8920b90ba8
     # via pytest
 pycparser==3.12 \
