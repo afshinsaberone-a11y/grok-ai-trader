@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   compile-lock-candidate:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 30
     steps:
       - name: Checkout the explicitly selected source ref
