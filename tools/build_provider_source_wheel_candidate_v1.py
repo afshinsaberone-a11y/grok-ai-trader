@@ -13,6 +13,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -159,11 +160,38 @@ def github_commit_metadata(repository: str, commit: str) -> dict[str, Any]:
             "User-Agent": "ForexAI-Provider-Source-Wheel-Candidate/1.0",
         },
     )
-    try:
-        with urllib.request.urlopen(request, timeout=25) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"GITHUB_SOURCE_METADATA_LOOKUP_FAILED:{repository}") from exc
+    payload: dict[str, Any] | None = None
+    last_error: BaseException | None = None
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            last_error = exc
+            status = getattr(exc, "code", None)
+            retry_after = False
+            if status is None:
+                retry_after = True
+            elif status in {429, 500, 502, 503, 504}:
+                retry_after = True
+            elif status == 403:
+                headers = getattr(exc, "headers", None)
+                retry_after = bool(headers and headers.get("X-RateLimit-Remaining") == "0")
+            if not retry_after or attempt == 3:
+                break
+            delay = min(2 ** attempt, 8)
+            print(
+                f"GITHUB_SOURCE_METADATA_RETRY:{repository}:attempt={attempt + 1}:"
+                f"delay_seconds={delay}:status={status or 'network'}",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+    if payload is None:
+        raise RuntimeError(
+            f"GITHUB_SOURCE_METADATA_LOOKUP_FAILED:{repository}:"
+            f"{type(last_error).__name__ if last_error else 'unknown'}"
+        ) from last_error
 
     returned_sha = payload.get("sha")
     verification = payload.get("commit", {}).get("verification", {})
