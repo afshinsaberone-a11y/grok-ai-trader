@@ -1,5 +1,3 @@
-# Minimal Provider runtime plus pytest for the pre-deployment contract suite.
-# Keep research/backtesting dependencies in requirements.txt; the privileged
-# Provider bootstrap must not install the broader research toolchain.
+# Minimal production Provider runtime dependency closure.
+# Keep test-only tools and research/backtesting dependencies in separate inputs.
 cryptography>=42,<52
-pytest>=8,<9
