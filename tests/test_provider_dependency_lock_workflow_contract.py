@@ -20,6 +20,8 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     # This job only generates an untrusted artifact; it must not gain repository
     # write access or persist checkout credentials for later workflow steps.
     assert "permissions:\n  contents: read" in workflow
+    assert "runs-on: windows-2022" in workflow
+    assert "runs-on: windows-latest" not in workflow
     assert "persist-credentials: false" in workflow
     assert "contents: write" not in workflow
     assert "permissions: write-all" not in workflow
