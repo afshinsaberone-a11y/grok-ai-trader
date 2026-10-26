@@ -267,9 +267,11 @@ jobs:
                 # Preserve the HTTP response bytes exactly. PowerShell's
                 # string conversion of response.Content can corrupt JSON when the
                 # response is represented as a byte array.
-                $response = Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -OutFile $provenancePath -TimeoutSec 20
-                $statusCode = [int]$response.StatusCode
-                if ($statusCode -eq 200 -and (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+                Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -OutFile $provenancePath -TimeoutSec 20 | Out-Null
+                # With -OutFile, Invoke-WebRequest does not emit its response object.
+                # Reaching this line means the request completed successfully (2xx).
+                $statusCode = 200
+                if (Test-Path -LiteralPath $provenancePath -PathType Leaf) {
                   $presence = 'PRESENT'
                   # Verify the exact wheel against the supplied attestation and
                   # require the explicit upstream repository identity.
