@@ -33,6 +33,7 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "expected_tag_object_sha": "3ec766b7cd94724cba714296509604597ea4ce4e",
         "expected_release_tag_signature_verified": False,
         "expected_signature_verified": False,
+        "expected_unsigned_commit_files": ["MANIFEST.in", "pyproject.toml"],
         "build_backend": "setuptools.build_meta",
         "license": "BSD-3-Clause",
     },
@@ -61,6 +62,7 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "expected_tag_object_sha": "4ea8b1c7cbf96cc21613bb51b38fc49831fdddb4",
         "expected_release_tag_signature_verified": False,
         "expected_signature_verified": False,
+        "expected_unsigned_commit_files": ["README-hacking.md", "colorama/__init__.py"],
         "build_backend": "hatchling.build",
         "license": "BSD-3-Clause",
     },
@@ -75,6 +77,7 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "expected_tag_object_sha": "2ade8335807203e11d67effb4108c78672519f0d",
         "expected_release_tag_signature_verified": False,
         "expected_signature_verified": False,
+        "expected_unsigned_commit_files": ["CHANGES", "pygments/__init__.py"],
         "build_backend": "hatchling.build",
         "license": "BSD-2-Clause",
     },
@@ -143,16 +146,43 @@ def github_commit_metadata(repository: str, commit: str) -> dict[str, Any]:
     if verified is not spec["expected_signature_verified"]:
         raise RuntimeError(f"UPSTREAM_COMMIT_SIGNATURE_STATUS_CHANGED:{repository}")
 
+    commit_files = payload.get("files")
+    if not isinstance(commit_files, list) or not commit_files:
+        raise RuntimeError(f"GITHUB_SOURCE_COMMIT_FILE_LIST_MISSING:{repository}")
+    changed_files: list[str] = []
+    for entry in commit_files:
+        if not isinstance(entry, dict) or not isinstance(entry.get("filename"), str):
+            raise RuntimeError(f"GITHUB_SOURCE_COMMIT_FILE_LIST_INVALID:{repository}")
+        changed_files.append(entry["filename"])
+    if len(changed_files) != len(set(changed_files)):
+        raise RuntimeError(f"GITHUB_SOURCE_COMMIT_FILE_LIST_DUPLICATE:{repository}")
+    changed_files.sort()
+
+    # Unsigned release commits are only allowed to proceed as review candidates
+    # when their complete GitHub API diff is exactly the pre-reviewed release-
+    # metadata allowlist. Any new/renamed/runtime source path must block the build.
+    expected_unsigned_files = spec.get("expected_unsigned_commit_files")
+    if not verified:
+        if not isinstance(expected_unsigned_files, list) or not expected_unsigned_files:
+            raise RuntimeError(f"UNSIGNED_COMMIT_ALLOWLIST_MISSING:{repository}")
+        if changed_files != sorted(expected_unsigned_files):
+            raise RuntimeError(f"UNSIGNED_UPSTREAM_COMMIT_CHANGED_UNREVIEWED_FILES:{repository}")
+
     return {
         "repository": repository,
         "commit": commit,
         "github_api_commit_sha_matches": True,
+        "github_commit_changed_files": changed_files,
+        "unsigned_commit_changed_files_match_allowlist": (
+            changed_files == sorted(expected_unsigned_files) if not verified else None
+        ),
+        "expected_unsigned_commit_files": expected_unsigned_files if not verified else [],
         "github_commit_signature_verified": verified,
         "github_commit_signature_reason": reason,
         "upstream_signature_policy": (
             "SIGNED_COMMIT_VERIFIED"
             if verified
-            else "UNSIGNED_COMMIT_REQUIRES_INDEPENDENT_SOURCE_REVIEW"
+            else "UNSIGNED_RELEASE_METADATA_ONLY_DIFF_REQUIRES_INDEPENDENT_SOURCE_REVIEW"
         ),
     }
 
