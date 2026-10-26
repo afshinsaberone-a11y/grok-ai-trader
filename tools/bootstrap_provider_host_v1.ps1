@@ -120,6 +120,23 @@ function Get-VerifiedInstaller {
     }
 }
 
+function Get-CanonicalTextSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # Normalize Windows checkout CRLF to LF before hashing the reviewed text.
+    $content = [IO.File]::ReadAllText($Path)
+    $canonicalContent = $content.Replace("`r`n", "`n").Replace("`r", "`n")
+    $encoding = [System.Text.UTF8Encoding]::new($false)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha.ComputeHash($encoding.GetBytes($canonicalContent))
+        return ([BitConverter]::ToString($digest)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
 try {
     Assert-Administrator
 
@@ -166,9 +183,45 @@ try {
         throw 'PROVIDER_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RESUME'
     }
 
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    # Lockfiles accompany this reviewed bootstrap revision. Copy them into the
+    # ACL-verified workspace first so an unprivileged process cannot swap them
+    # between hash verification and elevated pip installation.
+    $bootstrapRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+    $providerLockSource = Join-Path $bootstrapRoot 'requirements-provider.lock.txt'
+    $providerTestLockSource = Join-Path $bootstrapRoot 'requirements-provider-test.lock.txt'
+    if (-not (Test-Path -LiteralPath $providerLockSource -PathType Leaf)) {
+        throw 'HASH_LOCKED_PROVIDER_REQUIREMENTS_MISSING'
+    }
+    if (-not (Test-Path -LiteralPath $providerTestLockSource -PathType Leaf)) {
+        throw 'HASH_LOCKED_PROVIDER_TEST_REQUIREMENTS_MISSING'
+    }
 
     $workRoot = New-ProtectedWorkRoot
+    $providerLockPath = Join-Path $workRoot 'requirements-provider.lock.txt'
+    $providerTestLockPath = Join-Path $workRoot 'requirements-provider-test.lock.txt'
+    Copy-Item -LiteralPath $providerLockSource -Destination $providerLockPath -ErrorAction Stop
+    Copy-Item -LiteralPath $providerTestLockSource -Destination $providerTestLockPath -ErrorAction Stop
+
+    $providerLockCanonicalSha256 = Get-CanonicalTextSha256 -Path $providerLockPath
+    $providerTestLockCanonicalSha256 = Get-CanonicalTextSha256 -Path $providerTestLockPath
+    if ($providerLockCanonicalSha256 -ne '7df03080328bd565c1bb20dbdc4d9dfb90c39d86c4d1f8be35e46f452552af9a') {
+        throw 'PROVIDER_DEPENDENCY_LOCK_SHA256_MISMATCH'
+    }
+    if ($providerTestLockCanonicalSha256 -ne 'f6fb8ead273fa7416c8bdecce16eb7c18ff554503525fb9e656e0059788e0394') {
+        throw 'PROVIDER_TEST_DEPENDENCY_LOCK_SHA256_MISMATCH'
+    }
+
+    foreach ($lockPath in @($providerLockPath, $providerTestLockPath)) {
+        $lockContent = [IO.File]::ReadAllText($lockPath)
+        if ([string]::IsNullOrWhiteSpace($lockContent) -or
+            $lockContent -notmatch '(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==[^\s\\]+' -or
+            $lockContent -notmatch '(?m)--hash=sha256:[0-9a-fA-F]{64}') {
+            throw 'HASH_LOCKED_PROVIDER_REQUIREMENTS_INVALID'
+        }
+    }
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
     $installerRoot = Join-Path $workRoot 'installers'
     New-Item -ItemType Directory -Path $installerRoot -ErrorAction Stop | Out-Null
 
@@ -247,26 +300,6 @@ try {
         throw 'SOURCE_CHECKOUT_NOT_CLEAN'
     }
 
-    # Fail closed unless the exact pinned source checkout contains a reviewed,
-    # complete hash lock. The lock is intentionally not synthesized during an
-    # elevated bootstrap; lock generation/review happens as a separate workflow.
-    $providerLockPath = Join-Path $sourceRoot 'requirements-provider.lock.txt'
-    $providerTestLockPath = Join-Path $sourceRoot 'requirements-provider-test.lock.txt'
-    if (-not (Test-Path -LiteralPath $providerLockPath -PathType Leaf)) {
-        throw 'HASH_LOCKED_PROVIDER_REQUIREMENTS_MISSING'
-    }
-    if (-not (Test-Path -LiteralPath $providerTestLockPath -PathType Leaf)) {
-        throw 'HASH_LOCKED_PROVIDER_TEST_REQUIREMENTS_MISSING'
-    }
-    foreach ($lockPath in @($providerLockPath, $providerTestLockPath)) {
-        $lockContent = Get-Content -LiteralPath $lockPath -Raw
-        if ([string]::IsNullOrWhiteSpace($lockContent) -or
-            $lockContent -notmatch '(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==[^\s\\]+' -or
-            $lockContent -notmatch '(?m)--hash=sha256:[0-9a-fA-F]{64}') {
-            throw 'HASH_LOCKED_PROVIDER_REQUIREMENTS_INVALID'
-        }
-    }
-
     & $pythonExe -m venv $venvRoot
     if ($LASTEXITCODE -ne 0) {
         throw 'PROVIDER_VENV_CREATION_FAILED'
@@ -337,8 +370,8 @@ try {
         python_version = $detectedPython
         repository_url = $repositoryUrl
         source_commit = $actualCommit
-        dependency_lock_sha256 = (Get-FileHash -LiteralPath $providerLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        test_dependency_lock_sha256 = (Get-FileHash -LiteralPath $providerTestLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        dependency_lock_sha256 = $providerLockCanonicalSha256
+        test_dependency_lock_sha256 = $providerTestLockCanonicalSha256
         provider_root = $ProviderRoot
         source_directory_created = $true
         virtual_environment_created = $true
