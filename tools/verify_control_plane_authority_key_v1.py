@@ -21,6 +21,7 @@ from pathlib import Path
 import stat
 from typing import Mapping, Any
 
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -102,8 +103,15 @@ def _expected_public(
             "private_key_encrypted": True,
             "private_key_in_manifest": False,
         }
-        if not isinstance(document, dict) or any(document.get(key) != value for key, value in required.items()):
+        if not isinstance(document, dict):
+            return None, "PUBLIC_MANIFEST_INVALID_JSON", ""
+        allowed_fields = set(required) | {"public_key_base64", "public_key_sha256", "generated_at_utc"}
+        if set(document) != allowed_fields:
+            return None, "PUBLIC_MANIFEST_FIELDS_INVALID", ""
+        if any(document.get(key) != value for key, value in required.items()):
             return None, "PUBLIC_MANIFEST_ROLE_OR_SCHEMA_MISMATCH", ""
+        if not isinstance(document.get("generated_at_utc"), str) or not document["generated_at_utc"].strip():
+            return None, "PUBLIC_MANIFEST_GENERATED_AT_INVALID", ""
         value = document.get("public_key_base64")
         fingerprint = document.get("public_key_sha256")
         if not isinstance(value, str) or not isinstance(fingerprint, str):
@@ -177,7 +185,7 @@ def verify_authority_keypair(
             private_pem, password=passphrase.encode("utf-8")
         )
         del private_pem
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, UnsupportedAlgorithm):
         report["reason"] = "PRIVATE_KEY_DECRYPTION_FAILED"
         return report
 
