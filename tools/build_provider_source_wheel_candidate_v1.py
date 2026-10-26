@@ -80,7 +80,7 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
             },
             "colorama/__init__.py": {
                 "blob_sha": "383101cdb38706c305449674044e9288b92b7d75",
-                "patch_sha256": "ed3bfa1d3adfb0299cd179284263150ab10e0c815151d846a7bea0eae9dbad23",
+                "patch_sha256": "be2ac886eed59d45d4b2dd82007089b8e029d05a9ca5dcdfeac41c3e70ac1284",
             },
         },
         "build_backend": "hatchling.build",
