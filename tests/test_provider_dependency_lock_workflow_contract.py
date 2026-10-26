@@ -30,4 +30,15 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
         "paths:\n      - .github/workflows/provider-dependency-lock-candidate.yml"
         "\n      - requirements-provider-lock.in\n      - requirements.txt"
     ) in workflow
+    # Candidate generation must also prove the lock is actually installable as
+    # binary-only under the same strict pip flags used by the elevated bootstrap.
+    assert "Verify binary-only install and Provider contracts on Windows Python 3.13" in workflow
+    assert "--require-hashes --only-binary=:all: -r $path" in workflow
+    assert "LOCK_VALIDATION_BINARY_ONLY_INSTALL_FAILED" in workflow
+    assert "LOCKED_RUNTIME_IMPORTS=PASS" in workflow
+    assert "LOCK_VALIDATION_PROVIDER_CONTRACT_TESTS_FAILED" in workflow
+    assert "tests/test_control_plane_provider_host_preflight_v1.py" in workflow
+    assert "tests/test_control_plane_admission_provider_v1.py" in workflow
+    assert "tests/test_control_plane_provider_service_v1.py" in workflow
+    assert "tests/test_control_plane_service_v1.py" in workflow
     assert "LOCK_CANDIDATE_IS_NOT_APPROVED_FOR_BOOTSTRAP=true" in workflow
