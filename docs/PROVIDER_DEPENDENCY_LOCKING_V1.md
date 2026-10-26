@@ -303,3 +303,26 @@ The downloaded artifact ZIP and its contents were independently inspected. Each 
 **This is a complete, successful candidate rehearsal, not production approval.** The manifests remain `production_approved=false` and `bootstrap_approved=false`. The upstream commits for pycparser 3.12, colorama 0.4.6 and Pygments 2.21.0 are unsigned; the builder-tool transitive dependency closure is recorded but not yet hash-locked. Those are independent source/build trust gates, not fixed by a passing offline installation or by a signed GitHub attestation for the build process.
 
 PR #331 is still open/unmerged and has no independent submitted review. `main` remains `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. No accepted production lock, immutable bootstrap SHA, key, trust anchor, service or registry was changed. Do not merge or run the elevated Bootstrap until an independent reviewer approves the unsigned sources, locked build tools, wheelhouse/lock artifacts and a separately controlled destination-install rehearsal. No Grant was issued, Demo is unauthorized, Live remains disabled and no orders were submitted.
+
+
+## Source-build toolchain hash-lock follow-up — 2026-10-26
+
+The source-wheel workflow previously installed `setuptools`, `wheel`, and `hatchling` with exact version strings but without hash enforcement for their complete dependency closure. That gap has now been addressed in the candidate path (not in production Bootstrap):
+
+- Added `requirements-provider-source-build-tools.lock.txt` with eight exact pins and wheel SHA-256 hashes: `hatchling==1.27.0`, `packaging==26.3`, `pathspec==1.1.1`, `pip==26.2.2`, `pluggy==1.7.0`, `setuptools==80.9.0`, `trove-classifiers==2026.9.21.13`, and `wheel==0.45.1`.
+- The selected hashes are recorded for the exact universal wheel files published for those versions. Lock raw SHA-256: `ae89bd1115956b39f8436b4d2488422511fc0c396cf21d904180cee34df70f1d`.
+- The source-build workflow installs the tool closure with `--require-hashes --only-binary=:all:`, runs `pip check`, and compares the sorted `pip freeze --all` output against the eight expected pins. A changed/missing package stops the build.
+- The wheel builder itself reads and validates that same lock, verifies the eight pinned versions and hash count, compares the actual environment freeze with the expected set, and records the lockfile SHA-256 and package pins in `source-build-manifest.json`. The manifest now sets `transitive_build_tool_dependencies_hash_locked=true`.
+
+A remaining trust distinction is deliberate: the exact `setuptools==80.9.0` PyPI wheel has no PyPI provenance, so its SHA-256 pins bytes but cannot prove publisher/source identity. GitHub reports the upstream `v80.9.0` tag object as cryptographically verified (tag object `ef921af5f4374a66c018304a2aa5306cb67962a0`, target commit `9c4d383631d3951fcae0afd73b5d08ff5a262976`), but that signature does **not** by itself prove the published PyPI wheel was built from that tag. It remains an explicit independent-review item.
+
+### Validation of the code change
+
+On latest PR head `5508a730cff27cbd55a4a44981d8166f9b67411b):
+- Repository Python tests and PowerShell parser: PASS — [run 40310178798](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40310178798); the `real-data-smoke` job was skipped.
+- G13 Workflow Static Validation: PASS — [run 40310178784](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40310178784).
+- Agent Runtime Check: PASS — [run 40310178749](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40310178749).
+
+These CI results test the new contracts, including the lock-pin parser and manifest guard. They are not the final source-builder workflow run, an independent human review, or a destination VPS installation rehearsal. The lock does not change `requirements-provider.lock.txt` or `requirements-provider-test.lock.txt`; it is only for the ephemeral source-wheel builder.
+
+Production remains blocked: the three unsigned source commits still need independent review, setuptools wheel provenance remains unverified, and the clean destination rehearsal and independent PR review remain outstanding. The lock candidate and source wheelhouse remain `production_approved=false` / `bootstrap_approved=false`. No production key, trust anchor, service, registry, grant, Demo/Live permission or order state has changed.
