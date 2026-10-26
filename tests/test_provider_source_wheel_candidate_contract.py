@@ -140,6 +140,11 @@ def test_source_wheel_workflow_enforces_offline_candidate_lock_gates():
     assert workflow.count("uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6") == 4
     assert "WHEELHOUSE_ATTESTATION_VERIFICATION_FAILED" in workflow
     assert "production_approved" in helper and "bootstrap_approved" in helper
+    # Generated wheelhouse policy must not retain the pre-helper-lock claim.
+    assert "build-tool transitive dependencies are not hash-locked" not in helper
+    assert "Build and helper-tool dependency closures are hash-locked and offline-tested in review-only candidate artifacts" in helper
+    assert "independent source review remains required" in helper
+    assert "Not wired into production Bootstrap." in helper
     assert "BOOTSTRAP_AUTHORIZED=false" in workflow
     assert "DEMO_TRADING_AUTHORIZED=false" in workflow
     assert "LIVE_TRADING_ALLOWED=false" in workflow
