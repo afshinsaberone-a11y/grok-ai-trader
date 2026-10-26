@@ -272,6 +272,10 @@ jobs:
                   # require the explicit upstream repository identity.
                   $verifyOutput = & $verifierCli verify pypi --repository $expectedRepository --provenance-file $provenancePath $wheelPath 2>&1 | Out-String
                   $verificationExitCode = $LASTEXITCODE
+                  $verificationDetail = ($verifyOutput -replace '[\r\n\t]+', ' ').Trim()
+                  if ($verificationDetail.Length -gt 1200) {
+                    $verificationDetail = $verificationDetail.Substring(0, 1200)
+                  }
                   if ($verificationExitCode -eq 0) {
                     $verification = 'PASS_CRYPTOGRAPHICALLY_VERIFIED_EXPECTED_REPOSITORY'
                   }
@@ -279,6 +283,9 @@ jobs:
                     $verification = 'BLOCKED_SIGNATURE_OR_REPOSITORY_IDENTITY_MISMATCH'
                     $hasVerificationFailure = $true
                     Write-Output "PYPI_ATTESTATION_VERIFICATION_FAILED=$($wheel.filename)"
+                    if (-not [string]::IsNullOrWhiteSpace($verificationDetail)) {
+                      Write-Output "PYPI_ATTESTATION_VERIFIER_DETAIL=$verificationDetail"
+                    }
                   }
                 }
                 else {
@@ -319,6 +326,7 @@ jobs:
               provenance_presence = $presence
               attestation_verification = $verification
               verifier_exit_code = $verificationExitCode
+              verifier_detail = $verificationDetail
               endpoint = $uri
             }
             Write-Output "PYPI_PROVENANCE_FILE=$($wheel.filename)"
@@ -344,6 +352,10 @@ jobs:
           Write-Output "PYPI_PROVENANCE_REPORT=$reportPath"
           Write-Output "PYPI_PROVENANCE_STATUS=$reportStatus"
           Write-Output "PYPI_PROVENANCE_WHEEL_COUNT=$($rows.Count)"
+          # A completed report must reach artifact upload even when its policy
+          # result is BLOCKED. The separate enforcement step fails closed later.
+          $global:LASTEXITCODE = 0
+          exit 0
 
       - name: Upload both candidates and provenance report for explicit review
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
