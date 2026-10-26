@@ -152,7 +152,7 @@ jobs:
           }
           Write-Output 'LOCK_CANDIDATES_ARE_NOT_APPROVED_FOR_BOOTSTRAP=true'
 
-      - name: Audit PyPI provenance presence for target-compatible wheels
+      - name: Cryptographically verify PyPI provenance against expected repository identities
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -162,11 +162,32 @@ jobs:
           }
           $testLock = 'artifacts/provider-dependency-lock/requirements-provider-test.lock.txt'
           $wheelDir = Join-Path $env:RUNNER_TEMP ('forexai-provider-wheels-' + [Guid]::NewGuid().ToString('N'))
-          $reportPath = 'artifacts/provider-dependency-lock/provenance-presence-report.json'
+          $verifierVenv = Join-Path $env:RUNNER_TEMP ('forexai-pypi-attestation-verifier-' + [Guid]::NewGuid().ToString('N'))
+          $reportPath = 'artifacts/provider-dependency-lock/provenance-verification-report.json'
           New-Item -ItemType Directory -Path $wheelDir -ErrorAction Stop | Out-Null
 
-          # Re-download the exact compatible wheels selected by this Windows/Python
-          # environment; pip still enforces every committed candidate hash.
+          # The verifier is an isolated, exact-version-pinned CI tool. It is not
+          # installed into the durable Provider runtime environment or lock.
+          & python -m venv $verifierVenv
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_VENV_FAILED' }
+          $verifierPython = Join-Path $verifierVenv 'Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $verifierPython -PathType Leaf)) {
+            throw 'LOCK_ATTESTATION_VERIFIER_PYTHON_NOT_FOUND'
+          }
+          & $verifierPython -m pip install --disable-pip-version-check --only-binary=:all: 'pypi-attestations==0.0.30'
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_INSTALL_FAILED' }
+          $verifierCli = Join-Path $verifierVenv 'Scripts\pypi-attestations.exe'
+          if (-not (Test-Path -LiteralPath $verifierCli -PathType Leaf)) {
+            throw 'LOCK_ATTESTATION_VERIFIER_CLI_NOT_FOUND'
+          }
+          $verifierVersion = (& $verifierCli --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $verifierVersion -notmatch '0\.0\.30') {
+            throw 'LOCK_ATTESTATION_VERIFIER_VERSION_MISMATCH'
+          }
+          Write-Output "PYPI_ATTESTATION_VERIFIER=$verifierVersion"
+
+          # Re-download exact compatible wheels selected by the lock. pip still
+          # enforces the candidate hashes before provenance is examined.
           & $testPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $wheelDir -r $testLock
           if ($LASTEXITCODE -ne 0) { throw 'LOCK_PROVENANCE_WHEEL_DOWNLOAD_FAILED' }
 
@@ -191,68 +212,118 @@ jobs:
           $wheelRecords = @($wheelJson | ConvertFrom-Json)
           if ($wheelRecords.Count -lt 1) { throw 'LOCK_PROVENANCE_WHEEL_INVENTORY_EMPTY' }
 
+          # This allowlist is code-reviewed. Package metadata and PyPI responses
+          # may not silently choose the publisher repository that is trusted.
+          $expectedRepositories = @{
+            cffi = 'https://github.com/python-cffi/cffi'
+            colorama = 'https://github.com/tartley/colorama'
+            cryptography = 'https://github.com/pyca/cryptography'
+            iniconfig = 'https://github.com/pytest-dev/iniconfig'
+            packaging = 'https://github.com/pypa/packaging'
+            pluggy = 'https://github.com/pytest-dev/pluggy'
+            pycparser = 'https://github.com/eliben/pycparser'
+            pygments = 'https://github.com/pygments/pygments'
+            pytest = 'https://github.com/pytest-dev/pytest'
+          }
+
           $rows = @()
           $hasMissing = $false
           $hasLookupError = $false
+          $hasVerificationFailure = $false
           foreach ($wheel in $wheelRecords) {
-            $escapedName = [Uri]::EscapeDataString([string]$wheel.name)
+            $packageName = [string]$wheel.name
+            $wheelPath = Join-Path $wheelDir ([string]$wheel.filename)
+            $expectedRepository = $expectedRepositories[$packageName]
+            $escapedName = [Uri]::EscapeDataString($packageName)
             $escapedVersion = [Uri]::EscapeDataString([string]$wheel.version)
             $escapedFilename = [Uri]::EscapeDataString([string]$wheel.filename)
             $uri = "https://pypi.org/integrity/$escapedName/$escapedVersion/$escapedFilename/provenance"
-            $result = 'LOOKUP_ERROR'
+            $provenancePath = Join-Path $wheelDir ([string]$wheel.filename + '.provenance.json')
+            $presence = 'LOOKUP_ERROR'
+            $verification = 'NOT_ATTEMPTED'
             $statusCode = $null
-            try {
-              $response = Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -TimeoutSec 20
-              $statusCode = [int]$response.StatusCode
-              if ($statusCode -eq 200) {
-                $result = 'PRESENT_NOT_CRYPTOGRAPHICALLY_VERIFIED'
-              }
-              else {
-                $result = 'UNEXPECTED_HTTP_STATUS'
-                $hasLookupError = $true
-              }
+            $verificationExitCode = $null
+
+            if ([string]::IsNullOrWhiteSpace($expectedRepository)) {
+              $presence = 'UNMAPPED_PACKAGE'
+              $verification = 'BLOCKED_EXPECTED_REPOSITORY_NOT_CONFIGURED'
+              $hasVerificationFailure = $true
             }
-            catch {
-              $caught = $_
+            else {
               try {
-                if ($null -ne $caught.Exception.Response) {
-                  $statusCode = [int]$caught.Exception.Response.StatusCode
+                $response = Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -OutFile $provenancePath -TimeoutSec 20
+                $statusCode = [int]$response.StatusCode
+                if ($statusCode -eq 200 -and (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+                  $presence = 'PRESENT'
+                  # Verify the exact wheel against the supplied attestation and
+                  # require the explicit upstream repository identity.
+                  $verifyOutput = & $verifierCli verify pypi --repository $expectedRepository --provenance-file $provenancePath $wheelPath 2>&1 | Out-String
+                  $verificationExitCode = $LASTEXITCODE
+                  if ($verificationExitCode -eq 0) {
+                    $verification = 'PASS_CRYPTOGRAPHICALLY_VERIFIED_EXPECTED_REPOSITORY'
+                  }
+                  else {
+                    $verification = 'BLOCKED_SIGNATURE_OR_REPOSITORY_IDENTITY_MISMATCH'
+                    $hasVerificationFailure = $true
+                    Write-Output "PYPI_ATTESTATION_VERIFICATION_FAILED=$($wheel.filename)"
+                  }
+                }
+                else {
+                  $presence = 'UNEXPECTED_HTTP_STATUS'
+                  $verification = 'BLOCKED_PROVENANCE_RESPONSE_INVALID'
+                  $hasLookupError = $true
                 }
               }
               catch {
-                $statusCode = $null
-              }
-              if ($statusCode -eq 404) {
-                $result = 'MISSING'
-                $hasMissing = $true
-              }
-              else {
-                $result = 'LOOKUP_ERROR'
-                $hasLookupError = $true
+                $caught = $_
+                try {
+                  if ($null -ne $caught.Exception.Response) {
+                    $statusCode = [int]$caught.Exception.Response.StatusCode
+                  }
+                }
+                catch {
+                  $statusCode = $null
+                }
+                if ($statusCode -eq 404) {
+                  $presence = 'MISSING'
+                  $verification = 'BLOCKED_PROVENANCE_MISSING'
+                  $hasMissing = $true
+                }
+                else {
+                  $presence = 'LOOKUP_ERROR'
+                  $verification = 'BLOCKED_PROVENANCE_LOOKUP_ERROR'
+                  $hasLookupError = $true
+                }
               }
             }
 
             $rows += [PSCustomObject]@{
-              package = [string]$wheel.name
+              package = $packageName
               version = [string]$wheel.version
               filename = [string]$wheel.filename
+              expected_publisher_repository = $expectedRepository
               http_status = $statusCode
-              provenance_presence = $result
+              provenance_presence = $presence
+              attestation_verification = $verification
+              verifier_exit_code = $verificationExitCode
               endpoint = $uri
             }
             Write-Output "PYPI_PROVENANCE_FILE=$($wheel.filename)"
-            Write-Output "PYPI_PROVENANCE_PRESENCE=$result"
+            Write-Output "PYPI_PROVENANCE_PRESENCE=$presence"
+            Write-Output "PYPI_ATTESTATION_VERIFICATION=$verification"
           }
 
-          $reportStatus = 'PASS_PRESENCE_ONLY'
+          $reportStatus = 'PASS_CRYPTOGRAPHIC_VERIFICATION'
           if ($hasLookupError) { $reportStatus = 'BLOCKED_LOOKUP_ERROR' }
+          elseif ($hasVerificationFailure) { $reportStatus = 'BLOCKED_ATTESTATION_VERIFICATION' }
           elseif ($hasMissing) { $reportStatus = 'BLOCKED_PROVENANCE_MISSING' }
           $report = [PSCustomObject]@{
-            schema = 'forexai.provider_dependency_provenance_presence_audit.v1'
+            schema = 'forexai.provider_dependency_provenance_verification_audit.v1'
             checked_utc = [DateTime]::UtcNow.ToString('o')
             status = $reportStatus
-            policy = 'Presence only. HTTP 200 does not validate the signature, publisher identity, or source-to-wheel correspondence.'
+            policy = 'PASS requires cryptographic verification of the exact wheel against its PyPI attestation and a reviewed expected repository identity. Missing provenance or any verification failure blocks. This is not human approval of upstream code.'
             target = 'GitHub-hosted windows-2022, CPython 3.13.17, compatible wheels selected by pip'
+            verifier = 'pypi-attestations 0.0.30'
             wheel_count = $rows.Count
             wheels = $rows
           }
@@ -268,23 +339,23 @@ jobs:
           path: |
             artifacts/provider-dependency-lock/requirements-provider.lock.txt
             artifacts/provider-dependency-lock/requirements-provider-test.lock.txt
-            artifacts/provider-dependency-lock/provenance-presence-report.json
+            artifacts/provider-dependency-lock/provenance-verification-report.json
           if-no-files-found: error
           retention-days: 7
 
       # Upload the diagnostic artifact before failing the policy gate, so the
-      # missing-provenance evidence remains inspectable instead of disappearing.
-      - name: Enforce PyPI provenance-presence gate
+      # missing/invalid attestation evidence remains inspectable.
+      - name: Enforce PyPI provenance verification gate
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $reportPath = 'artifacts/provider-dependency-lock/provenance-presence-report.json'
+          $reportPath = 'artifacts/provider-dependency-lock/provenance-verification-report.json'
           if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
             throw 'LOCK_PROVENANCE_REPORT_MISSING'
           }
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-          if ($report.status -ne 'PASS_PRESENCE_ONLY') {
+          if ($report.status -ne 'PASS_CRYPTOGRAPHIC_VERIFICATION') {
             Write-Output "PYPI_PROVENANCE_GATE_BLOCKED=$($report.status)"
             throw 'DEPENDENCY_PROVENANCE_GATE_BLOCKED'
           }
-          Write-Output 'PYPI_PROVENANCE_PRESENCE_PASS_NOT_CRYPTOGRAPHIC_APPROVAL=true'
+          Write-Output 'PYPI_PROVENANCE_CRYPTOGRAPHIC_VERIFICATION_PASS=true'
