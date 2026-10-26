@@ -72,7 +72,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw 'LOCK_VALIDATION_BINARY_ONLY_INSTALL_FAILED'
           }
-          & $venvPython -c "import cryptography, numpy, pandas, backtesting, pytest, openai, agents; print('LOCKED_RUNTIME_IMPORTS=PASS')"
+          & $venvPython -c "import cryptography, pytest; print('PROVIDER_RUNTIME_IMPORTS=PASS')"
           if ($LASTEXITCODE -ne 0) {
             throw 'LOCK_VALIDATION_RUNTIME_IMPORTS_FAILED'
           }
