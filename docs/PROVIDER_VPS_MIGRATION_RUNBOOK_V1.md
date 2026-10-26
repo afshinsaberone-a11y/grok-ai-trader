@@ -550,3 +550,18 @@ A follow-up static security review closed three gaps on PR #331:
 Verified on PR head `16923ef4991331ef940ac4637e6e557718f88fdd`: Python tests and PowerShell parser [PASS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40223256926); G13 static validation [PASS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40223256873); Agent Runtime [PASS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40223256934). The real-data smoke job was skipped.
 
 **Cutover remains blocked.** No real-host bootstrap or production key/service/registry setup was performed. Do not authorize Demo/Live or submit orders from these CI results. PR #331 remains unmerged and requires independent review; after any approved merge, rerun/rebind the complete G13 evidence chain to the exact resulting main SHA before any Promotion or Grant operation.
+
+
+## 31. Hash-locked Provider dependencies are companion inputs — 2026-10-26
+
+A clean-host bootstrap review found a release-blocking contradiction: the bootstrap pins application source to `41883f30d32747d07d7b7772f8ee7c656a95e4a1`, but that commit does not contain `requirements-provider.lock.txt` or `requirements-provider-test.lock.txt`. The previous script therefore stopped even on a clean host. The application source pin was deliberately **not changed**, because its G13 evidence is bound to that exact SHA.
+
+The PR now carries two reviewed, generated hash locks beside the bootstrap script. They were generated with Python 3.13 on a Windows runner using pip-tools 7.6.2 and successfully installed with `--require-hashes --only-binary=:all:`: runtime `cryptography==50.0.0`; focused test lock `cryptography==50.0.0`, `pytest==9.0.3`, plus their pinned transitive dependencies. The reproducibility job re-generates both locks from their pinned `.in` inputs and compares canonical LF text to the committed files, then installs the committed files.
+
+Expected canonical UTF-8/LF SHA-256 fingerprints:
+- `requirements-provider.lock.txt`: `7df03080328bd565c1bb20dbdc4d9dfb90c39d86c4d1f8be35e46f452552af9a`
+- `requirements-provider-test.lock.txt`: `f6fb8ead273fa7416c8bdecce16eb7c18ff554503525fb9e656e0059788e0394`
+
+The elevated bootstrap now copies both companion lockfiles into its fresh ACL-verified work directory and checks these canonical hashes there, before downloading installers or creating the Provider root. Only the protected copies are passed to pip. This also avoids a time-of-check/time-of-use substitution from the checkout directory.
+
+This change is still on unmerged PR #331 and requires independent review. Do not run it until the exact PR revision and both lockfiles have been reviewed together. The host bootstrap has not yet been executed on the real Provider. This resolves the missing-lock source contradiction in code/CI, not the Promotion trust-anchor mismatch, independent Signal/Risk/Operator authorities, Grant signer custody, Provider registry, or any Demo/Live authorization.
