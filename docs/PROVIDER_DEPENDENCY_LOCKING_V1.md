@@ -228,3 +228,37 @@ Pinned source commits:
 - Pygments 2.21.0: `a43b45dcf081b6010c6ab4428f149f7f6d2499c4` — unsigned.
 
 This workflow is evidence generation only. It can provide a reproducible source-to-wheel candidate and a verifiable record of how the wheel was built, but it does not silently convert unsigned upstream code into trusted source. Three source commits are unsigned, and the transitive build-tool closure is recorded but not hash-locked in this exploratory candidate workflow. The manifest therefore hard-codes `production_approved=false` and `bootstrap_approved=false`; independent source review, build-tool lock/provenance hardening, full dependency-lock integration and destination installation review remain blockers. No source-built wheel is automatically integrated into the current runtime lock.
+
+
+## First source-built wheel candidate run completed — 2026-10-26
+
+The new source-build candidate workflow completed successfully on PR head `a562aa60181f64b78e9daae9e85436f0b50902f9`: [run 40303361086](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40303361086).
+
+Verified steps:
+- cloned each source at the exact configured commit SHA and recorded GitHub API commit-signature status;
+- built all four candidate wheels on Windows Server 2022 / Python 3.13.17;
+- installed them in a disposable environment with no index access and confirmed imports for all four packages;
+- created GitHub-signed artifact attestations and successfully verified them with `gh attestation verify`;
+- uploaded the wheel set and source/build manifest as review-only artifact ID `12641781654`.
+
+Artifact ZIP SHA-256: `a37d6f28dd52484da4df4ccc72f31f9c982084163ad0b1d359f5683d5728a9b1`.
+
+Exact wheel digests:
+- `pycparser-3.12-py3-none-any.whl`: `a0531236e90afacb188736fed391c4d553dbb46b2d479ba4e189180a19f4c5e6`
+- `cffi-2.1.1-cp313-cp313-win_amd64.whl`: `13ced4e3e2864f761202588b661fe79940b72f1373efd1db496cbe54a759d0ec`
+- `colorama-0.4.6-py2.py3-none-any.whl`: `03cb73604fc14c6d7ebf6435e77f2f8527e0af7884999587ba379d88fd24b8b3`
+- `pygments-2.21.0-py3-none-any.whl`: `2021f4a7bcf06442ee7e158a8985d48a50e622d5f5e90fd7f10a7d67e5b498a0`
+
+An independent ZIP inspection confirmed all four bytes match the SHA-256 values in the build manifest. The manifest explicitly sets `production_approved=false` and `bootstrap_approved=false`; three source commits (pycparser, colorama, Pygments) are unsigned and require independent source review. It also records that the transitive build-tool dependency closure was **not** hash-locked in this candidate workflow.
+
+### What this resolves — and what it does not
+
+This supplies a verifiable candidate build record for the four missing-PyPI-provenance wheel files. It does **not** yet alter or satisfy the existing production Lock/Bootstrap flow. The Lock still must be integrated with these local wheel digests and a controlled artifact distribution/verification path, the build-tool dependencies must be hash-locked and independently reviewed, and the three unsigned upstream source trees need review. No candidate wheel is approved for production installation until those gates pass.
+
+Other checks at the same commit passed:
+- [Repository tests](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40303361010)
+- [G13 workflow static validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40303361018)
+- [Agent Runtime Check](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40303357241)
+- [Project Repair Loop](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40303361038)
+
+The real-data smoke job remained skipped. This workflow did not install the Provider service, change production trust anchors, initialize registries, authorize Demo/Live, issue a Grant or submit orders.
