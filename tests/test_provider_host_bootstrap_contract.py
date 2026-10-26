@@ -1,3 +1,5 @@
+import hashlib
+import re
 from pathlib import Path
 
 
@@ -91,28 +93,52 @@ def test_elevated_bootstrap_installer_workspace_is_not_user_temp_and_is_acl_veri
 
 
 
-def test_elevated_bootstrap_requires_a_committed_hash_lock_and_never_upgrades_pip():
+
+def test_elevated_bootstrap_requires_committed_hash_locks_and_never_upgrades_pip():
     root = Path(__file__).resolve().parents[1]
     script = (root / "tools" / "bootstrap_provider_host_v1.ps1").read_text(encoding="utf-8")
 
-    # Dependency resolution must not happen on the elevated host. The fixed
-    # reviewed source SHA must carry a reviewed complete lock or bootstrap stops.
-    assert "$providerLockPath = Join-Path $sourceRoot 'requirements-provider.lock.txt'" in script
-    assert "$providerTestLockPath = Join-Path $sourceRoot 'requirements-provider-test.lock.txt'" in script
+    expected_locks = {
+        "requirements-provider.lock.txt": "7df03080328bd565c1bb20dbdc4d9dfb90c39d86c4d1f8be35e46f452552af9a",
+        "requirements-provider-test.lock.txt": "f6fb8ead273fa7416c8bdecce16eb7c18ff554503525fb9e656e0059788e0394",
+    }
+    for filename, expected_sha256 in expected_locks.items():
+        lock_path = root / filename
+        assert lock_path.is_file()
+        lock_text = lock_path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+        assert hashlib.sha256(lock_text.encode("utf-8")).hexdigest() == expected_sha256
+        assert re.search(r"(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==[^\s\\]+", lock_text)
+        assert re.search(r"(?m)--hash=sha256:[0-9a-f]{64}", lock_text)
+
+    # Lock files travel with the reviewed bootstrap revision, not the old
+    # pinned application checkout. The elevated copy is made under the
+    # protected workspace and its canonical LF hash is verified before installs.
+    assert "$providerLockSource = Join-Path $bootstrapRoot 'requirements-provider.lock.txt'" in script
+    assert "$providerTestLockSource = Join-Path $bootstrapRoot 'requirements-provider-test.lock.txt'" in script
+    assert "$providerLockPath = Join-Path $workRoot 'requirements-provider.lock.txt'" in script
+    assert "$providerTestLockPath = Join-Path $workRoot 'requirements-provider-test.lock.txt'" in script
+    assert "Copy-Item -LiteralPath $providerLockSource -Destination $providerLockPath -ErrorAction Stop" in script
+    assert "Copy-Item -LiteralPath $providerTestLockSource -Destination $providerTestLockPath -ErrorAction Stop" in script
+    assert "Get-CanonicalTextSha256" in script
+    assert expected_locks["requirements-provider.lock.txt"] in script
+    assert expected_locks["requirements-provider-test.lock.txt"] in script
+    assert "PROVIDER_DEPENDENCY_LOCK_SHA256_MISMATCH" in script
+    assert "PROVIDER_TEST_DEPENDENCY_LOCK_SHA256_MISMATCH" in script
     assert "HASH_LOCKED_PROVIDER_REQUIREMENTS_MISSING" in script
     assert "HASH_LOCKED_PROVIDER_TEST_REQUIREMENTS_MISSING" in script
     assert "HASH_LOCKED_PROVIDER_REQUIREMENTS_INVALID" in script
-    assert script.index("$providerLockPath = Join-Path $sourceRoot") < script.index("& $pythonExe -m venv $venvRoot")
+    assert script.index("$providerLockCanonicalSha256 = Get-CanonicalTextSha256") < script.index("& $pythonExe -m venv $venvRoot")
+    assert script.index("Copy-Item -LiteralPath $providerLockSource") < script.index("& $pythonExe -m venv $venvRoot")
     assert "--require-hashes" in script
     assert "--only-binary=:all:" in script
-    assert "dependency_lock_sha256 =" in script
-    assert "test_dependency_lock_sha256 =" in script
+    assert "dependency_lock_sha256 = $providerLockCanonicalSha256" in script
+    assert "test_dependency_lock_sha256 = $providerTestLockCanonicalSha256" in script
     assert "& $venvPython -m pip install" in script
     assert "& $providerTestPython -m pip install" in script
     assert "Remove-Item -LiteralPath $providerTestVenvRoot -Recurse -Force" in script
 
-    # pip shipped with the SHA-256-pinned Python installer remains in place;
-    # don't upgrade to an unpinned latest release or use the range-based input.
+    # pip bundled with the hash-pinned Python installer is kept; no floating
+    # pip upgrade or range-based project requirements are used by the Provider.
     assert "--upgrade pip" not in script
     assert "-r (Join-Path $sourceRoot 'requirements.txt')" not in script
     assert "-r $providerLockPath" in script
