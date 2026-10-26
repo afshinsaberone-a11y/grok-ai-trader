@@ -39,6 +39,7 @@ def test_source_wheel_candidate_workflow_is_pinned_and_cannot_deploy_or_trade():
         "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
         "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
         "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+        "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
         "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
     ]
     assert "runs-on: windows-2022" in workflow
@@ -50,6 +51,68 @@ def test_source_wheel_candidate_workflow_is_pinned_and_cannot_deploy_or_trade():
     assert "predicate-path: artifacts/provider-source-build/source-build-manifest.json" in workflow
     assert "gh attestation verify" in workflow
     assert "PRODUCTION_LOCKS_CHANGED=false" in workflow
+    assert "BOOTSTRAP_AUTHORIZED=false" in workflow
+    assert "DEMO_TRADING_AUTHORIZED=false" in workflow
+    assert "LIVE_TRADING_ALLOWED=false" in workflow
+    assert "ORDERS_SUBMITTED=false" in workflow
+    assert "order_send" not in workflow
+
+
+def test_offline_lock_overlay_assembly_fails_closed_and_preserves_hashes():
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    helper_path = root / "tools" / "assemble_provider_offline_wheelhouse_v1.py"
+    helper_source = helper_path.read_text(encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("offline_wheelhouse_candidate_helper", helper_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    first, second, added = "a" * 64, "b" * 64, "c" * 64
+    sample = (
+        "cffi==2.1.1 \\\n"
+        f"    --hash=sha256:{first} \\\n"
+        f"    --hash=sha256:{second}\n"
+        "    # via cryptography\n"
+        "cryptography==50.0.2 \\\n"
+        f"    --hash=sha256:{'d' * 64}\n"
+    )
+    updated = module.add_hash(sample, "cffi", "2.1.1", added)
+    assert f"--hash=sha256:{first}" in updated
+    assert f"--hash=sha256:{second}" in updated
+    assert f"--hash=sha256:{added}" in updated
+    assert updated.count(f"--hash=sha256:{added}") == 1
+    try:
+        module.add_hash(sample, "cffi", "2.0.0", added)
+    except RuntimeError as exc:
+        assert "LOCK_PACKAGE_VERSION_MISMATCH" in str(exc)
+    else:
+        raise AssertionError("wrong package version must fail closed")
+    try:
+        module.add_hash(sample, "cffi", "2.1.1", "bad")
+    except ValueError as exc:
+        assert "CUSTOM_WHEEL_SHA256_INVALID" in str(exc)
+    else:
+        raise AssertionError("bad custom wheel digest must fail closed")
+
+    assert "PASS_CRYPTOGRAPHICALLY_VERIFIED_EXPECTED_REPOSITORY" in helper_source
+    assert "BLOCKED_PROVENANCE_MISSING" in helper_source
+    assert "additional_custom_wheel_hashes" in helper_source
+    assert 'production_approved":False' in helper_source or '"production_approved":False' in helper_source
+
+
+def test_source_wheel_workflow_enforces_offline_candidate_lock_gates():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "provider-source-wheel-candidate.yml").read_text(encoding="utf-8")
+    helper = (root / "tools" / "assemble_provider_offline_wheelhouse_v1.py").read_text(encoding="utf-8")
+    assert "pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps" in workflow
+    assert "--no-index --find-links $wheelhouse --require-hashes --only-binary=:all:" in workflow
+    assert "OFFLINE_PROVIDER_CONTRACT_TESTS_FAILED" in workflow
+    assert "provider-offline-wheelhouse/v1" in workflow
+    assert workflow.count("uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6") == 2
+    assert "WHEELHOUSE_ATTESTATION_VERIFICATION_FAILED" in workflow
+    assert "production_approved" in helper and "bootstrap_approved" in helper
     assert "BOOTSTRAP_AUTHORIZED=false" in workflow
     assert "DEMO_TRADING_AUTHORIZED=false" in workflow
     assert "LIVE_TRADING_ALLOWED=false" in workflow
