@@ -1,0 +1,2 @@
+# Ephemeral helper environment for cryptographic PyPI attestation verification.
+pypi-attestations==0.0.30
