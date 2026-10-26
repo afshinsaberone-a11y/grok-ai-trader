@@ -153,6 +153,7 @@ jobs:
           Write-Output 'LOCK_CANDIDATES_ARE_NOT_APPROVED_FOR_BOOTSTRAP=true'
 
       # HTTP 200 is not sufficient: verify the attestation and expected source repository.
+      # Diagnostic detail is bounded in the report; a blocked report uploads before enforcement.
       - name: Cryptographically verify PyPI provenance against expected repository identities
         shell: pwsh
         run: |
