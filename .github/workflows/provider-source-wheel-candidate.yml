@@ -518,7 +518,8 @@ jobs:
             'tests/test_control_plane_provider_host_preflight_v1.py',
             'tests/test_control_plane_admission_provider_v1.py',
             'tests/test_control_plane_provider_service_v1.py',
-            'tests/test_control_plane_service_v1.py'
+            'tests/test_control_plane_service_v1.py',
+            'tests/test_provider_source_override_locks_v1.py'
           )
           & $testPython -m pytest -q -p no:cacheprovider $focusedTests
           if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_PROVIDER_CONTRACT_TESTS_FAILED' }
