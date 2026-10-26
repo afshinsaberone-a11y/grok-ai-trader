@@ -39,7 +39,8 @@ def test_provider_clean_host_bootstrap_is_pinned_and_fail_closed():
     ):
         assert forbidden not in script
 
-    assert "import cryptography, pytest; print('PROVIDER_RUNTIME_DEPENDENCIES=PASS')" in script
+    assert "import cryptography; print('PROVIDER_RUNTIME_DEPENDENCIES=PASS')" in script
+    assert "import cryptography, pytest; print('PROVIDER_TEST_DEPENDENCIES=PASS')" in script
     assert "import cryptography, numpy, pandas, backtesting, pytest" not in script
     assert "provider_service_installed = $false" in script
     assert "issuance_registry_created = $false" in script
@@ -97,12 +98,18 @@ def test_elevated_bootstrap_requires_a_committed_hash_lock_and_never_upgrades_pi
     # Dependency resolution must not happen on the elevated host. The fixed
     # reviewed source SHA must carry a reviewed complete lock or bootstrap stops.
     assert "$providerLockPath = Join-Path $sourceRoot 'requirements-provider.lock.txt'" in script
+    assert "$providerTestLockPath = Join-Path $sourceRoot 'requirements-provider-test.lock.txt'" in script
     assert "HASH_LOCKED_PROVIDER_REQUIREMENTS_MISSING" in script
+    assert "HASH_LOCKED_PROVIDER_TEST_REQUIREMENTS_MISSING" in script
     assert "HASH_LOCKED_PROVIDER_REQUIREMENTS_INVALID" in script
     assert script.index("$providerLockPath = Join-Path $sourceRoot") < script.index("& $pythonExe -m venv $venvRoot")
     assert "--require-hashes" in script
     assert "--only-binary=:all:" in script
     assert "dependency_lock_sha256 =" in script
+    assert "test_dependency_lock_sha256 =" in script
+    assert "& $venvPython -m pip install" in script
+    assert "& $providerTestPython -m pip install" in script
+    assert "Remove-Item -LiteralPath $providerTestVenvRoot -Recurse -Force" in script
 
     # pip shipped with the SHA-256-pinned Python installer remains in place;
     # don't upgrade to an unpinned latest release or use the range-based input.
