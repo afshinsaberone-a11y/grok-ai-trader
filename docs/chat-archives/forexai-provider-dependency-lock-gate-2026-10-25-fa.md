@@ -68,3 +68,21 @@
 Bootstrap هم همین مرز را حفظ می‌کند: محیط پایدار Provider فقط lock تولیدی را نصب می‌کند؛ آزمون‌ها در محیط موقت واقع در work root حفاظت‌شده اجرا می‌شوند و پس از موفقیت، آن محیط آزمون حذف می‌شود. هش هر دو lock در گزارش ثبت می‌شود. این طراحی مانع ماندن pytest در محیط سرویس مرجع اعتماد می‌شود.
 
 Artifact قبلی که فقط یک lock داشت، برای ورودی‌های جدید معتبر نیست و تأیید نهایی محسوب نمی‌شود. هر دو lock تازه باید از ورودی‌های جدید تولید، بررسی و با آزمون binary-only پاس شوند؛ سپس نصب مستقل روی Windows Server 2022 و بازبینی انسانی لازم است. تا آن زمان، SHA ثابت Bootstrap تغییر نمی‌کند و Demo/Live مجوز نمی‌گیرند؛ سفارشی ارسال نمی‌شود.
+
+
+## افزودهٔ پیوسته — ۲۶ اکتبر ۲۰۲۶: نتیجهٔ نامزد دو lock و بازبینی منشأ بسته‌ها
+
+اجرای گردش‌کار دو lock در Windows/Python 3.13.17 با موفقیت تمام شد: [Run 40248842829](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40248842829). سه blob ورودی و workflow استفاده‌شده در آن اجرا با blobهای فعلی شاخه یکسان‌اند.
+
+Artifact شناسهٔ `12620266328`، حجم ۱۲٬۷۱۵ بایت و هش ZIP برابر `13effc0bf5d8c6b39182c6d941247e59d69097fe3f90a13f0bf6562fc624f4ce` است:
+- runtime lock: سه pin و ۱۶۱ hash، SHA-256 برابر `f772c00c23acc36d2b52c09cf2ac53a1653f4c8fff31f7d1b5104b727162b017`.
+- test lock: نه pin و ۱۷۳ hash، SHA-256 برابر `9102f41c1e071cf0469326233c106f6d55764495cfbb1c89451d106353f81cdb`.
+
+هر دو فایل با `--require-hashes --only-binary=:all:` نصب شدند، importها موفق بودند و چهار مجموعه آزمون Provider با **۷۷ تست موفق در ۱٫۲۵ ثانیه** تمام شدند. یک guard جدید نیز اضافه شده تا قفل runtime نتواند pytest یا بسته‌های تحقیق/backtesting را وارد کند؛ اجرای CI مربوط به این guard هنوز باید کامل شود.
+
+بازبینی metadata منشأ بسته‌ها یک مانع باقی‌مانده نشان داد:
+- `cryptography==50.0.2`: صفحه PyPI می‌گوید هر ۵۹ فایل release provenance دارند و با Trusted Publishing بارگذاری شده‌اند: https://pypi.org/project/cryptography/50.0.2/.
+- `cffi==2.1.1`: PyPI می‌گوید provenance ندارد؛ tag رسمی upstream به commit `fd33e7700f0ebafe6f30bd5053f13327221b77a2` می‌رسد که امضای GitHub آن معتبر است: https://github.com/python-cffi/cffi/commit/fd33e7700f0ebafe6f30bd5053f13327221b77a2.
+- `pycparser==3.12`: PyPI می‌گوید provenance ندارد؛ tag `release_v3.12` به commit `3ec766b7cd94724cba714296509604597ea4ce4e` می‌رسد که GitHub آن را بدون امضا گزارش می‌کند: https://github.com/eliben/pycparser/commit/3ec766b7cd94724cba714296509604597ea4ce4e.
+
+پس هش‌ها، نصب wheel-only و آزمون‌های قرارداد تأیید شده‌اند، اما منشأ artifactهای cffi/pycparser و بازبینی مستقل هنوز باز هستند. صرف موفقیت نصب و تست به معنی اعتماد تولیدی نیست. دو فایل lock تا تکمیل بررسی منشأ، بازبینی مستقل و تمرین نصب جداگانه روی Windows Server 2022 نباید وارد SHA ثابت Bootstrap شوند.
