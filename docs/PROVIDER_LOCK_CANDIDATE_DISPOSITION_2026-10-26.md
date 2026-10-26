@@ -67,3 +67,53 @@ The runtime lock contains `cryptography==50.0.2`, which has PyPI provenance for 
 4. After that, generate fresh lock candidates and repeat the binary-only install and focused tests. Only independently approved lock bytes may be committed and referenced by a reviewed bootstrap SHA change.
 
 This research changes no runtime code or trust state. The current provenance-presence workflow is a **presence audit**, not a cryptographic verifier; the Lock candidate remains BLOCKED and not approved for elevated bootstrap.
+
+
+## Final cryptographic-verification run — 2026-10-26
+
+The byte-preserving PowerShell fix has now been validated by a complete candidate run on the exact PR code revision `70960662fb0615abb3784497c7d9041d4b5aa74a`.
+
+Run: [40301471299](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40301471299)
+
+The run completed the following successfully:
+- compiled both candidate locks;
+- installed them with `--require-hashes --only-binary=:all:` on GitHub-hosted Windows Server 2022 / Python 3.13.17;
+- passed import checks and the 77 focused Provider contract tests;
+- cryptographically verified the retrieved PyPI attestation against each exact local wheel and the code-reviewed repository allowlist;
+- uploaded the lock candidates and provenance report before enforcement.
+
+### Verified wheel result
+
+**Cryptographic attestation PASS (5):**
+- `cryptography==50.0.2`
+- `iniconfig==2.3.1`
+- `packaging==26.3`
+- `pluggy==1.7.0`
+- `pytest==8.4.2`
+
+**Provenance missing (4; hard blockers):**
+- `cffi==2.1.1`
+- `colorama==0.4.6`
+- `pycparser==3.12`
+- `pygments==2.21.0`
+
+The final report status is exactly `BLOCKED_PROVENANCE_MISSING`; the workflow's final enforcement step correctly failed closed. This is no longer an unexplained verifier failure: the five metadata-bearing wheels verified successfully after the raw-response-byte bug was fixed.
+
+### Candidate artifact and hashes
+
+- Artifact ID: `12640428004`
+- Artifact ZIP SHA-256: `fcabb6d1bbe94625e1e26dcc32cbf24989c24c06779e7491685bf7564442fb24`
+- Runtime lock: 3 pins / 161 SHA-256 declarations; file SHA-256 `f772c00c23acc36d2b52c09cf2ac53a1653f4c8fff31f7d1b5104b727162b017`
+- Test lock: 9 pins / 173 SHA-256 declarations; file SHA-256 `9102f41c1e071cf0469326233c106f6d55764495cfbb1c89451d106353f81cdb`
+
+Related CI at the same source revision:
+- [Repository tests](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40301471499) — PASS; real-data smoke was skipped.
+- [G13 workflow static validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40301471691) — PASS.
+- [Agent Runtime Check](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40301467252) — PASS.
+- [PR-triggered tests](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40301467692) — PASS.
+
+### Decision and next gate
+
+The candidate is **not approved for production bootstrap**. Do not remove the four dependencies, use `--no-deps`, disable the gate, or promote the candidate based only on tests/recorded hashes. The next gate is an independently reviewed source/build strategy or explicit defensible source evidence for each of those four wheel artifacts, followed by a fresh complete candidate run and review. Then, and only then, can a separate reviewed change incorporate approved lock bytes and update the immutable bootstrap source SHA. A post-merge exact-main-SHA G13 evidence chain is still required.
+
+PR #331 remains open, unmerged and without an independent submitted review. Main is unchanged at `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. No trust anchors, private keys, services, production registries or trading permissions were changed; Grant issuance and order submission remain disabled, Demo unauthorized, Live disabled.
