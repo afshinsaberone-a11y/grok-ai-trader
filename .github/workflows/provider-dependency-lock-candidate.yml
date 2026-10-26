@@ -155,6 +155,7 @@ jobs:
       # HTTP 200 is not sufficient: verify the attestation and expected source repository.
       # Diagnostic detail is bounded in the report; a blocked report uploads before enforcement.
       # This run includes per-wheel diagnostic reset to prevent stale error attribution.
+      # Provenance JSON is written verbatim from the Integrity API response.
       - name: Cryptographically verify PyPI provenance against expected repository identities
         shell: pwsh
         run: |
