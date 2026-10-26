@@ -66,7 +66,6 @@ jobs:
 
 
   provider-lock-generation:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'ops/bootstrap-provider-host-v1-20261025' }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -89,31 +88,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RUNTIME_LOCK_GENERATION_FAILED" }
           .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider-test.lock.txt requirements-provider-test.in
           if ($LASTEXITCODE -ne 0) { throw "TEST_LOCK_GENERATION_FAILED" }
-          Write-Output "===== BEGIN requirements-provider.lock.txt ====="
-          Get-Content -LiteralPath generated-locks/requirements-provider.lock.txt -Raw
-          Write-Output "===== END requirements-provider.lock.txt ====="
-          Write-Output "===== BEGIN requirements-provider-test.lock.txt ====="
-          Get-Content -LiteralPath generated-locks/requirements-provider-test.lock.txt -Raw
-          Write-Output "===== END requirements-provider-test.lock.txt ====="
+          $generatedRuntimeLock = [IO.File]::ReadAllText("generated-locks/requirements-provider.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
+          $committedRuntimeLock = [IO.File]::ReadAllText("requirements-provider.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
+          if ($generatedRuntimeLock -cne $committedRuntimeLock) { throw "RUNTIME_LOCK_DRIFT_FROM_INPUT" }
+          $generatedTestLock = [IO.File]::ReadAllText("generated-locks/requirements-provider-test.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
+          $committedTestLock = [IO.File]::ReadAllText("requirements-provider-test.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
+          if ($generatedTestLock -cne $committedTestLock) { throw "TEST_LOCK_DRIFT_FROM_INPUT" }
+          Write-Output "PROVIDER_HASH_LOCK_REPRODUCIBILITY=PASS"
           python -m venv .provider-runtime-lock-verify
           if ($LASTEXITCODE -ne 0) { throw "RUNTIME_VERIFY_VENV_FAILED" }
-          .\.provider-runtime-lock-verify\Scripts\python.exe -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r generated-locks/requirements-provider.lock.txt
+          .\.provider-runtime-lock-verify\Scripts\python.exe -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-provider.lock.txt
           if ($LASTEXITCODE -ne 0) { throw "RUNTIME_LOCK_INSTALL_FAILED" }
           .\.provider-runtime-lock-verify\Scripts\python.exe -c "import cryptography; print('PROVIDER_RUNTIME_LOCK=PASS', cryptography.__version__)"
           if ($LASTEXITCODE -ne 0) { throw "RUNTIME_LOCK_IMPORT_FAILED" }
           python -m venv .provider-test-lock-verify
           if ($LASTEXITCODE -ne 0) { throw "TEST_VERIFY_VENV_FAILED" }
-          .\.provider-test-lock-verify\Scripts\python.exe -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r generated-locks/requirements-provider-test.lock.txt
+          .\.provider-test-lock-verify\Scripts\python.exe -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-provider-test.lock.txt
           if ($LASTEXITCODE -ne 0) { throw "TEST_LOCK_INSTALL_FAILED" }
           .\.provider-test-lock-verify\Scripts\python.exe -c "import cryptography, pytest; print('PROVIDER_TEST_LOCK=PASS', cryptography.__version__, pytest.__version__)"
           if ($LASTEXITCODE -ne 0) { throw "TEST_LOCK_IMPORT_FAILED" }
-      - name: Upload generated lock files
-        uses: actions/upload-artifact@v4
-        with:
-          name: provider-hash-locks-${{ github.sha }}
-          path: generated-locks/*.txt
-          if-no-files-found: error
-
   real-data-smoke:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
