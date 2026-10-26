@@ -64,6 +64,10 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "BLOCKED_PROVENANCE_MISSING" in workflow
     assert "BLOCKED_LOOKUP_ERROR" in workflow
     assert "DEPENDENCY_PROVENANCE_GATE_BLOCKED" in workflow
+    # Workflow steps execute in separate PowerShell processes, so the test
+    # interpreter path must be persisted before the later provenance audit.
+    assert '"FOREXAI_TEST_PYTHON=$testPython" | Out-File -FilePath $env:GITHUB_ENV' in workflow
+    assert "$testPython = $env:FOREXAI_TEST_PYTHON" in workflow
     assert "PYPI_PROVENANCE_PRESENCE_PASS_NOT_CRYPTOGRAPHIC_APPROVAL=true" in workflow
     assert "provenance-presence-report.json" in workflow
     assert workflow.index("Audit PyPI provenance presence for target-compatible wheels") < workflow.index(
