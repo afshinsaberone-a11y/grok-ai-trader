@@ -205,7 +205,7 @@ def main() -> int:
     lock_pins = {
         re.sub(r"[-_.]+", "-", name).lower(): version
         for name, version in re.findall(
-            r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\\s\\\\]+)\\s*\\\\?\\s*$",
+            r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\]+)\s*\\?\s*$",
             build_tool_lock_text,
         )
     }
