@@ -1,2 +1,4 @@
 # Ephemeral helper environment for cryptographic PyPI attestation verification.
+# Pin pip explicitly so its installer wheel is hash-verified in the fresh venv.
+pip==26.2.2
 pypi-attestations==0.0.30
