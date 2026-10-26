@@ -367,3 +367,65 @@ Both manifests state `production_approved=false` and `bootstrap_approved=false`.
 3. The candidate workflow still installs pinned `pip-tools==7.6.1` and `pypi-attestations==0.0.30` in ephemeral helper environments without complete committed hash locks for those helper environments. This is a separate workflow-tooling hardening item, not a blocker solved by the source-wheel lock.
 
 PR #331 is open and unmerged; the latest independent-review API still reports zero submitted reviews. `main` remains `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. No accepted production locks, bootstrap SHA, secrets, keys, trust anchors, services, or registries changed. No Grant was issued; Demo remains unauthorized; Live remains disabled; no orders submitted.
+
+
+## Final candidate rerun with helper-lock attestation — SUCCESS (2026-10-26)
+
+Run [40322804558](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40322804558) completed successfully on source/workflow SHA `ba10a5463ad28bd29a69015abac11454d2511377`.
+
+The prior run exposed a smoke-check defect: invoking `python -m piptools --version` is not supported by pip-tools 7.6.1. The check now reads the installed package version through `importlib.metadata`; a contract test requires that form and rejects the invalid CLI invocation. This was a workflow verification-command failure, not an offline-lock install failure.
+
+### Artifact published and independently checked
+
+- Artifact ID: `12649653427`
+- Artifact name: `provider-source-built-wheels-ba10a5463ad28bd29a69015abac11454d2511377`
+- ZIP size: 7,379,438 bytes
+- GitHub artifact digest and independent SHA-256 of the downloaded ZIP: `9efb0069cb6ae3dbcd2e46ecf3a9bca5787bc55d9ce5a48115c882b781c4e144`
+- The ZIP contains 23 entries: four source-built wheels; nine wheelhouse wheels; two generated locks; two hash-overlay locks; two helper-tool lock candidates; and the source, wheelhouse, PyPI provenance, and helper-tool candidate reports.
+
+Independent checks against the downloaded ZIP bytes found:
+- Source wheel digests: 4/4 match the source-build manifest.
+- Final wheelhouse digests: 9/9 match the wheelhouse manifest.
+- The five PyPI-sourced wheels all pass cryptographic attestation verification for the expected repositories.
+- Both overlay Lock files match their exact manifest hashes:
+  - runtime overlay: `bf19c896b422cc54f3a879cb88673517fcbdb81cbc8251052ce9084b26367f07`
+  - test overlay: `0042630ae03aa387c7943de5c62924bffd0610fa13ae1e732e6c0a2e3face0cb`
+- Both helper Lock candidate files match the hashes recorded in the helper-tool report and have `offline_binary_only_install=PASS`:
+  - lock compiler: `fa98ae68e5d401800ae5e45798fbb4ce5b8916da2883858e07cc5a407f91ba42` — 9 pinned requirements, 18 hash entries.
+  - PyPI attestation verifier: `f850b4237f31914784f464c9eb8a3b0e41516035e646ea05f8f84c76e8b44582` — 33 pinned requirements, 537 hash entries.
+- Attestations were created and verified by the workflow for all four source-built wheel subjects, all nine final wheelhouse subjects, and both helper Lock candidate files.
+- The canonical UTF-8/LF SHA-256 of the tracked source-build tools lock remains `ae89bd1115956b39f8436b4d2488422511fc0c396cf21d904180cee34df70f1d`, removing Windows CRLF-dependent differences in the manifest.
+
+The runtime and test overlays are **candidate-only** and do not replace the production lock files. The helper-lock report status is `CANDIDATE_LOCKS_GENERATED_AND_OFFLINE_TESTED_NOT_APPROVED`; the source and wheelhouse manifests each explicitly set `production_approved=false` and `bootstrap_approved=false`.
+
+### Source-delta review for the unsigned upstream releases — preliminary only
+
+A read-only GitHub metadata/diff check narrowed the unsigned release-commit delta for these pinned versions:
+
+| Package | Pinned release commit / ref | Files changed in the release commit | Signature result |
+|---|---|---|---|
+| pycparser 3.12 | `3ec766b7cd94724cba714296509604597ea4ce4e`, `release_v3.12` | `MANIFEST.in`, `pyproject.toml` (source-distribution manifest and setuptools build minimum) | Commit unsigned; lightweight tag points to that commit |
+| colorama 0.4.6 | `3de9f013df4b470069d03d250224062e8cf15c49`, tag object `4ea8b1c7cbf96cc21613bb51b38fc49831fdddb4` | `README-hacking.md`, `colorama/__init__.py` (release/version metadata) | Commit and annotated tag unsigned |
+| Pygments 2.21.0 | `a43b45dcf081b6010c6ab4428f149f7f6d2499c4`, tag object `2ade8335807203e11d67effb4108c78672519f0d` | `CHANGES`, `pygments/__init__.py` (release date/version metadata) | Commit and annotated tag unsigned |
+| cffi 2.1.1 | `fd33e7700f0ebafe6f30bd5053f13327221b77a2`, lightweight `v2.1.1` | Release commit is GitHub signature-verified | Commit signature valid |
+
+The release commit diffs for the first three packages did not show edits to runtime implementation files in those release commits. This narrows the immediate delta but is **not** proof that their full source trees are trustworthy: the commits/tags remain unsigned, their preceding release refs also lack verified signatures, and this automated review is not the independent human source review required for approval. Reverting to those earlier releases would not improve signature evidence.
+
+### Remaining supply-chain gate for helper tools
+
+The two helper Lock candidates are hash-locked, independently hash-checked inside the downloaded artifact, offline-installed, and attested to this workflow run. That binds their bytes to this candidate run but does not certify every transitive helper package's publisher/source identity. Official PyPI release pages show provenance for the pinned top-level `pip-tools==7.6.1` and `pypi-attestations==0.0.30`, while the generated closure still includes packages such as `setuptools==84.2.1` for which PyPI shows no provenance. Separately, the committed source-wheel build lock pins `setuptools==80.9.0`; its upstream v80.9.0 tag signature is verified, but the PyPI wheel itself has no PyPI provenance, so the signature alone does not bind that wheel to the signed source tag.
+
+References for independent review:
+- https://pypi.org/project/pip-tools/7.6.1/
+- https://pypi.org/project/pypi-attestations/0.0.30/
+- https://pypi.org/project/setuptools/84.2.1/
+- https://pypi.org/project/setuptools/80.9.0/
+- https://github.com/eliben/pycparser/commit/3ec766b7cd94724cba714296509604597ea4ce4e
+- https://github.com/tartley/colorama/commit/3de9f013df4b470069d03d250224062e8cf15c49
+- https://github.com/pygments/pygments/commit/a43b45dcf081b6010c6ab4428f149f7f6d2499c4
+
+### CI and production disposition
+
+At this head, repository tests, G13 Workflow Static Validation, Agent Runtime Check, and Project Repair Loop all passed. The manual-only `real-data-smoke` job was skipped.
+
+PR #331 remains open/unmerged and still has zero submitted independent reviews. `main` remains `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. Production lock files, the immutable Bootstrap SHA, keys, trust anchors, services and registries remain unchanged. Do not merge or run elevated Bootstrap until independent source/tool provenance review and a separately controlled Windows Server destination-install rehearsal pass. Grant remains unissued; Demo unauthorized; Live disabled; no orders submitted.
