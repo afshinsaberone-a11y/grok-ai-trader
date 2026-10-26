@@ -326,3 +326,44 @@ On latest PR head `5508a730cff27cbd55a4a44981d8166f9b67411b):
 These CI results test the new contracts, including the lock-pin parser and manifest guard. They are not the final source-builder workflow run, an independent human review, or a destination VPS installation rehearsal. The lock does not change `requirements-provider.lock.txt` or `requirements-provider-test.lock.txt`; it is only for the ephemeral source-wheel builder.
 
 Production remains blocked: the three unsigned source commits still need independent review, setuptools wheel provenance remains unverified, and the clean destination rehearsal and independent PR review remain outstanding. The lock candidate and source wheelhouse remain `production_approved=false` / `bootstrap_approved=false`. No production key, trust anchor, service, registry, grant, Demo/Live permission or order state has changed.
+
+
+## Release-tag pinning and canonical build-lock digest verified — 2026-10-26
+
+The release identity and platform-stable build-lock digest controls are now exercised by a fresh successful candidate workflow at head `46a47712d5b09d31d812811b7652650def823e86`:
+
+- Provider Source-built Wheel Candidate: [run 40320874229](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40320874229) — **success**.
+- Repository tests, including release-ref/tag pinning and canonical lock digest tests: [run 40320874172](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40320874172) — **success**; the manual-only `real-data-smoke` job was skipped.
+- G13 Workflow Static Validation: [run 40320874153](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40320874153) — **success**.
+- Agent Runtime Check: [run 40320872674](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40320872674) — **success**.
+- Project Repair Loop: [run 40320874416](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40320874416) — **success**.
+
+### Downloaded artifact and independent byte-level checks
+
+Artifact ID `12648483656`; ZIP size 7,356,656 bytes; GitHub artifact digest and independently computed ZIP SHA-256 both equal:
+
+`5cbebf6f82463c281f7349fa6000fe53baea74b042cfa71c1643554f32b1928a`
+
+The archive contains 20 entries: four source-built wheel candidates, nine complete wheelhouse wheels, two compiler-generated locks, two overlay locks, and three JSON manifests/reports. Checks run against the downloaded bytes found:
+
+- All nine wheelhouse wheel SHA-256 values match the wheelhouse manifest.
+- All four source-built wheel digests are present in the appropriate runtime/test overlay locks.
+- The exact raw bytes of the two overlay lock files match their manifest hashes:
+  - runtime overlay: `499691109b0878a29e040b0bfef39b4bf50713f32966b603ef2c94934c3c1410`
+  - test overlay: `be3702be5b0450f355370d083257fc13f4e68d17a3cb1d4c5cb1b881a044077a`
+- All five PyPI provenance rows report `PASS_CRYPTOGRAPHICALLY_VERIFIED_EXPECTED_REPOSITORY`.
+- The source-build manifest's canonical UTF-8/LF SHA-256 for `requirements-provider-source-build-tools.lock.txt` is `ae89bd1115956b39f8436b4d2488422511fc0c396cf21d904180cee34df70f1d`, matching the tracked text file's canonical digest. This confirms the Windows CRLF checkout no longer changes the recorded build-lock digest.
+
+### Exact release-tag checks
+
+The builder now records the exact upstream release ref/object SHA, object type, target commit, and tag-signature status; unexpected ref movement or signature-status changes fail closed. The manifest explicitly lists `colorama`, `pycparser`, and `pygments` under `upstream_sources_without_verified_commit_or_signed_release_tag`. The CFFI release tag is lightweight, but its pinned upstream commit signature is verified. Tag binding prevents silently following a moved tag; it does not authenticate the unsigned release commits.
+
+### Production disposition remains BLOCKED
+
+Both manifests state `production_approved=false` and `bootstrap_approved=false`. The remaining independently reviewable supply-chain issues are:
+
+1. `pycparser` 3.12, `colorama` 0.4.6, and Pygments 2.21.0 release commits/tags remain unsigned. The four source-built wheels are bound to exact commit and release-ref identities, but they remain unapproved until independent source review/acceptance.
+2. The locked build-tool set still contains `setuptools==80.9.0`, whose selected PyPI wheel has no PyPI provenance. Its exact upstream release tag is signed, but that signature does not cryptographically bind the published wheel bytes to the source tag.
+3. The candidate workflow still installs pinned `pip-tools==7.6.1` and `pypi-attestations==0.0.30` in ephemeral helper environments without complete committed hash locks for those helper environments. This is a separate workflow-tooling hardening item, not a blocker solved by the source-wheel lock.
+
+PR #331 is open and unmerged; the latest independent-review API still reports zero submitted reviews. `main` remains `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. No accepted production locks, bootstrap SHA, secrets, keys, trust anchors, services, or registries changed. No Grant was issued; Demo remains unauthorized; Live remains disabled; no orders submitted.
