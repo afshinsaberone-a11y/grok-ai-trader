@@ -312,7 +312,8 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     compiler_input = (root / "requirements-provider-lock-compiler.in").read_text(encoding="utf-8")
     verifier_input = (root / "requirements-provider-pypi-verifier.in").read_text(encoding="utf-8")
 
-    assert compiler_input.strip().endswith("pip-tools==7.6.1")
+    compiler_pins = {line.strip() for line in compiler_input.splitlines() if line.strip() and not line.lstrip().startswith("#")}
+    assert compiler_pins == {"pip-tools==7.6.1", "setuptools==80.9.0"}
     assert verifier_input.strip().endswith("pypi-attestations==0.0.30")
     assert "requirements-provider-lock-compiler.in" in workflow
     assert "requirements-provider-pypi-verifier.in" in workflow
@@ -350,7 +351,15 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     assert "$targetPins.Count -ne $pins.Count -or $targetHashes.Count -ne $pins.Count" in workflow
     assert "--no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $targetLockPath" in workflow
     assert "$locks.Count -ne 4" in workflow
-    assert "--require-hashes --only-binary=:all: -r $compilerLock" in workflow
+    assert "tools/create_provider_source_override_locks_v1.py --source-lock $compilerLock --replacement-wheel $setuptoolsWheel" in workflow
+    assert "--require-hashes --only-binary=:all: --no-deps --dest $compilerWheelhouse -r $compilerDownloadLock" in workflow
+    assert "--no-index --find-links $compilerWheelhouse --require-hashes --only-binary=:all: --no-deps -r $compilerInstallLock" in workflow
+    assert "SOURCE_LOCK_COMPILER_SIGNED_SOURCE_OFFLINE_INSTALL_FAILED" in workflow
+    assert "SOURCE_LOCK_COMPILER_SETuptools_SOURCE_OVERRIDE=PASS" in workflow
+    assert "source_built_setuptools_override = $sourceSetuptoolsOverride" in workflow
+    assert "SOURCE_HELPER_TOOL_SETUPTOOLS_REPLACEMENT_HASH_MISMATCH" in workflow
+    assert "tools/create_provider_source_override_locks_v1.py" in workflow
+    assert "helper-bootstrap-locks" in workflow
     assert "SOURCE_HELPER_TOOL_TARGET_LOCK_COMPACTION_FAILED" in workflow
     assert "'CANDIDATE_LOCKS_GENERATED_AND_OFFLINE_TESTED_NOT_APPROVED'" in workflow
     assert "production_approved = $false" in workflow
@@ -360,6 +369,7 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     assert "subject-path: artifacts/provider-source-build/tool-lock-candidates/*.lock.txt" in workflow
     assert "HELPER_TOOL_LOCK_ATTESTATION_VERIFICATION_FAILED" in workflow
     assert "HELPER_TOOL_LOCK_ATTESTATION_VERIFY=PASS:" in workflow
+    assert "'tests/test_provider_source_override_locks_v1.py'" in workflow
 
 
 
