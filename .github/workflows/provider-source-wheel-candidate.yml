@@ -230,7 +230,7 @@ jobs:
               throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_PIN_OR_HASH_VALIDATION_FAILED'
             }
             & $checkPython -m pip install --disable-pip-version-check --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $targetLockPath
-            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_OFFLINE_INSTALL_FAILED' }
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED' }
             & $checkPython -m pip check
             if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_DEPENDENCY_CHECK_FAILED' }
             if ($toolLock.environment -eq 'lock-compiler') {
