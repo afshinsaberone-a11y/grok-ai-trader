@@ -140,7 +140,7 @@ def test_source_build_tool_closure_is_hash_locked_and_manifest_binds_exact_lock(
     pins = {
         re.sub(r"[-_.]+", "-", name).lower(): version
         for name, version in re.findall(
-            r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\\s\\\\]+)\\s*\\\\?\\s*$",
+            r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\]+)\s*\\?\s*$",
             lock_text,
         )
     }
