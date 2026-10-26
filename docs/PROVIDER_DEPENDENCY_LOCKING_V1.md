@@ -464,3 +464,25 @@ The pinned patch evidence covers these exact upstream changes:
 The manifest records the observed blob and patch digests. A contract test now exercises the valid pinned patch and rejects a same-path patch mutation, a blob SHA mismatch, an unexpected source path, a missing patch, and a missing file list. This makes the diff gate specific to content instead of file names alone.
 
 **Still blocked:** patch/blob pinning does not turn an unsigned commit into a signed commit and does not replace an independent source review. Separately, the setuptools wheel used by the build toolchain has no PyPI provenance, and the production runtime wheels for cffi/pycparser lack upstream PyPI attestations. The candidate workflow must be rerun on this head, its output independently reviewed, and the clean Windows Server 2022 installation rehearsed. No accepted production lock, bootstrap source SHA, key, trust anchor, service, registry, Grant, or trading permission is changed by this patch. Demo remains unauthorized, Live remains disabled, and no orders are submitted.
+
+
+## Follow-up audit: helper-tool bootstrap is still unhashed — 2026-10-26
+
+A fresh review of the current source-wheel workflow found a separate integrity gap in the **candidate-generation helper environments**, not in the successfully installed runtime/test overlay candidates:
+
+- The workflow creates `forexai-source-lock-tools` and installs `pip-tools==7.6.1` by exact version only, without `--require-hashes`.
+- The same job generates `requirements-provider-lock-compiler.lock.txt` and `requirements-provider-pypi-verifier.lock.txt` into `artifacts/provider-source-build/tool-lock-candidates/`, but those helper lock candidates are not included in the uploaded wheelhouse artifact and are not committed at the repository root.
+- The generated candidate lock text is inspected for pins/hashes, but the current job does not then use those generated locks to create a fresh isolated helper environment and reinstall/verify each helper closure offline.
+- The committed source-build-tools lock is hash-locked, but the separate lock compiler and PyPI attestation verifier bootstraps remain outside that same committed lock policy.
+
+This means the candidate wheelhouse's nine wheel hashes and attestations remain valid evidence for that artifact, and its offline install/test rehearsal did pass; however, **the lock-generation and provenance-verification tools themselves are not yet bootstrapped through a committed hash-locked closure**. Do not conflate this with a failed runtime lock install; it is an earlier-stage toolchain integrity gap.
+
+### Required corrective change
+
+1. Promote the independently reviewed helper lock candidates to committed, hash-locked files only after their complete transitive closure and provenance status are reviewed.
+2. Install pip-tools and the PyPI verifier using those committed lockfiles with `--require-hashes --only-binary=:all:`; verify exact `pip freeze --all` output and `pip check`.
+3. Ensure the helper lockfiles and their hashes are included in the uploaded candidate artifact/manifest and verified before using them to compile or verify other artifacts.
+4. Keep a bootstrap trust root explicit: do not claim a fully self-verifying chain if the lock compiler is installed from an un-hashed, network-resolved environment.
+5. Rerun the integrated workflow and independent ZIP/hash inspection after this change.
+
+This follow-up records a newly identified gap; it does not change or invalidate the recorded success of the previous candidate rehearsal. No production lock, immutable Bootstrap SHA, key, trust anchor, service, registry or trading permission was changed. PR #331 remains unmerged and unreviewed. Grant remains unissued, Demo unauthorized, Live disabled, and no orders submitted.
