@@ -126,3 +126,39 @@ Artifact شناسهٔ `12620266328`، حجم ۱۲٬۷۱۵ بایت و هش ZIP �
 مانع منشأ بسته‌ها همچنان حل نشده است: PyPI برای فایل‌های `cffi==2.1.1` و `pycparser==3.12` provenance منتشرشده نشان نمی‌دهد. هش‌ها و نصب wheel-only صرفاً یکپارچگی بایت‌های دریافت‌شده نسبت به hash ثبت‌شده و سازگاری آزمون را نشان می‌دهند؛ به‌تنهایی منشأ معتبر بسته‌ها را ثابت نمی‌کنند. بازبینی مستقل و آزمون نصب در محیط مقصدِ تحت کنترل جداگانه هنوز لازم‌اند.
 
 این تغییر فقط تاریخچهٔ پیشرفت را تکمیل می‌کند؛ هیچ‌یک از موانع امنیتی معامله تغییر نکرده‌اند: Grant signer مستقل provision نشده، Promotion trust anchor نیازمند تطبیق است، Signal و Risk/Reservation و Operator approval عملیاتی مستقل اثبات نشده‌اند، Demo غیرمجاز است، Live غیرفعال است و هیچ سفارشی ارسال نشده است.
+
+
+## افزودهٔ پیوسته — ۲۶ اکتبر ۲۰۲۶: کنترل خودکار provenance و نتیجهٔ اجرای واقعی
+
+برای اینکه «نصب موفق» با «منشأ قابل‌اعتماد» اشتباه نشود، گردش‌کار نامزد lock به‌روزرسانی شد تا wheelهای واقعاً انتخاب‌شده برای Windows Server 2022 / Python 3.13.17 را دوباره با `--require-hashes --only-binary=:all:` دریافت کند و برای هر filename دقیق، API رسمی Integrity در PyPI را بررسی کند. گزارش این بررسی پیش از مرحلهٔ نهایی policy در artifact بارگذاری می‌شود؛ سپس اگر provenance مفقود باشد، گردش‌کار با شکست صریح متوقف می‌شود. این audit فقط وجود metadata را می‌سنجد و امضا، هویت ناشر، یا رابطهٔ source-to-wheel را رمزنگاری‌وار تأیید نمی‌کند.
+
+### شواهد اجرا
+- Commit workflow حاوی gate: `4249db5661d246e599ff817f7c3bad6e196de731`
+- اجرای نامزد lock: [40257890420](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40257890420)
+- نتیجهٔ اجرا: `failure` به‌علت سیاست provenance؛ این شکست عمدی و fail-closed است، نه شکست نصب یا آزمون قراردادی.
+- Runtime و test lock هر دو با hash enforcement و wheel-only نصب شدند؛ چهار مجموعه آزمون Provider موفق شدند: ۷۷ تست.
+- گزارش provenance برای ۹ wheel هدف ساخته شد و artifact پیش از اجرای gate نهایی بارگذاری شد: ID `12623427296`, اندازه 13,621 بایت، SHA-256 آرشیو `3034919cdf5736855c13d3d703b13fd23c7fdec88ba6328b0b0c21fb524eb59f`.
+
+### نتیجهٔ دقیق برای wheelهای هدف
+**Provenance مفقود (BLOCKED):**
+- `cffi-2.1.1-cp313-cp313-win_amd64.whl`
+- `colorama-0.4.6-py2.py3-none-any.whl`
+- `pycparser-3.12-py3-none-any.whl`
+- `pygments-2.21.0-py3-none-any.whl`
+
+**Metadata موجود ولی از این audit به‌تنهایی تأیید رمزنگاری نشده:**
+- `cryptography-50.0.2-cp311-abi3-win_amd64.whl`
+- `iniconfig-2.3.1-py3-none-any.whl`
+- `packaging-26.3-py3-none-any.whl`
+- `pluggy-1.7.0-py3-none-any.whl`
+- `pytest-8.4.2-py3-none-any.whl`
+
+این گزارش مستند می‌کند که ارتقای CI از «تولید نامزد و تست نصب» به «رد خودکار بسته‌های فاقد provenance» انجام شده است. برای حل نهایی باید برای چهار فایل مسدودشده provenance معتبر از ناشر/منبع رسمی فراهم شود، یا یک مسیر build داخلی از source بازبینی‌شده با زنجیرهٔ منشأ قابل‌تأیید طراحی و به‌طور مستقل بررسی شود. فقط تغییر شمارهٔ نسخه یا خاموش‌کردن gate مجاز نیست.
+
+پس از این تغییرها، HEAD شاخه `38d355660ca2cc848ff5d4c2b25f853448ef6db3` این CIها را با موفقیت گذراند:
+- [Repository tests + PowerShell parser](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40257973886)
+- [Project Repair Loop](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40257973866)
+- [G13 static validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40257971298)
+- [Agent Runtime](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40257971239)
+
+PR #331 همچنان باز و ادغام‌نشده است؛ هیچ بازبینی مستقل ثبت نشده و `main` روی `41883f30d32747d07d7b7772f8ee7c656a95e4a1` باقی مانده است. فایل‌های lock تأییدنشده در مخزن اضافه نشده‌اند و bootstrap به‌صورت fail-closed متوقف می‌ماند. این تغییرات هیچ منبع امضاکنندهٔ مستقل Grant یا مجوز معاملاتی ایجاد نکرده‌اند؛ Demo غیرمجاز، Live غیرفعال و سفارش‌ها ارسال‌نشده باقی می‌مانند.
