@@ -39,3 +39,17 @@ Any change merged into main invalidates prior current-main-SHA-bound G13/Promoti
 ## Security boundary not changed by this work
 
 This dependency gate does not establish independent Grant signing custody, reconcile the Promotion trust anchor, or create the Signal, Risk/Reservation, or Operator sources. No service is installed, no production registry is initialized, no Grant is issued, Demo remains unauthorized, Live remains disabled, and no orders are submitted.
+
+
+## Workflow runtime and trigger hardening — 2026-10-26
+
+The candidate workflow's external actions are now pinned to verified full commit SHAs rather than movable version tags:
+- `actions/checkout` v7.0.1
+- `actions/setup-python` v7.1.0
+- `actions/upload-artifact` v7.0.2
+
+Checkout uses `persist-credentials: false`. The workflow retains only `contents: read` permission and continues to emit an untrusted candidate artifact; it does not write to the repository, use production secrets, or authorize deployment/trading.
+
+To remove the dispatch-only operational dependency, the same workflow now also runs on pushes to `ops/bootstrap-provider-host-v1-20261025` only when one of these paths changes: the workflow itself, `requirements-provider-lock.in`, or `requirements.txt`. Manual dispatch remains available. This scoped trigger creates only a review artifact and does not automatically commit or approve the lock.
+
+CI must verify the new contract test and workflow syntax. Successful generation is still only a candidate; all package/hash, wheel-availability, clean Windows Server install, source-SHA and independent-review gates above remain mandatory.
