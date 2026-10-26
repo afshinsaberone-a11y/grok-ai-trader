@@ -35,3 +35,10 @@ Expected result with the documented GitHub API shape is `PARTIAL_CONFIGURATION_R
 ## Relevant GitHub API contracts
 
 The implementation uses the documented read-only [deployment environment endpoint](https://docs.github.com/en/rest/deployments/environments) and [deployment branch policy endpoint](https://docs.github.com/en/rest/deployments/branch-policies). Required reviewers, self-review prevention, and administrator-bypass settings must be configured manually by an authorized repository administrator; this patch intentionally contains no write call for these settings.
+
+
+## 4. Strict reviewer allow-list — 2026-10-26
+
+GitHub required-reviewer environment rules permit a deployment to proceed when **any one** of the configured reviewers approves it. Checking only that a named external reviewer appears in a multi-user list would therefore leave another, unverified reviewer able to satisfy the gate. The audit now requires exactly one configured reviewer, of type `User`, matching the independently appointed `expected_reviewer` input. Any additional user, team, malformed identity, owner, or triggering actor keeps the audit blocked. The regression test covers an additional alternate reviewer.
+
+This strict allow-list does not verify the person's real-world independence, account security, or current organizational authority; those require separately reviewed human evidence. The audit remains configuration-only. It never reads secrets/private keys, provisions authorities, issues a Grant, or authorizes Demo/Live trading. The environment API currently does not document the deployment policy's branch-versus-tag discriminator; if it is absent, the result stays `PARTIAL_CONFIGURATION_REVIEW_REQUIRED` rather than a full pass.
