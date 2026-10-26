@@ -21,7 +21,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def read_locked_pins(path: Path) -> dict[str, str]:
+def read_locked_pins(path: Path) -> tuple[dict[str, str], dict[str, set[str]]]:
     pins: dict[str, str] = {}
     package_blocks: dict[str, list[str]] = {}
     current: str | None = None
@@ -46,11 +46,15 @@ def read_locked_pins(path: Path) -> dict[str, str]:
     for name, hashes in package_blocks.items():
         if not hashes or any(not re.fullmatch(r"--hash=sha256:[0-9a-f]{64}", h) for h in hashes):
             raise ValueError(f"LOCK_PACKAGE_HASH_MISSING_OR_INVALID:{name}")
-    return pins
+    allowed_hashes = {
+        name: {item.removeprefix('--hash=sha256:') for item in hashes}
+        for name, hashes in package_blocks.items()
+    }
+    return pins, allowed_hashes
 
 
 def build_target_lock(requirements: Path, wheelhouse: Path, output: Path, target_label: str) -> dict:
-    pins = read_locked_pins(requirements)
+    pins, allowed_hashes = read_locked_pins(requirements)
     if not wheelhouse.is_dir():
         raise ValueError("WHEELHOUSE_NOT_FOUND")
     wheels = sorted(wheelhouse.glob("*.whl"))
@@ -76,6 +80,8 @@ def build_target_lock(requirements: Path, wheelhouse: Path, output: Path, target
         if wheel_version != locked_version:
             raise ValueError(f"WHEEL_VERSION_MISMATCH:{name}:{wheel_version}!={locked_version}")
         digest = sha256(wheel)
+        if digest not in allowed_hashes[name]:
+            raise ValueError(f'WHEEL_HASH_NOT_IN_SOURCE_CANDIDATE_LOCK:{name}')
         rows.append((name, locked_version, digest))
 
     source_hash = sha256(requirements)
