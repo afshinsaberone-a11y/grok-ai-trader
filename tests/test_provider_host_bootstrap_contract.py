@@ -39,6 +39,8 @@ def test_provider_clean_host_bootstrap_is_pinned_and_fail_closed():
     ):
         assert forbidden not in script
 
+    assert "import cryptography, pytest; print('PROVIDER_RUNTIME_DEPENDENCIES=PASS')" in script
+    assert "import cryptography, numpy, pandas, backtesting, pytest" not in script
     assert "provider_service_installed = $false" in script
     assert "issuance_registry_created = $false" in script
     assert "demo_trading_authorized = $false" in script
