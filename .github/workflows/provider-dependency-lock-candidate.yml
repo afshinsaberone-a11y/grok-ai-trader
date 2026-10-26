@@ -54,6 +54,39 @@ jobs:
             --output-file artifacts/provider-dependency-lock/requirements-provider.lock.txt \
             requirements-provider-lock.in
 
+      - name: Verify binary-only install and Provider contracts on Windows Python 3.13
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'artifacts/provider-dependency-lock/requirements-provider.lock.txt'
+          $venvRoot = Join-Path $env:RUNNER_TEMP ('forexai-provider-lock-validation-' + [Guid]::NewGuid().ToString('N'))
+          & python -m venv $venvRoot
+          if ($LASTEXITCODE -ne 0) {
+            throw 'LOCK_VALIDATION_VENV_CREATION_FAILED'
+          }
+          $venvPython = Join-Path $venvRoot 'Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
+            throw 'LOCK_VALIDATION_PYTHON_NOT_FOUND'
+          }
+          & $venvPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $path
+          if ($LASTEXITCODE -ne 0) {
+            throw 'LOCK_VALIDATION_BINARY_ONLY_INSTALL_FAILED'
+          }
+          & $venvPython -c "import cryptography, numpy, pandas, backtesting, pytest, openai, agents; print('LOCKED_RUNTIME_IMPORTS=PASS')"
+          if ($LASTEXITCODE -ne 0) {
+            throw 'LOCK_VALIDATION_RUNTIME_IMPORTS_FAILED'
+          }
+          $focusedTests = @(
+            'tests/test_control_plane_provider_host_preflight_v1.py',
+            'tests/test_control_plane_admission_provider_v1.py',
+            'tests/test_control_plane_provider_service_v1.py',
+            'tests/test_control_plane_service_v1.py'
+          )
+          & $venvPython -m pytest -q -p no:cacheprovider $focusedTests
+          if ($LASTEXITCODE -ne 0) {
+            throw 'LOCK_VALIDATION_PROVIDER_CONTRACT_TESTS_FAILED'
+          }
+
       - name: Validate and identify the candidate artifact
         shell: pwsh
         run: |
