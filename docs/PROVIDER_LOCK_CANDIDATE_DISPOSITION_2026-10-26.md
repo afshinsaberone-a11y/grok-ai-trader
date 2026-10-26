@@ -41,3 +41,29 @@ Hash-pinned installation and passing tests confirm byte-integrity relative to th
 ## Trading and authority safety
 
 No production trust anchor, private key, service, registry, TradeLedger, authenticated envelope, MQL5 authorization record, or trading permission was changed by this disposition. Grant issuance and order submission remain disabled; Demo remains unauthorized; Live remains disabled.
+
+
+## Follow-up research — distinguish metadata presence from cryptographic verification (2026-10-26)
+
+The generated report checks whether the PyPI Integrity endpoint returns HTTP 200 or 404. A 200 is deliberately labelled `PRESENT_NOT_CRYPTOGRAPHICALLY_VERIFIED`; it must not be interpreted as successful signature verification. PyPI's documentation explains that attestations bind a distribution digest to publishing/build identity and can be cryptographically verified:
+- https://docs.pypi.org/using-pypi/package-security/provenance/
+- https://docs.pypi.org/attestations/consuming-attestations/
+
+The official PyPI pages reviewed during this follow-up corroborate the missing-metadata findings for the exact selected releases:
+- cffi 2.1.1: no provenance for files in that release: https://pypi.org/project/cffi/
+- pycparser 3.12: no provenance for files in that release: https://pypi.org/project/pycparser/
+- colorama 0.4.6: no provenance for files in that release: https://pypi.org/project/colorama/
+- Pygments 2.21.0: no provenance for files in that release: https://pypi.org/project/Pygments/2.21.0/
+
+The cffi v2.1.1 upstream release page shows a GitHub-verified signature on commit `fd33e77`: https://github.com/python-cffi/cffi/releases. This is useful evidence about upstream source identity but is **not** proof that a specific PyPI wheel was built from that source. Conversely, the project’s published 3.12 pycparser files have no PyPI attestations, and the previously inspected release commit was not signed. A wheel hash pins bytes; it does not establish publisher/source identity.
+
+The runtime lock contains `cryptography==50.0.2`, which has PyPI provenance for all files in that release, but its declared dependency closure includes `cffi>=2.0.0` on CPython. Do not silently remove cffi or pycparser from the closure using `--no-deps`: that would bypass the declared dependency contract rather than resolve the supply-chain gate. Reference: https://pypi.org/project/cryptography/50.0.2/ and https://github.com/pyca/cryptography/blob/main/pyproject.toml.
+
+### Correct next engineering step
+
+1. Extend the review workflow to **cryptographically verify**, not just detect, every available PyPI attestation and validate its repository/publisher identity against a reviewed package-to-source mapping.
+2. Keep the four no-provenance wheel cases blocked until an independently reviewed exception with defensible artifact-to-source evidence exists, or replace those wheels with a separately reviewed source-build process that produces a verifiable attestation tied to immutable source commits and build instructions.
+3. Keep test-only dependencies explicitly separate from the production runtime trust decision. Relaxing test-only metadata rules cannot override the runtime blockers for cffi/pycparser.
+4. After that, generate fresh lock candidates and repeat the binary-only install and focused tests. Only independently approved lock bytes may be committed and referenced by a reviewed bootstrap SHA change.
+
+This research changes no runtime code or trust state. The current provenance-presence workflow is a **presence audit**, not a cryptographic verifier; the Lock candidate remains BLOCKED and not approved for elevated bootstrap.
