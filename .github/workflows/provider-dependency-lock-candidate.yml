@@ -84,6 +84,7 @@ jobs:
           & python -m venv $testVenv
           if ($LASTEXITCODE -ne 0) { throw 'LOCK_TEST_VENV_CREATION_FAILED' }
           $testPython = Join-Path $testVenv 'Scripts\python.exe'
+          "FOREXAI_TEST_PYTHON=$testPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           if (-not (Test-Path -LiteralPath $testPython -PathType Leaf)) {
             throw 'LOCK_TEST_PYTHON_NOT_FOUND'
           }
@@ -155,6 +156,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $testPython = $env:FOREXAI_TEST_PYTHON
+          if ([string]::IsNullOrWhiteSpace($testPython) -or -not (Test-Path -LiteralPath $testPython -PathType Leaf)) {
+            throw 'LOCK_PROVENANCE_TEST_PYTHON_NOT_FOUND'
+          }
           $testLock = 'artifacts/provider-dependency-lock/requirements-provider-test.lock.txt'
           $wheelDir = Join-Path $env:RUNNER_TEMP ('forexai-provider-wheels-' + [Guid]::NewGuid().ToString('N'))
           $reportPath = 'artifacts/provider-dependency-lock/provenance-presence-report.json'
