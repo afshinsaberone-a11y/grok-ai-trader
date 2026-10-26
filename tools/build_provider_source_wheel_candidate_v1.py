@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from email.parser import Parser
@@ -27,6 +28,10 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "repository": "eliben/pycparser",
         "git_url": "https://github.com/eliben/pycparser.git",
         "commit": "3ec766b7cd94724cba714296509604597ea4ce4e",
+        "release_tag": "release_v3.12",
+        "expected_tag_object_type": "commit",
+        "expected_tag_object_sha": "3ec766b7cd94724cba714296509604597ea4ce4e",
+        "expected_release_tag_signature_verified": False,
         "expected_signature_verified": False,
         "build_backend": "setuptools.build_meta",
         "license": "BSD-3-Clause",
@@ -37,6 +42,10 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "repository": "python-cffi/cffi",
         "git_url": "https://github.com/python-cffi/cffi.git",
         "commit": "fd33e7700f0ebafe6f30bd5053f13327221b77a2",
+        "release_tag": "v2.1.1",
+        "expected_tag_object_type": "commit",
+        "expected_tag_object_sha": "fd33e7700f0ebafe6f30bd5053f13327221b77a2",
+        "expected_release_tag_signature_verified": False,
         "expected_signature_verified": True,
         "build_backend": "setuptools.build_meta",
         "license": "MIT-0",
@@ -47,6 +56,10 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "repository": "tartley/colorama",
         "git_url": "https://github.com/tartley/colorama.git",
         "commit": "3de9f013df4b470069d03d250224062e8cf15c49",
+        "release_tag": "0.4.6",
+        "expected_tag_object_type": "tag",
+        "expected_tag_object_sha": "4ea8b1c7cbf96cc21613bb51b38fc49831fdddb4",
+        "expected_release_tag_signature_verified": False,
         "expected_signature_verified": False,
         "build_backend": "hatchling.build",
         "license": "BSD-3-Clause",
@@ -57,6 +70,10 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "repository": "pygments/pygments",
         "git_url": "https://github.com/pygments/pygments.git",
         "commit": "a43b45dcf081b6010c6ab4428f149f7f6d2499c4",
+        "release_tag": "2.21.0",
+        "expected_tag_object_type": "tag",
+        "expected_tag_object_sha": "2ade8335807203e11d67effb4108c78672519f0d",
+        "expected_release_tag_signature_verified": False,
         "expected_signature_verified": False,
         "build_backend": "hatchling.build",
         "license": "BSD-2-Clause",
@@ -140,6 +157,94 @@ def github_commit_metadata(repository: str, commit: str) -> dict[str, Any]:
     }
 
 
+def github_release_tag_metadata(spec: dict[str, Any]) -> dict[str, Any]:
+    """Verify that the upstream release ref still points to the pinned source commit.
+
+    A signed tag is useful source evidence, but a lightweight tag has no separate
+    signature. In that case the pinned commit's GitHub signature status remains
+    the independent signature signal; unsigned refs stay explicitly review-blocked.
+    """
+    repository = spec["repository"]
+    tag_name = spec["release_tag"]
+    ref_url = (
+        f"https://api.github.com/repos/{repository}/git/ref/tags/"
+        f"{urllib.parse.quote(tag_name, safe='')}"
+    )
+    request = urllib.request.Request(
+        ref_url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "ForexAI-Provider-Source-Wheel-Candidate/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=25) as response:
+            ref_payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"GITHUB_RELEASE_TAG_LOOKUP_FAILED:{repository}:{tag_name}") from exc
+
+    expected_ref = f"refs/tags/{tag_name}"
+    tag_object = ref_payload.get("object", {})
+    if (
+        ref_payload.get("ref") != expected_ref
+        or tag_object.get("type") != spec["expected_tag_object_type"]
+        or tag_object.get("sha") != spec["expected_tag_object_sha"]
+    ):
+        raise RuntimeError(f"UPSTREAM_RELEASE_TAG_REF_CHANGED:{repository}:{tag_name}")
+
+    tag_signature_verified = False
+    tag_signature_reason = "lightweight_tag_has_no_independent_tag_signature"
+    target_commit = tag_object.get("sha")
+    tag_object_sha = tag_object.get("sha")
+
+    if tag_object.get("type") == "tag":
+        tag_url = f"https://api.github.com/repos/{repository}/git/tags/{tag_object_sha}"
+        tag_request = urllib.request.Request(
+            tag_url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "ForexAI-Provider-Source-Wheel-Candidate/1.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(tag_request, timeout=25) as response:
+                tag_payload = json.loads(response.read().decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"GITHUB_RELEASE_TAG_OBJECT_LOOKUP_FAILED:{repository}:{tag_name}") from exc
+
+        verification = tag_payload.get("verification", {})
+        target = tag_payload.get("object", {})
+        if (
+            tag_payload.get("sha") != tag_object_sha
+            or tag_payload.get("tag") != tag_name
+            or target.get("type") != "commit"
+            or not isinstance(verification.get("verified"), bool)
+        ):
+            raise RuntimeError(f"GITHUB_RELEASE_TAG_OBJECT_INVALID:{repository}:{tag_name}")
+        target_commit = target.get("sha")
+        tag_signature_verified = verification["verified"]
+        tag_signature_reason = str(verification.get("reason") or "unknown")
+
+    if target_commit != spec["commit"]:
+        raise RuntimeError(f"UPSTREAM_RELEASE_TAG_TARGET_COMMIT_MISMATCH:{repository}:{tag_name}")
+    if tag_signature_verified is not spec["expected_release_tag_signature_verified"]:
+        raise RuntimeError(f"UPSTREAM_RELEASE_TAG_SIGNATURE_STATUS_CHANGED:{repository}:{tag_name}")
+
+    return {
+        "github_release_tag": tag_name,
+        "github_release_tag_ref_sha": tag_object_sha,
+        "github_release_tag_object_type": tag_object.get("type"),
+        "github_release_tag_target_commit": target_commit,
+        "github_release_tag_signature_verified": tag_signature_verified,
+        "github_release_tag_signature_reason": tag_signature_reason,
+        "upstream_release_identity_policy": (
+            "SIGNED_RELEASE_TAG_VERIFIED"
+            if tag_signature_verified
+            else "UNSIGNED_RELEASE_TAG_REQUIRES_COMMIT_SIGNATURE_OR_INDEPENDENT_REVIEW"
+        ),
+    }
+
+
 def wheel_metadata(path: Path) -> tuple[str, str]:
     with zipfile.ZipFile(path) as archive:
         candidates = [
@@ -176,6 +281,7 @@ def clone_exact_source(spec: dict[str, Any], source_root: Path) -> tuple[Path, d
     if run(["git", "-C", str(directory), "status", "--porcelain=v1"]):
         raise RuntimeError(f"SOURCE_CHECKOUT_NOT_CLEAN:{spec['name']}")
     source_metadata = github_commit_metadata(spec["repository"], spec["commit"])
+    source_metadata.update(github_release_tag_metadata(spec))
     return directory, source_metadata
 
 
@@ -300,6 +406,12 @@ def main() -> int:
             "review_required": True,
         },
         "upstream_sources_with_unverified_commit_signatures": unsigned_sources,
+        "upstream_sources_without_verified_commit_or_signed_release_tag": sorted(
+            wheel["package"]
+            for wheel in wheel_records
+            if not wheel["source"]["github_commit_signature_verified"]
+            and not wheel["source"]["github_release_tag_signature_verified"]
+        ),
         "wheels": wheel_records,
     }
     manifest_path = output_root / "source-build-manifest.json"
