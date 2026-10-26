@@ -251,9 +251,13 @@ jobs:
             }
             else {
               try {
-                $response = Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -OutFile $provenancePath -TimeoutSec 20
+                $response = Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -TimeoutSec 20
                 $statusCode = [int]$response.StatusCode
-                if ($statusCode -eq 200 -and (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+                if ($statusCode -eq 200) {
+                  [IO.File]::WriteAllText($provenancePath, [string]$response.Content, [System.Text.UTF8Encoding]::new($false))
+                  if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+                    throw 'LOCK_PROVENANCE_RESPONSE_FILE_NOT_WRITTEN'
+                  }
                   $presence = 'PRESENT'
                   # Verify the exact wheel against the supplied attestation and
                   # require the explicit upstream repository identity.
