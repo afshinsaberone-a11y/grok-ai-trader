@@ -253,6 +253,7 @@ jobs:
             $verification = 'NOT_ATTEMPTED'
             $statusCode = $null
             $verificationExitCode = $null
+            $verificationDetail = $null
 
             if ([string]::IsNullOrWhiteSpace($expectedRepository)) {
               $presence = 'UNMAPPED_PACKAGE'
