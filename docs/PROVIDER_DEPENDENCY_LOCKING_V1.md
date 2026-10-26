@@ -60,3 +60,16 @@ CI must verify the new contract test and workflow syntax. Successful generation 
 The candidate workflow now tests the generated lock before uploading it: on an ephemeral Windows GitHub-hosted runner using Python 3.13.17, it creates a fresh virtual environment, installs the lock with the exact `--require-hashes --only-binary=:all:` flags used by the elevated bootstrap, verifies imports of core/runtime packages, and runs the four focused Provider contract test modules.
 
 This materially checks binary-wheel availability and contract compatibility for that Python/Windows runner. It is still **not** a clean Windows Server 2022 deployment test, does not prove package review/provenance, and does not convert the candidate into an approved lock. A separate disposable Windows Server 2022 install rehearsal and independent review remain required before commit or bootstrap.
+
+
+## Provider-specific dependency scope — 2026-10-26 (supersedes the earlier whole-repository input note)
+
+The first generated candidate exposed a real compatibility issue: the repository-wide requirements input pins `backtesting==0.3.3`, but PyPI provides only an sdist for that release and no wheel. The elevated installer intentionally uses `--only-binary=:all:`, so this broad lock cannot satisfy the installer contract. See the published release files: https://pypi.org/project/backtesting/0.3.3/.
+
+Do **not** widen the strategy/backtesting version range as a quick workaround: backtesting releases have changed behavior over time and this would need separate strategy regression validation. Instead, `requirements-provider-lock.in` is now an explicit, minimal Provider/test contract input:
+- `cryptography>=42,<52` for the Ed25519/control-plane modules;
+- `pytest>=8,<9` to execute the focused Provider contract tests before deployment.
+
+It no longer includes `requirements.txt`, numpy, pandas, backtesting, or openai-agents. The bootstrap and candidate workflow runtime import checks were reduced accordingly, while the focused four-file Provider test set remains. This separates the authority service from the project's research/backtesting dependency tree and avoids changing the strategy dependency policy.
+
+The minimal lock is **not yet generated/approved**. The updated candidate workflow must successfully compile it, install it with hashes and binary-only enforcement on the Windows Python 3.13 runner, verify imports and pass all four Provider contract modules. That is still a hosted-runner rehearsal; the separate disposable Windows Server 2022 installation and independent review remain mandatory. Do not update the immutable Bootstrap source SHA until a reviewed lock-containing commit has been merged.
