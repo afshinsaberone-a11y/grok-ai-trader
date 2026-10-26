@@ -86,3 +86,24 @@ Artifact شناسهٔ `12620266328`، حجم ۱۲٬۷۱۵ بایت و هش ZIP �
 - `pycparser==3.12`: PyPI می‌گوید provenance ندارد؛ tag `release_v3.12` به commit `3ec766b7cd94724cba714296509604597ea4ce4e` می‌رسد که GitHub آن را بدون امضا گزارش می‌کند: https://github.com/eliben/pycparser/commit/3ec766b7cd94724cba714296509604597ea4ce4e.
 
 پس هش‌ها، نصب wheel-only و آزمون‌های قرارداد تأیید شده‌اند، اما منشأ artifactهای cffi/pycparser و بازبینی مستقل هنوز باز هستند. صرف موفقیت نصب و تست به معنی اعتماد تولیدی نیست. دو فایل lock تا تکمیل بررسی منشأ، بازبینی مستقل و تمرین نصب جداگانه روی Windows Server 2022 نباید وارد SHA ثابت Bootstrap شوند.
+
+
+## افزودهٔ پیوسته — ۲۶ اکتبر ۲۰۲۶: آزمون موفق روی Windows Server 2022
+
+برای نزدیک‌ترشدن آزمون به سیستم مقصد، Runner گردش‌کار از `windows-latest` به `windows-2022` تغییر کرد. [اجرای 40249481942](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249481942) موفق شد. این Runner میزبانی‌شدهٔ GitHub با Windows Server 2022 است؛ این نتیجه هنوز آزمون نصب روی VPS واقعی مقصد نیست.
+
+شواهد:
+- Python `3.13.17` روی Runner راه‌اندازی شد.
+- هر دو lock با `--require-hashes --only-binary=:all:` نصب شدند.
+- محدودهٔ runtime دقیقاً `cffi, cryptography, pycparser` و محیط آزمون دقیقاً `cffi, colorama, cryptography, iniconfig, packaging, pluggy, pycparser, pygments, pytest` بود.
+- چهار مجموعه آزمون قراردادی Provider همگی موفق شدند: **۷۷ تست در ۲٫۰۷ ثانیه**.
+- بررسی نسخه‌های دقیق، هش‌ها و محدودهٔ بسته‌ها موفق شد و artifact بارگذاری شد.
+
+شناسهٔ artifact برابر `12620098076` و SHA-256 آرشیو ZIP برابر `07686102d48180728e2a45bc75484a056a0ea85e2f4b665a290359cb87aa6cd0` است. هش lock runtime برابر `f772c00c23acc36d2b52c09cf2ac53a1653f4c8fff31f7d1b5104b727162b017` و هش lock آزمون برابر `9102f41c1e071cf0469326233c106f6d55764495cfbb1c89451d106353f81cdb` است. بررسی محلی آرشیو ZIP و فایل‌های استخراج‌شده این هش‌ها را تأیید کرد.
+
+در SHA شاخه PR یعنی `2208965804f9e80c8c1ddefd837c75a80d946d26`، آزمون‌های مخزن، اعتبارسنجی ایستای G13 و Agent Runtime Check نیز موفق شدند:
+- [Tests](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249492344)
+- [G13 Static Validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249492340)
+- [Agent Runtime](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249492388)
+
+این نتیجه گیت نصب/آزمون روی Runner میزبانی‌شدهٔ Windows Server 2022 را می‌بندد، اما lock را برای تولید تأیید نمی‌کند. بازبینی مستقل منشأ بسته‌ها و تمرین نصب در مقصد آزمایشی جداگانه هنوز لازم است. به‌خصوص PyPI برای `cffi==2.1.1` و `pycparser==3.12` provenance منتشرشده ندارد؛ commit رسمی cffi امضای معتبر دارد اما commit نسخهٔ pycparser امضا نشده است. تا حل این ریسک و تأیید بازبین مستقل، فایل‌ها فقط artifact نامزد باقی می‌مانند و نباید وارد SHA ثابت Bootstrap شوند.
