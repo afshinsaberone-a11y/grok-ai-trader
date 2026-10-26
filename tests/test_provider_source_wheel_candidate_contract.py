@@ -320,6 +320,23 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     assert "SOURCE_HELPER_TOOL_LOCK_IMPORT_FAILED" in workflow
     assert "importlib.metadata.version('pip-tools')" in workflow
     assert "importlib.metadata.version('pypi-attestations')" in workflow
+
+    # Both helper environments must start from committed target-specific locks.
+    compiler_lock = (root / "requirements-provider-lock-compiler.lock.txt").read_text(encoding="utf-8")
+    verifier_lock = (root / "requirements-provider-pypi-verifier.windows-py313.lock.txt").read_text(encoding="utf-8")
+    compiler_rows = re.findall(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==([^ ]+) --hash=sha256:([0-9a-f]{64})$", compiler_lock)
+    verifier_rows = re.findall(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==([^ ]+) --hash=sha256:([0-9a-f]{64})$", verifier_lock)
+    assert len(compiler_rows) == 9
+    assert len({row[0].lower().replace("-", "").replace("_", "").replace(".", "") for row in compiler_rows}) == 9
+    assert len(verifier_rows) == 33
+    assert len({row[0].lower().replace("-", "").replace("_", "").replace(".", "") for row in verifier_rows}) == 33
+    verifier_pins = {name.lower().replace("-", "").replace("_", "").replace(".", ""): (version, digest) for name, version, digest in verifier_rows}
+    assert verifier_pins["pypiattestations"] == ("0.0.30", "b3a9c53f6cb89e5e7b5b70e6cfca97cfc66008c1ed54087355e06e40071cef21")
+    assert "requirements-provider-pypi-verifier.windows-py313.lock.txt" in workflow
+    assert "--require-hashes --only-binary=:all: --no-deps --dest $verifierWheelhouse -r $verifierLock" in workflow
+    assert "--no-index --find-links $verifierWheelhouse --require-hashes --only-binary=:all: -r $verifierLock" in workflow
+    assert "SOURCE_PYPI_VERIFIER_HASHED_OFFLINE_INSTALL_FAILED" in workflow
+    assert "SOURCE_PYPI_VERIFIER_LOCK_AND_FREEZE_MATCH=PASS" in workflow
     assert "piptools --version" not in workflow
     assert "--require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path" in workflow
     assert "tools/compact_provider_target_lock_v1.py --lock $toolLock.path --wheelhouse $checkWheelhouse --output $targetLockPath" in workflow
