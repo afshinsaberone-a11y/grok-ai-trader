@@ -41,7 +41,7 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
             },
             "pyproject.toml": {
                 "blob_sha": "24577fc9b72034c7a1c8457f17d042c7c72d6b43",
-                "patch_sha256": "039e2e6d9ae3256cc40ee17b26ff5645dff3c03476418c4b7ae5219ea19a7f44",
+                "patch_sha256": "71b313c81728f97c4e59929d225dfb6d6ae410b6aaad846d6939bab1c3c6abba",
             },
         },
         "build_backend": "setuptools.build_meta",
@@ -76,11 +76,11 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "expected_unsigned_file_evidence": {
             "README-hacking.md": {
                 "blob_sha": "324f29d24781161694a634648f9a5e8676ba79de",
-                "patch_sha256": "9a4224995549ef0da3994e2e7f0757d6ada49ecbdb6a423fb30ba03fd57201d7",
+                "patch_sha256": "2ed501e893f0eea9aab612c721bd57e706e3b295dff8fe4e85f76fff9324e5dd",
             },
             "colorama/__init__.py": {
                 "blob_sha": "383101cdb38706c305449674044e9288b92b7d75",
-                "patch_sha256": "be2ac886eed59d45d4b2dd82007089b8e029d05a9ca5dcdfeac41c3e70ac1284",
+                "patch_sha256": "673579f502a4527f94a3aab94922a1aec8e93742729b58779a0bcb80c2612ed2",
             },
         },
         "build_backend": "hatchling.build",
@@ -101,11 +101,11 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "expected_unsigned_file_evidence": {
             "CHANGES": {
                 "blob_sha": "5c18a8ea2e51bc7c0314726d1d4ca46b100a6cad",
-                "patch_sha256": "303e10056ee839684d29361ce1e3228326f3decc466cae8f8aac56d4c3a7b32c",
+                "patch_sha256": "2f342a7fa0d530fc32069338d755a16d5f77437ff673ba5abda005bd7fea5d9e",
             },
             "pygments/__init__.py": {
                 "blob_sha": "1d41b0a400d23fa0216c17e45de2a3de0c9f8e12",
-                "patch_sha256": "f8cadb6815a210063138df1a0864ba02bf05a3ff04bbfc9d54f93c34e8875ca3",
+                "patch_sha256": "5569e50fb8ff799d46e6c5edd7f76b448289cca76d7a3906ed7e6f053aca304b",
             },
         },
         "build_backend": "hatchling.build",
