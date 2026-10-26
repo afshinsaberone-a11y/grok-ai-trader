@@ -44,6 +44,11 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "tests/test_control_plane_admission_provider_v1.py" in workflow
     assert "tests/test_control_plane_provider_service_v1.py" in workflow
     assert "tests/test_control_plane_service_v1.py" in workflow
+    assert "LOCK_RUNTIME_SCOPE_CHECK_FAILED" in workflow
+    assert "LOCK_TEST_SCOPE_CHECK_FAILED" in workflow
+    assert "'pytest', 'numpy', 'pandas', 'backtesting', 'openai-agents'" in workflow
+    assert "RUNTIME_PACKAGE_SET=" in workflow
+    assert "TEST_PACKAGE_SET=" in workflow
     assert "LOCK_CANDIDATES_ARE_NOT_APPROVED_FOR_BOOTSTRAP=true" in workflow
 
 def test_provider_runtime_and_test_locks_are_separated_from_research_dependencies():
