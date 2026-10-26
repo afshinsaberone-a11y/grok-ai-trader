@@ -113,7 +113,12 @@ def audit_configuration(
             return fail("OWNER_OR_WORKFLOW_ACTOR_IS_CONFIGURED_AS_REVIEWER")
         configured_user_logins.append(login)
 
-    if expected_reviewer.casefold() not in {login.casefold() for login in configured_user_logins}:
+    # Environment required-reviewer rules are OR-based: any configured reviewer
+    # may approve. This audit accepts one explicitly appointed reviewer only,
+    # otherwise an additional unverified account could satisfy the gate.
+    if len(configured_user_logins) != 1:
+        return fail("EXACTLY_ONE_NAMED_REVIEWER_REQUIRED")
+    if configured_user_logins[0].casefold() != expected_reviewer.casefold():
         return fail("EXPECTED_REVIEWER_NOT_CONFIGURED")
 
     deployment_policy = environment_data.get("deployment_branch_policy")
