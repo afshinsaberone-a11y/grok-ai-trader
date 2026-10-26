@@ -429,3 +429,18 @@ References for independent review:
 At this head, repository tests, G13 Workflow Static Validation, Agent Runtime Check, and Project Repair Loop all passed. The manual-only `real-data-smoke` job was skipped.
 
 PR #331 remains open/unmerged and still has zero submitted independent reviews. `main` remains `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. Production lock files, the immutable Bootstrap SHA, keys, trust anchors, services and registries remain unchanged. Do not merge or run elevated Bootstrap until independent source/tool provenance review and a separately controlled Windows Server destination-install rehearsal pass. Grant remains unissued; Demo unauthorized; Live disabled; no orders submitted.
+
+
+## Fail-closed allowlist for unsigned source-release commit diffs — 2026-10-26
+
+The source wheel builder now reads the changed-file list from GitHub's commit API and applies an exact file-path allowlist to each of the three unsigned release commits. This is a guardrail against silent source drift: if the pinned commit's API diff includes a new, removed, renamed, or runtime implementation path outside the explicit list, candidate generation stops.
+
+- pycparser 3.12: exactly `MANIFEST.in`, `pyproject.toml`
+- colorama 0.4.6: exactly `README-hacking.md`, `colorama/__init__.py`
+- Pygments 2.21.0: exactly `CHANGES`, `pygments/__init__.py`
+
+The builder also fails closed if GitHub omits/returns malformed or duplicate file-list entries, if the unsigned-commit allowlist is absent, or if the observed changed-file set differs from the exact list. The sorted actual file list, expected allowlist, and comparison result are recorded in the source manifest. Signed cffi 2.1.1 remains governed by the exact source commit SHA and GitHub signature check.
+
+A contract test simulates the exact metadata-only diff, then proves that adding `pycparser/c_parser.py` or omitting the API file list causes a hard failure. This makes the previously documented metadata-only diff observation an enforced build-time condition rather than just a prose statement.
+
+**Limit:** an exact metadata-only diff does not make an unsigned commit cryptographically signed, does not prove the complete unsigned source tree is trustworthy, and does not replace independent source review. This is candidate-build hardening only. Production locks, the immutable Bootstrap source SHA, services, registries, keys, and trust anchors remain unchanged; no Grant was issued, Demo remains unauthorized, Live remains disabled, and no orders were submitted.
