@@ -311,7 +311,8 @@ jobs:
           $verifierPins = [regex]::Matches($verifierLockText, '(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==')
           $verifierHashes = [regex]::Matches($verifierLockText, '--hash=sha256:[0-9a-f]{64}')
           if ($verifierPins.Count -ne 34 -or $verifierHashes.Count -ne 34) { throw 'SOURCE_PYPI_VERIFIER_HASH_LOCK_PIN_COUNT_MISMATCH' }
-          if ($verifierLockText -notmatch '(?m)^pypi-attestations==0\.0\.30 --hash=sha256:b3a9c53f6cb89e5e7b5b70e6cfca97cfc66008c1ed54087355e06e40071cef21$') {
+          $topLevelVerifierPin = @($verifierLockText -split "`r?`n" | Where-Object { $_ -match '^pypi-attestations==' })
+          if ($topLevelVerifierPin.Count -ne 1 -or $topLevelVerifierPin[0] -ne 'pypi-attestations==0.0.30 --hash=sha256:b3a9c53f6cb89e5e7b5b70e6cfca97cfc66008c1ed54087355e06e40071cef21') {
             throw 'SOURCE_PYPI_VERIFIER_TOP_LEVEL_PUBLISHER_HASH_MISMATCH'
           }
           $verifierWheelhouse = Join-Path $outputRoot 'pypi-verifier-wheelhouse'
