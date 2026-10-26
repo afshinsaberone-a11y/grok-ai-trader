@@ -53,28 +53,44 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "TEST_PACKAGE_SET=" in workflow
     assert "LOCK_CANDIDATES_ARE_NOT_APPROVED_FOR_BOOTSTRAP=true" in workflow
 
-    # Inspect the exact wheels the target runner would install and require
-    # provenance metadata to exist. This is deliberately only a presence check:
-    # cryptographic attestation verification and human source review stay separate.
-    assert "Audit PyPI provenance presence for target-compatible wheels" in workflow
+    # Presence is not trust. The exact local wheel and PyPI attestation must be
+    # cryptographically verified against a reviewed expected upstream repository.
+    assert "Cryptographically verify PyPI provenance against expected repository identities" in workflow
+    assert "pypi-attestations==0.0.30" in workflow
+    assert "verify pypi --repository $expectedRepository --provenance-file $provenancePath $wheelPath" in workflow
     assert "https://pypi.org/integrity/" in workflow
     assert "application/vnd.pypi.integrity.v1+json" in workflow
     assert "LOCK_PROVENANCE_WHEEL_DOWNLOAD_FAILED" in workflow
     assert "LOCK_PROVENANCE_WHEEL_INVENTORY_EMPTY" in workflow
+    assert "PASS_CRYPTOGRAPHICALLY_VERIFIED_EXPECTED_REPOSITORY" in workflow
+    assert "BLOCKED_SIGNATURE_OR_REPOSITORY_IDENTITY_MISMATCH" in workflow
     assert "BLOCKED_PROVENANCE_MISSING" in workflow
+    assert "BLOCKED_ATTESTATION_VERIFICATION" in workflow
     assert "BLOCKED_LOOKUP_ERROR" in workflow
     assert "DEPENDENCY_PROVENANCE_GATE_BLOCKED" in workflow
+    for repository in (
+        "https://github.com/python-cffi/cffi",
+        "https://github.com/tartley/colorama",
+        "https://github.com/pyca/cryptography",
+        "https://github.com/pytest-dev/iniconfig",
+        "https://github.com/pypa/packaging",
+        "https://github.com/pytest-dev/pluggy",
+        "https://github.com/eliben/pycparser",
+        "https://github.com/pygments/pygments",
+        "https://github.com/pytest-dev/pytest",
+    ):
+        assert repository in workflow
     # Workflow steps execute in separate PowerShell processes, so the test
     # interpreter path must be persisted before the later provenance audit.
     assert '"FOREXAI_TEST_PYTHON=$testPython" | Out-File -FilePath $env:GITHUB_ENV' in workflow
     assert "$testPython = $env:FOREXAI_TEST_PYTHON" in workflow
-    assert "PYPI_PROVENANCE_PRESENCE_PASS_NOT_CRYPTOGRAPHIC_APPROVAL=true" in workflow
-    assert "provenance-presence-report.json" in workflow
-    assert workflow.index("Audit PyPI provenance presence for target-compatible wheels") < workflow.index(
+    assert "PYPI_PROVENANCE_CRYPTOGRAPHIC_VERIFICATION_PASS=true" in workflow
+    assert "provenance-verification-report.json" in workflow
+    assert workflow.index("Cryptographically verify PyPI provenance against expected repository identities") < workflow.index(
         "Upload both candidates and provenance report for explicit review"
     )
     assert workflow.index("Upload both candidates and provenance report for explicit review") < workflow.index(
-        "Enforce PyPI provenance-presence gate"
+        "Enforce PyPI provenance verification gate"
     )
 
 def test_provider_runtime_and_test_locks_are_separated_from_research_dependencies():
