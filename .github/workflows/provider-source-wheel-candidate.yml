@@ -17,6 +17,8 @@ on:
       - tests/test_provider_setuptools_source_bootstrap_v1.py
       - tests/test_compact_provider_target_lock_v1.py
       - tools/compact_provider_target_lock_v1.py
+      - tools/create_provider_source_override_locks_v1.py
+      - tests/test_provider_source_override_locks_v1.py
       - requirements-provider-source-build-tools.lock.txt
       - requirements-provider-lock-compiler.lock.txt
       - requirements-provider-lock-compiler.in
@@ -230,21 +232,42 @@ jobs:
           & python -m venv $lockVenv
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_VENV_FAILED' }
           $lockPython = Join-Path $lockVenv 'Scripts\python.exe'
-          # This is an untrusted candidate-generation bootstrap, not a production toolchain.
-          # The lock candidates it emits must be independently reviewed before adoption.
+
+          # The committed lock pins the source closure, but its PyPI setuptools wheel
+          # is never installed. Replace that one package with the independently
+          # signature-verified source-built wheel and bind its digest in a local lock.
           $compilerLock = Join-Path $env:GITHUB_WORKSPACE 'requirements-provider-lock-compiler.lock.txt'
-          if (-not (Test-Path -LiteralPath $compilerLock -PathType Leaf)) {
-            throw 'SOURCE_LOCK_COMPILER_HASH_LOCK_MISSING'
+          $setuptoolsRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-setuptools-bootstrap'
+          $setuptoolsWheel = Join-Path $setuptoolsRoot 'wheels\setuptools-80.9.0-py3-none-any.whl'
+          $setuptoolsManifest = Join-Path $setuptoolsRoot 'setuptools-bootstrap-manifest.json'
+          if (-not (Test-Path -LiteralPath $compilerLock -PathType Leaf)) { throw 'SOURCE_LOCK_COMPILER_HASH_LOCK_MISSING' }
+          if (-not (Test-Path -LiteralPath $setuptoolsWheel -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $setuptoolsManifest -PathType Leaf)) {
+            throw 'SIGNED_SOURCE_SETUPTOOLS_BOOTSTRAP_INPUT_MISSING'
           }
-          & $lockPython -m pip install --disable-pip-version-check --force-reinstall --require-hashes --only-binary=:all: -r $compilerLock
-          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_HASH_LOCK_INSTALL_FAILED' }
+
+          $helperBootstrapLockRoot = Join-Path $outputRoot 'helper-bootstrap-locks'
+          New-Item -ItemType Directory -Path $helperBootstrapLockRoot -ErrorAction Stop | Out-Null
+          $compilerDownloadLock = Join-Path $helperBootstrapLockRoot 'requirements-provider-lock-compiler-download.lock.txt'
+          $compilerInstallLock = Join-Path $helperBootstrapLockRoot 'requirements-provider-lock-compiler-install.lock.txt'
+          $compilerOverrideReport = Join-Path $helperBootstrapLockRoot 'provider-compiler-setuptools-source-override.json'
+          & $env:FOREXAI_SOURCE_BUILD_PYTHON tools/create_provider_source_override_locks_v1.py --source-lock $compilerLock --replacement-wheel $setuptoolsWheel --source-manifest $setuptoolsManifest --download-lock $compilerDownloadLock --install-lock $compilerInstallLock --report $compilerOverrideReport
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_SIGNED_SETUPTOOLS_OVERRIDE_FAILED' }
+
+          $compilerWheelhouse = Join-Path $helperBootstrapLockRoot 'compiler-wheelhouse'
+          New-Item -ItemType Directory -Path $compilerWheelhouse -ErrorAction Stop | Out-Null
+          & $lockPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $compilerWheelhouse -r $compilerDownloadLock
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_DEPENDENCY_WHEEL_DOWNLOAD_FAILED' }
+          Copy-Item -LiteralPath $setuptoolsWheel -Destination $compilerWheelhouse -ErrorAction Stop
+          & $lockPython -m pip install --disable-pip-version-check --no-index --find-links $compilerWheelhouse --require-hashes --only-binary=:all: --no-deps -r $compilerInstallLock
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_SIGNED_SOURCE_OFFLINE_INSTALL_FAILED' }
           & $lockPython -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_DEPENDENCY_CHECK_FAILED' }
           $compilerBootstrapFreeze = @(& $lockPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_BOOTSTRAP_INVENTORY_FAILED' }
           $expectedCompilerFreeze = @{}
-          foreach ($line in Get-Content -LiteralPath $compilerLock) {
-            if ($line -match '^(?<name>[A-Za-z0-9][A-Za-z0-9._-]*)==(?<version>[^ ]+) --hash=sha256:(?<hash>[0-9a-f]{64})$') {
+          foreach ($line in Get-Content -LiteralPath $compilerInstallLock) {
+            if ($line -match '^(?<name>[A-Za-z0-9][A-Za-z0-9._-]*)==(?<version>[^ ]+)') {
               $key = ($matches['name'] -replace '[-_.]', '').ToLowerInvariant()
               if ($expectedCompilerFreeze.ContainsKey($key)) { throw 'SOURCE_LOCK_COMPILER_DUPLICATE_LOCK_PIN' }
               $expectedCompilerFreeze[$key] = $matches['version']
@@ -268,6 +291,7 @@ jobs:
           }
           $compilerBootstrapFreeze | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'provider-lock-compiler-bootstrap-freeze.txt') -Encoding UTF8
           Write-Output 'SOURCE_LOCK_COMPILER_LOCK_AND_FREEZE_MATCH=PASS'
+          Write-Output 'SOURCE_LOCK_COMPILER_SETuptools_SOURCE_OVERRIDE=PASS'
           Push-Location $env:GITHUB_WORKSPACE
           try {
             $runtimeLock = Join-Path $lockRoot 'requirements-provider.lock.txt'
@@ -327,6 +351,33 @@ jobs:
             & $checkPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path
             if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_BINARY_DOWNLOAD_FAILED' }
 
+            $sourceSetuptoolsOverride = 'NOT_APPLICABLE'
+            $sourceSetuptoolsHash = $null
+            if ($toolLock.environment -eq 'lock-compiler') {
+              $sourceSetuptoolsRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-setuptools-bootstrap'
+              $sourceSetuptoolsManifestPath = Join-Path $sourceSetuptoolsRoot 'setuptools-bootstrap-manifest.json'
+              $sourceSetuptoolsWheelPath = Join-Path $sourceSetuptoolsRoot 'wheels\setuptools-80.9.0-py3-none-any.whl'
+              $sourceSetuptoolsManifest = Get-Content -LiteralPath $sourceSetuptoolsManifestPath -Raw | ConvertFrom-Json
+              if ($sourceSetuptoolsManifest.status -ne 'SIGNED_SOURCE_BUILD_CANDIDATE_NOT_APPROVED' -or
+                  $sourceSetuptoolsManifest.production_approved -ne $false -or
+                  $sourceSetuptoolsManifest.bootstrap_approved -ne $false -or
+                  $sourceSetuptoolsManifest.version -ne '80.9.0' -or
+                  $sourceSetuptoolsManifest.source.github_commit_signature_verified -ne $true -or
+                  $sourceSetuptoolsManifest.source.github_release_tag_signature_verified -ne $true) {
+                throw 'SOURCE_HELPER_TOOL_SETUPTOOLS_MANIFEST_BOUNDARY_MISMATCH'
+              }
+              $sourceSetuptoolsHash = (Get-FileHash -LiteralPath $sourceSetuptoolsWheelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($sourceSetuptoolsHash -ne $sourceSetuptoolsManifest.wheel_sha256) { throw 'SOURCE_HELPER_TOOL_SETUPTOOLS_SOURCE_WHEEL_HASH_MISMATCH' }
+              $pypiSetuptoolsWheels = @(Get-ChildItem -LiteralPath $checkWheelhouse -Filter 'setuptools-80.9.0-*.whl' -File)
+              if ($pypiSetuptoolsWheels.Count -ne 1) { throw 'SOURCE_HELPER_TOOL_SETUPTOOLS_PYPI_WHEEL_CARDINALITY_MISMATCH' }
+              Remove-Item -LiteralPath $pypiSetuptoolsWheels[0].FullName -Force -ErrorAction Stop
+              Copy-Item -LiteralPath $sourceSetuptoolsWheelPath -Destination $checkWheelhouse -ErrorAction Stop
+              $copiedSetuptoolsHash = (Get-FileHash -LiteralPath (Join-Path $checkWheelhouse 'setuptools-80.9.0-py3-none-any.whl') -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($copiedSetuptoolsHash -ne $sourceSetuptoolsHash) { throw 'SOURCE_HELPER_TOOL_SETUPTOOLS_REPLACEMENT_HASH_MISMATCH' }
+              $sourceSetuptoolsOverride = 'PASS_SIGNED_SOURCE_WHEEL_REPLACED_PYPI_WHEEL'
+              Write-Output ('SOURCE_HELPER_TOOL_SETUPTOOLS_OVERRIDE_SHA256=' + $sourceSetuptoolsHash)
+            }
+
             # Bind the lock to the exact wheel bytes selected for the fixed
             # windows-2022 / Python 3.13 target. This removes unrelated platform
             # hashes while preserving strict byte verification for every pin.
@@ -361,6 +412,8 @@ jobs:
               pinned_requirement_count = $targetPins.Count
               sha256_hash_count = $targetHashes.Count
               target = 'windows-2022-python-3.13'
+              source_built_setuptools_override = $sourceSetuptoolsOverride
+              source_built_setuptools_sha256 = $sourceSetuptoolsHash
               offline_binary_only_install = 'PASS'
               production_approved = $false
             }
@@ -538,6 +591,7 @@ jobs:
             artifacts/provider-source-build/locks/*.txt
             artifacts/provider-source-build/overlay-locks/*.txt
             artifacts/provider-source-build/tool-lock-candidates/*
+            artifacts/provider-source-build/helper-bootstrap-locks/*
             artifacts/provider-source-build/source-build-manifest.json
             artifacts/provider-source-build/wheelhouse-manifest.json
             artifacts/provider-source-build/pypi-provenance-report.json
