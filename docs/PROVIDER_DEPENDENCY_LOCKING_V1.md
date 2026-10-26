@@ -262,3 +262,12 @@ Other checks at the same commit passed:
 - [Project Repair Loop](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40303361038)
 
 The real-data smoke job remained skipped. This workflow did not install the Provider service, change production trust anchors, initialize registries, authorize Demo/Live, issue a Grant or submit orders.
+
+
+## Offline wheelhouse + hash-lock integration candidate — 2026-10-26
+
+The source-wheel workflow now builds a nine-wheel offline wheelhouse. It verifies PyPI attestations for five packages, replaces the four missing-provenance wheel files with exact source-built candidates, and adds their hashes to separate candidate runtime/test lock overlays. Existing lockfiles and lock input files are not overwritten.
+
+The workflow then installs both overlays from the wheelhouse with `--no-index --find-links --require-hashes --only-binary=:all:`, verifies imports and runs the four focused Provider contract test files. It generates and verifies a second GitHub attestation for the assembled wheelhouse and uploads the wheelhouse, candidate lock overlays, wheel digests and manifests for independent review.
+
+This workflow only produces review candidates. It does not change the accepted production lock, the bootstrap's immutable source SHA, trust anchors, services, registries or trading permissions. Three upstream source commits remain unsigned, and the build-tool transitive dependency closure is not hash-locked in this exploratory workflow. Independent source review, reviewed/hash-locked build tooling and a separately controlled destination-install rehearsal remain required. The generated manifest keeps `production_approved=false` and `bootstrap_approved=false`.
