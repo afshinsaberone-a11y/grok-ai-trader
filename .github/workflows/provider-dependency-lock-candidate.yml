@@ -151,12 +151,135 @@ jobs:
           }
           Write-Output 'LOCK_CANDIDATES_ARE_NOT_APPROVED_FOR_BOOTSTRAP=true'
 
-      - name: Upload both candidates for explicit review
+      - name: Audit PyPI provenance presence for target-compatible wheels
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $testLock = 'artifacts/provider-dependency-lock/requirements-provider-test.lock.txt'
+          $wheelDir = Join-Path $env:RUNNER_TEMP ('forexai-provider-wheels-' + [Guid]::NewGuid().ToString('N'))
+          $reportPath = 'artifacts/provider-dependency-lock/provenance-presence-report.json'
+          New-Item -ItemType Directory -Path $wheelDir -ErrorAction Stop | Out-Null
+
+          # Re-download the exact compatible wheels selected by this Windows/Python
+          # environment; pip still enforces every committed candidate hash.
+          & $testPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $wheelDir -r $testLock
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_PROVENANCE_WHEEL_DOWNLOAD_FAILED' }
+
+          $wheelInventoryScript = @'
+          import json
+          import sys
+          from pathlib import Path
+          from packaging.utils import canonicalize_name, parse_wheel_filename
+
+          wheels = []
+          for path in sorted(Path(sys.argv[1]).glob("*.whl")):
+              name, version, _, _ = parse_wheel_filename(path.name)
+              wheels.append({
+                  "name": canonicalize_name(name),
+                  "version": str(version),
+                  "filename": path.name,
+              })
+          print(json.dumps(wheels))
+          '@
+          $wheelJson = & $testPython -c $wheelInventoryScript $wheelDir
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_PROVENANCE_WHEEL_INVENTORY_FAILED' }
+          $wheelRecords = @($wheelJson | ConvertFrom-Json)
+          if ($wheelRecords.Count -lt 1) { throw 'LOCK_PROVENANCE_WHEEL_INVENTORY_EMPTY' }
+
+          $rows = @()
+          $hasMissing = $false
+          $hasLookupError = $false
+          foreach ($wheel in $wheelRecords) {
+            $escapedName = [Uri]::EscapeDataString([string]$wheel.name)
+            $escapedVersion = [Uri]::EscapeDataString([string]$wheel.version)
+            $escapedFilename = [Uri]::EscapeDataString([string]$wheel.filename)
+            $uri = "https://pypi.org/integrity/$escapedName/$escapedVersion/$escapedFilename/provenance"
+            $result = 'LOOKUP_ERROR'
+            $statusCode = $null
+            try {
+              $response = Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -TimeoutSec 20
+              $statusCode = [int]$response.StatusCode
+              if ($statusCode -eq 200) {
+                $result = 'PRESENT_NOT_CRYPTOGRAPHICALLY_VERIFIED'
+              }
+              else {
+                $result = 'UNEXPECTED_HTTP_STATUS'
+                $hasLookupError = $true
+              }
+            }
+            catch {
+              $caught = $_
+              try {
+                if ($null -ne $caught.Exception.Response) {
+                  $statusCode = [int]$caught.Exception.Response.StatusCode
+                }
+              }
+              catch {
+                $statusCode = $null
+              }
+              if ($statusCode -eq 404) {
+                $result = 'MISSING'
+                $hasMissing = $true
+              }
+              else {
+                $result = 'LOOKUP_ERROR'
+                $hasLookupError = $true
+              }
+            }
+
+            $rows += [PSCustomObject]@{
+              package = [string]$wheel.name
+              version = [string]$wheel.version
+              filename = [string]$wheel.filename
+              http_status = $statusCode
+              provenance_presence = $result
+              endpoint = $uri
+            }
+            Write-Output "PYPI_PROVENANCE_FILE=$($wheel.filename)"
+            Write-Output "PYPI_PROVENANCE_PRESENCE=$result"
+          }
+
+          $reportStatus = 'PASS_PRESENCE_ONLY'
+          if ($hasLookupError) { $reportStatus = 'BLOCKED_LOOKUP_ERROR' }
+          elseif ($hasMissing) { $reportStatus = 'BLOCKED_PROVENANCE_MISSING' }
+          $report = [PSCustomObject]@{
+            schema = 'forexai.provider_dependency_provenance_presence_audit.v1'
+            checked_utc = [DateTime]::UtcNow.ToString('o')
+            status = $reportStatus
+            policy = 'Presence only. HTTP 200 does not validate the signature, publisher identity, or source-to-wheel correspondence.'
+            target = 'GitHub-hosted windows-2022, CPython 3.13.17, compatible wheels selected by pip'
+            wheel_count = $rows.Count
+            wheels = $rows
+          }
+          $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reportPath -Encoding utf8
+          Write-Output "PYPI_PROVENANCE_REPORT=$reportPath"
+          Write-Output "PYPI_PROVENANCE_STATUS=$reportStatus"
+          Write-Output "PYPI_PROVENANCE_WHEEL_COUNT=$($rows.Count)"
+
+      - name: Upload both candidates and provenance report for explicit review
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: provider-dependency-lock-candidate-${{ github.sha }}
           path: |
             artifacts/provider-dependency-lock/requirements-provider.lock.txt
             artifacts/provider-dependency-lock/requirements-provider-test.lock.txt
+            artifacts/provider-dependency-lock/provenance-presence-report.json
           if-no-files-found: error
           retention-days: 7
+
+      # Upload the diagnostic artifact before failing the policy gate, so the
+      # missing-provenance evidence remains inspectable instead of disappearing.
+      - name: Enforce PyPI provenance-presence gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportPath = 'artifacts/provider-dependency-lock/provenance-presence-report.json'
+          if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+            throw 'LOCK_PROVENANCE_REPORT_MISSING'
+          }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.status -ne 'PASS_PRESENCE_ONLY') {
+            Write-Output "PYPI_PROVENANCE_GATE_BLOCKED=$($report.status)"
+            throw 'DEPENDENCY_PROVENANCE_GATE_BLOCKED'
+          }
+          Write-Output 'PYPI_PROVENANCE_PRESENCE_PASS_NOT_CRYPTOGRAPHIC_APPROVAL=true'
