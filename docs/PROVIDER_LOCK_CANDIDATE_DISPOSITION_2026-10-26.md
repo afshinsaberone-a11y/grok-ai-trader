@@ -141,3 +141,19 @@ The test lock adds test-only packages. In the tested nine-pin candidate, `colora
 5. Re-run the full candidate workflow and require a separate reviewer to approve the exact artifacts and source SHA.
 
 PR #331 remains open/unmerged and no independent review has been submitted. The main/G13 baseline remains `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. No production trust anchors, private keys, service registrations, registries, grants, or trading permissions were changed. Demo remains unauthorized; Live remains disabled; no orders were submitted.
+
+
+## Follow-up — source-build toolchain lock added (2026-10-26)
+
+The separate gap around un-hashed source-wheel builder dependencies has been narrowed. New branch file `requirements-provider-source-build-tools.lock.txt` pins eight exact wheel distributions with SHA-256 hashes. The candidate workflow now installs this entire closure using `--require-hashes --only-binary=:all:`, checks `pip check`, and requires the resulting `pip freeze --all` to match the exact eight-package set. The builder validates the lock's pins/hash count, compares its environment freeze, and records the lock SHA in the source-build manifest.
+
+Lock SHA-256: `ae89bd1115956b39f8436b4d2488422511fc0c396cf21d904180cee34df70f1d`.
+
+CI on commit `7dcb16e8513e6af31fcab32fc254a95198e17725` passed repository Python tests, PowerShell parser, G13 static validation and Agent Runtime:
+- [Tests](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40310558945) — success; `real-data-smoke` skipped.
+- [G13 static validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40310558754) — success.
+- [Agent Runtime](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40310559084) — success.
+
+This closes the specific **hash-locking** gap in the candidate builder dependency closure, not the entire source trust gate. The pinned `setuptools==80.9.0` wheel has no PyPI provenance; its upstream `v80.9.0` tag is signed and GitHub-verified, but the tag signature does not prove the PyPI wheel was built from that source. Three source-wheel commits (`pycparser`, `colorama`, `Pygments`) still require independent review. A successful latest-source-wheel workflow run and the destination Windows Server 2022 install rehearsal must be verified separately before any production integration.
+
+PR #331 remains open/unmerged with no independent human review. `main` and accepted production Lock files are unchanged; no production keys/trust anchors, service, registry, Grant, Demo/Live authorization or broker orders were changed.
