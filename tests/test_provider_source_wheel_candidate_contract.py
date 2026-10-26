@@ -328,8 +328,8 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     verifier_rows = re.findall(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==([^ ]+) --hash=sha256:([0-9a-f]{64})$", verifier_lock)
     assert len(compiler_rows) == 9
     assert len({row[0].lower().replace("-", "").replace("_", "").replace(".", "") for row in compiler_rows}) == 9
-    assert len(verifier_rows) == 33
-    assert len({row[0].lower().replace("-", "").replace("_", "").replace(".", "") for row in verifier_rows}) == 33
+    assert len(verifier_rows) == 34
+    assert len({row[0].lower().replace("-", "").replace("_", "").replace(".", "") for row in verifier_rows}) == 34
     verifier_pins = {name.lower().replace("-", "").replace("_", "").replace(".", ""): (version, digest) for name, version, digest in verifier_rows}
     assert verifier_pins["pypiattestations"] == ("0.0.30", "b3a9c53f6cb89e5e7b5b70e6cfca97cfc66008c1ed54087355e06e40071cef21")
     assert "requirements-provider-pypi-verifier.windows-py313.lock.txt" in workflow
