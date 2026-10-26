@@ -118,3 +118,49 @@ def test_source_wheel_workflow_enforces_offline_candidate_lock_gates():
     assert "LIVE_TRADING_ALLOWED=false" in workflow
     assert "ORDERS_SUBMITTED=false" in workflow
     assert "order_send" not in workflow
+
+
+def test_source_build_tool_closure_is_hash_locked_and_manifest_binds_exact_lock():
+    root = Path(__file__).resolve().parents[1]
+    lock_path = root / "requirements-provider-source-build-tools.lock.txt"
+    lock_text = lock_path.read_text(encoding="utf-8")
+    workflow = (root / ".github" / "workflows" / "provider-source-wheel-candidate.yml").read_text(encoding="utf-8")
+    builder = (root / "tools" / "build_provider_source_wheel_candidate_v1.py").read_text(encoding="utf-8")
+
+    expected = {
+        "hatchling": "1.27.0",
+        "packaging": "26.3",
+        "pathspec": "1.1.1",
+        "pip": "26.2.2",
+        "pluggy": "1.7.0",
+        "setuptools": "80.9.0",
+        "trove-classifiers": "2026.9.21.13",
+        "wheel": "0.45.1",
+    }
+    pins = {
+        re.sub(r"[-_.]+", "-", name).lower(): version
+        for name, version in re.findall(
+            r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\\s\\\\]+)\\s*\\\\?\\s*$",
+            lock_text,
+        )
+    }
+    assert pins == expected
+    hashes = re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)
+    assert len(hashes) == len(expected)
+    assert all(len(value) == 64 for value in hashes)
+
+    assert "requirements-provider-source-build-tools.lock.txt" in workflow
+    assert "--require-hashes --only-binary=:all: -r $buildToolsLock" in workflow
+    assert "SOURCE_BUILD_TOOL_HASH_LOCK_INSTALL_FAILED" in workflow
+    assert "SOURCE_BUILD_TOOL_FREEZE_MISMATCH" in workflow
+    assert "'pip==26.2.2'" in workflow
+    assert "BUILD_TOOL_LOCK_FILENAME" in builder
+    assert "SOURCE_BUILD_TOOL_LOCK_PINS_MISMATCH" in builder
+    assert "SOURCE_BUILD_TOOL_LOCK_HASH_COUNT_MISMATCH" in builder
+    assert "SOURCE_BUILD_TOOL_FREEZE_MISMATCH" in builder
+    assert '"transitive_build_tool_dependencies_hash_locked": True' in builder
+    # Hash-locking fixes byte integrity, not missing publisher provenance.
+    assert "setuptools==80.9.0" in lock_text
+    assert '"packages_without_verified_pypi_provenance": ["setuptools==80.9.0"]' in builder
+    assert '"production_approved": False' in builder
+    assert '"bootstrap_approved": False' in builder
