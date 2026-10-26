@@ -106,3 +106,24 @@ This is not approval to commit or deploy. A PyPI metadata review found:
 - `pycparser==3.12`: PyPI states no provenance; the upstream `release_v3.12` points to `3ec766b7cd94724cba714296509604597ea4ce4e`, which GitHub reports as unsigned: https://github.com/eliben/pycparser/commit/3ec766b7cd94724cba714296509604597ea4ce4e.
 
 Therefore hashes and Windows installation are validated, but the cffi/pycparser artifact-to-source provenance and independent review remain open. Do not treat this candidate as trusted merely because hash installation and tests passed. Keep both files out of the production source pin until the remaining provenance and disposable Windows Server 2022 rehearsal gates are approved.
+
+
+## Windows Server 2022 compatibility gate — verified 2026-10-26
+
+After switching the review workflow from `windows-latest` to `windows-2022`, the candidate run completed successfully: [run 40249481942](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249481942). This uses a GitHub-hosted Windows Server 2022 runner (OS-generation compatibility check), not the actual destination VPS.
+
+Evidence:
+- Python `3.13.17` was installed on the Windows Server 2022 hosted runner.
+- Both candidate files installed with `--require-hashes --only-binary=:all:`.
+- Runtime package scope was exactly `cffi, cryptography, pycparser`; test scope was exactly `cffi, colorama, cryptography, iniconfig, packaging, pluggy, pycparser, pygments, pytest`.
+- All four focused Provider contract suites passed: **77 passed in 2.07 seconds**.
+- Package-scope/pin/hash checks succeeded and the candidate artifact was uploaded.
+
+Artifact ID `12620098076`; ZIP SHA-256 `07686102d48180728e2a45bc75484a056a0ea85e2f4b665a290359cb87aa6cd0`. The two lock-file hashes remain `f772c00c23acc36d2b52c09cf2ac53a1653f4c8fff31f7d1b5104b727162b017` (runtime) and `9102f41c1e071cf0469326233c106f6d55764495cfbb1c89451d106353f81cdb` (test). An independent local hash check of the downloaded ZIP and both extracted files matched these values.
+
+PR head `2208965804f9e80c8c1ddefd837c75a80d946d26) also passed the repository tests, G13 Workflow Static Validation, and Agent Runtime Check:
+- tests: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249492344
+- static validation: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249492340
+- agent runtime: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249492388
+
+This closes the hosted Windows Server 2022 install/contract-test gate, not the production approval gate. The artifact still needs independent package/source provenance review and a separately administered clean-destination rehearsal. In particular, PyPI provenance remains absent for the selected `cffi==2.1.1` and `pycparser==3.12` releases; the upstream cffi v2.1.1 commit is verified, while the pycparser v3.12 release commit is unsigned. Keep both lock files as review artifacts only until this risk is resolved and an independent reviewer approves them. Do not add either file to the immutable Bootstrap source commit yet.
