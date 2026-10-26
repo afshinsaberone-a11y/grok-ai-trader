@@ -67,7 +67,9 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "LOCK_PROVENANCE_WHEEL_DOWNLOAD_FAILED" in workflow
     assert "LOCK_PROVENANCE_WHEEL_INVENTORY_EMPTY" in workflow
     assert "PASS_CRYPTOGRAPHICALLY_VERIFIED_EXPECTED_REPOSITORY" in workflow
-    assert "BLOCKED_SIGNATURE_OR_REPOSITORY_IDENTITY_MISMATCH" in workflow
+    assert "BLOCKED_ATTESTATION_VERIFICATION_FAILED" in workflow
+    assert "-OutFile $provenancePath" in workflow
+    assert "[IO.File]::WriteAllText($provenancePath, [string]$response.Content" not in workflow
     assert "PYPI_ATTESTATION_VERIFIER_DETAIL=$verificationDetail" in workflow
     assert "verifier_detail = $verificationDetail" in workflow
     assert "$verificationDetail = $null" in workflow
