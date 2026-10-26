@@ -19,6 +19,7 @@ on:
       - requirements-provider-lock-compiler.lock.txt
       - requirements-provider-lock-compiler.in
       - requirements-provider-pypi-verifier.in
+      - requirements-provider-pypi-verifier.windows-py313.lock.txt
 
 permissions:
   contents: read
@@ -156,8 +157,563 @@ jobs:
           & $lockPython -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_DEPENDENCY_CHECK_FAILED' }
           $compilerBootstrapFreeze = @(& $lockPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
-          if ($LASTEXITCODE -ne 0 -or $compilerBootstrapFreeze.Count -lt 2) { throw 'SOURCE_LOCK_COMPILER_BOOTSTRAP_INVENTORY_FAILED' }
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_BOOTSTRAP_INVENTORY_FAILED' }
+          $expectedCompilerFreeze = @{}
+          foreach ($line in Get-Content -LiteralPath $compilerLock) {
+            if ($line -match '^(?<name>[A-Za-z0-9][A-Za-z0-9._-]*)==(?<version>[^ ]+) --hash=sha256:(?<hash>[0-9a-f]{64})          Push-Location $env:GITHUB_WORKSPACE
+          try {
+            $runtimeLock = Join-Path $lockRoot 'requirements-provider.lock.txt'
+            $testLock = Join-Path $lockRoot 'requirements-provider-test.lock.txt'
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $runtimeLock requirements-provider-lock.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_RUNTIME_LOCK_COMPILE_FAILED' }
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $testLock requirements-provider-test-lock.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_TEST_LOCK_COMPILE_FAILED' }
+            $wheelhouse = Join-Path $outputRoot 'wheelhouse'
+            New-Item -ItemType Directory -Path $wheelhouse -ErrorAction Stop | Out-Null
+            & $lockPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $wheelhouse -r $testLock
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_TEST_WHEELHOUSE_DOWNLOAD_FAILED' }
+          }
+          finally { Pop-Location }
+
+          # Generate review-only, fully hash-locked closures for the two helper
+          # environments that are currently bootstrapped with exact version pins.
+          # These files are not used to authorize deployment; review/commit them
+          # before replacing the bootstrap installs with committed lockfiles.
+          $toolCandidateRoot = Join-Path $outputRoot 'tool-lock-candidates'
+          New-Item -ItemType Directory -Path $toolCandidateRoot -ErrorAction Stop | Out-Null
+          $compilerCandidate = Join-Path $toolCandidateRoot 'requirements-provider-lock-compiler.lock.txt'
+          $verifierCandidate = Join-Path $toolCandidateRoot 'requirements-provider-pypi-verifier.lock.txt'
+          Push-Location $env:GITHUB_WORKSPACE
+          try {
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $compilerCandidate requirements-provider-lock-compiler.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_TOOL_LOCK_COMPILE_FAILED' }
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $verifierCandidate requirements-provider-pypi-verifier.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_TOOL_LOCK_COMPILE_FAILED' }
+          }
+          finally { Pop-Location }
+
+          $toolCandidateRecords = @()
+          foreach ($toolLock in @(
+            [PSCustomObject]@{ path = $compilerCandidate; requiredPackage = 'pip-tools'; requiredVersion = '7.6.1'; environment = 'lock-compiler' },
+            [PSCustomObject]@{ path = $verifierCandidate; requiredPackage = 'pypi-attestations'; requiredVersion = '0.0.30'; environment = 'pypi-attestation-verifier' }
+          )) {
+            if (-not (Test-Path -LiteralPath $toolLock.path -PathType Leaf)) {
+              throw 'SOURCE_HELPER_TOOL_LOCK_CANDIDATE_MISSING'
+            }
+            $lockText = Get-Content -LiteralPath $toolLock.path -Raw
+            $pins = [regex]::Matches($lockText, '(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==')
+            $hashes = [regex]::Matches($lockText, '--hash=sha256:[0-9a-fA-F]{64}')
+            if ($pins.Count -lt 1 -or $hashes.Count -lt $pins.Count) {
+              throw 'SOURCE_HELPER_TOOL_LOCK_PIN_OR_HASH_VALIDATION_FAILED'
+            }
+            if ($lockText -notmatch ('(?m)^' + [regex]::Escape($toolLock.requiredPackage) + '==' + [regex]::Escape($toolLock.requiredVersion) + '(?:\s|\\|$)')) {
+              throw 'SOURCE_HELPER_TOOL_LOCK_TOP_LEVEL_PIN_MISMATCH'
+            }
+
+            $checkVenv = Join-Path $env:RUNNER_TEMP ('forexai-' + $toolLock.environment + '-' + [Guid]::NewGuid().ToString('N'))
+            & python -m venv $checkVenv
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TEST_VENV_FAILED' }
+            $checkPython = Join-Path $checkVenv 'Scripts\python.exe'
+            $checkWheelhouse = Join-Path $env:RUNNER_TEMP ('forexai-' + $toolLock.environment + '-wheels-' + [Guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $checkWheelhouse -ErrorAction Stop | Out-Null
+            & $checkPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_BINARY_DOWNLOAD_FAILED' }
+
+            # Bind the lock to the exact wheel bytes selected for the fixed
+            # windows-2022 / Python 3.13 target. This removes unrelated platform
+            # hashes while preserving strict byte verification for every pin.
+            $targetLockPath = Join-Path $toolCandidateRoot ($toolLock.environment + '.windows-py313.lock.txt')
+            & $lockPython tools/compact_provider_target_lock_v1.py --lock $toolLock.path --wheelhouse $checkWheelhouse --output $targetLockPath
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_COMPACTION_FAILED' }
+            $targetLockText = Get-Content -LiteralPath $targetLockPath -Raw
+            $targetPins = [regex]::Matches($targetLockText, '(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==')
+            $targetHashes = [regex]::Matches($targetLockText, '--hash=sha256:[0-9a-fA-F]{64}')
+            if ($targetPins.Count -ne $pins.Count -or $targetHashes.Count -ne $pins.Count) {
+              throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_PIN_OR_HASH_VALIDATION_FAILED'
+            }
+            & $checkPython -m pip install --disable-pip-version-check --force-reinstall --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $targetLockPath
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED' }
+            & $checkPython -m pip check
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_DEPENDENCY_CHECK_FAILED' }
+            if ($toolLock.environment -eq 'lock-compiler') {
+              & $checkPython -c "import importlib.metadata; print('PIP_TOOLS=' + importlib.metadata.version('pip-tools'))"
+            }
+            else {
+              & $checkPython -c "import importlib.metadata; print('PYPI_ATTESTATIONS=' + importlib.metadata.version('pypi-attestations'))"
+            }
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_IMPORT_FAILED' }
+
+            $toolCandidateRecords += [PSCustomObject]@{
+              environment = $toolLock.environment
+              top_level_pin = ($toolLock.requiredPackage + '==' + $toolLock.requiredVersion)
+              lock_file = [IO.Path]::GetFileName($targetLockPath)
+              raw_sha256 = (Get-FileHash -LiteralPath $targetLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+              source_full_lock_file = [IO.Path]::GetFileName($toolLock.path)
+              source_full_lock_sha256 = (Get-FileHash -LiteralPath $toolLock.path -Algorithm SHA256).Hash.ToLowerInvariant()
+              pinned_requirement_count = $targetPins.Count
+              sha256_hash_count = $targetHashes.Count
+              target = 'windows-2022-python-3.13'
+              offline_binary_only_install = 'PASS'
+              production_approved = $false
+            }
+          }
+          $toolReport = [ordered]@{
+            schema = 'forexai.provider_helper_tool_lock_candidates.v1'
+            status = 'CANDIDATE_LOCKS_GENERATED_AND_OFFLINE_TESTED_NOT_APPROVED'
+            generated_from_source_sha = '${{ github.sha }}'
+            policy = 'Candidates only. Review hashes and tool provenance before committing and switching workflow helper installs.'
+            production_approved = $false
+            bootstrap_approved = $false
+            candidates = $toolCandidateRecords
+          }
+          $toolReportPath = Join-Path $toolCandidateRoot 'helper-tool-lock-report.json'
+          $toolReport | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $toolReportPath -Encoding UTF8
+          $toolReport | ConvertTo-Json -Depth 6
+
+      - name: Install hash-locked PyPI verifier and assemble separate hash-lock overlays
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build'
+          $verifierVenv = Join-Path $env:RUNNER_TEMP 'forexai-source-wheel-pypi-verifier'
+          & python -m venv $verifierVenv
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_VENV_FAILED' }
+          $verifierPython = Join-Path $verifierVenv 'Scripts\python.exe'
+          $verifierLock = Join-Path $env:GITHUB_WORKSPACE 'requirements-provider-pypi-verifier.windows-py313.lock.txt'
+          if (-not (Test-Path -LiteralPath $verifierLock -PathType Leaf)) { throw 'SOURCE_PYPI_VERIFIER_HASH_LOCK_MISSING' }
+          $verifierLockText = Get-Content -LiteralPath $verifierLock -Raw
+          $verifierPins = [regex]::Matches($verifierLockText, '(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==')
+          $verifierHashes = [regex]::Matches($verifierLockText, '--hash=sha256:[0-9a-f]{64}')
+          if ($verifierPins.Count -ne 33 -or $verifierHashes.Count -ne 33) { throw 'SOURCE_PYPI_VERIFIER_HASH_LOCK_PIN_COUNT_MISMATCH' }
+          if ($verifierLockText -notmatch '(?m)^pypi-attestations==0\.0\.30 --hash=sha256:b3a9c53f6cb89e5e7b5b70e6cfca97cfc66008c1ed54087355e06e40071cef21$') {
+            throw 'SOURCE_PYPI_VERIFIER_TOP_LEVEL_PUBLISHER_HASH_MISMATCH'
+          }
+          $verifierWheelhouse = Join-Path $outputRoot 'pypi-verifier-wheelhouse'
+          New-Item -ItemType Directory -Path $verifierWheelhouse -ErrorAction Stop | Out-Null
+          & $verifierPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $verifierWheelhouse -r $verifierLock
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_HASHED_DOWNLOAD_FAILED' }
+          & $verifierPython -m pip install --disable-pip-version-check --no-index --find-links $verifierWheelhouse --require-hashes --only-binary=:all: -r $verifierLock
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_HASHED_OFFLINE_INSTALL_FAILED' }
+          & $verifierPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_DEPENDENCY_CHECK_FAILED' }
+          $verifierBootstrapFreeze = @(& $verifierPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_BOOTSTRAP_INVENTORY_FAILED' }
+          $expectedVerifierFreeze = @{}
+          foreach ($line in Get-Content -LiteralPath $verifierLock) {
+            if ($line -match '^(?<name>[A-Za-z0-9][A-Za-z0-9._-]*)==(?<version>[^ ]+) --hash=sha256:(?<hash>[0-9a-f]{64})$') {
+              $key = ($matches['name'] -replace '[-_.]', '').ToLowerInvariant()
+              if ($expectedVerifierFreeze.ContainsKey($key)) { throw 'SOURCE_PYPI_VERIFIER_DUPLICATE_LOCK_PIN' }
+              $expectedVerifierFreeze[$key] = $matches['version']
+            }
+          }
+          $actualVerifierFreeze = @{}
+          foreach ($line in $verifierBootstrapFreeze) {
+            if ($line -match '^(?<name>[^=]+)==(?<version>.+)$') {
+              $key = ($matches['name'] -replace '[-_.]', '').ToLowerInvariant()
+              $actualVerifierFreeze[$key] = $matches['version']
+            }
+          }
+          $freezeMatches = ($expectedVerifierFreeze.Count -eq 33 -and $actualVerifierFreeze.Count -eq $expectedVerifierFreeze.Count)
+          foreach ($key in $expectedVerifierFreeze.Keys) {
+            if (-not $actualVerifierFreeze.ContainsKey($key) -or $actualVerifierFreeze[$key] -ne $expectedVerifierFreeze[$key]) { $freezeMatches = $false }
+          }
+          if (-not $freezeMatches) {
+            Write-Output ('EXPECTED_VERIFIER_FREEZE=' + (($expectedVerifierFreeze.GetEnumerator() | ForEach-Object { $_.Key + '==' + $_.Value } | Sort-Object) -join ';'))
+            Write-Output ('ACTUAL_VERIFIER_FREEZE=' + ($verifierBootstrapFreeze -join ';'))
+            throw 'SOURCE_PYPI_VERIFIER_FREEZE_MISMATCH'
+          }
+          $verifierBootstrapFreeze | Set-Content -LiteralPath (Join-Path $outputRoot 'pypi-verifier-bootstrap-freeze.txt') -Encoding UTF8
+          Write-Output 'SOURCE_PYPI_VERIFIER_LOCK_AND_FREEZE_MATCH=PASS'
+          & python tools/assemble_provider_offline_wheelhouse_v1.py --output-root $outputRoot --verifier-python $verifierPython
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_WHEELHOUSE_ASSEMBLY_FAILED' }
+
+      - name: Install overlay locks offline and run Provider contract tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build'
+          $wheelhouse = Join-Path $outputRoot 'wheelhouse'
+          $overlay = Join-Path $outputRoot 'overlay-locks'
+          $runtimeVenv = Join-Path $env:RUNNER_TEMP 'forexai-offline-provider-runtime'
+          $testVenv = Join-Path $env:RUNNER_TEMP 'forexai-offline-provider-tests'
+          & python -m venv $runtimeVenv
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_RUNTIME_VENV_FAILED' }
+          $runtimePython = Join-Path $runtimeVenv 'Scripts\python.exe'
+          & $runtimePython -m pip install --disable-pip-version-check --no-index --find-links $wheelhouse --require-hashes --only-binary=:all: -r (Join-Path $overlay 'requirements-provider.lock.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_RUNTIME_LOCK_INSTALL_FAILED' }
+          & $runtimePython -c "import cffi, cryptography, pycparser; print('OFFLINE_RUNTIME_IMPORTS=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_RUNTIME_IMPORTS_FAILED' }
+          & python -m venv $testVenv
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_TEST_VENV_FAILED' }
+          $testPython = Join-Path $testVenv 'Scripts\python.exe'
+          & $testPython -m pip install --disable-pip-version-check --no-index --find-links $wheelhouse --require-hashes --only-binary=:all: -r (Join-Path $overlay 'requirements-provider-test.lock.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_TEST_LOCK_INSTALL_FAILED' }
+          & $testPython -c "import cffi, colorama, cryptography, pycparser, pygments, pytest; print('OFFLINE_TEST_IMPORTS=PASS'); print('PYTEST=' + pytest.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_TEST_IMPORTS_FAILED' }
+          $focusedTests = @(
+            'tests/test_control_plane_provider_host_preflight_v1.py',
+            'tests/test_control_plane_admission_provider_v1.py',
+            'tests/test_control_plane_provider_service_v1.py',
+            'tests/test_control_plane_service_v1.py'
+          )
+          & $testPython -m pytest -q -p no:cacheprovider $focusedTests
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_PROVIDER_CONTRACT_TESTS_FAILED' }
+
+      - name: Create GitHub-signed attestation for the assembled offline wheelhouse
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/provider-source-build/wheelhouse/*.whl
+          predicate-type: https://forexai.grok-ai-trader.dev/attestations/provider-offline-wheelhouse/v1
+          predicate-path: artifacts/provider-source-build/wheelhouse-manifest.json
+          show-summary: true
+
+      - name: Verify the assembled wheelhouse attestation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $wheels = @(Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build\wheelhouse') -Filter '*.whl' -File)
+          if ($wheels.Count -ne 9) { throw 'WHEELHOUSE_ATTESTED_SUBJECT_COUNT_MISMATCH' }
+          foreach ($wheel in $wheels) {
+            $verification = & gh attestation verify $wheel.FullName --repo $repo --predicate-type 'https://forexai.grok-ai-trader.dev/attestations/provider-offline-wheelhouse/v1' --format json 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              Write-Output "WHEELHOUSE_ATTESTATION_VERIFY=FAIL:$($wheel.Name)"
+              Write-Output $verification
+              throw 'WHEELHOUSE_ATTESTATION_VERIFICATION_FAILED'
+            }
+            Write-Output "WHEELHOUSE_ATTESTATION_VERIFY=PASS:$($wheel.Name)"
+          }
+
+      - name: Create GitHub-signed attestation for helper tool lock candidates
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/provider-source-build/tool-lock-candidates/*.lock.txt
+          predicate-type: https://forexai.grok-ai-trader.dev/attestations/provider-helper-tool-lock-candidates/v1
+          predicate-path: artifacts/provider-source-build/tool-lock-candidates/helper-tool-lock-report.json
+          show-summary: true
+
+      - name: Verify helper tool lock candidate attestations
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $lockRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build\tool-lock-candidates'
+          $locks = @(Get-ChildItem -LiteralPath $lockRoot -Filter '*.lock.txt' -File)
+          if ($locks.Count -ne 4) { throw 'HELPER_TOOL_LOCK_CANDIDATE_COUNT_MISMATCH' }
+          foreach ($lock in $locks) {
+            $verification = & gh attestation verify $lock.FullName --repo $repo --predicate-type 'https://forexai.grok-ai-trader.dev/attestations/provider-helper-tool-lock-candidates/v1' --format json 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              Write-Output "HELPER_TOOL_LOCK_ATTESTATION_VERIFY=FAIL:$($lock.Name)"
+              Write-Output $verification
+              throw 'HELPER_TOOL_LOCK_ATTESTATION_VERIFICATION_FAILED'
+            }
+            Write-Output "HELPER_TOOL_LOCK_ATTESTATION_VERIFY=PASS:$($lock.Name)"
+          }
+
+      - name: Upload wheel candidates and source/build manifest for independent review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: provider-source-built-wheels-${{ github.sha }}
+          path: |
+            artifacts/provider-source-build/wheels/*.whl
+            artifacts/provider-source-build/wheelhouse/*.whl
+            artifacts/provider-source-build/locks/*.txt
+            artifacts/provider-source-build/overlay-locks/*.txt
+            artifacts/provider-source-build/tool-lock-candidates/*
+            artifacts/provider-source-build/source-build-manifest.json
+            artifacts/provider-source-build/wheelhouse-manifest.json
+            artifacts/provider-source-build/pypi-provenance-report.json
+            artifacts/provider-source-build/pypi-verifier-bootstrap-freeze.txt
+            artifacts/provider-source-build/tool-lock-candidates/*.lock.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: State the production boundary explicitly
+        shell: pwsh
+        run: |
+          Write-Output 'SOURCE_WHEELS_ARE_CANDIDATES_ONLY=true'
+          Write-Output 'PRODUCTION_LOCKS_CHANGED=false'
+          Write-Output 'BOOTSTRAP_AUTHORIZED=false'
+          Write-Output 'PROVIDER_SERVICE_INSTALLED=false'
+          Write-Output 'GRANT_ISSUED=false'
+          Write-Output 'DEMO_TRADING_AUTHORIZED=false'
+          Write-Output 'LIVE_TRADING_ALLOWED=false'
+          Write-Output 'ORDERS_SUBMITTED=false'
+) {
+              $key = ($matches['name'] -replace '[-_.]', '').ToLowerInvariant()
+              if ($expectedCompilerFreeze.ContainsKey($key)) { throw 'SOURCE_LOCK_COMPILER_DUPLICATE_LOCK_PIN' }
+              $expectedCompilerFreeze[$key] = $matches['version']
+            }
+          }
+          $actualCompilerFreeze = @{}
+          foreach ($line in $compilerBootstrapFreeze) {
+            if ($line -match '^(?<name>[^=]+)==(?<version>.+)          Push-Location $env:GITHUB_WORKSPACE
+          try {
+            $runtimeLock = Join-Path $lockRoot 'requirements-provider.lock.txt'
+            $testLock = Join-Path $lockRoot 'requirements-provider-test.lock.txt'
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $runtimeLock requirements-provider-lock.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_RUNTIME_LOCK_COMPILE_FAILED' }
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $testLock requirements-provider-test-lock.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_TEST_LOCK_COMPILE_FAILED' }
+            $wheelhouse = Join-Path $outputRoot 'wheelhouse'
+            New-Item -ItemType Directory -Path $wheelhouse -ErrorAction Stop | Out-Null
+            & $lockPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $wheelhouse -r $testLock
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_TEST_WHEELHOUSE_DOWNLOAD_FAILED' }
+          }
+          finally { Pop-Location }
+
+          # Generate review-only, fully hash-locked closures for the two helper
+          # environments that are currently bootstrapped with exact version pins.
+          # These files are not used to authorize deployment; review/commit them
+          # before replacing the bootstrap installs with committed lockfiles.
+          $toolCandidateRoot = Join-Path $outputRoot 'tool-lock-candidates'
+          New-Item -ItemType Directory -Path $toolCandidateRoot -ErrorAction Stop | Out-Null
+          $compilerCandidate = Join-Path $toolCandidateRoot 'requirements-provider-lock-compiler.lock.txt'
+          $verifierCandidate = Join-Path $toolCandidateRoot 'requirements-provider-pypi-verifier.lock.txt'
+          Push-Location $env:GITHUB_WORKSPACE
+          try {
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $compilerCandidate requirements-provider-lock-compiler.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_TOOL_LOCK_COMPILE_FAILED' }
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $verifierCandidate requirements-provider-pypi-verifier.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_TOOL_LOCK_COMPILE_FAILED' }
+          }
+          finally { Pop-Location }
+
+          $toolCandidateRecords = @()
+          foreach ($toolLock in @(
+            [PSCustomObject]@{ path = $compilerCandidate; requiredPackage = 'pip-tools'; requiredVersion = '7.6.1'; environment = 'lock-compiler' },
+            [PSCustomObject]@{ path = $verifierCandidate; requiredPackage = 'pypi-attestations'; requiredVersion = '0.0.30'; environment = 'pypi-attestation-verifier' }
+          )) {
+            if (-not (Test-Path -LiteralPath $toolLock.path -PathType Leaf)) {
+              throw 'SOURCE_HELPER_TOOL_LOCK_CANDIDATE_MISSING'
+            }
+            $lockText = Get-Content -LiteralPath $toolLock.path -Raw
+            $pins = [regex]::Matches($lockText, '(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==')
+            $hashes = [regex]::Matches($lockText, '--hash=sha256:[0-9a-fA-F]{64}')
+            if ($pins.Count -lt 1 -or $hashes.Count -lt $pins.Count) {
+              throw 'SOURCE_HELPER_TOOL_LOCK_PIN_OR_HASH_VALIDATION_FAILED'
+            }
+            if ($lockText -notmatch ('(?m)^' + [regex]::Escape($toolLock.requiredPackage) + '==' + [regex]::Escape($toolLock.requiredVersion) + '(?:\s|\\|$)')) {
+              throw 'SOURCE_HELPER_TOOL_LOCK_TOP_LEVEL_PIN_MISMATCH'
+            }
+
+            $checkVenv = Join-Path $env:RUNNER_TEMP ('forexai-' + $toolLock.environment + '-' + [Guid]::NewGuid().ToString('N'))
+            & python -m venv $checkVenv
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TEST_VENV_FAILED' }
+            $checkPython = Join-Path $checkVenv 'Scripts\python.exe'
+            $checkWheelhouse = Join-Path $env:RUNNER_TEMP ('forexai-' + $toolLock.environment + '-wheels-' + [Guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $checkWheelhouse -ErrorAction Stop | Out-Null
+            & $checkPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_BINARY_DOWNLOAD_FAILED' }
+
+            # Bind the lock to the exact wheel bytes selected for the fixed
+            # windows-2022 / Python 3.13 target. This removes unrelated platform
+            # hashes while preserving strict byte verification for every pin.
+            $targetLockPath = Join-Path $toolCandidateRoot ($toolLock.environment + '.windows-py313.lock.txt')
+            & $lockPython tools/compact_provider_target_lock_v1.py --lock $toolLock.path --wheelhouse $checkWheelhouse --output $targetLockPath
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_COMPACTION_FAILED' }
+            $targetLockText = Get-Content -LiteralPath $targetLockPath -Raw
+            $targetPins = [regex]::Matches($targetLockText, '(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==')
+            $targetHashes = [regex]::Matches($targetLockText, '--hash=sha256:[0-9a-fA-F]{64}')
+            if ($targetPins.Count -ne $pins.Count -or $targetHashes.Count -ne $pins.Count) {
+              throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_PIN_OR_HASH_VALIDATION_FAILED'
+            }
+            & $checkPython -m pip install --disable-pip-version-check --force-reinstall --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $targetLockPath
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED' }
+            & $checkPython -m pip check
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_DEPENDENCY_CHECK_FAILED' }
+            if ($toolLock.environment -eq 'lock-compiler') {
+              & $checkPython -c "import importlib.metadata; print('PIP_TOOLS=' + importlib.metadata.version('pip-tools'))"
+            }
+            else {
+              & $checkPython -c "import importlib.metadata; print('PYPI_ATTESTATIONS=' + importlib.metadata.version('pypi-attestations'))"
+            }
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_IMPORT_FAILED' }
+
+            $toolCandidateRecords += [PSCustomObject]@{
+              environment = $toolLock.environment
+              top_level_pin = ($toolLock.requiredPackage + '==' + $toolLock.requiredVersion)
+              lock_file = [IO.Path]::GetFileName($targetLockPath)
+              raw_sha256 = (Get-FileHash -LiteralPath $targetLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+              source_full_lock_file = [IO.Path]::GetFileName($toolLock.path)
+              source_full_lock_sha256 = (Get-FileHash -LiteralPath $toolLock.path -Algorithm SHA256).Hash.ToLowerInvariant()
+              pinned_requirement_count = $targetPins.Count
+              sha256_hash_count = $targetHashes.Count
+              target = 'windows-2022-python-3.13'
+              offline_binary_only_install = 'PASS'
+              production_approved = $false
+            }
+          }
+          $toolReport = [ordered]@{
+            schema = 'forexai.provider_helper_tool_lock_candidates.v1'
+            status = 'CANDIDATE_LOCKS_GENERATED_AND_OFFLINE_TESTED_NOT_APPROVED'
+            generated_from_source_sha = '${{ github.sha }}'
+            policy = 'Candidates only. Review hashes and tool provenance before committing and switching workflow helper installs.'
+            production_approved = $false
+            bootstrap_approved = $false
+            candidates = $toolCandidateRecords
+          }
+          $toolReportPath = Join-Path $toolCandidateRoot 'helper-tool-lock-report.json'
+          $toolReport | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $toolReportPath -Encoding UTF8
+          $toolReport | ConvertTo-Json -Depth 6
+
+      - name: Verify PyPI attestations and assemble separate hash-lock overlays
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build'
+          $verifierVenv = Join-Path $env:RUNNER_TEMP 'forexai-source-wheel-pypi-verifier'
+          & python -m venv $verifierVenv
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_VENV_FAILED' }
+          $verifierPython = Join-Path $verifierVenv 'Scripts\python.exe'
+          # Like the lock compiler above, this bootstrap is only for candidate generation.
+          # Its output is not a trusted verification result until independently reviewed.
+          & $verifierPython -m pip install --disable-pip-version-check --only-binary=:all: 'pypi-attestations==0.0.30'
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_INSTALL_FAILED' }
+          & $verifierPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_DEPENDENCY_CHECK_FAILED' }
+          $verifierBootstrapFreeze = @(& $verifierPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
+          if ($LASTEXITCODE -ne 0 -or $verifierBootstrapFreeze.Count -lt 2) { throw 'SOURCE_PYPI_VERIFIER_BOOTSTRAP_INVENTORY_FAILED' }
+          $verifierBootstrapFreeze | Set-Content -LiteralPath (Join-Path $outputRoot 'pypi-verifier-bootstrap-freeze.txt') -Encoding UTF8
+          & python tools/assemble_provider_offline_wheelhouse_v1.py --output-root $outputRoot --verifier-python $verifierPython
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_WHEELHOUSE_ASSEMBLY_FAILED' }
+
+      - name: Install overlay locks offline and run Provider contract tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build'
+          $wheelhouse = Join-Path $outputRoot 'wheelhouse'
+          $overlay = Join-Path $outputRoot 'overlay-locks'
+          $runtimeVenv = Join-Path $env:RUNNER_TEMP 'forexai-offline-provider-runtime'
+          $testVenv = Join-Path $env:RUNNER_TEMP 'forexai-offline-provider-tests'
+          & python -m venv $runtimeVenv
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_RUNTIME_VENV_FAILED' }
+          $runtimePython = Join-Path $runtimeVenv 'Scripts\python.exe'
+          & $runtimePython -m pip install --disable-pip-version-check --no-index --find-links $wheelhouse --require-hashes --only-binary=:all: -r (Join-Path $overlay 'requirements-provider.lock.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_RUNTIME_LOCK_INSTALL_FAILED' }
+          & $runtimePython -c "import cffi, cryptography, pycparser; print('OFFLINE_RUNTIME_IMPORTS=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_RUNTIME_IMPORTS_FAILED' }
+          & python -m venv $testVenv
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_TEST_VENV_FAILED' }
+          $testPython = Join-Path $testVenv 'Scripts\python.exe'
+          & $testPython -m pip install --disable-pip-version-check --no-index --find-links $wheelhouse --require-hashes --only-binary=:all: -r (Join-Path $overlay 'requirements-provider-test.lock.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_TEST_LOCK_INSTALL_FAILED' }
+          & $testPython -c "import cffi, colorama, cryptography, pycparser, pygments, pytest; print('OFFLINE_TEST_IMPORTS=PASS'); print('PYTEST=' + pytest.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_TEST_IMPORTS_FAILED' }
+          $focusedTests = @(
+            'tests/test_control_plane_provider_host_preflight_v1.py',
+            'tests/test_control_plane_admission_provider_v1.py',
+            'tests/test_control_plane_provider_service_v1.py',
+            'tests/test_control_plane_service_v1.py'
+          )
+          & $testPython -m pytest -q -p no:cacheprovider $focusedTests
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_PROVIDER_CONTRACT_TESTS_FAILED' }
+
+      - name: Create GitHub-signed attestation for the assembled offline wheelhouse
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/provider-source-build/wheelhouse/*.whl
+          predicate-type: https://forexai.grok-ai-trader.dev/attestations/provider-offline-wheelhouse/v1
+          predicate-path: artifacts/provider-source-build/wheelhouse-manifest.json
+          show-summary: true
+
+      - name: Verify the assembled wheelhouse attestation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $wheels = @(Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build\wheelhouse') -Filter '*.whl' -File)
+          if ($wheels.Count -ne 9) { throw 'WHEELHOUSE_ATTESTED_SUBJECT_COUNT_MISMATCH' }
+          foreach ($wheel in $wheels) {
+            $verification = & gh attestation verify $wheel.FullName --repo $repo --predicate-type 'https://forexai.grok-ai-trader.dev/attestations/provider-offline-wheelhouse/v1' --format json 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              Write-Output "WHEELHOUSE_ATTESTATION_VERIFY=FAIL:$($wheel.Name)"
+              Write-Output $verification
+              throw 'WHEELHOUSE_ATTESTATION_VERIFICATION_FAILED'
+            }
+            Write-Output "WHEELHOUSE_ATTESTATION_VERIFY=PASS:$($wheel.Name)"
+          }
+
+      - name: Create GitHub-signed attestation for helper tool lock candidates
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/provider-source-build/tool-lock-candidates/*.lock.txt
+          predicate-type: https://forexai.grok-ai-trader.dev/attestations/provider-helper-tool-lock-candidates/v1
+          predicate-path: artifacts/provider-source-build/tool-lock-candidates/helper-tool-lock-report.json
+          show-summary: true
+
+      - name: Verify helper tool lock candidate attestations
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $lockRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build\tool-lock-candidates'
+          $locks = @(Get-ChildItem -LiteralPath $lockRoot -Filter '*.lock.txt' -File)
+          if ($locks.Count -ne 4) { throw 'HELPER_TOOL_LOCK_CANDIDATE_COUNT_MISMATCH' }
+          foreach ($lock in $locks) {
+            $verification = & gh attestation verify $lock.FullName --repo $repo --predicate-type 'https://forexai.grok-ai-trader.dev/attestations/provider-helper-tool-lock-candidates/v1' --format json 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              Write-Output "HELPER_TOOL_LOCK_ATTESTATION_VERIFY=FAIL:$($lock.Name)"
+              Write-Output $verification
+              throw 'HELPER_TOOL_LOCK_ATTESTATION_VERIFICATION_FAILED'
+            }
+            Write-Output "HELPER_TOOL_LOCK_ATTESTATION_VERIFY=PASS:$($lock.Name)"
+          }
+
+      - name: Upload wheel candidates and source/build manifest for independent review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: provider-source-built-wheels-${{ github.sha }}
+          path: |
+            artifacts/provider-source-build/wheels/*.whl
+            artifacts/provider-source-build/wheelhouse/*.whl
+            artifacts/provider-source-build/locks/*.txt
+            artifacts/provider-source-build/overlay-locks/*.txt
+            artifacts/provider-source-build/tool-lock-candidates/*
+            artifacts/provider-source-build/source-build-manifest.json
+            artifacts/provider-source-build/wheelhouse-manifest.json
+            artifacts/provider-source-build/pypi-provenance-report.json
+            artifacts/provider-source-build/pypi-verifier-bootstrap-freeze.txt
+            artifacts/provider-source-build/tool-lock-candidates/*.lock.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: State the production boundary explicitly
+        shell: pwsh
+        run: |
+          Write-Output 'SOURCE_WHEELS_ARE_CANDIDATES_ONLY=true'
+          Write-Output 'PRODUCTION_LOCKS_CHANGED=false'
+          Write-Output 'BOOTSTRAP_AUTHORIZED=false'
+          Write-Output 'PROVIDER_SERVICE_INSTALLED=false'
+          Write-Output 'GRANT_ISSUED=false'
+          Write-Output 'DEMO_TRADING_AUTHORIZED=false'
+          Write-Output 'LIVE_TRADING_ALLOWED=false'
+          Write-Output 'ORDERS_SUBMITTED=false'
+) {
+              $key = ($matches['name'] -replace '[-_.]', '').ToLowerInvariant()
+              $actualCompilerFreeze[$key] = $matches['version']
+            }
+          }
+          $freezeMatches = ($expectedCompilerFreeze.Count -eq 9 -and $actualCompilerFreeze.Count -eq $expectedCompilerFreeze.Count)
+          foreach ($key in $expectedCompilerFreeze.Keys) {
+            if (-not $actualCompilerFreeze.ContainsKey($key) -or $actualCompilerFreeze[$key] -ne $expectedCompilerFreeze[$key]) { $freezeMatches = $false }
+          }
+          if (-not $freezeMatches) {
+            Write-Output ('EXPECTED_COMPILER_FREEZE=' + (($expectedCompilerFreeze.GetEnumerator() | ForEach-Object { $_.Key + '==' + $_.Value } | Sort-Object) -join ';'))
+            Write-Output ('ACTUAL_COMPILER_FREEZE=' + ($compilerBootstrapFreeze -join ';'))
+            throw 'SOURCE_LOCK_COMPILER_FREEZE_MISMATCH'
+          }
           $compilerBootstrapFreeze | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'provider-lock-compiler-bootstrap-freeze.txt') -Encoding UTF8
+          Write-Output 'SOURCE_LOCK_COMPILER_LOCK_AND_FREEZE_MATCH=PASS'
           Push-Location $env:GITHUB_WORKSPACE
           try {
             $runtimeLock = Join-Path $lockRoot 'requirements-provider.lock.txt'
