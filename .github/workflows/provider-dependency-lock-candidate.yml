@@ -176,7 +176,7 @@ jobs:
           }
           & $verifierPython -m pip install --disable-pip-version-check --only-binary=:all: 'pypi-attestations==0.0.30'
           if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_INSTALL_FAILED' }
-          $verifierCli = Join-Path $verifierVenv 'Scripts\pypi-attestations.exe'
+          $verifierCli = Join-Path $verifierVenv 'Scripts\pypi-attestation.exe'
           if (-not (Test-Path -LiteralPath $verifierCli -PathType Leaf)) {
             throw 'LOCK_ATTESTATION_VERIFIER_CLI_NOT_FOUND'
           }
