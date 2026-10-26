@@ -215,3 +215,16 @@ This validates the previous PowerShell response-byte fix: the five present attes
 The published PyPI release history for cffi and pycparser shows that earlier versions also lack PyPI provenance; Pygments 2.20.0 likewise lists no provenance. A simple version downgrade therefore is not a defensible resolution. The remaining engineering choice is an independently reviewed source/build path (with immutable upstream source identity, build inputs, output wheel digests and verifiable build attestations) or a formally reviewed exception backed by adequate source evidence. An internally generated attestation can prove how ForexAI built a wheel; it cannot by itself prove upstream source code is trustworthy. No automatic acceptance or use of internally built wheels is authorized by this status record.
 
 The current lock candidate remains unapproved, PR #331 remains open/unmerged without independent review, main is unchanged, and the bootstrap/trading authorization boundary remains closed.
+
+
+## Source-built wheel candidate path for packages without PyPI provenance — 2026-10-26
+
+A separate, non-deploying workflow builds candidate wheels from four immutable upstream Git commit SHAs and creates GitHub artifact attestations. The attestation predicate contains the upstream repository and commit identities, the GitHub API's commit-signature status, output wheel SHA-256 values and build-tool inventory.
+
+Pinned source commits:
+- cffi 2.1.1: `fd33e7700f0ebafe6f30bd5053f13327221b77a2` — GitHub reports a valid signed commit.
+- pycparser 3.12: `3ec766b7cd94724cba714296509604597ea4ce4e` — unsigned.
+- colorama 0.4.6: `3de9f013df4b470069d03d250224062e8cf15c49` — unsigned.
+- Pygments 2.21.0: `a43b45dcf081b6010c6ab4428f149f7f6d2499c4` — unsigned.
+
+This workflow is evidence generation only. It can provide a reproducible source-to-wheel candidate and a verifiable record of how the wheel was built, but it does not silently convert unsigned upstream code into trusted source. Three source commits are unsigned, and the transitive build-tool closure is recorded but not hash-locked in this exploratory candidate workflow. The manifest therefore hard-codes `production_approved=false` and `bootstrap_approved=false`; independent source review, build-tool lock/provenance hardening, full dependency-lock integration and destination installation review remain blockers. No source-built wheel is automatically integrated into the current runtime lock.

@@ -1,0 +1,127 @@
+name: Provider Source-built Wheel Candidate
+
+# Build source-pinned, untrusted wheel candidates for packages whose PyPI wheel
+# provenance is missing. This workflow never installs them on the Provider host
+# and never changes any production lock, key, trust anchor, service or registry.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ops/bootstrap-provider-host-v1-20261025
+    paths:
+      - .github/workflows/provider-source-wheel-candidate.yml
+      - tools/build_provider_source_wheel_candidate_v1.py
+      - tests/test_provider_source_wheel_candidate_contract.py
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: provider-source-wheel-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-build-candidate:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout the explicitly selected source ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up target Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13.17"
+
+      - name: Create isolated build-tool environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $buildVenv = Join-Path $env:RUNNER_TEMP 'forexai-source-build-tools'
+          & python -m venv $buildVenv
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_BUILD_VENV_CREATE_FAILED' }
+          $buildPython = Join-Path $buildVenv 'Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $buildPython -PathType Leaf)) {
+            throw 'SOURCE_BUILD_PYTHON_MISSING'
+          }
+          & $buildPython -m pip install --disable-pip-version-check --only-binary=:all: 'setuptools==80.9.0' 'wheel==0.45.1' 'hatchling==1.27.0'
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_BUILD_TOOL_INSTALL_FAILED' }
+          & $buildPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_BUILD_TOOL_DEPENDENCY_CHECK_FAILED' }
+          "FOREXAI_SOURCE_BUILD_PYTHON=$buildPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build wheels from immutable upstream commit SHAs and record source signature status
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build'
+          & $env:FOREXAI_SOURCE_BUILD_PYTHON tools/build_provider_source_wheel_candidate_v1.py --workspace $env:GITHUB_WORKSPACE --builder-python $env:FOREXAI_SOURCE_BUILD_PYTHON --output-root $outputRoot
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_WHEEL_CANDIDATE_BUILD_FAILED' }
+
+      - name: Test imports from source-built candidate wheels in a disposable environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $wheelDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build\wheels'
+          $verifyVenv = Join-Path $env:RUNNER_TEMP 'forexai-source-wheel-import-test'
+          & python -m venv $verifyVenv
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_WHEEL_VERIFY_VENV_FAILED' }
+          $verifyPython = Join-Path $verifyVenv 'Scripts\python.exe'
+          & $verifyPython -m pip install --disable-pip-version-check --no-index --no-deps --find-links $wheelDir 'cffi==2.1.1' 'colorama==0.4.6' 'pycparser==3.12' 'pygments==2.21.0'
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_WHEEL_OFFLINE_INSTALL_FAILED' }
+          & $verifyPython -c "import cffi, colorama, pycparser, pygments; print('SOURCE_WHEEL_IMPORTS=PASS'); print('CFFI=' + cffi.__version__); print('COLORAMA=' + colorama.__version__); print('PYCPARSER=' + pycparser.__version__); print('PYGMENTS=' + pygments.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_WHEEL_IMPORTS_FAILED' }
+
+      - name: Create GitHub-signed provenance attestation for candidate wheels
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/provider-source-build/wheels/*.whl
+          predicate-type: https://forexai.grok-ai-trader.dev/attestations/provider-source-wheel-build/v1
+          predicate-path: artifacts/provider-source-build/source-build-manifest.json
+          show-summary: true
+
+      - name: Verify the GitHub attestations before publishing a review artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $wheels = @(Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build\wheels') -Filter '*.whl' -File)
+          if ($wheels.Count -ne 4) { throw 'SOURCE_WHEEL_COUNT_MISMATCH' }
+          foreach ($wheel in $wheels) {
+            $verification = & gh attestation verify $wheel.FullName --repo $repo --predicate-type 'https://forexai.grok-ai-trader.dev/attestations/provider-source-wheel-build/v1' --format json 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              Write-Output "SOURCE_WHEEL_ATTESTATION_VERIFY=FAIL:$($wheel.Name)"
+              Write-Output $verification
+              throw 'SOURCE_WHEEL_ATTESTATION_VERIFICATION_FAILED'
+            }
+            Write-Output "SOURCE_WHEEL_ATTESTATION_VERIFY=PASS:$($wheel.Name)"
+          }
+
+      - name: Upload wheel candidates and source/build manifest for independent review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: provider-source-built-wheels-${{ github.sha }}
+          path: |
+            artifacts/provider-source-build/wheels/*.whl
+            artifacts/provider-source-build/source-build-manifest.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: State the production boundary explicitly
+        shell: pwsh
+        run: |
+          Write-Output 'SOURCE_WHEELS_ARE_CANDIDATES_ONLY=true'
+          Write-Output 'PRODUCTION_LOCKS_CHANGED=false'
+          Write-Output 'BOOTSTRAP_AUTHORIZED=false'
+          Write-Output 'PROVIDER_SERVICE_INSTALLED=false'
+          Write-Output 'GRANT_ISSUED=false'
+          Write-Output 'DEMO_TRADING_AUTHORIZED=false'
+          Write-Output 'LIVE_TRADING_ALLOWED=false'
+          Write-Output 'ORDERS_SUBMITTED=false'

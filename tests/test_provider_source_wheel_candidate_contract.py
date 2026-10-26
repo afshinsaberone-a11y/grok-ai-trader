@@ -1,0 +1,57 @@
+import ast
+import re
+from pathlib import Path
+
+
+def test_source_wheel_builder_has_immutable_sources_and_discloses_signature_status():
+    root = Path(__file__).resolve().parents[1]
+    builder_path = root / "tools" / "build_provider_source_wheel_candidate_v1.py"
+    source = builder_path.read_text(encoding="utf-8")
+    module = ast.parse(source, filename=str(builder_path))
+    assignments = {}
+    for node in module.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            assignments[node.targets[0].id] = node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            assignments[node.target.id] = node.value
+    specs = ast.literal_eval(assignments["SOURCE_SPECS"])
+    assert {item["name"] for item in specs} == {"cffi", "pycparser", "colorama", "pygments"}
+    assert all(re.fullmatch(r"[0-9a-f]{40}", item["commit"]) for item in specs)
+    assert all(item["git_url"].startswith("https://github.com/") for item in specs)
+    assert next(item for item in specs if item["name"] == "cffi")["expected_signature_verified"] is True
+    assert all(
+        item["expected_signature_verified"] is False
+        for item in specs if item["name"] != "cffi"
+    )
+    assert all(term in source for term in ("git", "checkout", "HEAD"))
+    assert "github_commit_signature_verified" in source
+    assert "UNSIGNED_COMMIT_REQUIRES_INDEPENDENT_SOURCE_REVIEW" in source
+    assert 'production_approved": False' in source
+    assert 'bootstrap_approved": False' in source
+    assert "transitive_build_tool_dependencies_hash_locked" in source
+
+
+def test_source_wheel_candidate_workflow_is_pinned_and_cannot_deploy_or_trade():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "provider-source-wheel-candidate.yml").read_text(encoding="utf-8")
+    refs = re.findall(r"(?m)^\s*uses:\s*([^\s#]+)", workflow)
+    assert refs == [
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
+        "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+        "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+    ]
+    assert "runs-on: windows-2022" in workflow
+    assert "permissions:\n  contents: read\n  id-token: write\n  attestations: write\n  artifact-metadata: write" in workflow
+    assert "persist-credentials: false" in workflow
+    assert "contents: write" not in workflow
+    assert "secrets:" not in workflow
+    assert "subject-path: artifacts/provider-source-build/wheels/*.whl" in workflow
+    assert "predicate-path: artifacts/provider-source-build/source-build-manifest.json" in workflow
+    assert "gh attestation verify" in workflow
+    assert "PRODUCTION_LOCKS_CHANGED=false" in workflow
+    assert "BOOTSTRAP_AUTHORIZED=false" in workflow
+    assert "DEMO_TRADING_AUTHORIZED=false" in workflow
+    assert "LIVE_TRADING_ALLOWED=false" in workflow
+    assert "ORDERS_SUBMITTED=false" in workflow
+    assert "order_send" not in workflow
