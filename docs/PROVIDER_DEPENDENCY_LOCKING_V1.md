@@ -162,3 +162,12 @@ The expected next result for the current candidate is still `BLOCKED_PROVENANCE_
 The first execution of the new cryptographic-verification stage installed `pypi-attestations==0.0.30` successfully, but stopped before checking any wheel because the workflow assumed a console-script filename that was not present on Windows. See [candidate run 40299818123](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40299818123); the failed step was `LOCK_ATTESTATION_VERIFIER_CLI_NOT_FOUND`. Therefore that run produced **no cryptographic provenance verdict** and must not be cited as a provenance pass or missing-provenance verdict.
 
 The correction reads the installed package's console-script entry points via `importlib.metadata`, accepts only the known PyPI attestation CLI names, and then verifies the resolved executable exists before invoking it. The contract test checks this behavior. A new final-head run is required to validate the correction and to produce a complete signed-attestation report. Until that run completes, the candidate remains blocked and the bootstrap must not run.
+
+
+## Preserve provenance-verifier diagnostics and always upload the report — 2026-10-26
+
+The latest cryptographic verification run `40300259822` generated all nine wheel checks, but the PowerShell step ended with a nonzero native-command exit code before artifact upload. Its report classification was `BLOCKED_ATTESTATION_VERIFICATION`: four wheels had no provenance and five metadata-bearing wheels returned nonzero verifier status. Because the workflow did not preserve the verifier's text output, the latter cannot yet be interpreted as proof of an invalid signature or an incorrect publisher identity.
+
+The follow-up change records a bounded verifier-detail string per wheel (and in the Actions log), writes the report, then explicitly exits the report-generation step with code 0 so the artifact-upload step can run. The separate final enforcement step still fails the workflow unless the report status is exactly `PASS_CRYPTOGRAPHIC_VERIFICATION`. This preserves the diagnostic artifact without turning a blocked provenance decision into a green policy result.
+
+The next run must be reviewed for the actual CLI diagnostics before changing any expected-repository mapping or concluding that a signature is invalid.
