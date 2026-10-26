@@ -184,3 +184,10 @@ The workflow had converted PowerShell's `response.Content` byte-array representa
 The workflow now writes the HTTP response directly to `$provenancePath` using `Invoke-WebRequest -OutFile`, preserving the original response bytes. The resulting verifier failure classification is generalized to `BLOCKED_ATTESTATION_VERIFICATION_FAILED` unless a successful cryptographic check explicitly establishes a pass. A new run must demonstrate that valid attestations verify, and must still fail closed for any artifact whose provenance is absent or whose signature/repository identity is rejected.
 
 The 404 results for cffi 2.1.1, colorama 0.4.6, pycparser 3.12, and Pygments 2.21.0 are separate and remain supply-chain blockers. This fix does not approve any lock or enable bootstrap/trading.
+
+
+## PowerShell OutFile response-object handling — 2026-10-26
+
+The byte-preserving fix was tightened after checking Microsoft’s PowerShell documentation. With `Invoke-WebRequest -OutFile`, response content is written to disk rather than returned to the pipeline, unless `-PassThru` is used. The workflow does not need the response body object; therefore it now pipes the successful request to `Out-Null` and records HTTP 200 only after the request returns without throwing. HTTP failures continue through `catch`, where the actual status code is collected. The downloaded file is then passed to the PyPI attestation verifier unchanged.
+
+This is covered by a new contract assertion. It avoids a null response-object status check and preserves the raw provenance JSON bytes. Source: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/invoke-webrequest?view=powershell-7.
