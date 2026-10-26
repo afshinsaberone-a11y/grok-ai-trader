@@ -200,7 +200,7 @@ jobs:
             $checkPython = Join-Path $checkVenv 'Scripts\python.exe'
             $checkWheelhouse = Join-Path $env:RUNNER_TEMP ('forexai-' + $toolLock.environment + '-wheels-' + [Guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $checkWheelhouse -ErrorAction Stop | Out-Null
-            & $checkPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse $toolLock.path
+            & $checkPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path
             if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_BINARY_DOWNLOAD_FAILED' }
             & $checkPython -m pip install --disable-pip-version-check --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $toolLock.path
             if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED' }
