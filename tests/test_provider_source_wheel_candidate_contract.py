@@ -1,4 +1,5 @@
 import ast
+import hashlib
 import re
 from pathlib import Path
 
@@ -157,6 +158,12 @@ def test_source_build_tool_closure_is_hash_locked_and_manifest_binds_exact_lock(
     hashes = re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)
     assert len(hashes) == len(expected)
     assert all(len(value) == 64 for value in hashes)
+
+    # Path.read_text normalizes CRLF on Windows. The manifest digest must bind
+    # this canonical LF text, not the autocrlf-dependent checkout bytes.
+    canonical_lock_sha256 = hashlib.sha256(lock_text.encode("utf-8")).hexdigest()
+    assert canonical_lock_sha256 == "ae89bd1115956b39f8436b4d2488422511fc0c396cf21d904180cee34df70f1d"
+    assert 'build_tool_lock_sha256 = hashlib.sha256(build_tool_lock_text.encode("utf-8")).hexdigest()' in builder
 
     assert "requirements-provider-source-build-tools.lock.txt" in workflow
     assert "--require-hashes --only-binary=:all: -r $buildToolsLock" in workflow
