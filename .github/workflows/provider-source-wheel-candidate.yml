@@ -13,7 +13,10 @@ on:
       - tools/build_provider_source_wheel_candidate_v1.py
       - tools/assemble_provider_offline_wheelhouse_v1.py
       - tests/test_provider_source_wheel_candidate_contract.py
+      - tests/test_compact_provider_target_lock_v1.py
+      - tools/compact_provider_target_lock_v1.py
       - requirements-provider-source-build-tools.lock.txt
+      - requirements-provider-lock-compiler.lock.txt
       - requirements-provider-lock-compiler.in
       - requirements-provider-pypi-verifier.in
 
@@ -144,8 +147,12 @@ jobs:
           $lockPython = Join-Path $lockVenv 'Scripts\python.exe'
           # This is an untrusted candidate-generation bootstrap, not a production toolchain.
           # The lock candidates it emits must be independently reviewed before adoption.
-          & $lockPython -m pip install --disable-pip-version-check --only-binary=:all: 'pip-tools==7.6.1'
-          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_INSTALL_FAILED' }
+          $compilerLock = Join-Path $env:GITHUB_WORKSPACE 'requirements-provider-lock-compiler.lock.txt'
+          if (-not (Test-Path -LiteralPath $compilerLock -PathType Leaf)) {
+            throw 'SOURCE_LOCK_COMPILER_HASH_LOCK_MISSING'
+          }
+          & $lockPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $compilerLock
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_HASH_LOCK_INSTALL_FAILED' }
           & $lockPython -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_DEPENDENCY_CHECK_FAILED' }
           $compilerBootstrapFreeze = @(& $lockPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
@@ -209,8 +216,23 @@ jobs:
             New-Item -ItemType Directory -Path $checkWheelhouse -ErrorAction Stop | Out-Null
             & $checkPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path
             if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_BINARY_DOWNLOAD_FAILED' }
-            & $checkPython -m pip install --disable-pip-version-check --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $toolLock.path
-            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED' }
+
+            # Bind the lock to the exact wheel bytes selected for the fixed
+            # windows-2022 / Python 3.13 target. This removes unrelated platform
+            # hashes while preserving strict byte verification for every pin.
+            $targetLockPath = Join-Path $toolCandidateRoot ($toolLock.environment + '.windows-py313.lock.txt')
+            & $checkPython tools/compact_provider_target_lock_v1.py --lock $toolLock.path --wheelhouse $checkWheelhouse --output $targetLockPath
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_COMPACTION_FAILED' }
+            $targetLockText = Get-Content -LiteralPath $targetLockPath -Raw
+            $targetPins = [regex]::Matches($targetLockText, '(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==')
+            $targetHashes = [regex]::Matches($targetLockText, '--hash=sha256:[0-9a-fA-F]{64}')
+            if ($targetPins.Count -ne $pins.Count -or $targetHashes.Count -ne $pins.Count) {
+              throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_PIN_OR_HASH_VALIDATION_FAILED'
+            }
+            & $checkPython -m pip install --disable-pip-version-check --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $targetLockPath
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_OFFLINE_INSTALL_FAILED' }
+            & $checkPython -m pip check
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_DEPENDENCY_CHECK_FAILED' }
             if ($toolLock.environment -eq 'lock-compiler') {
               & $checkPython -c "import importlib.metadata; print('PIP_TOOLS=' + importlib.metadata.version('pip-tools'))"
             }
@@ -222,10 +244,13 @@ jobs:
             $toolCandidateRecords += [PSCustomObject]@{
               environment = $toolLock.environment
               top_level_pin = ($toolLock.requiredPackage + '==' + $toolLock.requiredVersion)
-              lock_file = [IO.Path]::GetFileName($toolLock.path)
-              raw_sha256 = (Get-FileHash -LiteralPath $toolLock.path -Algorithm SHA256).Hash.ToLowerInvariant()
-              pinned_requirement_count = $pins.Count
-              sha256_hash_count = $hashes.Count
+              lock_file = [IO.Path]::GetFileName($targetLockPath)
+              raw_sha256 = (Get-FileHash -LiteralPath $targetLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+              source_full_lock_file = [IO.Path]::GetFileName($toolLock.path)
+              source_full_lock_sha256 = (Get-FileHash -LiteralPath $toolLock.path -Algorithm SHA256).Hash.ToLowerInvariant()
+              pinned_requirement_count = $targetPins.Count
+              sha256_hash_count = $targetHashes.Count
+              target = 'windows-2022-python-3.13'
               offline_binary_only_install = 'PASS'
               production_approved = $false
             }
@@ -340,7 +365,7 @@ jobs:
           $repo = $env:GITHUB_REPOSITORY
           $lockRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build\tool-lock-candidates'
           $locks = @(Get-ChildItem -LiteralPath $lockRoot -Filter '*.lock.txt' -File)
-          if ($locks.Count -ne 2) { throw 'HELPER_TOOL_LOCK_CANDIDATE_COUNT_MISMATCH' }
+          if ($locks.Count -ne 4) { throw 'HELPER_TOOL_LOCK_CANDIDATE_COUNT_MISMATCH' }
           foreach ($lock in $locks) {
             $verification = & gh attestation verify $lock.FullName --repo $repo --predicate-type 'https://forexai.grok-ai-trader.dev/attestations/provider-helper-tool-lock-candidates/v1' --format json 2>&1 | Out-String
             if ($LASTEXITCODE -ne 0) {
