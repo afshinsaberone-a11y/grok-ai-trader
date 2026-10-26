@@ -155,3 +155,10 @@ The report distinguishes:
 The report is uploaded before the final enforcement step so failure evidence remains inspectable. Missing provenance remains a hard block. A cryptographically valid attestation proves a publisher identity and artifact digest, not that the project or source code is inherently trustworthy; human review of the source identity remains a separate gate. The verifier is pinned to an exact package version in this CI workflow but is not part of the Provider runtime lock.
 
 The expected next result for the current candidate is still `BLOCKED_PROVENANCE_MISSING` for the previously observed no-provenance wheel files. This workflow change improves the quality of the evidence for the attested files; it does not authorize the existing Lock candidate, change the immutable bootstrap SHA, install the service, or grant Demo/Live permission.
+
+
+## Verifier CLI entry-point fix — 2026-10-26
+
+The first execution of the new cryptographic-verification stage installed `pypi-attestations==0.0.30` successfully, but stopped before checking any wheel because the workflow assumed a console-script filename that was not present on Windows. See [candidate run 40299818123](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40299818123); the failed step was `LOCK_ATTESTATION_VERIFIER_CLI_NOT_FOUND`. Therefore that run produced **no cryptographic provenance verdict** and must not be cited as a provenance pass or missing-provenance verdict.
+
+The correction reads the installed package's console-script entry points via `importlib.metadata`, accepts only the known PyPI attestation CLI names, and then verifies the resolved executable exists before invoking it. The contract test checks this behavior. A new final-head run is required to validate the correction and to produce a complete signed-attestation report. Until that run completes, the candidate remains blocked and the bootstrap must not run.
