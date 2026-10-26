@@ -53,6 +53,26 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "TEST_PACKAGE_SET=" in workflow
     assert "LOCK_CANDIDATES_ARE_NOT_APPROVED_FOR_BOOTSTRAP=true" in workflow
 
+    # Inspect the exact wheels the target runner would install and require
+    # provenance metadata to exist. This is deliberately only a presence check:
+    # cryptographic attestation verification and human source review stay separate.
+    assert "Audit PyPI provenance presence for target-compatible wheels" in workflow
+    assert "https://pypi.org/integrity/" in workflow
+    assert "application/vnd.pypi.integrity.v1+json" in workflow
+    assert "LOCK_PROVENANCE_WHEEL_DOWNLOAD_FAILED" in workflow
+    assert "LOCK_PROVENANCE_WHEEL_INVENTORY_EMPTY" in workflow
+    assert "BLOCKED_PROVENANCE_MISSING" in workflow
+    assert "BLOCKED_LOOKUP_ERROR" in workflow
+    assert "DEPENDENCY_PROVENANCE_GATE_BLOCKED" in workflow
+    assert "PYPI_PROVENANCE_PRESENCE_PASS_NOT_CRYPTOGRAPHIC_APPROVAL=true" in workflow
+    assert "provenance-presence-report.json" in workflow
+    assert workflow.index("Audit PyPI provenance presence for target-compatible wheels") < workflow.index(
+        "Upload both candidates and provenance report for explicit review"
+    )
+    assert workflow.index("Upload both candidates and provenance report for explicit review") < workflow.index(
+        "Enforce PyPI provenance-presence gate"
+    )
+
 def test_provider_runtime_and_test_locks_are_separated_from_research_dependencies():
     root = Path(__file__).resolve().parents[1]
     runtime_input = (root / "requirements-provider-lock.in").read_text(encoding="utf-8")
