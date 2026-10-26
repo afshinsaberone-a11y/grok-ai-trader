@@ -45,3 +45,30 @@ PR #331 هنوز باز و ادغام‌نشده و تعداد reviewهای مس
 
 ## گام بعدی
 بازبینی مستقل منابع بدون امضا و provenance ابزارهای کمکی، سپس تمرین نصب در مقصد جداگانهٔ Windows Server 2022. بعد از هر ادغام، زنجیرهٔ G13 باید به SHA دقیق `main` جدید متصل و دوباره تولید شود. تا عبور از این موانع، Bootstrap تولیدی نباید اجرا شود.
+
+
+## تکمیل گیت محتوای منبع و اجرای نامزد — ۲۶ اکتبر ۲۰۲۶
+
+برای سه commit بالادستی بدون امضای تأییدشده، کنترل صرفاً مبتنی بر اسم فایل کافی نبود؛ بنابراین builder اکنون هم مجموعهٔ دقیق مسیرها و هم blob SHA و SHA-256 patch هر فایل را کنترل می‌کند. نخستین CI به‌درستی با خطای `UNSIGNED_UPSTREAM_FILE_PATCH_MISMATCH` متوقف شد، چون محتوای patch در GitHub شامل سطرهای context تک‌فاصله‌ای بود که در digest اولیه لحاظ نشده بود. digestها و fixture آزمون با patch واقعی API اصلاح شد؛ گیت تضعیف یا دور زده نشد.
+
+### نتیجه روی SHA دقیق `251f23dbf373ba4e3dab67321ff580e29939b8a5`
+
+- [Provider Source-built Wheel Candidate](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40331240348) — موفق.
+- [آزمون‌ها و parser PowerShell](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40331240313) — موفق؛ `real-data-smoke` به‌علت manual-only بودن skipped.
+- [G13 static validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40331240462) — موفق.
+- [Project Repair Loop](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40331240330) — موفق.
+
+Artifact جدید:
+- Artifact ID: `12654868446`
+- نام: `provider-source-built-wheels-251f23dbf373ba4e3dab67321ff580e29939b8a5`
+- SHA-256 مستقل ZIP: `0a1f4d0e4db36833986b266630f2f8ea3401a80de05c822d7ca2d28fb33715c6`
+- بازبینی محلی ZIP: ۴/۴ wheel منبع و ۹/۹ wheel مجموعهٔ آفلاین با manifest تطابق hash داشتند؛ ۴/۴ هش manifest/Lock متصل به wheelhouse تطبیق داشتند؛ پنج wheel عادی PyPI به‌طور رمزنگاری‌شده با repository ناشر مورد انتظار تأیید شدند.
+- Lock runtime نامزد: `a6d6f6e3f35dc93c8152b6383d7241ac19eaf37fd1bb29826bf1cf52349e46f5`
+- Lock test نامزد: `a75d2edc26104a93ded2caa5690869ae04ad3e595bd5127d9c90291eca7a96c3`
+- نصب آفلاین با `--no-index --find-links --require-hashes --only-binary=:all:` و چهار suite قرارداد Provider موفق شدند؛ attestationهای GitHub برای wheelhouse و Lockهای کمکی نیز تأیید شدند.
+
+### تصمیم و موانع باقیمانده
+
+این مرحله **ساخت/آزمون نامزد موفق** است، نه تأیید تولید. Artifact و manifestها هر دو صریحاً `production_approved=false` و `bootstrap_approved=false` دارند. commitهای `pycparser`، `colorama` و `Pygments` همچنان امضای بالادستی تأییدشده ندارند؛ pin کردن patch/blob هویت امضا را جایگزین نمی‌کند. wheel ابزار ساخت `setuptools==80.9.0` نیز provenance منتشرشدهٔ PyPI ندارد و نیازمند بررسی مستقل مدل build است. تمرین نصب در مقصد جداگانهٔ Windows Server 2022 و تأیید بازبین انسانی مستقل همچنان لازم است.
+
+PR #331 روی شاخهٔ فوق باز و ادغام‌نشده است؛ تعداد review مستقل ثبت‌شده ۰ است. main همچنان `41883f30d32747d07d7b7772f8ee7c656a95e4a1` است. این تغییر هیچ کلید/Trust Anchor، سرویس، رجیستری، Grant یا مجوز معاملاتی را عوض نکرده است؛ Demo غیرمجاز، Live غیرفعال و ارسال سفارش خاموش می‌ماند.
