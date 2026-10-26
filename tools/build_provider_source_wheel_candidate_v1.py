@@ -65,6 +65,17 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
 
 MANIFEST_SCHEMA = "forexai.provider_source_built_wheel_candidate.v1"
 CANDIDATE_ONLY_STATUS = "SOURCE_BUILD_CANDIDATE_NOT_APPROVED"
+BUILD_TOOL_LOCK_FILENAME = "requirements-provider-source-build-tools.lock.txt"
+EXPECTED_BUILD_TOOL_PINS = {
+    "hatchling": "1.27.0",
+    "packaging": "26.3",
+    "pathspec": "1.1.1",
+    "pip": "26.2.2",
+    "pluggy": "1.7.0",
+    "setuptools": "80.9.0",
+    "trove-classifiers": "2026.9.21.13",
+    "wheel": "0.45.1",
+}
 
 
 def run(command: list[str], *, cwd: Path | None = None) -> str:
@@ -187,12 +198,36 @@ def main() -> int:
     if output_root.exists():
         raise RuntimeError("OUTPUT_ROOT_ALREADY_EXISTS_INSPECT_BEFORE_RETRY")
 
+    build_tool_lock = workspace / BUILD_TOOL_LOCK_FILENAME
+    if not build_tool_lock.is_file():
+        raise RuntimeError("SOURCE_BUILD_TOOL_LOCK_MISSING")
+    build_tool_lock_text = build_tool_lock.read_text(encoding="utf-8")
+    lock_pins = {
+        re.sub(r"[-_.]+", "-", name).lower(): version
+        for name, version in re.findall(
+            r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\\s\\\\]+)\\s*\\\\?\\s*$",
+            build_tool_lock_text,
+        )
+    }
+    if lock_pins != EXPECTED_BUILD_TOOL_PINS:
+        raise RuntimeError("SOURCE_BUILD_TOOL_LOCK_PINS_MISMATCH")
+    lock_hash_count = len(re.findall(r"--hash=sha256:[0-9a-f]{64}", build_tool_lock_text))
+    if lock_hash_count != len(EXPECTED_BUILD_TOOL_PINS):
+        raise RuntimeError("SOURCE_BUILD_TOOL_LOCK_HASH_COUNT_MISMATCH")
+    build_tool_lock_sha256 = sha256_file(build_tool_lock)
+
+    build_tool_freeze = run([str(builder_python), "-m", "pip", "freeze", "--all"])
+    actual_build_tool_pins = sorted(line.strip() for line in build_tool_freeze.splitlines() if line.strip())
+    expected_build_tool_freeze = sorted(
+        f"{name}=={version}" for name, version in EXPECTED_BUILD_TOOL_PINS.items()
+    )
+    if actual_build_tool_pins != expected_build_tool_freeze:
+        raise RuntimeError("SOURCE_BUILD_TOOL_FREEZE_MISMATCH")
+
     source_root = output_root / "sources"
     wheel_root = output_root / "wheels"
     source_root.mkdir(parents=True, exist_ok=False)
     wheel_root.mkdir(parents=True, exist_ok=False)
-
-    build_tool_freeze = run([str(builder_python), "-m", "pip", "freeze", "--all"])
     wheel_records: list[dict[str, Any]] = []
     unsigned_sources: list[str] = []
 
@@ -257,7 +292,11 @@ def main() -> int:
                 "hatchling": "1.27.0",
             },
             "pip_freeze_all": build_tool_freeze.splitlines(),
-            "transitive_build_tool_dependencies_hash_locked": False,
+            "lockfile": BUILD_TOOL_LOCK_FILENAME,
+            "lockfile_sha256": build_tool_lock_sha256,
+            "locked_package_pins": dict(sorted(EXPECTED_BUILD_TOOL_PINS.items())),
+            "transitive_build_tool_dependencies_hash_locked": True,
+            "packages_without_verified_pypi_provenance": ["setuptools==80.9.0"],
             "review_required": True,
         },
         "upstream_sources_with_unverified_commit_signatures": unsigned_sources,
