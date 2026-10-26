@@ -251,14 +251,20 @@ try {
     # complete hash lock. The lock is intentionally not synthesized during an
     # elevated bootstrap; lock generation/review happens as a separate workflow.
     $providerLockPath = Join-Path $sourceRoot 'requirements-provider.lock.txt'
+    $providerTestLockPath = Join-Path $sourceRoot 'requirements-provider-test.lock.txt'
     if (-not (Test-Path -LiteralPath $providerLockPath -PathType Leaf)) {
         throw 'HASH_LOCKED_PROVIDER_REQUIREMENTS_MISSING'
     }
-    $providerLockContent = Get-Content -LiteralPath $providerLockPath -Raw
-    if ([string]::IsNullOrWhiteSpace($providerLockContent) -or
-        $providerLockContent -notmatch '(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==[^\s\\]+' -or
-        $providerLockContent -notmatch '(?m)--hash=sha256:[0-9a-fA-F]{64}') {
-        throw 'HASH_LOCKED_PROVIDER_REQUIREMENTS_INVALID'
+    if (-not (Test-Path -LiteralPath $providerTestLockPath -PathType Leaf)) {
+        throw 'HASH_LOCKED_PROVIDER_TEST_REQUIREMENTS_MISSING'
+    }
+    foreach ($lockPath in @($providerLockPath, $providerTestLockPath)) {
+        $lockContent = Get-Content -LiteralPath $lockPath -Raw
+        if ([string]::IsNullOrWhiteSpace($lockContent) -or
+            $lockContent -notmatch '(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==[^\s\\]+' -or
+            $lockContent -notmatch '(?m)--hash=sha256:[0-9a-fA-F]{64}') {
+            throw 'HASH_LOCKED_PROVIDER_REQUIREMENTS_INVALID'
+        }
     }
 
     & $pythonExe -m venv $venvRoot
@@ -276,9 +282,32 @@ try {
         throw 'PROJECT_HASH_LOCKED_DEPENDENCY_INSTALL_FAILED'
     }
 
-    & $venvPython -c "import cryptography, pytest; print('PROVIDER_RUNTIME_DEPENDENCIES=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
+    & $venvPython -c "import cryptography; print('PROVIDER_RUNTIME_DEPENDENCIES=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
     if ($LASTEXITCODE -ne 0) {
         throw 'PROJECT_DEPENDENCY_IMPORT_FAILED'
+    }
+
+    # Test tools live in a separate protected venv and are removed after use.
+    # They must not be left in the Provider service runtime environment.
+    $providerTestVenvRoot = Join-Path $workRoot 'provider-contract-test-venv'
+    if (Test-Path -LiteralPath $providerTestVenvRoot) {
+        throw 'PROVIDER_TEST_VENV_ALREADY_EXISTS'
+    }
+    & $pythonExe -m venv $providerTestVenvRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw 'PROVIDER_TEST_VENV_CREATION_FAILED'
+    }
+    $providerTestPython = Join-Path $providerTestVenvRoot 'Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $providerTestPython -PathType Leaf)) {
+        throw 'PROVIDER_TEST_VENV_PYTHON_NOT_FOUND'
+    }
+    & $providerTestPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $providerTestLockPath
+    if ($LASTEXITCODE -ne 0) {
+        throw 'PROVIDER_TEST_HASH_LOCKED_DEPENDENCY_INSTALL_FAILED'
+    }
+    & $providerTestPython -c "import cryptography, pytest; print('PROVIDER_TEST_DEPENDENCIES=PASS')"
+    if ($LASTEXITCODE -ne 0) {
+        throw 'PROVIDER_TEST_DEPENDENCY_IMPORT_FAILED'
     }
 
     $focusedTests = @(
@@ -288,9 +317,14 @@ try {
         'tests/test_control_plane_service_v1.py'
     )
     $testPaths = $focusedTests | ForEach-Object { Join-Path $sourceRoot $_ }
-    & $venvPython -m pytest -q -p no:cacheprovider $testPaths
+    & $providerTestPython -m pytest -q -p no:cacheprovider $testPaths
     if ($LASTEXITCODE -ne 0) {
         throw 'FOCUSED_PROVIDER_CONTRACT_TESTS_FAILED'
+    }
+
+    Remove-Item -LiteralPath $providerTestVenvRoot -Recurse -Force
+    if (Test-Path -LiteralPath $providerTestVenvRoot) {
+        throw 'PROVIDER_TEST_VENV_CLEANUP_FAILED'
     }
 
     $report = [ordered]@{
@@ -304,6 +338,7 @@ try {
         repository_url = $repositoryUrl
         source_commit = $actualCommit
         dependency_lock_sha256 = (Get-FileHash -LiteralPath $providerLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        test_dependency_lock_sha256 = (Get-FileHash -LiteralPath $providerTestLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
         provider_root = $ProviderRoot
         source_directory_created = $true
         virtual_environment_created = $true
