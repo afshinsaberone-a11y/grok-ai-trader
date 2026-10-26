@@ -73,3 +73,17 @@ Do **not** widen the strategy/backtesting version range as a quick workaround: b
 It no longer includes `requirements.txt`, numpy, pandas, backtesting, or openai-agents. The bootstrap and candidate workflow runtime import checks were reduced accordingly, while the focused four-file Provider test set remains. This separates the authority service from the project's research/backtesting dependency tree and avoids changing the strategy dependency policy.
 
 The minimal lock is **not yet generated/approved**. The updated candidate workflow must successfully compile it, install it with hashes and binary-only enforcement on the Windows Python 3.13 runner, verify imports and pass all four Provider contract modules. That is still a hosted-runner rehearsal; the separate disposable Windows Server 2022 installation and independent review remain mandatory. Do not update the immutable Bootstrap source SHA until a reviewed lock-containing commit has been merged.
+
+
+## Final design refinement — separate runtime and test lockfiles (2026-10-26)
+
+The minimal Provider dependency inputs are now split into two independently hash-locked closures:
+
+- `requirements-provider-lock.in`: production Provider runtime; only `cryptography>=42,<52`.
+- `requirements-provider-test-lock.in`: test-only environment; includes the runtime input plus `pytest>=8,<9`.
+
+The candidate workflow compiles both lockfiles and verifies each with `--require-hashes --only-binary=:all:` in separate fresh Windows Python 3.13 virtual environments. It imports `cryptography` in the production runtime, imports `cryptography` + `pytest` in the test environment, runs the four focused Provider contract-test files using that test environment, records hashes/counts for both candidates, and uploads both only after these checks pass.
+
+The elevated Bootstrap mirrors that split: production dependencies are installed only in the durable Provider venv; test dependencies are installed in a separate venv below the protected temporary work root and that test venv is deleted after the focused tests pass. Its report records hashes for both lockfiles. This prevents pytest from becoming a runtime dependency of the authority service.
+
+Neither lockfile has been generated from the latest split inputs and independently approved yet. Do not infer success from the older, single-lock artifact. The current scoped candidate workflow and the matching CI checks must finish on the latest source revision; then inspect both files and run an independent disposable Windows Server 2022 install rehearsal. Only after independent review and merge may the source SHA pin be updated in its own reviewed change. All trading authorization stays fail-closed.
