@@ -1,0 +1,2 @@
+# Ephemeral helper environment for generating reviewed hash-lock candidates.
+pip-tools==7.6.1
