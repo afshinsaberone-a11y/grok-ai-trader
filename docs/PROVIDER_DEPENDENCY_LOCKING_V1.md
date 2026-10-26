@@ -557,3 +557,46 @@ Independent artifact inspection confirmed:
 The wheelhouse and source build manifests deliberately retain `production_approved=false` and `bootstrap_approved=false`. The four wheelhouse candidates built from source are `cffi==2.1.1`, `colorama==0.4.6`, `pycparser==3.12`, and `pygments==2.21.0`. Only cffi's source commit is GitHub-signature-verified in that group; the `colorama`, `pycparser`, and `pygments` source commits remain unsigned/unverified, and their exact patch/changed-file allowlists do not replace independent source review. cffi's upstream release tag is lightweight and has no independent tag signature, although its commit signature verifies. The source-build attestation proves what this CI built and uploaded; it does not convert unsigned upstream source into signed upstream source.
 
 No accepted production dependency lock or pinned main SHA changed. PR #331 remains open/unmerged; the Provider host was not bootstrapped, no service or production registry was created, no trust anchor/key was activated, no Grant was issued, Demo remains unauthorized, Live remains disabled, and no orders were submitted. Independent Signal/Risk/Operator/Promotion source services and their custody/registry evidence remain a separate production authorization blocker.
+
+
+## Verification update — signed-source compiler bootstrap and passing Windows candidate run (2026-10-26)
+
+The candidate workflow was corrected for a Windows-only line-ending issue in the new lock-override unit-test fixture. The source-override helper's exact-byte validation was not weakened; the fixture now writes its generated one-line lock with explicit LF newlines, matching the source bootstrap utility's canonical output.
+
+### CI evidence on head `2b0f9150b5784dce506f7548ebf455b204e38637`
+
+- Integrated Provider source-wheel workflow: [run 40388713566](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40388713566) — **success**.
+- Repository tests: [run 40388713671](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40388713671) — success.
+- G13 workflow lint: [run 40388713393](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40388713393) — success.
+- Agent Runtime: [run 40388711034](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40388711034) — success.
+- Project Repair Loop: [run 40388713353](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40388713353) — success.
+- Focused Provider offline contract tests inside the integrated candidate workflow: **80 passed**.
+- Offline runtime/test overlay installation, PyPI provenance verification, all 9 final wheelhouse attestations, and all 4 helper-lock candidate attestations: **PASS**.
+
+### Signed-source compiler bootstrap correction
+
+The compiler's input file `requirements-provider-lock-compiler.lock.txt` still records the pre-existing exact package closure, including the PyPI `setuptools==84.2.1` source pin. The workflow no longer installs that setuptools wheel. It now:
+
+1. Builds `setuptools==80.9.0` from the fixed `pypa/setuptools` commit `9c4d383631d3951fcae0afd73b5d08ff5a262976` and annotated tag `v80.9.0`; GitHub reports valid signatures for both the commit and tag.
+2. Verifies the source-built wheel's GitHub attestation and its digest-bound install lock.
+3. Generates a compiler download lock that **omits setuptools**, and an install lock that pins the source-built wheel's exact SHA-256.
+4. Installs this lock from an isolated local wheelhouse, using `--no-index --require-hashes --only-binary=:all: --no-deps`; `pip check` and the exact 9-package environment inventory pass.
+5. During helper candidate testing, replaces the downloaded PyPI setuptools wheel with the exact source-built wheel before producing the compact Windows/Python 3.13 lock. The report records `PASS_SIGNED_SOURCE_WHEEL_REPLACED_PYPI_WHEEL` and the matching SHA-256.
+
+The lock-override unit tests now pass on Windows; the implementation still fails closed on a wrong source pin, wheel digest, source identity/signature status, or generated install lock.
+
+### Independently downloaded review artifact
+
+- Name: `provider-source-built-wheels-2b0f9150b5784dce506f7548ebf455b204e38637`
+- Artifact ID: `12681099090`
+- SHA-256 declared by GitHub and independently recomputed after download: `d4c6f738e71ad612a356c78b329d5383dba82d8502e333f8d81aba988a1a3df5`.
+- ZIP integrity test: PASS (41 files).
+- Independent manifest checks: setuptools wheel digest and generated one-line lock match; compiler download lock contains no setuptools pin; compiler install lock pins `setuptools==80.9.0` to that source-built wheel hash; helper candidate rows and lock digests match their report; all 9 wheelhouse file digests match the wheelhouse manifest.
+- Helper candidate locks: compiler `9/9` exact pins/hashes and verifier `34/34` exact pins/hashes. The signed-source compiler override report and both target locks remain `production_approved=false` and `bootstrap_approved=false`.
+- Wheelhouse publisher provenance was cryptographically verified for **5 of 9** wheelhouse wheels. The four source-built candidates are cffi 2.1.1, colorama 0.4.6, pycparser 3.12, and Pygments 2.21.0.
+
+### Production boundary remains fail-closed
+
+This closes the identified unhashed-helper-install and PyPI-setuptools-bootstrap gaps for the candidate workflow; it does **not** approve the artifact for bootstrap or production. The upstream commits for colorama, pycparser, and Pygments remain unsigned/unverified; cffi's commit signature verifies, but its lightweight release tag has no independent tag signature. A GitHub CI attestation records what CI built and uploaded—it does not turn unsigned upstream source into signed source.
+
+No accepted production lock or `main` SHA was changed. PR #331 remains open and unmerged. No Provider service or production registry was activated, no authority trust anchor was rotated, and no Grant was issued. The separate independent Promotion, Signal, Risk, and Operator source-service/key-custody/registry blockers remain. Demo stays unauthorized, Live stays disabled, and no orders were submitted.
