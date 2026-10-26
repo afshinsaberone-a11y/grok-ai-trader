@@ -151,7 +151,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $compilerLock -PathType Leaf)) {
             throw 'SOURCE_LOCK_COMPILER_HASH_LOCK_MISSING'
           }
-          & $lockPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $compilerLock
+          & $lockPython -m pip install --disable-pip-version-check --force-reinstall --require-hashes --only-binary=:all: -r $compilerLock
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_HASH_LOCK_INSTALL_FAILED' }
           & $lockPython -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_DEPENDENCY_CHECK_FAILED' }
@@ -221,7 +221,7 @@ jobs:
             # windows-2022 / Python 3.13 target. This removes unrelated platform
             # hashes while preserving strict byte verification for every pin.
             $targetLockPath = Join-Path $toolCandidateRoot ($toolLock.environment + '.windows-py313.lock.txt')
-            & $checkPython tools/compact_provider_target_lock_v1.py --lock $toolLock.path --wheelhouse $checkWheelhouse --output $targetLockPath
+            & $lockPython tools/compact_provider_target_lock_v1.py --lock $toolLock.path --wheelhouse $checkWheelhouse --output $targetLockPath
             if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_COMPACTION_FAILED' }
             $targetLockText = Get-Content -LiteralPath $targetLockPath -Raw
             $targetPins = [regex]::Matches($targetLockText, '(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==')
@@ -229,7 +229,7 @@ jobs:
             if ($targetPins.Count -ne $pins.Count -or $targetHashes.Count -ne $pins.Count) {
               throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_PIN_OR_HASH_VALIDATION_FAILED'
             }
-            & $checkPython -m pip install --disable-pip-version-check --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $targetLockPath
+            & $checkPython -m pip install --disable-pip-version-check --force-reinstall --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $targetLockPath
             if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED' }
             & $checkPython -m pip check
             if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TARGET_LOCK_DEPENDENCY_CHECK_FAILED' }
