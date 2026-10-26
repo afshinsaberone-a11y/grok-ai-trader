@@ -229,9 +229,13 @@ def main() -> int:
     # Run the source tree's setup.py directly. PEP 517's prepare_metadata_for_build_wheel
     # invokes dist_info, which depends on installed distribution entry-point metadata and
     # is not available until setuptools has been built and installed.
+    # The signed upstream checkout deliberately configures egg_info to append
+    # ".postYYYYMMDD" for development snapshots. Override only those two metadata
+    # flags so the output represents the pinned release version 80.9.0 exactly.
     run([
-        str(builder_python), "setup.py", "bdist_wheel",
-        "--dist-dir", str(wheel_dir),
+        str(builder_python), "setup.py",
+        "egg_info", "--tag-build=", "--tag-date=0",
+        "bdist_wheel", "--dist-dir", str(wheel_dir),
     ], cwd=source_dir)
 
     wheels = sorted(wheel_dir.glob("*.whl"))
