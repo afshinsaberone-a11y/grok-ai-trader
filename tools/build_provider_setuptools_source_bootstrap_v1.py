@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -162,6 +163,61 @@ def wheel_metadata(path: Path) -> tuple[str, str]:
     return canonical_name, version
 
 
+def prepare_release_build_tree(source_dir: Path, build_source_dir: Path) -> dict[str, Any]:
+    """Copy the verified checkout and remove only its dev-version egg_info overrides.
+
+    The upstream setup.cfg intentionally labels a source checkout as a development
+    snapshot. We preserve the signed checkout unchanged, copy it to an isolated build
+    directory, require the exact expected config, and remove only that config file's
+    three-line egg_info section in the copy. The exact input/output/diff hashes are
+    recorded in the manifest so the release-version override is auditable.
+    """
+    if build_source_dir.exists():
+        raise RuntimeError("SETUPTOOLS_BUILD_SOURCE_DESTINATION_ALREADY_EXISTS")
+    source_config = source_dir / "setup.cfg"
+    if not source_config.is_file():
+        raise RuntimeError("SETUPTOOLS_SOURCE_SETUP_CFG_MISSING")
+    original_text = source_config.read_text(encoding="utf-8")
+    canonical_original = original_text.replace("\r\n", "\n").replace("\r", "\n")
+    expected_text = "[egg_info]\ntag_build = .post\ntag_date = 1\n"
+    if canonical_original != expected_text:
+        raise RuntimeError("SETUPTOOLS_SOURCE_SETUP_CFG_CONTENT_MISMATCH")
+
+    shutil.copytree(source_dir, build_source_dir, ignore=shutil.ignore_patterns(".git"))
+    copied_config = build_source_dir / "setup.cfg"
+    if not copied_config.is_file():
+        raise RuntimeError("SETUPTOOLS_BUILD_SETUP_CFG_MISSING")
+    copied_text = copied_config.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    if copied_text != expected_text:
+        raise RuntimeError("SETUPTOOLS_BUILD_SETUP_CFG_SOURCE_COPY_MISMATCH")
+
+    # Leave an empty setup.cfg rather than accidentally introducing ambient options.
+    copied_config.write_text("", encoding="utf-8", newline="\n")
+    modified_text = copied_config.read_text(encoding="utf-8")
+    if modified_text != "":
+        raise RuntimeError("SETUPTOOLS_BUILD_SETUP_CFG_OVERRIDE_MISMATCH")
+
+    diff = (
+        "--- setup.cfg (signed upstream checkout)\n"
+        "+++ setup.cfg (isolated release-wheel build copy)\n"
+        "@@ -1,3 +0,0 @@\n"
+        "-[egg_info]\n"
+        "-tag_build = .post\n"
+        "-tag_date = 1\n"
+    )
+    return {
+        "path": "setup.cfg",
+        "purpose": "Remove only upstream development-snapshot suffix settings so the wheel version is exactly the pinned release.",
+        "original_normalized_text_sha256": sha256_bytes(canonical_original.encode("utf-8")),
+        "modified_normalized_text_sha256": sha256_bytes(modified_text.encode("utf-8")),
+        "override_diff_sha256": sha256_bytes(diff.encode("utf-8")),
+        "original_configuration_lines": ["[egg_info]", "tag_build = .post", "tag_date = 1"],
+        "modified_configuration_is_empty": True,
+        "signed_source_checkout_is_left_unmodified": True,
+        "git_metadata_copied_to_build_tree": False,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", required=True, type=Path)
@@ -226,17 +282,15 @@ def main() -> int:
         str(builder_python), "-c",
         "import importlib.metadata; print(importlib.metadata.version('wheel'))",
     ])
-    # Run the source tree's setup.py directly. PEP 517's prepare_metadata_for_build_wheel
-    # invokes dist_info, which depends on installed distribution entry-point metadata and
-    # is not available until setuptools has been built and installed.
-    # The signed upstream checkout deliberately configures egg_info to append
-    # ".postYYYYMMDD" for development snapshots. Override only those two metadata
-    # flags so the output represents the pinned release version 80.9.0 exactly.
+    build_source_dir = output_root / "build-source"
+    build_override = prepare_release_build_tree(source_dir, build_source_dir)
+    # Build from a copy of the signed source commit with only the exact audited
+    # setup.cfg development-suffix override recorded above. The verified checkout
+    # remains clean and untouched for independent source inspection.
     run([
-        str(builder_python), "setup.py",
-        "egg_info", "--tag-build=", "--tag-date=0",
-        "bdist_wheel", "--dist-dir", str(wheel_dir),
-    ], cwd=source_dir)
+        str(builder_python), "setup.py", "bdist_wheel",
+        "--dist-dir", str(wheel_dir),
+    ], cwd=build_source_dir)
 
     wheels = sorted(wheel_dir.glob("*.whl"))
     if len(wheels) != 1:
@@ -284,6 +338,9 @@ def main() -> int:
             "backend_path_policy": "Use the pinned source tree's pyproject backend-path",
             "source_checkout_commit": checked_out,
             "source_checkout_clean_before_build": True,
+            "source_checkout_left_unmodified_after_copy": run(["git", "-C", str(source_dir), "status", "--porcelain=v1"]) == "",
+            "build_source_tree_config_override": build_override,
+            "build_source_tree_path": "build-source",
         },
     }
     manifest_path = output_root / "setuptools-bootstrap-manifest.json"
@@ -293,6 +350,7 @@ def main() -> int:
     )
     print("SETUPTOOLS_SOURCE_COMMIT_SIGNATURE=PASS")
     print("SETUPTOOLS_RELEASE_TAG_SIGNATURE=PASS")
+    print("SETUPTOOLS_BUILD_CONFIG_OVERRIDE_SHA256=" + build_override["override_diff_sha256"])
     print("SETUPTOOLS_BOOTSTRAP_WHEEL=" + wheel.name)
     print("SETUPTOOLS_BOOTSTRAP_WHEEL_SHA256=" + wheel_digest)
     print("SETUPTOOLS_BOOTSTRAP_INSTALL_LOCK_SHA256=" + install_lock_digest)

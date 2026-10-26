@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import zipfile
 from pathlib import Path
@@ -86,6 +87,38 @@ def test_bootstrap_wheel_metadata_is_read_from_wheel_contents(tmp_path: Path):
     assert MODULE.wheel_metadata(wheel) == ("setuptools", "80.9.0")
 
 
+def test_release_build_tree_removes_only_the_exact_dev_suffix_config_in_copy(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+    original_config = "[egg_info]\ntag_build = .post\ntag_date = 1\n"
+    (source / "setup.cfg").write_text(original_config, encoding="utf-8")
+    (source / ".git").mkdir()
+    (source / ".git" / "sentinel").write_text("git metadata", encoding="utf-8")
+    (source / "setup.py").write_text("setup source", encoding="utf-8")
+
+    build = tmp_path / "build-source"
+    result = MODULE.prepare_release_build_tree(source, build)
+
+    assert (source / "setup.cfg").read_text(encoding="utf-8") == original_config
+    assert (build / "setup.cfg").read_text(encoding="utf-8") == ""
+    assert not (build / ".git").exists()
+    assert (build / "setup.py").read_text(encoding="utf-8") == "setup source"
+    assert result["signed_source_checkout_is_left_unmodified"] is True
+    assert result["git_metadata_copied_to_build_tree"] is False
+    assert result["modified_configuration_is_empty"] is True
+    assert result["original_normalized_text_sha256"] == hashlib.sha256(original_config.encode("utf-8")).hexdigest()
+    assert result["modified_normalized_text_sha256"] == hashlib.sha256(b"").hexdigest()
+    assert len(result["override_diff_sha256"]) == 64
+
+
+def test_release_build_tree_fails_closed_if_upstream_setup_config_differs(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "setup.cfg").write_text("[egg_info]\ntag_date = 0\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="SETUPTOOLS_SOURCE_SETUP_CFG_CONTENT_MISMATCH"):
+        MODULE.prepare_release_build_tree(source, tmp_path / "build-source")
+
+
 def test_source_bootstrap_build_is_hash_locked_and_does_not_install_pypi_setuptools():
     source = SCRIPT.read_text(encoding="utf-8")
     assert "https://github.com/pypa/setuptools.git" in source
@@ -94,6 +127,9 @@ def test_source_bootstrap_build_is_hash_locked_and_does_not_install_pypi_setupto
     assert "SETUPTOOLS_ABSENT" in source
     assert "SETUPTOOLS_COMMIT_SIGNATURE_NOT_VERIFIED" in source
     assert "SETUPTOOLS_RELEASE_TAG_SIGNATURE_NOT_VERIFIED" in source
+    assert "setup.cfg" in source
+    assert "SETUPTOOLS_SOURCE_SETUP_CFG_CONTENT_MISMATCH" in source
+    assert "build_source_tree_config_override" in source
     assert "requirements-provider-setuptools-bootstrap.lock.txt" in source
     assert "install_lock_sha256" in source
     assert '"production_approved": False' in source
