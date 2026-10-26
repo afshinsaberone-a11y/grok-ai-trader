@@ -305,6 +305,6 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     assert "--require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path" in workflow
     assert "--no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $toolLock.path" in workflow
     assert "'CANDIDATE_LOCKS_GENERATED_AND_OFFLINE_TESTED_NOT_APPROVED'" in workflow
-    assert "'production_approved' = $false" in workflow
-    assert "'bootstrap_approved' = $false" in workflow
+    assert "production_approved = $false" in workflow
+    assert "bootstrap_approved = $false" in workflow
     assert "artifacts/provider-source-build/tool-lock-candidates/*" in workflow
