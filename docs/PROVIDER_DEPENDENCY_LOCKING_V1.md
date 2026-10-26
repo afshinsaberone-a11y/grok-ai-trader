@@ -486,3 +486,35 @@ This means the candidate wheelhouse's nine wheel hashes and attestations remain 
 5. Rerun the integrated workflow and independent ZIP/hash inspection after this change.
 
 This follow-up records a newly identified gap; it does not change or invalidate the recorded success of the previous candidate rehearsal. No production lock, immutable Bootstrap SHA, key, trust anchor, service, registry or trading permission was changed. PR #331 remains unmerged and unreviewed. Grant remains unissued, Demo unauthorized, Live disabled, and no orders submitted.
+
+
+## Verification update — helper bootstrap closure and independent artifact review (2026-10-26)
+
+The helper bootstrap remediation was applied and passed the integrated candidate workflow on source commit `fc40809e769f8ba6e416d929cc4f0a76c294484b`.
+
+- Integrated Provider source-wheel candidate workflow: [run 40379652576](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40379652576) — success.
+- Repository test suite: [run 40379653691](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40379653691) — success.
+- G13 workflow lint: [run 40379653340](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40379653340) — success.
+- Agent Runtime check: [run 40379653402](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40379653402) — success.
+- Candidate artifact: `provider-source-built-wheels-fc40809e769f8ba6e416d929cc4f0a76c294484b`, artifact ID `12678571723`, ZIP SHA-256 `a4292b103e0a6e3b93428be2ac792e75cb8bee0aceb3d90660cc5d48b4668f90`. The downloaded ZIP hash matched GitHub's artifact digest; ZIP integrity test passed.
+
+### Helper-tool lock chain
+
+The workflow now uses committed, hash-pinned Windows/Python 3.13 helper lockfiles instead of exact-version-only network installs:
+- `requirements-provider-lock-compiler.lock.txt`: 9 exact pins and 9 hashes.
+- `requirements-provider-pypi-verifier.windows-py313.lock.txt`: 34 exact pins and 34 hashes.
+
+The workflow downloads each verifier wheel with `--require-hashes --only-binary=:all: --no-deps`, installs from the isolated wheelhouse using `--no-index --find-links --require-hashes --only-binary=:all:`, checks `pip check`, and requires exact installed package/version inventory from `pip freeze --all`. The same workflow checks the compiler environment against its committed 9-pin closure and records candidate helper-lock evidence. The integrated workflow passed these checks, offline runtime/test overlay installation, and focused Provider contract tests.
+
+An independent ZIP inspection established that the root helper lockfiles exactly match the newly generated target compact lock candidates. All 9 compiler-lock hashes and all 34 verifier-lock hashes are present in the freshly generated full candidate locks; the compact target-lock hashes match the newly generated Windows/Python 3.13 candidate lock files. The artifact includes GitHub attestations for all 9 wheelhouse wheels and the 4 helper lock candidate files; in-workflow attestation verification passed.
+
+### Production boundary — still blocked
+
+This success closes the specific unhashed helper-bootstrap gap, but **does not approve the wheelhouse for Provider bootstrap or production**:
+- Artifact manifests explicitly retain `production_approved=false` and `bootstrap_approved=false`.
+- PyPI provenance was cryptographically verified for 5 of 9 wheelhouse wheels. The 4 source-built candidates are cffi 2.1.1, colorama 0.4.6, pycparser 3.12, and Pygments 2.21.0.
+- The source-build manifest still identifies pycparser, colorama, and Pygments upstream source commits without verified commit signatures or signed release tags.
+- The build toolchain still pins setuptools 80.9.0, whose selected PyPI release lacks a verified PyPI provenance attestation in this workflow.
+- The candidate source-built wheels have GitHub workflow attestations, but that attests the CI build and uploaded bytes; it does not turn unsigned upstream source into signed upstream source.
+
+No accepted production lock, pinned Provider bootstrap SHA, trust anchor, authority key, Provider service, registry, Grant, Demo permission, Live permission, or order state changed. PR #331 remains open and unmerged. Do not deploy this candidate artifact. Keep Demo unauthorized, Live disabled, and orders off until the remaining source/toolchain provenance and independent authority-source blockers are resolved.
