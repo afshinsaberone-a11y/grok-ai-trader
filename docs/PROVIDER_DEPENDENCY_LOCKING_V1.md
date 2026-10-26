@@ -518,3 +518,42 @@ This success closes the specific unhashed helper-bootstrap gap, but **does not a
 - The candidate source-built wheels have GitHub workflow attestations, but that attests the CI build and uploaded bytes; it does not turn unsigned upstream source into signed upstream source.
 
 No accepted production lock, pinned Provider bootstrap SHA, trust anchor, authority key, Provider service, registry, Grant, Demo permission, Live permission, or order state changed. PR #331 remains open and unmerged. Do not deploy this candidate artifact. Keep Demo unauthorized, Live disabled, and orders off until the remaining source/toolchain provenance and independent authority-source blockers are resolved.
+
+
+## Verification update — signed-source setuptools bootstrap and full candidate CI (2026-10-26)
+
+The missing PyPI provenance for `setuptools==80.9.0` was addressed without falling back to the PyPI wheel. The candidate workflow now builds the exact upstream release from GitHub-verified signed source:
+- repository: `pypa/setuptools`
+- source commit: `9c4d383631d3951fcae0afd73b5d08ff5a262976` (GitHub signature verification: `valid`)
+- annotated tag: `v80.9.0`, tag object `ef921af5f4374a66c018304a2aa5306cb67962a0`, targets the same commit (GitHub tag signature verification: `valid`).
+
+The source checkout stays unchanged. The build uses an isolated copy and removes only upstream `setup.cfg` development-snapshot suffix settings (`tag_build = .post`, `tag_date = 1`) so the generated wheel remains the exact version `80.9.0`. The manifest captures the original normalized config SHA-256, empty replacement config SHA-256, and override-diff SHA-256. The resulting wheel is bound to an exact generated SHA-256 install lock; the workflow creates and verifies a GitHub attestation before installing it from the local wheel directory with `--no-index --require-hashes --only-binary=:all:`.
+
+### Full candidate workflow evidence
+
+- Integrated Provider source-wheel workflow: [run 40383713646](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40383713646) — **success**, head `c89dd9962d1ead56c533b3ccee64f775998801f2`.
+- Repository tests: [run 40383714194](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40383714194) — success.
+- Agent Runtime: [run 40383713778](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40383713778) — success.
+- G13 workflow lint: [run 40383714233](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40383714233) — success.
+
+Review artifact:
+- Name: `provider-source-built-wheels-c89dd9962d1ead56c533b3ccee64f775998801f2`
+- Artifact ID: `12680240311`
+- ZIP SHA-256 reported by GitHub and independently recomputed after download: `e6375703b7f567185ceccae253a13b3416a7238cb9cd6a8d5e1e9a261bfe3eea`
+- ZIP integrity check: PASS.
+
+Independent artifact inspection confirmed:
+- the setuptools wheel hash matches its manifest and its single-package generated hash lock;
+- the source-build manifest's setuptools bootstrap manifest/wheel hashes match the included files;
+- all nine wheelhouse file hashes match the wheelhouse manifest;
+- wheelhouse manifest digests match the included source-build and PyPI-provenance report files;
+- PyPI provenance cryptographically verifies **5 of 9** wheelhouse wheels;
+- the two target-specific helper candidate locks have **9/9** and **34/34** exact pin/hash rows respectively;
+- the offline runtime/test overlay installation and four focused Provider contract test suites passed in the workflow;
+- GitHub attestations for the signed-source setuptools wheel, four source-built package wheels, nine final wheelhouse wheels, and helper lock candidates were created and verified in-workflow.
+
+### Remaining gates — do not deploy this artifact
+
+The wheelhouse and source build manifests deliberately retain `production_approved=false` and `bootstrap_approved=false`. The four wheelhouse candidates built from source are `cffi==2.1.1`, `colorama==0.4.6`, `pycparser==3.12`, and `pygments==2.21.0`. Only cffi's source commit is GitHub-signature-verified in that group; the `colorama`, `pycparser`, and `pygments` source commits remain unsigned/unverified, and their exact patch/changed-file allowlists do not replace independent source review. cffi's upstream release tag is lightweight and has no independent tag signature, although its commit signature verifies. The source-build attestation proves what this CI built and uploaded; it does not convert unsigned upstream source into signed upstream source.
+
+No accepted production dependency lock or pinned main SHA changed. PR #331 remains open/unmerged; the Provider host was not bootstrapped, no service or production registry was created, no trust anchor/key was activated, no Grant was issued, Demo remains unauthorized, Live remains disabled, and no orders were submitted. Independent Signal/Risk/Operator/Promotion source services and their custody/registry evidence remain a separate production authorization blocker.
