@@ -444,3 +444,23 @@ The builder also fails closed if GitHub omits/returns malformed or duplicate fil
 A contract test simulates the exact metadata-only diff, then proves that adding `pycparser/c_parser.py` or omitting the API file list causes a hard failure. This makes the previously documented metadata-only diff observation an enforced build-time condition rather than just a prose statement.
 
 **Limit:** an exact metadata-only diff does not make an unsigned commit cryptographically signed, does not prove the complete unsigned source tree is trustworthy, and does not replace independent source review. This is candidate-build hardening only. Production locks, the immutable Bootstrap source SHA, services, registries, keys, and trust anchors remain unchanged; no Grant was issued, Demo remains unauthorized, Live remains disabled, and no orders were submitted.
+
+
+## Follow-up: exact unsigned-source patch and blob pinning — 2026-10-26
+
+A review of the previous filename-only allowlist found that it was not sufficient to describe a diff as metadata-only: in particular, `pyproject.toml` controls build-system requirements and can affect the build environment. The earlier note is preserved above as history; this follow-up tightens the actual build-time gate.
+
+For each of the three unsigned upstream release commits, the builder now requires all of the following:
+- the exact distinct changed-file set;
+- each expected file to have status `modified`;
+- the exact GitHub API blob SHA for each changed file;
+- the exact SHA-256 of each GitHub API patch string, with missing patches treated as a hard failure.
+
+The pinned patch evidence covers these exact upstream changes:
+- pycparser 3.12: `MANIFEST.in` changes the packaged changes-file name; `pyproject.toml` changes the build requirement from `setuptools>=69` to `setuptools>=77.0.3`. This is build configuration, not merely descriptive metadata; the candidate build-tool lock currently pins setuptools 80.9.0, which satisfies that lower bound.
+- colorama 0.4.6: the release instruction in `README-hacking.md` and the package version string in `colorama/__init__.py`.
+- Pygments 2.21.0: release-date text in `CHANGES` and the package version string in `pygments/__init__.py`.
+
+The manifest records the observed blob and patch digests. A contract test now exercises the valid pinned patch and rejects a same-path patch mutation, a blob SHA mismatch, an unexpected source path, a missing patch, and a missing file list. This makes the diff gate specific to content instead of file names alone.
+
+**Still blocked:** patch/blob pinning does not turn an unsigned commit into a signed commit and does not replace an independent source review. Separately, the setuptools wheel used by the build toolchain has no PyPI provenance, and the production runtime wheels for cffi/pycparser lack upstream PyPI attestations. The candidate workflow must be rerun on this head, its output independently reviewed, and the clean Windows Server 2022 installation rehearsed. No accepted production lock, bootstrap source SHA, key, trust anchor, service, registry, Grant, or trading permission is changed by this patch. Demo remains unauthorized, Live remains disabled, and no orders are submitted.
