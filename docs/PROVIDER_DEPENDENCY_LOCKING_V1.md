@@ -171,3 +171,16 @@ The latest cryptographic verification run `40300259822` generated all nine wheel
 The follow-up change records a bounded verifier-detail string per wheel (and in the Actions log), writes the report, then explicitly exits the report-generation step with code 0 so the artifact-upload step can run. The separate final enforcement step still fails the workflow unless the report status is exactly `PASS_CRYPTOGRAPHIC_VERIFICATION`. This preserves the diagnostic artifact without turning a blocked provenance decision into a green policy result.
 
 The next run must be reviewed for the actual CLI diagnostics before changing any expected-repository mapping or concluding that a signature is invalid.
+
+
+## PyPI attestation JSON transport bug found and fixed — 2026-10-26
+
+Artifact `12640218199` from run [40300848793](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40300848793) exposed the actual cause of the failed checks for metadata-bearing wheels. The verifier error was:
+
+`Invalid provenance: ... Invalid JSON: trailing characters ... input_value=b'123 34 97 116 116 101 ...'`
+
+The workflow had converted PowerShell's `response.Content` byte-array representation to a string before writing it. This corrupted the JSON bytes (it wrote decimal byte values rather than the original JSON document); this was a verifier-input transport bug, not evidence of an invalid upstream signature or repository identity.
+
+The workflow now writes the HTTP response directly to `$provenancePath` using `Invoke-WebRequest -OutFile`, preserving the original response bytes. The resulting verifier failure classification is generalized to `BLOCKED_ATTESTATION_VERIFICATION_FAILED` unless a successful cryptographic check explicitly establishes a pass. A new run must demonstrate that valid attestations verify, and must still fail closed for any artifact whose provenance is absent or whose signature/repository identity is rejected.
+
+The 404 results for cffi 2.1.1, colorama 0.4.6, pycparser 3.12, and Pygments 2.21.0 are separate and remain supply-chain blockers. This fix does not approve any lock or enable bootstrap/trading.
