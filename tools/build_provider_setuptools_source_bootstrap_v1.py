@@ -226,13 +226,12 @@ def main() -> int:
         str(builder_python), "-c",
         "import importlib.metadata; print(importlib.metadata.version('wheel'))",
     ])
+    # Run the source tree's setup.py directly. PEP 517's prepare_metadata_for_build_wheel
+    # invokes dist_info, which depends on installed distribution entry-point metadata and
+    # is not available until setuptools has been built and installed.
     run([
-        str(builder_python), "-m", "pip", "wheel",
-        "--disable-pip-version-check",
-        "--no-deps",
-        "--no-build-isolation",
-        "--wheel-dir", str(wheel_dir),
-        ".",
+        str(builder_python), "setup.py", "bdist_wheel",
+        "--dist-dir", str(wheel_dir),
     ], cwd=source_dir)
 
     wheels = sorted(wheel_dir.glob("*.whl"))

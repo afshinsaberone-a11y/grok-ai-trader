@@ -89,7 +89,8 @@ def test_bootstrap_wheel_metadata_is_read_from_wheel_contents(tmp_path: Path):
 def test_source_bootstrap_build_is_hash_locked_and_does_not_install_pypi_setuptools():
     source = SCRIPT.read_text(encoding="utf-8")
     assert "https://github.com/pypa/setuptools.git" in source
-    assert "--no-build-isolation" in source
+    assert '"setup.py", "bdist_wheel"' in source
+    assert "pip wheel" not in source
     assert "SETUPTOOLS_ABSENT" in source
     assert "SETUPTOOLS_COMMIT_SIGNATURE_NOT_VERIFIED" in source
     assert "SETUPTOOLS_RELEASE_TAG_SIGNATURE_NOT_VERIFIED" in source
