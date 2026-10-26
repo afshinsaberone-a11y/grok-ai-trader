@@ -233,3 +233,43 @@ def test_rejects_private_key_inside_repository(tmp_path: Path):
     assert report["status"] == "BLOCKED"
     assert report["reason"] == "PRIVATE_KEY_MUST_BE_OUTSIDE_REPOSITORY"
     assert report["private_key_material_printed"] is False
+
+
+def test_rejects_manifest_with_unexpected_fields_without_echoing_them(tmp_path: Path):
+    manifest, private_path, manifest_path, passphrase = _generate(tmp_path)
+    secret_marker = "DO_NOT_PRINT_EXTRA_PRIVATE_MATERIAL"
+    manifest["private_key"] = secret_marker
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = verify_authority_keypair(
+        role="provider-admission",
+        private_key_path=str(private_path),
+        manifest_path=str(manifest_path),
+        passphrase=passphrase,
+        environ={},
+        repository_root=REPOSITORY_ROOT,
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "PUBLIC_MANIFEST_FIELDS_INVALID"
+    assert secret_marker not in json.dumps(report)
+    assert report["private_key_material_printed"] is False
+
+
+def test_rejects_manifest_with_wrong_public_fingerprint(tmp_path: Path):
+    manifest, private_path, manifest_path, passphrase = _generate(tmp_path)
+    manifest["public_key_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = verify_authority_keypair(
+        role="provider-admission",
+        private_key_path=str(private_path),
+        manifest_path=str(manifest_path),
+        passphrase=passphrase,
+        environ={},
+        repository_root=REPOSITORY_ROOT,
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "PUBLIC_MANIFEST_FINGERPRINT_MISMATCH"
+    assert report["keypair_matches_public_source"] is False
