@@ -87,3 +87,22 @@ The candidate workflow compiles both lockfiles and verifies each with `--require
 The elevated Bootstrap mirrors that split: production dependencies are installed only in the durable Provider venv; test dependencies are installed in a separate venv below the protected temporary work root and that test venv is deleted after the focused tests pass. Its report records hashes for both lockfiles. This prevents pytest from becoming a runtime dependency of the authority service.
 
 Neither lockfile has been generated from the latest split inputs and independently approved yet. Do not infer success from the older, single-lock artifact. The current scoped candidate workflow and the matching CI checks must finish on the latest source revision; then inspect both files and run an independent disposable Windows Server 2022 install rehearsal. Only after independent review and merge may the source SHA pin be updated in its own reviewed change. All trading authorization stays fail-closed.
+
+
+## Candidate generation result and source-provenance review — 2026-10-26
+
+The split runtime/test candidate run completed successfully on Windows Python 3.13.17 at source SHA `4de8bf7fb510a5d35ca8132f311c361bc7f2b545`: [run 40248842829](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40248842829). The three dependency input/workflow blobs used by that run are identical to the current branch's blobs.
+
+Artifact: [download from run 40248842829](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40248842829/artifacts/12620266328), ID `12620266328`, ZIP size 12,715 bytes, ZIP SHA-256 `13effc0bf5d8c6b39182c6d941247e59d69097fe3f90a13f0bf6562fc624f4ce`.
+
+- `requirements-provider.lock.txt`: 3 pins (`cffi==2.1.1`, `cryptography==50.0.2`, `pycparser==3.12`), 161 hash declarations, file SHA-256 `f772c00c23acc36d2b52c09cf2ac53a1653f4c8fff31f7d1b5104b727162b017`.
+- `requirements-provider-test.lock.txt`: 9 pins (the runtime closure plus `colorama==0.4.6`, `iniconfig==2.3.1`, `packaging==26.3`, `pluggy==1.7.0`, `pygments==2.21.0`, and `pytest==8.4.2`), 173 hash declarations, file SHA-256 `9102f41c1e071cf0469326233c106f6d55764495cfbb1c89451d106353f81cdb`.
+
+Both locks installed successfully using `--require-hashes --only-binary=:all:`; imports passed; the four focused Provider contract suites passed, **77 tests in 1.25 seconds**. A further workflow change adds an explicit guard that the production lock cannot include pytest or the research/backtesting packages; its latest CI run must still finish successfully.
+
+This is not approval to commit or deploy. A PyPI metadata review found:
+- `cryptography==50.0.2`: PyPI states all 59 release files have provenance, uploaded with Trusted Publishing: https://pypi.org/project/cryptography/50.0.2/.
+- `cffi==2.1.1`: PyPI states no provenance; the upstream `v2.1.1` tag points to GitHub commit `fd33e7700f0ebafe6f30bd5053f13327221b77a2`, whose GitHub commit verification is valid: https://github.com/python-cffi/cffi/commit/fd33e7700f0ebafe6f30bd5053f13327221b77a2.
+- `pycparser==3.12`: PyPI states no provenance; the upstream `release_v3.12` points to `3ec766b7cd94724cba714296509604597ea4ce4e`, which GitHub reports as unsigned: https://github.com/eliben/pycparser/commit/3ec766b7cd94724cba714296509604597ea4ce4e.
+
+Therefore hashes and Windows installation are validated, but the cffi/pycparser artifact-to-source provenance and independent review remain open. Do not treat this candidate as trusted merely because hash installation and tests passed. Keep both files out of the production source pin until the remaining provenance and disposable Windows Server 2022 rehearsal gates are approved.
