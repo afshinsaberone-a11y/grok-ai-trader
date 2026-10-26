@@ -11,6 +11,7 @@ on:
     paths:
       - .github/workflows/provider-source-wheel-candidate.yml
       - tools/build_provider_source_wheel_candidate_v1.py
+      - tools/assemble_provider_offline_wheelhouse_v1.py
       - tests/test_provider_source_wheel_candidate_contract.py
 
 permissions:
@@ -104,13 +105,119 @@ jobs:
             Write-Output "SOURCE_WHEEL_ATTESTATION_VERIFY=PASS:$($wheel.Name)"
           }
 
+      - name: Compile candidate locks and download target-compatible wheels with hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build'
+          $lockRoot = Join-Path $outputRoot 'locks'
+          New-Item -ItemType Directory -Path $lockRoot -ErrorAction Stop | Out-Null
+          $lockVenv = Join-Path $env:RUNNER_TEMP 'forexai-source-lock-tools'
+          & python -m venv $lockVenv
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_VENV_FAILED' }
+          $lockPython = Join-Path $lockVenv 'Scripts\python.exe'
+          & $lockPython -m pip install --disable-pip-version-check --only-binary=:all: 'pip-tools==7.6.1'
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_INSTALL_FAILED' }
+          Push-Location $env:GITHUB_WORKSPACE
+          try {
+            $runtimeLock = Join-Path $lockRoot 'requirements-provider.lock.txt'
+            $testLock = Join-Path $lockRoot 'requirements-provider-test.lock.txt'
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $runtimeLock requirements-provider-lock.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_RUNTIME_LOCK_COMPILE_FAILED' }
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $testLock requirements-provider-test-lock.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_TEST_LOCK_COMPILE_FAILED' }
+            $wheelhouse = Join-Path $outputRoot 'wheelhouse'
+            New-Item -ItemType Directory -Path $wheelhouse -ErrorAction Stop | Out-Null
+            & $lockPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $wheelhouse -r $testLock
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_TEST_WHEELHOUSE_DOWNLOAD_FAILED' }
+          }
+          finally { Pop-Location }
+
+      - name: Verify PyPI attestations and assemble separate hash-lock overlays
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build'
+          $verifierVenv = Join-Path $env:RUNNER_TEMP 'forexai-source-wheel-pypi-verifier'
+          & python -m venv $verifierVenv
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_VENV_FAILED' }
+          $verifierPython = Join-Path $verifierVenv 'Scripts\python.exe'
+          & $verifierPython -m pip install --disable-pip-version-check --only-binary=:all: 'pypi-attestations==0.0.30'
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_INSTALL_FAILED' }
+          & python tools/assemble_provider_offline_wheelhouse_v1.py --output-root $outputRoot --verifier-python $verifierPython
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_WHEELHOUSE_ASSEMBLY_FAILED' }
+
+      - name: Install overlay locks offline and run Provider contract tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build'
+          $wheelhouse = Join-Path $outputRoot 'wheelhouse'
+          $overlay = Join-Path $outputRoot 'overlay-locks'
+          $runtimeVenv = Join-Path $env:RUNNER_TEMP 'forexai-offline-provider-runtime'
+          $testVenv = Join-Path $env:RUNNER_TEMP 'forexai-offline-provider-tests'
+          & python -m venv $runtimeVenv
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_RUNTIME_VENV_FAILED' }
+          $runtimePython = Join-Path $runtimeVenv 'Scripts\python.exe'
+          & $runtimePython -m pip install --disable-pip-version-check --no-index --find-links $wheelhouse --require-hashes --only-binary=:all: -r (Join-Path $overlay 'requirements-provider.lock.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_RUNTIME_LOCK_INSTALL_FAILED' }
+          & $runtimePython -c "import cffi, cryptography, pycparser; print('OFFLINE_RUNTIME_IMPORTS=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_RUNTIME_IMPORTS_FAILED' }
+          & python -m venv $testVenv
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_TEST_VENV_FAILED' }
+          $testPython = Join-Path $testVenv 'Scripts\python.exe'
+          & $testPython -m pip install --disable-pip-version-check --no-index --find-links $wheelhouse --require-hashes --only-binary=:all: -r (Join-Path $overlay 'requirements-provider-test.lock.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_TEST_LOCK_INSTALL_FAILED' }
+          & $testPython -c "import cffi, colorama, cryptography, pycparser, pygments, pytest; print('OFFLINE_TEST_IMPORTS=PASS'); print('PYTEST=' + pytest.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_TEST_IMPORTS_FAILED' }
+          $focusedTests = @(
+            'tests/test_control_plane_provider_host_preflight_v1.py',
+            'tests/test_control_plane_admission_provider_v1.py',
+            'tests/test_control_plane_provider_service_v1.py',
+            'tests/test_control_plane_service_v1.py'
+          )
+          & $testPython -m pytest -q -p no:cacheprovider $focusedTests
+          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_PROVIDER_CONTRACT_TESTS_FAILED' }
+
+      - name: Create GitHub-signed attestation for the assembled offline wheelhouse
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/provider-source-build/wheelhouse/*.whl
+          predicate-type: https://forexai.grok-ai-trader.dev/attestations/provider-offline-wheelhouse/v1
+          predicate-path: artifacts/provider-source-build/wheelhouse-manifest.json
+          show-summary: true
+
+      - name: Verify the assembled wheelhouse attestation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $wheels = @(Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build\wheelhouse') -Filter '*.whl' -File)
+          if ($wheels.Count -ne 9) { throw 'WHEELHOUSE_ATTESTED_SUBJECT_COUNT_MISMATCH' }
+          foreach ($wheel in $wheels) {
+            $verification = & gh attestation verify $wheel.FullName --repo $repo --predicate-type 'https://forexai.grok-ai-trader.dev/attestations/provider-offline-wheelhouse/v1' --format json 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              Write-Output "WHEELHOUSE_ATTESTATION_VERIFY=FAIL:$($wheel.Name)"
+              Write-Output $verification
+              throw 'WHEELHOUSE_ATTESTATION_VERIFICATION_FAILED'
+            }
+            Write-Output "WHEELHOUSE_ATTESTATION_VERIFY=PASS:$($wheel.Name)"
+          }
+
       - name: Upload wheel candidates and source/build manifest for independent review
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: provider-source-built-wheels-${{ github.sha }}
           path: |
             artifacts/provider-source-build/wheels/*.whl
+            artifacts/provider-source-build/wheelhouse/*.whl
+            artifacts/provider-source-build/locks/*.txt
+            artifacts/provider-source-build/overlay-locks/*.txt
             artifacts/provider-source-build/source-build-manifest.json
+            artifacts/provider-source-build/wheelhouse-manifest.json
+            artifacts/provider-source-build/pypi-provenance-report.json
           if-no-files-found: error
           retention-days: 7
 
