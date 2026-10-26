@@ -17,7 +17,7 @@ from pathlib import Path
 from packaging.utils import canonicalize_name, parse_wheel_filename
 
 PIN_RE = re.compile(
-    r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\\s\\\\]+)(?:[ \\t]+\\\\)?[ \\t]*$",
+    r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\]+)",
     re.MULTILINE,
 )
 
@@ -64,7 +64,7 @@ def compact_lock(lock_path: Path, wheelhouse: Path, output_path: Path) -> None:
         raise ValueError("TARGET_WHEEL_MAPPING_FAILED:" + ";".join(missing))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\\n".join(lines) + "\\n", encoding="utf-8", newline="\\n")
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     if len(wheels) != len(pins):
         raise ValueError(f"WHEEL_PIN_COUNT_MISMATCH:WHEELS={len(wheels)}:PINS={len(pins)}")
 
