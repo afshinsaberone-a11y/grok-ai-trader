@@ -57,6 +57,7 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     # cryptographically verified against a reviewed expected upstream repository.
     assert "Cryptographically verify PyPI provenance against expected repository identities" in workflow
     assert "pypi-attestations==0.0.30" in workflow
+    assert "Scripts\\\\pypi-attestation.exe" in workflow
     assert "verify pypi --repository $expectedRepository --provenance-file $provenancePath $wheelPath" in workflow
     assert "https://pypi.org/integrity/" in workflow
     assert "application/vnd.pypi.integrity.v1+json" in workflow
