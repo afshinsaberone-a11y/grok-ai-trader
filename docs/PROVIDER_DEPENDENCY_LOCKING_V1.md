@@ -140,3 +140,18 @@ This gate has deliberately limited semantics:
 - The workflow still has read-only repository permissions, no production secrets, no repository write, no key provisioning, and no trading side effects.
 
 This is an automated *presence gate*, not a provenance approval. The current candidate is expected to remain blocked for any selected wheel lacking metadata. A human/independent review must still verify the actual attestation, expected publisher/workflow identity, package source relationship, and the candidate artifact hashes. A successful presence check alone must never be used to approve or deploy the lock.
+
+
+## Cryptographic PyPI attestation verification gate — 2026-10-26
+
+The candidate workflow now goes beyond checking whether the PyPI Integrity endpoint returns HTTP 200. For each selected wheel with provenance metadata, it invokes the exact-version-pinned `pypi-attestations==0.0.30` verifier against the local wheel and the retrieved attestation JSON. It supplies a code-reviewed package-to-repository allowlist; the repository claimed by a publisher is not accepted as its own trust decision. The verifier checks the artifact/attestation cryptographically and checks that the publisher repository matches the expected mapping.
+
+The report distinguishes:
+- `PASS_CRYPTOGRAPHICALLY_VERIFIED_EXPECTED_REPOSITORY`
+- `BLOCKED_SIGNATURE_OR_REPOSITORY_IDENTITY_MISMATCH`
+- `BLOCKED_PROVENANCE_MISSING`
+- `BLOCKED_LOOKUP_ERROR`
+
+The report is uploaded before the final enforcement step so failure evidence remains inspectable. Missing provenance remains a hard block. A cryptographically valid attestation proves a publisher identity and artifact digest, not that the project or source code is inherently trustworthy; human review of the source identity remains a separate gate. The verifier is pinned to an exact package version in this CI workflow but is not part of the Provider runtime lock.
+
+The expected next result for the current candidate is still `BLOCKED_PROVENANCE_MISSING` for the previously observed no-provenance wheel files. This workflow change improves the quality of the evidence for the attested files; it does not authorize the existing Lock candidate, change the immutable bootstrap SHA, install the service, or grant Demo/Live permission.
