@@ -13,6 +13,7 @@ on:
       - tools/build_provider_source_wheel_candidate_v1.py
       - tools/assemble_provider_offline_wheelhouse_v1.py
       - tests/test_provider_source_wheel_candidate_contract.py
+      - requirements-provider-source-build-tools.lock.txt
 
 permissions:
   contents: read
@@ -39,7 +40,7 @@ jobs:
         with:
           python-version: "3.13.17"
 
-      - name: Create isolated build-tool environment
+      - name: Create isolated build-tool environment from full hash lock
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -50,10 +51,33 @@ jobs:
           if (-not (Test-Path -LiteralPath $buildPython -PathType Leaf)) {
             throw 'SOURCE_BUILD_PYTHON_MISSING'
           }
-          & $buildPython -m pip install --disable-pip-version-check --only-binary=:all: 'setuptools==80.9.0' 'wheel==0.45.1' 'hatchling==1.27.0'
-          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_BUILD_TOOL_INSTALL_FAILED' }
+          $buildToolsLock = Join-Path $env:GITHUB_WORKSPACE 'requirements-provider-source-build-tools.lock.txt'
+          if (-not (Test-Path -LiteralPath $buildToolsLock -PathType Leaf)) {
+            throw 'SOURCE_BUILD_TOOL_LOCK_MISSING'
+          }
+          & $buildPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $buildToolsLock
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_BUILD_TOOL_HASH_LOCK_INSTALL_FAILED' }
           & $buildPython -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_BUILD_TOOL_DEPENDENCY_CHECK_FAILED' }
+
+          $actualBuildToolFreeze = @(& $buildPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_BUILD_TOOL_FREEZE_FAILED' }
+          $expectedBuildToolFreeze = @(
+            'hatchling==1.27.0',
+            'packaging==26.3',
+            'pathspec==1.1.1',
+            'pip==26.2.2',
+            'pluggy==1.7.0',
+            'setuptools==80.9.0',
+            'trove-classifiers==2026.9.21.13',
+            'wheel==0.45.1'
+          ) | Sort-Object
+          if (($actualBuildToolFreeze -join '|') -ne ($expectedBuildToolFreeze -join '|')) {
+            Write-Output ('ACTUAL_BUILD_TOOL_FREEZE=' + ($actualBuildToolFreeze -join ';'))
+            throw 'SOURCE_BUILD_TOOL_FREEZE_MISMATCH'
+          }
+          Write-Output 'SOURCE_BUILD_TOOL_HASH_LOCK=PASS'
+          Write-Output 'SOURCE_BUILD_TOOL_FREEZE=PASS'
           "FOREXAI_SOURCE_BUILD_PYTHON=$buildPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build wheels from immutable upstream commit SHAs and record source signature status
