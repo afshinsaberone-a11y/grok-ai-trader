@@ -25,4 +25,9 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "permissions: write-all" not in workflow
     assert "secrets:" not in workflow
     assert "workflow_dispatch:" in workflow
+    assert "branches:\\n      - ops/bootstrap-provider-host-v1-20261025" in workflow
+    assert (
+        "paths:\\n      - .github/workflows/provider-dependency-lock-candidate.yml"
+        "\\n      - requirements-provider-lock.in\\n      - requirements.txt"
+    ) in workflow
     assert "LOCK_CANDIDATE_IS_NOT_APPROVED_FOR_BOOTSTRAP=true" in workflow
