@@ -127,3 +127,16 @@ PR head `2208965804f9e80c8c1ddefd837c75a80d946d26) also passed the repository te
 - agent runtime: https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249492388
 
 This closes the hosted Windows Server 2022 install/contract-test gate, not the production approval gate. The artifact still needs independent package/source provenance review and a separately administered clean-destination rehearsal. In particular, PyPI provenance remains absent for the selected `cffi==2.1.1` and `pycparser==3.12` releases; the upstream cffi v2.1.1 commit is verified, while the pycparser v3.12 release commit is unsigned. Keep both lock files as review artifacts only until this risk is resolved and an independent reviewer approves them. Do not add either file to the immutable Bootstrap source commit yet.
+
+
+## PyPI provenance-presence gate — added 2026-10-26
+
+The candidate workflow now downloads the exact wheel set selected for the GitHub-hosted Windows Server 2022 / Python 3.13.17 environment using the candidate test lock and hash enforcement, then queries the PyPI Integrity API for provenance metadata attached to each exact wheel filename. The report is included in the candidate artifact before the final policy step runs.
+
+This gate has deliberately limited semantics:
+- A 404 means PyPI reports that file has no provenance metadata; the workflow records the exact package, version, wheel filename, and endpoint, uploads the diagnostic artifact, then marks the run failed.
+- A 200 means metadata is present only. This workflow does **not** perform cryptographic attestation verification, establish that the publisher/source identity is acceptable, or prove source-to-wheel correspondence.
+- HTTP errors, an empty wheel inventory, or an inability to collect the report fail closed.
+- The workflow still has read-only repository permissions, no production secrets, no repository write, no key provisioning, and no trading side effects.
+
+This is an automated *presence gate*, not a provenance approval. The current candidate is expected to remain blocked for any selected wheel lacking metadata. A human/independent review must still verify the actual attestation, expected publisher/workflow identity, package source relationship, and the candidate artifact hashes. A successful presence check alone must never be used to approve or deploy the lock.
