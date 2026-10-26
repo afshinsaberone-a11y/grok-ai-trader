@@ -70,6 +70,7 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "BLOCKED_SIGNATURE_OR_REPOSITORY_IDENTITY_MISMATCH" in workflow
     assert "PYPI_ATTESTATION_VERIFIER_DETAIL=$verificationDetail" in workflow
     assert "verifier_detail = $verificationDetail" in workflow
+    assert "$verificationDetail = $null" in workflow
     assert "$global:LASTEXITCODE = 0" in workflow
     assert "exit 0" in workflow
     assert "BLOCKED_PROVENANCE_MISSING" in workflow
