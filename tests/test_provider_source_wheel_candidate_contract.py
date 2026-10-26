@@ -35,7 +35,19 @@ def test_source_wheel_builder_has_immutable_sources_and_discloses_signature_stat
     )
     assert all(term in source for term in ("git", "checkout", "HEAD"))
     assert "github_commit_signature_verified" in source
-    assert "UNSIGNED_COMMIT_REQUIRES_INDEPENDENT_SOURCE_REVIEW" in source
+    assert "UNSIGNED_COMMIT_REQUIRES_INDEPENDENT_SOURCE_REVIEW" not in source
+    assert "UNSIGNED_RELEASE_METADATA_ONLY_DIFF_REQUIRES_INDEPENDENT_SOURCE_REVIEW" in source
+    assert "UNSIGNED_UPSTREAM_COMMIT_CHANGED_UNREVIEWED_FILES" in source
+    assert "GITHUB_SOURCE_COMMIT_FILE_LIST_MISSING" in source
+    unsigned_allowlists = {
+        item["name"]: sorted(item["expected_unsigned_commit_files"])
+        for item in specs if item["name"] != "cffi"
+    }
+    assert unsigned_allowlists == {
+        "pycparser": ["MANIFEST.in", "pyproject.toml"],
+        "colorama": ["README-hacking.md", "colorama/__init__.py"],
+        "pygments": ["CHANGES", "pygments/__init__.py"],
+    }
     assert 'production_approved": False' in source
     assert 'bootstrap_approved": False' in source
     assert "transitive_build_tool_dependencies_hash_locked" in source
@@ -316,3 +328,73 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     assert "subject-path: artifacts/provider-source-build/tool-lock-candidates/*.lock.txt" in workflow
     assert "HELPER_TOOL_LOCK_ATTESTATION_VERIFICATION_FAILED" in workflow
     assert "HELPER_TOOL_LOCK_ATTESTATION_VERIFY=PASS:" in workflow
+
+
+
+def test_unsigned_release_commit_must_change_only_the_exact_metadata_allowlist(monkeypatch):
+    import importlib.util
+    import json
+
+    root = Path(__file__).resolve().parents[1]
+    builder_path = root / "tools" / "build_provider_source_wheel_candidate_v1.py"
+    spec = importlib.util.spec_from_file_location("provider_source_unsigned_diff_gate", builder_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    pycparser = next(item for item in module.SOURCE_SPECS if item["name"] == "pycparser")
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return json.dumps(self.payload).encode("utf-8")
+
+    def response_for(files):
+        return FakeResponse({
+            "sha": pycparser["commit"],
+            "commit": {"verification": {"verified": False, "reason": "unsigned"}},
+            "files": [{"filename": name} for name in files],
+        })
+
+    allowed = ["pyproject.toml", "MANIFEST.in"]
+    monkeypatch.setattr(module.urllib.request, "urlopen", lambda request, timeout=25: response_for(allowed))
+    result = module.github_commit_metadata(pycparser["repository"], pycparser["commit"])
+    assert result["github_commit_changed_files"] == sorted(allowed)
+    assert result["unsigned_commit_changed_files_match_allowlist"] is True
+    assert result["expected_unsigned_commit_files"] == ["MANIFEST.in", "pyproject.toml"]
+    assert result["upstream_signature_policy"] == "UNSIGNED_RELEASE_METADATA_ONLY_DIFF_REQUIRES_INDEPENDENT_SOURCE_REVIEW"
+
+    # A source/runtime file added to an unsigned release commit blocks candidate
+    # creation even when the release tag and commit SHA still match.
+    altered = allowed + ["pycparser/c_parser.py"]
+    monkeypatch.setattr(module.urllib.request, "urlopen", lambda request, timeout=25: response_for(altered))
+    try:
+        module.github_commit_metadata(pycparser["repository"], pycparser["commit"])
+    except RuntimeError as exc:
+        assert "UNSIGNED_UPSTREAM_COMMIT_CHANGED_UNREVIEWED_FILES" in str(exc)
+    else:
+        raise AssertionError("unsigned runtime/source-file changes must block source build")
+
+    # Missing diff metadata is not interpreted as a safe release-metadata-only diff.
+    monkeypatch.setattr(
+        module.urllib.request,
+        "urlopen",
+        lambda request, timeout=25: FakeResponse({
+            "sha": pycparser["commit"],
+            "commit": {"verification": {"verified": False, "reason": "unsigned"}},
+        }),
+    )
+    try:
+        module.github_commit_metadata(pycparser["repository"], pycparser["commit"])
+    except RuntimeError as exc:
+        assert "GITHUB_SOURCE_COMMIT_FILE_LIST_MISSING" in str(exc)
+    else:
+        raise AssertionError("missing source diff metadata must fail closed")
