@@ -114,6 +114,19 @@ def test_teams_are_rejected_because_membership_is_not_verified_by_this_audit():
     assert report["reason"] == "ONLY_EXPLICIT_USER_REVIEWERS_ARE_AUDITABLE"
 
 
+def test_additional_environment_reviewer_is_rejected_as_unverified_alternative():
+    environment = _environment()
+    environment["protection_rules"][0]["reviewers"].append(
+        {"type": "User", "reviewer": {"login": "alternate-reviewer", "id": 13579}}
+    )
+    report = _audit(environment=environment)
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "EXACTLY_ONE_NAMED_REVIEWER_REQUIRED"
+    assert report["grant_issued"] is False
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
+
+
 def test_expected_reviewer_must_be_configured_and_not_owner_or_triggering_actor():
     report = _audit(expected_reviewer="another-reviewer")
     assert report["reason"] == "EXPECTED_REVIEWER_NOT_CONFIGURED"
