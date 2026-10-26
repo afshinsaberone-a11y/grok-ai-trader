@@ -310,7 +310,7 @@ jobs:
           $verifierLockText = Get-Content -LiteralPath $verifierLock -Raw
           $verifierPins = [regex]::Matches($verifierLockText, '(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==')
           $verifierHashes = [regex]::Matches($verifierLockText, '--hash=sha256:[0-9a-f]{64}')
-          if ($verifierPins.Count -ne 33 -or $verifierHashes.Count -ne 33) { throw 'SOURCE_PYPI_VERIFIER_HASH_LOCK_PIN_COUNT_MISMATCH' }
+          if ($verifierPins.Count -ne 34 -or $verifierHashes.Count -ne 34) { throw 'SOURCE_PYPI_VERIFIER_HASH_LOCK_PIN_COUNT_MISMATCH' }
           if ($verifierLockText -notmatch '(?m)^pypi-attestations==0\.0\.30 --hash=sha256:b3a9c53f6cb89e5e7b5b70e6cfca97cfc66008c1ed54087355e06e40071cef21$') {
             throw 'SOURCE_PYPI_VERIFIER_TOP_LEVEL_PUBLISHER_HASH_MISMATCH'
           }
@@ -339,7 +339,7 @@ jobs:
               $actualVerifierFreeze[$key] = $matches['version']
             }
           }
-          $freezeMatches = ($expectedVerifierFreeze.Count -eq 33 -and $actualVerifierFreeze.Count -eq $expectedVerifierFreeze.Count)
+          $freezeMatches = ($expectedVerifierFreeze.Count -eq 34 -and $actualVerifierFreeze.Count -eq $expectedVerifierFreeze.Count)
           foreach ($key in $expectedVerifierFreeze.Keys) {
             if (-not $actualVerifierFreeze.ContainsKey($key) -or $actualVerifierFreeze[$key] -ne $expectedVerifierFreeze[$key]) { $freezeMatches = $false }
           }
