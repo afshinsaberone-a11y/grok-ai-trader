@@ -136,7 +136,7 @@ def test_source_wheel_workflow_enforces_offline_candidate_lock_gates():
     assert "--no-index --find-links $wheelhouse --require-hashes --only-binary=:all:" in workflow
     assert "OFFLINE_PROVIDER_CONTRACT_TESTS_FAILED" in workflow
     assert "provider-offline-wheelhouse/v1" in workflow
-    assert workflow.count("uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6") == 3
+    assert workflow.count("uses: actions/attest@1e69f48acb82d1966a394da9166a394da916b4c1698aa569d6") == 4
     assert "WHEELHOUSE_ATTESTATION_VERIFICATION_FAILED" in workflow
     assert "production_approved" in helper and "bootstrap_approved" in helper
     assert "BOOTSTRAP_AUTHORIZED=false" in workflow
@@ -159,7 +159,6 @@ def test_source_build_tool_closure_is_hash_locked_and_manifest_binds_exact_lock(
         "pathspec": "1.1.1",
         "pip": "26.2.2",
         "pluggy": "1.7.0",
-        "setuptools": "80.9.0",
         "trove-classifiers": "2026.9.21.13",
         "wheel": "0.45.1",
     }
@@ -178,7 +177,7 @@ def test_source_build_tool_closure_is_hash_locked_and_manifest_binds_exact_lock(
     # Path.read_text normalizes CRLF on Windows. The manifest digest must bind
     # this canonical LF text, not the autocrlf-dependent checkout bytes.
     canonical_lock_sha256 = hashlib.sha256(lock_text.encode("utf-8")).hexdigest()
-    assert canonical_lock_sha256 == "ae89bd1115956b39f8436b4d2488422511fc0c396cf21d904180cee34df70f1d"
+    assert canonical_lock_sha256 == "LOCK_SHA256_TO_FILL"
     assert 'build_tool_lock_sha256 = hashlib.sha256(build_tool_lock_text.encode("utf-8")).hexdigest()' in builder
 
     assert "requirements-provider-source-build-tools.lock.txt" in workflow
@@ -191,9 +190,16 @@ def test_source_build_tool_closure_is_hash_locked_and_manifest_binds_exact_lock(
     assert "SOURCE_BUILD_TOOL_LOCK_HASH_COUNT_MISMATCH" in builder
     assert "SOURCE_BUILD_TOOL_FREEZE_MISMATCH" in builder
     assert '"transitive_build_tool_dependencies_hash_locked": True' in builder
-    # Hash-locking fixes byte integrity, not missing publisher provenance.
-    assert "setuptools==80.9.0" in lock_text
-    assert '"packages_without_verified_pypi_provenance": ["setuptools==80.9.0"]' in builder
+    # The PyPI setuptools wheel is removed from this lock. A separate source-built
+    # wheel is tied to signed upstream commit/tag metadata and its exact local hash.
+    assert "setuptools==80.9.0" not in lock_text
+    assert "build_provider_setuptools_source_bootstrap_v1.py" in workflow
+    assert "provider-setuptools-source-bootstrap/v1" in workflow
+    assert "SETUPTOOLS_BOOTSTRAP_HASH_LOCK_INSTALL_FAILED" in workflow
+    assert "SETUPTOOLS_BOOTSTRAP_ATTESTATION_VERIFICATION_FAILED" in workflow
+    assert "setuptools_source_bootstrap_manifest_sha256" in builder
+    assert '"packages_without_verified_pypi_provenance": []' in builder
+    assert '"source_built_packages_without_pypi_provenance": ["setuptools==80.9.0"]' in builder
     assert '"production_approved": False' in builder
     assert '"bootstrap_approved": False' in builder
 

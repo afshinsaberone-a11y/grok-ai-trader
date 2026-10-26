@@ -11,8 +11,10 @@ on:
     paths:
       - .github/workflows/provider-source-wheel-candidate.yml
       - tools/build_provider_source_wheel_candidate_v1.py
+      - tools/build_provider_setuptools_source_bootstrap_v1.py
       - tools/assemble_provider_offline_wheelhouse_v1.py
       - tests/test_provider_source_wheel_candidate_contract.py
+      - tests/test_provider_setuptools_source_bootstrap_v1.py
       - tests/test_compact_provider_target_lock_v1.py
       - tools/compact_provider_target_lock_v1.py
       - requirements-provider-source-build-tools.lock.txt
@@ -46,7 +48,7 @@ jobs:
         with:
           python-version: "3.13.17"
 
-      - name: Create isolated build-tool environment from full hash lock
+      - name: Create isolated build-tool environment from hash lock without PyPI setuptools
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -74,7 +76,6 @@ jobs:
             'pathspec==1.1.1',
             'pip==26.2.2',
             'pluggy==1.7.0',
-            'setuptools==80.9.0',
             'trove-classifiers==2026.9.21.13',
             'wheel==0.45.1'
           ) | Sort-Object
@@ -83,8 +84,91 @@ jobs:
             throw 'SOURCE_BUILD_TOOL_FREEZE_MISMATCH'
           }
           Write-Output 'SOURCE_BUILD_TOOL_HASH_LOCK=PASS'
-          Write-Output 'SOURCE_BUILD_TOOL_FREEZE=PASS'
+          Write-Output 'SOURCE_BUILD_TOOL_BASE_FREEZE=PASS'
           "FOREXAI_SOURCE_BUILD_PYTHON=$buildPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build setuptools from GitHub-signature-verified upstream source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bootstrapRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-setuptools-bootstrap'
+          & $env:FOREXAI_SOURCE_BUILD_PYTHON tools/build_provider_setuptools_source_bootstrap_v1.py --workspace $env:GITHUB_WORKSPACE --builder-python $env:FOREXAI_SOURCE_BUILD_PYTHON --output-root $bootstrapRoot
+          if ($LASTEXITCODE -ne 0) { throw 'SETUPTOOLS_SOURCE_BOOTSTRAP_BUILD_FAILED' }
+
+      - name: Attest source-built setuptools bootstrap wheel
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/provider-setuptools-bootstrap/wheels/*.whl
+          predicate-type: https://forexai.grok-ai-trader.dev/attestations/provider-setuptools-source-bootstrap/v1
+          predicate-path: artifacts/provider-setuptools-bootstrap/setuptools-bootstrap-manifest.json
+          show-summary: true
+
+      - name: Verify source-built setuptools bootstrap attestation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $wheelRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-setuptools-bootstrap\wheels'
+          $wheels = @(Get-ChildItem -LiteralPath $wheelRoot -Filter '*.whl' -File)
+          if ($wheels.Count -ne 1) { throw 'SETUPTOOLS_BOOTSTRAP_WHEEL_COUNT_MISMATCH' }
+          $manifestPath = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-setuptools-bootstrap\setuptools-bootstrap-manifest.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if ($manifest.status -ne 'SIGNED_SOURCE_BUILD_CANDIDATE_NOT_APPROVED' -or
+              $manifest.production_approved -ne $false -or
+              $manifest.bootstrap_approved -ne $false -or
+              $manifest.source.github_commit_signature_verified -ne $true -or
+              $manifest.source.github_release_tag_signature_verified -ne $true) {
+            throw 'SETUPTOOLS_BOOTSTRAP_SOURCE_MANIFEST_BOUNDARY_MISMATCH'
+          }
+          $wheel = $wheels[0]
+          $wheelHash = (Get-FileHash -LiteralPath $wheel.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($wheelHash -ne $manifest.wheel_sha256) { throw 'SETUPTOOLS_BOOTSTRAP_WHEEL_HASH_MISMATCH' }
+          $lockPath = Join-Path $env:GITHUB_WORKSPACE ('artifacts\provider-setuptools-bootstrap\' + $manifest.install_lock_filename)
+          $lockText = Get-Content -LiteralPath $lockPath -Raw
+          if ($lockText.Trim() -ne ('setuptools==80.9.0 --hash=sha256:' + $wheelHash) -or
+              (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.install_lock_sha256) {
+            throw 'SETUPTOOLS_BOOTSTRAP_INSTALL_LOCK_MISMATCH'
+          }
+          $verification = & gh attestation verify $wheel.FullName --repo $repo --predicate-type 'https://forexai.grok-ai-trader.dev/attestations/provider-setuptools-source-bootstrap/v1' --format json 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output $verification
+            throw 'SETUPTOOLS_BOOTSTRAP_ATTESTATION_VERIFICATION_FAILED'
+          }
+          Write-Output 'SETUPTOOLS_BOOTSTRAP_ATTESTATION_VERIFY=PASS'
+          Write-Output 'SETUPTOOLS_BOOTSTRAP_SIGNED_COMMIT_AND_TAG=PASS'
+
+      - name: Install source-built setuptools wheel offline using its generated hash lock
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bootstrapRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-setuptools-bootstrap'
+          $wheelRoot = Join-Path $bootstrapRoot 'wheels'
+          $manifest = Get-Content -LiteralPath (Join-Path $bootstrapRoot 'setuptools-bootstrap-manifest.json') -Raw | ConvertFrom-Json
+          $installLock = Join-Path $bootstrapRoot $manifest.install_lock_filename
+          & $env:FOREXAI_SOURCE_BUILD_PYTHON -m pip install --disable-pip-version-check --no-index --find-links $wheelRoot --require-hashes --only-binary=:all: -r $installLock
+          if ($LASTEXITCODE -ne 0) { throw 'SETUPTOOLS_BOOTSTRAP_HASH_LOCK_INSTALL_FAILED' }
+          & $env:FOREXAI_SOURCE_BUILD_PYTHON -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_BUILD_TOOL_DEPENDENCY_CHECK_FAILED' }
+          $actualBuildToolFreeze = @(& $env:FOREXAI_SOURCE_BUILD_PYTHON -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_BUILD_TOOL_FREEZE_FAILED' }
+          $expectedBuildToolFreeze = @(
+            'hatchling==1.27.0',
+            'packaging==26.3',
+            'pathspec==1.1.1',
+            'pip==26.2.2',
+            'pluggy==1.7.0',
+            'setuptools==80.9.0',
+            'trove-classifiers==2026.9.21.13',
+            'wheel==0.45.1'
+          ) | Sort-Object
+          if (($actualBuildToolFreeze -join '|') -ne ($expectedBuildToolFreeze -join '|')) {
+            Write-Output ('ACTUAL_BUILD_TOOL_FREEZE=' + ($actualBuildToolFreeze -join ';'))
+            throw 'SOURCE_BUILD_TOOL_FREEZE_MISMATCH'
+          }
+          Write-Output 'SOURCE_BUILT_SETUPTOOLS_HASH_LOCK_INSTALL=PASS'
+          Write-Output 'SOURCE_BUILD_TOOL_FREEZE=PASS'
 
       - name: Build wheels from immutable upstream commit SHAs and record source signature status
         shell: pwsh
@@ -446,6 +530,9 @@ jobs:
         with:
           name: provider-source-built-wheels-${{ github.sha }}
           path: |
+            artifacts/provider-setuptools-bootstrap/wheels/*.whl
+            artifacts/provider-setuptools-bootstrap/setuptools-bootstrap-manifest.json
+            artifacts/provider-setuptools-bootstrap/requirements-provider-setuptools-bootstrap.lock.txt
             artifacts/provider-source-build/wheels/*.whl
             artifacts/provider-source-build/wheelhouse/*.whl
             artifacts/provider-source-build/locks/*.txt

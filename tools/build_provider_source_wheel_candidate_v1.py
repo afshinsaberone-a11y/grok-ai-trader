@@ -117,13 +117,13 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
 MANIFEST_SCHEMA = "forexai.provider_source_built_wheel_candidate.v1"
 CANDIDATE_ONLY_STATUS = "SOURCE_BUILD_CANDIDATE_NOT_APPROVED"
 BUILD_TOOL_LOCK_FILENAME = "requirements-provider-source-build-tools.lock.txt"
+SETUPTOOLS_BOOTSTRAP_MANIFEST = Path("artifacts") / "provider-setuptools-bootstrap" / "setuptools-bootstrap-manifest.json"
 EXPECTED_BUILD_TOOL_PINS = {
     "hatchling": "1.27.0",
     "packaging": "26.3",
     "pathspec": "1.1.1",
     "pip": "26.2.2",
     "pluggy": "1.7.0",
-    "setuptools": "80.9.0",
     "trove-classifiers": "2026.9.21.13",
     "wheel": "0.45.1",
 }
@@ -406,6 +406,66 @@ def clone_exact_source(spec: dict[str, Any], source_root: Path) -> tuple[Path, d
     return directory, source_metadata
 
 
+def verify_setuptools_bootstrap(workspace: Path) -> dict[str, Any]:
+    manifest_path = workspace / SETUPTOOLS_BOOTSTRAP_MANIFEST
+    if not manifest_path.is_file():
+        raise RuntimeError("SETUPTOOLS_BOOTSTRAP_MANIFEST_MISSING")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("SETUPTOOLS_BOOTSTRAP_MANIFEST_INVALID") from exc
+    source = manifest.get("source", {})
+    expected_source = {
+        "repository": "pypa/setuptools",
+        "commit": "9c4d383631d3951fcae0afd73b5d08ff5a262976",
+        "release_tag": "v80.9.0",
+        "release_tag_object_sha": "ef921af5f4374a66c018304a2aa5306cb67962a0",
+        "release_tag_target_commit": "9c4d383631d3951fcae0afd73b5d08ff5a262976",
+    }
+    if (
+        manifest.get("schema") != "forexai.provider_setuptools_source_bootstrap.v1"
+        or manifest.get("status") != "SIGNED_SOURCE_BUILD_CANDIDATE_NOT_APPROVED"
+        or manifest.get("production_approved") is not False
+        or manifest.get("bootstrap_approved") is not False
+        or manifest.get("package_name") != "setuptools"
+        or manifest.get("version") != "80.9.0"
+        or source.get("github_commit_signature_verified") is not True
+        or source.get("github_release_tag_signature_verified") is not True
+        or any(source.get(key) != value for key, value in expected_source.items())
+    ):
+        raise RuntimeError("SETUPTOOLS_BOOTSTRAP_SOURCE_EVIDENCE_MISMATCH")
+
+    wheel_path = workspace / "artifacts" / "provider-setuptools-bootstrap" / "wheels" / str(
+        manifest.get("wheel_filename", "")
+    )
+    if not wheel_path.is_file():
+        raise RuntimeError("SETUPTOOLS_BOOTSTRAP_WHEEL_MISSING")
+    wheel_digest = sha256_file(wheel_path)
+    if wheel_digest != manifest.get("wheel_sha256"):
+        raise RuntimeError("SETUPTOOLS_BOOTSTRAP_WHEEL_HASH_MISMATCH")
+    if wheel_metadata(wheel_path) != ("setuptools", "80.9.0"):
+        raise RuntimeError("SETUPTOOLS_BOOTSTRAP_WHEEL_METADATA_MISMATCH")
+
+    lock_path = workspace / "artifacts" / "provider-setuptools-bootstrap" / str(
+        manifest.get("install_lock_filename", "")
+    )
+    if not lock_path.is_file():
+        raise RuntimeError("SETUPTOOLS_BOOTSTRAP_INSTALL_LOCK_MISSING")
+    lock_text = lock_path.read_text(encoding="utf-8")
+    expected_lock = f"setuptools==80.9.0 --hash=sha256:{wheel_digest}\n"
+    if (
+        lock_text != expected_lock
+        or hashlib.sha256(lock_text.encode("utf-8")).hexdigest() != manifest.get("install_lock_sha256")
+    ):
+        raise RuntimeError("SETUPTOOLS_BOOTSTRAP_INSTALL_LOCK_MISMATCH")
+    return {
+        "manifest": manifest,
+        "manifest_sha256": sha256_file(manifest_path),
+        "wheel_sha256": wheel_digest,
+        "install_lock_sha256": hashlib.sha256(lock_text.encode("utf-8")).hexdigest(),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", required=True, type=Path)
@@ -441,6 +501,7 @@ def main() -> int:
     lock_hash_count = len(re.findall(r"--hash=sha256:[0-9a-f]{64}", build_tool_lock_text))
     if lock_hash_count != len(EXPECTED_BUILD_TOOL_PINS):
         raise RuntimeError("SOURCE_BUILD_TOOL_LOCK_HASH_COUNT_MISMATCH")
+    setuptools_bootstrap = verify_setuptools_bootstrap(workspace)
     # Path.read_text uses universal-newline translation; hash canonical UTF-8/LF text
     # so Windows autocrlf settings cannot make the manifest digest platform-dependent.
     build_tool_lock_sha256 = hashlib.sha256(build_tool_lock_text.encode("utf-8")).hexdigest()
@@ -448,7 +509,8 @@ def main() -> int:
     build_tool_freeze = run([str(builder_python), "-m", "pip", "freeze", "--all"])
     actual_build_tool_pins = sorted(line.strip() for line in build_tool_freeze.splitlines() if line.strip())
     expected_build_tool_freeze = sorted(
-        f"{name}=={version}" for name, version in EXPECTED_BUILD_TOOL_PINS.items()
+        [f"{name}=={version}" for name, version in EXPECTED_BUILD_TOOL_PINS.items()]
+        + ["setuptools==80.9.0"]
     )
     if actual_build_tool_pins != expected_build_tool_freeze:
         raise RuntimeError("SOURCE_BUILD_TOOL_FREEZE_MISMATCH")
@@ -525,7 +587,14 @@ def main() -> int:
             "lockfile_sha256": build_tool_lock_sha256,
             "locked_package_pins": dict(sorted(EXPECTED_BUILD_TOOL_PINS.items())),
             "transitive_build_tool_dependencies_hash_locked": True,
-            "packages_without_verified_pypi_provenance": ["setuptools==80.9.0"],
+            "packages_without_verified_pypi_provenance": [],
+            "source_built_packages_without_pypi_provenance": ["setuptools==80.9.0"],
+            "setuptools_source_bootstrap_manifest_sha256": setuptools_bootstrap["manifest_sha256"],
+            "setuptools_source_bootstrap_wheel_sha256": setuptools_bootstrap["wheel_sha256"],
+            "setuptools_source_commit_signature_verified": True,
+            "setuptools_source_release_tag_signature_verified": True,
+            "setuptools_source_commit": "9c4d383631d3951fcae0afd73b5d08ff5a262976",
+            "setuptools_source_release_tag": "v80.9.0",
             "review_required": True,
         },
         "upstream_sources_with_unverified_commit_signatures": unsigned_sources,
