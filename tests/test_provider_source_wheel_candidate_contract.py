@@ -136,7 +136,7 @@ def test_source_wheel_workflow_enforces_offline_candidate_lock_gates():
     assert "--no-index --find-links $wheelhouse --require-hashes --only-binary=:all:" in workflow
     assert "OFFLINE_PROVIDER_CONTRACT_TESTS_FAILED" in workflow
     assert "provider-offline-wheelhouse/v1" in workflow
-    assert workflow.count("uses: actions/attest@1e69f48acb82d1966a394da9166a394da916b4c1698aa569d6") == 4
+    assert workflow.count("uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6") == 4
     assert "WHEELHOUSE_ATTESTATION_VERIFICATION_FAILED" in workflow
     assert "production_approved" in helper and "bootstrap_approved" in helper
     assert "BOOTSTRAP_AUTHORIZED=false" in workflow
@@ -177,7 +177,7 @@ def test_source_build_tool_closure_is_hash_locked_and_manifest_binds_exact_lock(
     # Path.read_text normalizes CRLF on Windows. The manifest digest must bind
     # this canonical LF text, not the autocrlf-dependent checkout bytes.
     canonical_lock_sha256 = hashlib.sha256(lock_text.encode("utf-8")).hexdigest()
-    assert canonical_lock_sha256 == "LOCK_SHA256_TO_FILL"
+    assert canonical_lock_sha256 == "72df1444b9b6994f598d1b4cb0e7e054545329a4157415285e91247882f0d7ec"
     assert 'build_tool_lock_sha256 = hashlib.sha256(build_tool_lock_text.encode("utf-8")).hexdigest()' in builder
 
     assert "requirements-provider-source-build-tools.lock.txt" in workflow
