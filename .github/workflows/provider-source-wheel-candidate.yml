@@ -205,7 +205,7 @@ jobs:
             & $checkPython -m pip install --disable-pip-version-check --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $toolLock.path
             if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED' }
             if ($toolLock.environment -eq 'lock-compiler') {
-              & $checkPython -m piptools --version
+              & $checkPython -c "import importlib.metadata; print('PIP_TOOLS=' + importlib.metadata.version('pip-tools'))"
             }
             else {
               & $checkPython -c "import importlib.metadata; print('PYPI_ATTESTATIONS=' + importlib.metadata.version('pypi-attestations'))"
