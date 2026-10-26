@@ -107,3 +107,22 @@ Artifact شناسهٔ `12620266328`، حجم ۱۲٬۷۱۵ بایت و هش ZIP �
 - [Agent Runtime](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249492388)
 
 این نتیجه گیت نصب/آزمون روی Runner میزبانی‌شدهٔ Windows Server 2022 را می‌بندد، اما lock را برای تولید تأیید نمی‌کند. بازبینی مستقل منشأ بسته‌ها و تمرین نصب در مقصد آزمایشی جداگانه هنوز لازم است. به‌خصوص PyPI برای `cffi==2.1.1` و `pycparser==3.12` provenance منتشرشده ندارد؛ commit رسمی cffi امضای معتبر دارد اما commit نسخهٔ pycparser امضا نشده است. تا حل این ریسک و تأیید بازبین مستقل، فایل‌ها فقط artifact نامزد باقی می‌مانند و نباید وارد SHA ثابت Bootstrap شوند.
+
+
+## افزودهٔ پیوسته — ۲۶ اکتبر ۲۰۲۶: تفکیک CI فعلی از اعتبارسنجی artifact وابستگی
+
+بازخوانی مستقیم GitHub در سرشاخهٔ فعلی PR #331 نشان داد:
+- HEAD شاخه: `534f9b8d023dab8c024894e4672b7846ca495643`
+- مبنای `main`: `41883f30d32747d07d7b7772f8ee7c656a95e4a1` (بدون تغییر)
+- PR هنوز باز و ادغام‌نشده است و API بازبینی، هیچ review ارسالی برنمی‌گرداند.
+- تست‌های مخزن و parser پاورشل: [run 40249683335](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249683335) — موفق.
+- Agent Runtime Check: [run 40249683214](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249683214) — موفق.
+- G13 Workflow Static Validation: [run 40249683212](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249683212) — موفق.
+
+**تمایز ضروری در شواهد:** artifact نصب/آزمون lock در [run 40249481942](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40249481942) تولید شده، اما آن run به SHA قدیمی‌تر `0bff777c6fc8f4cddc545dfc0de0bbc1f5a83589` تعلق دارد. ورودی‌های runtime/test و فایل workflow در HEAD فعلی همان blobهای قبلی‌اند، ولی این موضوع artifact قدیمی را به lock تأییدشده یا آزمون روی VPS واقعی تبدیل نمی‌کند. artifact ID `12620098076` و SHA-256 آرشیو ZIP `07686102d48180728e2a45bc75484a056a0ea85e2f4b665a290359cb87aa6cd0` هستند.
+
+در HEAD فعلی، هر دو فایل `requirements-provider.lock.txt` و `requirements-provider-test.lock.txt` هنوز در مخزن وجود ندارند؛ بررسی Contents API برای هر دو مسیر نتیجهٔ 404 داد. بنابراین bootstrap با SHA ثابت فعلی باید در guard مربوط به lock متوقف شود؛ این توقف رفتار fail-closed مورد انتظار است. هیچ فایل قفل یا hash دستی ساخته نشده و bootstrap روی VPS واقعی اجرا نشده است.
+
+مانع منشأ بسته‌ها همچنان حل نشده است: PyPI برای فایل‌های `cffi==2.1.1` و `pycparser==3.12` provenance منتشرشده نشان نمی‌دهد. هش‌ها و نصب wheel-only صرفاً یکپارچگی بایت‌های دریافت‌شده نسبت به hash ثبت‌شده و سازگاری آزمون را نشان می‌دهند؛ به‌تنهایی منشأ معتبر بسته‌ها را ثابت نمی‌کنند. بازبینی مستقل و آزمون نصب در محیط مقصدِ تحت کنترل جداگانه هنوز لازم‌اند.
+
+این تغییر فقط تاریخچهٔ پیشرفت را تکمیل می‌کند؛ هیچ‌یک از موانع امنیتی معامله تغییر نکرده‌اند: Grant signer مستقل provision نشده، Promotion trust anchor نیازمند تطبیق است، Signal و Risk/Reservation و Operator approval عملیاتی مستقل اثبات نشده‌اند، Demo غیرمجاز است، Live غیرفعال است و هیچ سفارشی ارسال نشده است.
