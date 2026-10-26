@@ -53,3 +53,10 @@ Checkout uses `persist-credentials: false`. The workflow retains only `contents:
 To remove the dispatch-only operational dependency, the same workflow now also runs on pushes to `ops/bootstrap-provider-host-v1-20261025` only when one of these paths changes: the workflow itself, `requirements-provider-lock.in`, or `requirements.txt`. Manual dispatch remains available. This scoped trigger creates only a review artifact and does not automatically commit or approve the lock.
 
 CI must verify the new contract test and workflow syntax. Successful generation is still only a candidate; all package/hash, wheel-availability, clean Windows Server install, source-SHA and independent-review gates above remain mandatory.
+
+
+## Windows binary-only validation gate — 2026-10-26
+
+The candidate workflow now tests the generated lock before uploading it: on an ephemeral Windows GitHub-hosted runner using Python 3.13.17, it creates a fresh virtual environment, installs the lock with the exact `--require-hashes --only-binary=:all:` flags used by the elevated bootstrap, verifies imports of core/runtime packages, and runs the four focused Provider contract test modules.
+
+This materially checks binary-wheel availability and contract compatibility for that Python/Windows runner. It is still **not** a clean Windows Server 2022 deployment test, does not prove package review/provenance, and does not convert the candidate into an approved lock. A separate disposable Windows Server 2022 install rehearsal and independent review remain required before commit or bootstrap.
