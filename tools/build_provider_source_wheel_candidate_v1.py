@@ -34,6 +34,16 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "expected_release_tag_signature_verified": False,
         "expected_signature_verified": False,
         "expected_unsigned_commit_files": ["MANIFEST.in", "pyproject.toml"],
+        "expected_unsigned_file_evidence": {
+            "MANIFEST.in": {
+                "blob_sha": "ef517eea61d10638710ef60966f9086b2daabf15",
+                "patch_sha256": "333edb449017ef2ef0c33a8070bb043b82c7b5850edd38274a78c4806d6a99d4",
+            },
+            "pyproject.toml": {
+                "blob_sha": "24577fc9b72034c7a1c8457f17d042c7c72d6b43",
+                "patch_sha256": "039e2e6d9ae3256cc40ee17b26ff5645dff3c03476418c4b7ae5219ea19a7f44",
+            },
+        },
         "build_backend": "setuptools.build_meta",
         "license": "BSD-3-Clause",
     },
@@ -63,6 +73,16 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "expected_release_tag_signature_verified": False,
         "expected_signature_verified": False,
         "expected_unsigned_commit_files": ["README-hacking.md", "colorama/__init__.py"],
+        "expected_unsigned_file_evidence": {
+            "README-hacking.md": {
+                "blob_sha": "324f29d24781161694a634648f9a5e8676ba79de",
+                "patch_sha256": "9a4224995549ef0da3994e2e7f0757d6ada49ecbdb6a423fb30ba03fd57201d7",
+            },
+            "colorama/__init__.py": {
+                "blob_sha": "383101cdb38706c305449674044e9288b92b7d75",
+                "patch_sha256": "ed3bfa1d3adfb0299cd179284263150ab10e0c815151d846a7bea0eae9dbad23",
+            },
+        },
         "build_backend": "hatchling.build",
         "license": "BSD-3-Clause",
     },
@@ -78,6 +98,16 @@ SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "expected_release_tag_signature_verified": False,
         "expected_signature_verified": False,
         "expected_unsigned_commit_files": ["CHANGES", "pygments/__init__.py"],
+        "expected_unsigned_file_evidence": {
+            "CHANGES": {
+                "blob_sha": "5c18a8ea2e51bc7c0314726d1d4ca46b100a6cad",
+                "patch_sha256": "303e10056ee839684d29361ce1e3228326f3decc466cae8f8aac56d4c3a7b32c",
+            },
+            "pygments/__init__.py": {
+                "blob_sha": "1d41b0a400d23fa0216c17e45de2a3de0c9f8e12",
+                "patch_sha256": "f8cadb6815a210063138df1a0864ba02bf05a3ff04bbfc9d54f93c34e8875ca3",
+            },
+        },
         "build_backend": "hatchling.build",
         "license": "BSD-2-Clause",
     },
@@ -150,23 +180,54 @@ def github_commit_metadata(repository: str, commit: str) -> dict[str, Any]:
     if not isinstance(commit_files, list) or not commit_files:
         raise RuntimeError(f"GITHUB_SOURCE_COMMIT_FILE_LIST_MISSING:{repository}")
     changed_files: list[str] = []
+    file_entries: dict[str, dict[str, Any]] = {}
     for entry in commit_files:
         if not isinstance(entry, dict) or not isinstance(entry.get("filename"), str):
             raise RuntimeError(f"GITHUB_SOURCE_COMMIT_FILE_LIST_INVALID:{repository}")
-        changed_files.append(entry["filename"])
-    if len(changed_files) != len(set(changed_files)):
-        raise RuntimeError(f"GITHUB_SOURCE_COMMIT_FILE_LIST_DUPLICATE:{repository}")
+        filename = entry["filename"]
+        if filename in file_entries:
+            raise RuntimeError(f"GITHUB_SOURCE_COMMIT_FILE_LIST_DUPLICATE:{repository}")
+        changed_files.append(filename)
+        file_entries[filename] = entry
     changed_files.sort()
 
-    # Unsigned release commits are only allowed to proceed as review candidates
-    # when their complete GitHub API diff is exactly the pre-reviewed release-
-    # metadata allowlist. Any new/renamed/runtime source path must block the build.
+    # Filename allowlisting alone is not enough: build configuration (notably
+    # pyproject.toml) can change executed build behavior. For unsigned release
+    # commits, pin both the exact Git blob SHA and exact GitHub patch SHA-256.
+    unsigned_patch_hashes_match: bool | None = None
+    unsigned_file_evidence: dict[str, dict[str, str]] = {}
     expected_unsigned_files = spec.get("expected_unsigned_commit_files")
     if not verified:
+        expected_file_evidence = spec.get("expected_unsigned_file_evidence")
         if not isinstance(expected_unsigned_files, list) or not expected_unsigned_files:
             raise RuntimeError(f"UNSIGNED_COMMIT_ALLOWLIST_MISSING:{repository}")
         if changed_files != sorted(expected_unsigned_files):
             raise RuntimeError(f"UNSIGNED_UPSTREAM_COMMIT_CHANGED_UNREVIEWED_FILES:{repository}")
+        if (
+            not isinstance(expected_file_evidence, dict)
+            or set(expected_file_evidence) != set(expected_unsigned_files)
+        ):
+            raise RuntimeError(f"UNSIGNED_COMMIT_FILE_EVIDENCE_ALLOWLIST_INVALID:{repository}")
+
+        for filename in changed_files:
+            entry = file_entries[filename]
+            expected = expected_file_evidence[filename]
+            if entry.get("status") != "modified":
+                raise RuntimeError(f"UNSIGNED_UPSTREAM_FILE_STATUS_MISMATCH:{repository}:{filename}")
+            if entry.get("sha") != expected.get("blob_sha"):
+                raise RuntimeError(f"UNSIGNED_UPSTREAM_FILE_BLOB_MISMATCH:{repository}:{filename}")
+            patch = entry.get("patch")
+            if not isinstance(patch, str) or not patch:
+                raise RuntimeError(f"UNSIGNED_UPSTREAM_FILE_PATCH_MISSING:{repository}:{filename}")
+            patch_sha256 = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+            if patch_sha256 != expected.get("patch_sha256"):
+                raise RuntimeError(f"UNSIGNED_UPSTREAM_FILE_PATCH_MISMATCH:{repository}:{filename}")
+            unsigned_file_evidence[filename] = {
+                "status": entry["status"],
+                "blob_sha": entry["sha"],
+                "patch_sha256": patch_sha256,
+            }
+        unsigned_patch_hashes_match = True
 
     return {
         "repository": repository,
@@ -176,13 +237,15 @@ def github_commit_metadata(repository: str, commit: str) -> dict[str, Any]:
         "unsigned_commit_changed_files_match_allowlist": (
             changed_files == sorted(expected_unsigned_files) if not verified else None
         ),
+        "unsigned_commit_patch_hashes_match": unsigned_patch_hashes_match,
+        "unsigned_commit_file_evidence": unsigned_file_evidence,
         "expected_unsigned_commit_files": expected_unsigned_files if not verified else [],
         "github_commit_signature_verified": verified,
         "github_commit_signature_reason": reason,
         "upstream_signature_policy": (
             "SIGNED_COMMIT_VERIFIED"
             if verified
-            else "UNSIGNED_RELEASE_METADATA_ONLY_DIFF_REQUIRES_INDEPENDENT_SOURCE_REVIEW"
+            else "UNSIGNED_RELEASE_DIFF_EXACT_PATCH_HASHES_REQUIRE_INDEPENDENT_SOURCE_REVIEW"
         ),
     }
 
