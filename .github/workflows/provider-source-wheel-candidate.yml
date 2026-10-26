@@ -142,8 +142,15 @@ jobs:
           & python -m venv $lockVenv
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_VENV_FAILED' }
           $lockPython = Join-Path $lockVenv 'Scripts\python.exe'
+          # This is an untrusted candidate-generation bootstrap, not a production toolchain.
+          # The lock candidates it emits must be independently reviewed before adoption.
           & $lockPython -m pip install --disable-pip-version-check --only-binary=:all: 'pip-tools==7.6.1'
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_INSTALL_FAILED' }
+          & $lockPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_DEPENDENCY_CHECK_FAILED' }
+          $compilerBootstrapFreeze = @(& $lockPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
+          if ($LASTEXITCODE -ne 0 -or $compilerBootstrapFreeze.Count -lt 2) { throw 'SOURCE_LOCK_COMPILER_BOOTSTRAP_INVENTORY_FAILED' }
+          $compilerBootstrapFreeze | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'provider-lock-compiler-bootstrap-freeze.txt') -Encoding UTF8
           Push-Location $env:GITHUB_WORKSPACE
           try {
             $runtimeLock = Join-Path $lockRoot 'requirements-provider.lock.txt'
@@ -245,8 +252,15 @@ jobs:
           & python -m venv $verifierVenv
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_VENV_FAILED' }
           $verifierPython = Join-Path $verifierVenv 'Scripts\python.exe'
+          # Like the lock compiler above, this bootstrap is only for candidate generation.
+          # Its output is not a trusted verification result until independently reviewed.
           & $verifierPython -m pip install --disable-pip-version-check --only-binary=:all: 'pypi-attestations==0.0.30'
           if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_INSTALL_FAILED' }
+          & $verifierPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_DEPENDENCY_CHECK_FAILED' }
+          $verifierBootstrapFreeze = @(& $verifierPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
+          if ($LASTEXITCODE -ne 0 -or $verifierBootstrapFreeze.Count -lt 2) { throw 'SOURCE_PYPI_VERIFIER_BOOTSTRAP_INVENTORY_FAILED' }
+          $verifierBootstrapFreeze | Set-Content -LiteralPath (Join-Path $outputRoot 'pypi-verifier-bootstrap-freeze.txt') -Encoding UTF8
           & python tools/assemble_provider_offline_wheelhouse_v1.py --output-root $outputRoot --verifier-python $verifierPython
           if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_WHEELHOUSE_ASSEMBLY_FAILED' }
 
@@ -350,6 +364,8 @@ jobs:
             artifacts/provider-source-build/source-build-manifest.json
             artifacts/provider-source-build/wheelhouse-manifest.json
             artifacts/provider-source-build/pypi-provenance-report.json
+            artifacts/provider-source-build/pypi-verifier-bootstrap-freeze.txt
+            artifacts/provider-source-build/tool-lock-candidates/*.lock.txt
           if-no-files-found: error
           retention-days: 7
 
