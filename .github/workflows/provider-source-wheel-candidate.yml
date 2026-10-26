@@ -14,6 +14,8 @@ on:
       - tools/assemble_provider_offline_wheelhouse_v1.py
       - tests/test_provider_source_wheel_candidate_contract.py
       - requirements-provider-source-build-tools.lock.txt
+      - requirements-provider-lock-compiler.in
+      - requirements-provider-pypi-verifier.in
 
 permissions:
   contents: read
@@ -157,6 +159,83 @@ jobs:
           }
           finally { Pop-Location }
 
+          # Generate review-only, fully hash-locked closures for the two helper
+          # environments that are currently bootstrapped with exact version pins.
+          # These files are not used to authorize deployment; review/commit them
+          # before replacing the bootstrap installs with committed lockfiles.
+          $toolCandidateRoot = Join-Path $outputRoot 'tool-lock-candidates'
+          New-Item -ItemType Directory -Path $toolCandidateRoot -ErrorAction Stop | Out-Null
+          $compilerCandidate = Join-Path $toolCandidateRoot 'requirements-provider-lock-compiler.lock.txt'
+          $verifierCandidate = Join-Path $toolCandidateRoot 'requirements-provider-pypi-verifier.lock.txt'
+          Push-Location $env:GITHUB_WORKSPACE
+          try {
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $compilerCandidate requirements-provider-lock-compiler.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_LOCK_COMPILER_TOOL_LOCK_COMPILE_FAILED' }
+            & $lockPython -m piptools compile --no-header --no-emit-index-url --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file $verifierCandidate requirements-provider-pypi-verifier.in
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PYPI_VERIFIER_TOOL_LOCK_COMPILE_FAILED' }
+          }
+          finally { Pop-Location }
+
+          $toolCandidateRecords = @()
+          foreach ($toolLock in @(
+            [PSCustomObject]@{ path = $compilerCandidate; requiredPackage = 'pip-tools'; requiredVersion = '7.6.1'; environment = 'lock-compiler' },
+            [PSCustomObject]@{ path = $verifierCandidate; requiredPackage = 'pypi-attestations'; requiredVersion = '0.0.30'; environment = 'pypi-attestation-verifier' }
+          )) {
+            if (-not (Test-Path -LiteralPath $toolLock.path -PathType Leaf)) {
+              throw 'SOURCE_HELPER_TOOL_LOCK_CANDIDATE_MISSING'
+            }
+            $lockText = Get-Content -LiteralPath $toolLock.path -Raw
+            $pins = [regex]::Matches($lockText, '(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==')
+            $hashes = [regex]::Matches($lockText, '--hash=sha256:[0-9a-fA-F]{64}')
+            if ($pins.Count -lt 1 -or $hashes.Count -lt $pins.Count) {
+              throw 'SOURCE_HELPER_TOOL_LOCK_PIN_OR_HASH_VALIDATION_FAILED'
+            }
+            if ($lockText -notmatch ('(?m)^' + [regex]::Escape($toolLock.requiredPackage) + '==' + [regex]::Escape($toolLock.requiredVersion) + '(?:\s|\\|$)')) {
+              throw 'SOURCE_HELPER_TOOL_LOCK_TOP_LEVEL_PIN_MISMATCH'
+            }
+
+            $checkVenv = Join-Path $env:RUNNER_TEMP ('forexai-' + $toolLock.environment + '-' + [Guid]::NewGuid().ToString('N'))
+            & python -m venv $checkVenv
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_TEST_VENV_FAILED' }
+            $checkPython = Join-Path $checkVenv 'Scripts\python.exe'
+            $checkWheelhouse = Join-Path $env:RUNNER_TEMP ('forexai-' + $toolLock.environment + '-wheels-' + [Guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $checkWheelhouse -ErrorAction Stop | Out-Null
+            & $checkPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse $toolLock.path
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_BINARY_DOWNLOAD_FAILED' }
+            & $checkPython -m pip install --disable-pip-version-check --no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $toolLock.path
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED' }
+            if ($toolLock.environment -eq 'lock-compiler') {
+              & $checkPython -m piptools --version
+            }
+            else {
+              & $checkPython -c "import importlib.metadata; print('PYPI_ATTESTATIONS=' + importlib.metadata.version('pypi-attestations'))"
+            }
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_HELPER_TOOL_LOCK_IMPORT_FAILED' }
+
+            $toolCandidateRecords += [PSCustomObject]@{
+              environment = $toolLock.environment
+              top_level_pin = ($toolLock.requiredPackage + '==' + $toolLock.requiredVersion)
+              lock_file = [IO.Path]::GetFileName($toolLock.path)
+              raw_sha256 = (Get-FileHash -LiteralPath $toolLock.path -Algorithm SHA256).Hash.ToLowerInvariant()
+              pinned_requirement_count = $pins.Count
+              sha256_hash_count = $hashes.Count
+              offline_binary_only_install = 'PASS'
+              production_approved = $false
+            }
+          }
+          $toolReport = [ordered]@{
+            schema = 'forexai.provider_helper_tool_lock_candidates.v1'
+            status = 'CANDIDATE_LOCKS_GENERATED_AND_OFFLINE_TESTED_NOT_APPROVED'
+            generated_from_source_sha = '${{ github.sha }}'
+            policy = 'Candidates only. Review hashes and tool provenance before committing and switching workflow helper installs.'
+            production_approved = $false
+            bootstrap_approved = $false
+            candidates = $toolCandidateRecords
+          }
+          $toolReportPath = Join-Path $toolCandidateRoot 'helper-tool-lock-report.json'
+          $toolReport | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $toolReportPath -Encoding UTF8
+          $toolReport | ConvertTo-Json -Depth 6
+
       - name: Verify PyPI attestations and assemble separate hash-lock overlays
         shell: pwsh
         run: |
@@ -239,6 +318,7 @@ jobs:
             artifacts/provider-source-build/wheelhouse/*.whl
             artifacts/provider-source-build/locks/*.txt
             artifacts/provider-source-build/overlay-locks/*.txt
+            artifacts/provider-source-build/tool-lock-candidates/*
             artifacts/provider-source-build/source-build-manifest.json
             artifacts/provider-source-build/wheelhouse-manifest.json
             artifacts/provider-source-build/pypi-provenance-report.json
