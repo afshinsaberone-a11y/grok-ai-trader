@@ -71,3 +71,15 @@ The tool does not overwrite old keys. It also checks that its newly created outp
 5. Only after audit-history reconciliation, approve the Provider registry path/ACL/backup/restore/identity plan and initialize it once using the existing guarded initializer. Never create an empty registry as a stand-in.
 6. Re-run Provider host preflight. Even a preflight pass still reports source evidence requirements; it does not authorize Admission, Demo, Live, or orders.
 7. Resolve MT5-side authenticated envelope, MQL5 authorization record and TradeLedger blockers using authentic signed evidence. Keep Kill Switch DENY, Demo false, Live false and order submission off until separately approved source-governed authority passes all gates.
+
+
+## Current key blocker matrix — 2026-10-26
+
+Use [AUTHORITY_KEY_BLOCKER_MATRIX_V1.md](AUTHORITY_KEY_BLOCKER_MATRIX_V1.md) as the current operational checklist. The status distinctions are intentional:
+
+- **Admission:** operator-reported public-key fingerprint alignment was recorded for the new Provider host, but the Provider preflight remains blocked and this is not production activation.
+- **Promotion:** BLOCKED until a key owner approves rotation, the attestor runs in a separately administered host, and actual private/public key consistency and fresh G13-bound attestations are verified.
+- **Signal / Risk / Operator Approval:** NOT_PROVISIONED until each real service/source-of-truth and owner exists; do not create orphan keys as substitutes.
+- **Capital Firewall Grant:** NOT_PROVISIONED until its separate host/custodian, actual Grant keypair, six distinct trust anchors, anti-replay registry and source checks are reviewed.
+
+No production private key should be generated or activated by CI or this documentation change. The next successful step must be performed in the real role host by its authorized custodian, with only redacted fingerprints and proof-of-possession outcomes recorded. The public repo cannot establish host/administrator/secret-manager independence on its own.
