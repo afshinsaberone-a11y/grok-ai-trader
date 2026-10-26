@@ -320,7 +320,9 @@ def main() -> int:
     lock_hash_count = len(re.findall(r"--hash=sha256:[0-9a-f]{64}", build_tool_lock_text))
     if lock_hash_count != len(EXPECTED_BUILD_TOOL_PINS):
         raise RuntimeError("SOURCE_BUILD_TOOL_LOCK_HASH_COUNT_MISMATCH")
-    build_tool_lock_sha256 = sha256_file(build_tool_lock)
+    # Path.read_text uses universal-newline translation; hash canonical UTF-8/LF text
+    # so Windows autocrlf settings cannot make the manifest digest platform-dependent.
+    build_tool_lock_sha256 = hashlib.sha256(build_tool_lock_text.encode("utf-8")).hexdigest()
 
     build_tool_freeze = run([str(builder_python), "-m", "pip", "freeze", "--all"])
     actual_build_tool_pins = sorted(line.strip() for line in build_tool_freeze.splitlines() if line.strip())
