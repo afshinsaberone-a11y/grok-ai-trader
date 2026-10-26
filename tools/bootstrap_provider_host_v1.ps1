@@ -276,7 +276,7 @@ try {
         throw 'PROJECT_HASH_LOCKED_DEPENDENCY_INSTALL_FAILED'
     }
 
-    & $venvPython -c "import cryptography, numpy, pandas, backtesting, pytest; print('PYTHON_DEPENDENCIES=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
+    & $venvPython -c "import cryptography, pytest; print('PROVIDER_RUNTIME_DEPENDENCIES=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
     if ($LASTEXITCODE -ne 0) {
         throw 'PROJECT_DEPENDENCY_IMPORT_FAILED'
     }
