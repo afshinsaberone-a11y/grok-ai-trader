@@ -309,6 +309,34 @@ jobs:
             Write-Output "WHEELHOUSE_ATTESTATION_VERIFY=PASS:$($wheel.Name)"
           }
 
+      - name: Create GitHub-signed attestation for helper tool lock candidates
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/provider-source-build/tool-lock-candidates/*.lock.txt
+          predicate-type: https://forexai.grok-ai-trader.dev/attestations/provider-helper-tool-lock-candidates/v1
+          predicate-path: artifacts/provider-source-build/tool-lock-candidates/helper-tool-lock-report.json
+          show-summary: true
+
+      - name: Verify helper tool lock candidate attestations
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $lockRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build\tool-lock-candidates'
+          $locks = @(Get-ChildItem -LiteralPath $lockRoot -Filter '*.lock.txt' -File)
+          if ($locks.Count -ne 2) { throw 'HELPER_TOOL_LOCK_CANDIDATE_COUNT_MISMATCH' }
+          foreach ($lock in $locks) {
+            $verification = & gh attestation verify $lock.FullName --repo $repo --predicate-type 'https://forexai.grok-ai-trader.dev/attestations/provider-helper-tool-lock-candidates/v1' --format json 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              Write-Output "HELPER_TOOL_LOCK_ATTESTATION_VERIFY=FAIL:$($lock.Name)"
+              Write-Output $verification
+              throw 'HELPER_TOOL_LOCK_ATTESTATION_VERIFICATION_FAILED'
+            }
+            Write-Output "HELPER_TOOL_LOCK_ATTESTATION_VERIFY=PASS:$($lock.Name)"
+          }
+
       - name: Upload wheel candidates and source/build manifest for independent review
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

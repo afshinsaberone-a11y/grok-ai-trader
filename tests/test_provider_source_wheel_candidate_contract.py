@@ -50,6 +50,7 @@ def test_source_wheel_candidate_workflow_is_pinned_and_cannot_deploy_or_trade():
         "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
         "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
         "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+        "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
         "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
     ]
     assert "runs-on: windows-2022" in workflow
@@ -120,7 +121,7 @@ def test_source_wheel_workflow_enforces_offline_candidate_lock_gates():
     assert "--no-index --find-links $wheelhouse --require-hashes --only-binary=:all:" in workflow
     assert "OFFLINE_PROVIDER_CONTRACT_TESTS_FAILED" in workflow
     assert "provider-offline-wheelhouse/v1" in workflow
-    assert workflow.count("uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6") == 2
+    assert workflow.count("uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6") == 3
     assert "WHEELHOUSE_ATTESTATION_VERIFICATION_FAILED" in workflow
     assert "production_approved" in helper and "bootstrap_approved" in helper
     assert "BOOTSTRAP_AUTHORIZED=false" in workflow
@@ -311,3 +312,7 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     assert "production_approved = $false" in workflow
     assert "bootstrap_approved = $false" in workflow
     assert "artifacts/provider-source-build/tool-lock-candidates/*" in workflow
+    assert "provider-helper-tool-lock-candidates/v1" in workflow
+    assert "subject-path: artifacts/provider-source-build/tool-lock-candidates/*.lock.txt" in workflow
+    assert "HELPER_TOOL_LOCK_ATTESTATION_VERIFICATION_FAILED" in workflow
+    assert "HELPER_TOOL_LOCK_ATTESTATION_VERIFY=PASS:" in workflow
