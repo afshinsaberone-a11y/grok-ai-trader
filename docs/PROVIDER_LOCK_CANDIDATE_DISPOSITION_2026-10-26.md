@@ -117,3 +117,27 @@ Related CI at the same source revision:
 The candidate is **not approved for production bootstrap**. Do not remove the four dependencies, use `--no-deps`, disable the gate, or promote the candidate based only on tests/recorded hashes. The next gate is an independently reviewed source/build strategy or explicit defensible source evidence for each of those four wheel artifacts, followed by a fresh complete candidate run and review. Then, and only then, can a separate reviewed change incorporate approved lock bytes and update the immutable bootstrap source SHA. A post-merge exact-main-SHA G13 evidence chain is still required.
 
 PR #331 remains open, unmerged and without an independent submitted review. Main is unchanged at `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. No trust anchors, private keys, services, production registries or trading permissions were changed; Grant issuance and order submission remain disabled, Demo unauthorized, Live disabled.
+
+
+## Latest branch-head verification and blocker partition — 2026-10-26
+
+The current PR head is `183e87111565a85e64bcc949f6c7d0424a301d1c`. Its latest PR-triggered checks completed successfully:
+- [G13 Workflow Static Validation](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40305860555) — success.
+- [Agent Runtime Check](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40305860589) — success.
+- [Repository tests / PowerShell parse / lock candidate workflow](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40305860626) — success at the workflow level. This is not equivalent to the candidate passing the provenance enforcement gate; the dedicated candidate run recorded above remains `BLOCKED_PROVENANCE_MISSING`.
+
+### Separate production-runtime blockers from test-only blockers
+
+The generated production runtime lock has three package pins: `cryptography`, `cffi`, and `pycparser`. Of these, the attestation run verified `cryptography==50.0.2`; the two remaining production-runtime blockers are `cffi==2.1.1` and `pycparser==3.12`.
+
+The test lock adds test-only packages. In the tested nine-pin candidate, `colorama==0.4.6` and `pygments==2.21.0` are additional no-provenance blockers in the *test environment*, not runtime dependencies of the Provider. This distinction must be reflected in reporting and approval policy: test-only provenance gaps may block approval of the test environment, but they must not be conflated with the production runtime dependency closure. Conversely, separating them cannot make the production runtime lock pass while cffi and pycparser remain unresolved.
+
+### Next engineering task — narrow, evidence-backed
+
+1. Keep the candidate blocked; do not weaken or skip cryptographic verification.
+2. Build an explicit per-lock/per-package result table so production runtime and test-only evidence are independently visible and the release decision is the conjunction of the required gates.
+3. For the two runtime blockers, evaluate a separately reviewed source-build route from immutable upstream source, with recorded source digest, reviewed toolchain/build inputs, deterministic or reproducibly compared output where feasible, and verifiable build provenance. Do not claim a locally built wheel has upstream PyPI provenance; attest it as an independently produced artifact and review that trust model explicitly.
+4. For test-only dependencies, prefer verified releases or an independently reviewed test-toolchain route; do not promote test-only artifacts into the Provider runtime.
+5. Re-run the full candidate workflow and require a separate reviewer to approve the exact artifacts and source SHA.
+
+PR #331 remains open/unmerged and no independent review has been submitted. The main/G13 baseline remains `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. No production trust anchors, private keys, service registrations, registries, grants, or trading permissions were changed. Demo remains unauthorized; Live remains disabled; no orders were submitted.
