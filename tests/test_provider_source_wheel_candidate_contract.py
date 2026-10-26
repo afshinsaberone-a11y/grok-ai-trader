@@ -348,21 +348,28 @@ def test_unsigned_release_commit_must_match_exact_blob_and_patch_evidence(monkey
     pycparser = next(item for item in module.SOURCE_SPECS if item["name"] == "pycparser")
     evidence = pycparser["expected_unsigned_file_evidence"]
     patches = {
-        "MANIFEST.in": """@@ -4,5 +4,5 @@ recursive-include pycparser *.py *.cfg
- recursive-include utils/fake_libc_include *.h
- include README.*
- include LICENSE
--include CHANGES
-+include OLDER_CHANGES
- include setup.*""",
-        "pyproject.toml": """@@ -1,5 +1,5 @@
- [build-system]
--requires = ["setuptools>=69"]
-+requires = ["setuptools>=77.0.3"]
- build-backend = "setuptools.build_meta"
-
- [project]""",
+        "MANIFEST.in": "\n".join([
+            "@@ -4,5 +4,5 @@ recursive-include pycparser *.py *.cfg",
+            " recursive-include utils/fake_libc_include *.h",
+            " include README.*",
+            " include LICENSE",
+            "-include CHANGES",
+            "+include OLDER_CHANGES",
+            " include setup.*",
+        ]),
+        "pyproject.toml": "\n".join([
+            "@@ -1,5 +1,5 @@",
+            " [build-system]",
+            '-requires = ["setuptools>=69"]',
+            '+requires = ["setuptools>=77.0.3"]',
+            ' build-backend = "setuptools.build_meta"',
+            " ",
+            " [project]",
+        ]),
     }
+    for filename, patch_text in patches.items():
+        assert hashlib.sha256(patch_text.encode("utf-8")).hexdigest() == evidence[filename]["patch_sha256"]
+
 
     class FakeResponse:
         def __init__(self, payload):
