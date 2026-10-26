@@ -32,7 +32,7 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     ) in workflow
     # Candidate generation must also prove the lock is actually installable as
     # binary-only under the same strict pip flags used by the elevated bootstrap.
-    assert "Verify binary-only install and Provider contracts on Windows Python 3.13" in workflow
+    assert "Verify binary-only production install and test environment on Windows Python 3.13" in workflow
     assert "--require-hashes --only-binary=:all: -r $runtimeLock" in workflow
     assert "--require-hashes --only-binary=:all: -r $testLock" in workflow
     assert "LOCK_RUNTIME_BINARY_ONLY_INSTALL_FAILED" in workflow
