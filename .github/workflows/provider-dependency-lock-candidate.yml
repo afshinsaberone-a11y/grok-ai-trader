@@ -177,7 +177,15 @@ jobs:
           }
           & $verifierPython -m pip install --disable-pip-version-check --only-binary=:all: 'pypi-attestations==0.0.30'
           if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_INSTALL_FAILED' }
-          $verifierCli = Join-Path $verifierVenv 'Scripts\pypi-attestation.exe'
+          $entryPointJson = & $verifierPython -c "import json; from importlib.metadata import entry_points; print(json.dumps([e.name for e in entry_points(group='console_scripts') if e.name in ('pypi-attestation', 'pypi-attestations')]))"
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_ENTRY_POINT_ENUMERATION_FAILED' }
+          $entryPointNames = @($entryPointJson | ConvertFrom-Json)
+          if ($entryPointNames.Count -ne 1) {
+            Write-Output "PYPI_ATTESTATION_CLI_CANDIDATES=$($entryPointNames -join ',')"
+            throw 'LOCK_ATTESTATION_VERIFIER_ENTRY_POINT_AMBIGUOUS'
+          }
+          $verifierCliName = [string]$entryPointNames[0]
+          $verifierCli = Join-Path (Join-Path $verifierVenv 'Scripts') ($verifierCliName + '.exe')
           if (-not (Test-Path -LiteralPath $verifierCli -PathType Leaf)) {
             throw 'LOCK_ATTESTATION_VERIFIER_CLI_NOT_FOUND'
           }
