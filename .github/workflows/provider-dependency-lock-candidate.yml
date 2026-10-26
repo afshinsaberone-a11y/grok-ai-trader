@@ -122,6 +122,26 @@ jobs:
             if ($pins.Count -lt 1 -or $hashes.Count -lt $pins.Count) {
               throw 'LOCK_CANDIDATE_PIN_OR_HASH_CHECK_FAILED'
             }
+            $packageNames = @(
+              [regex]::Matches($content, '(?m)^\s*([A-Za-z0-9][A-Za-z0-9._-]*)==') |
+                ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } |
+                Sort-Object -Unique
+            )
+            if ($path -eq $paths[0]) {
+              $forbiddenRuntimePackages = @(
+                $packageNames | Where-Object { $_ -in @('pytest', 'numpy', 'pandas', 'backtesting', 'openai-agents') }
+              )
+              if ($packageNames -notcontains 'cryptography' -or $forbiddenRuntimePackages.Count -gt 0) {
+                throw 'LOCK_RUNTIME_SCOPE_CHECK_FAILED'
+              }
+              Write-Output "RUNTIME_PACKAGE_SET=$($packageNames -join ',')"
+            }
+            else {
+              if ($packageNames -notcontains 'cryptography' -or $packageNames -notcontains 'pytest') {
+                throw 'LOCK_TEST_SCOPE_CHECK_FAILED'
+              }
+              Write-Output "TEST_PACKAGE_SET=$($packageNames -join ',')"
+            }
             $lockHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
             Write-Output "LOCK_FILE=$path"
             Write-Output "SOURCE_SHA=${{ github.sha }}"
