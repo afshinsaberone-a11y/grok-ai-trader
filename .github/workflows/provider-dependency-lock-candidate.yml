@@ -156,6 +156,7 @@ jobs:
       # Diagnostic detail is bounded in the report; a blocked report uploads before enforcement.
       # This run includes per-wheel diagnostic reset to prevent stale error attribution.
       # Provenance JSON is written verbatim from the Integrity API response.
+      # OutFile intentionally emits no response object; HTTP status is set only after successful return.
       - name: Cryptographically verify PyPI provenance against expected repository identities
         shell: pwsh
         run: |
