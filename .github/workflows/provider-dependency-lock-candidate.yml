@@ -263,13 +263,12 @@ jobs:
             }
             else {
               try {
-                $response = Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -TimeoutSec 20
+                # Preserve the HTTP response bytes exactly. PowerShell's
+                # string conversion of response.Content can corrupt JSON when the
+                # response is represented as a byte array.
+                $response = Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -OutFile $provenancePath -TimeoutSec 20
                 $statusCode = [int]$response.StatusCode
-                if ($statusCode -eq 200) {
-                  [IO.File]::WriteAllText($provenancePath, [string]$response.Content, [System.Text.UTF8Encoding]::new($false))
-                  if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
-                    throw 'LOCK_PROVENANCE_RESPONSE_FILE_NOT_WRITTEN'
-                  }
+                if ($statusCode -eq 200 -and (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
                   $presence = 'PRESENT'
                   # Verify the exact wheel against the supplied attestation and
                   # require the explicit upstream repository identity.
@@ -283,7 +282,7 @@ jobs:
                     $verification = 'PASS_CRYPTOGRAPHICALLY_VERIFIED_EXPECTED_REPOSITORY'
                   }
                   else {
-                    $verification = 'BLOCKED_SIGNATURE_OR_REPOSITORY_IDENTITY_MISMATCH'
+                    $verification = 'BLOCKED_ATTESTATION_VERIFICATION_FAILED'
                     $hasVerificationFailure = $true
                     Write-Output "PYPI_ATTESTATION_VERIFICATION_FAILED=$($wheel.filename)"
                     if (-not [string]::IsNullOrWhiteSpace($verificationDetail)) {
