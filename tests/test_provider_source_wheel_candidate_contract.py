@@ -66,6 +66,7 @@ def test_source_wheel_candidate_workflow_is_pinned_and_cannot_deploy_or_trade():
         "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
         "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
         "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+        "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
         "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
     ]
     assert "runs-on: windows-2022" in workflow
