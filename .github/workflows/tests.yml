@@ -116,6 +116,10 @@ jobs:
           .\.lock-tools\Scripts\python.exe -m pip install --disable-pip-version-check "pip-tools==7.6.2"
           if ($LASTEXITCODE -ne 0) { throw "PIP_TOOLS_INSTALL_FAILED" }
           New-Item -ItemType Directory -Path generated-locks -ErrorAction Stop | Out-Null
+          # Seed pip-compile from committed lock files to retain reviewed transitive pins
+          # and hashes when the package index later adds newer dependency versions.
+          Copy-Item -LiteralPath requirements-provider.lock.txt -Destination generated-locks/requirements-provider.lock.txt -ErrorAction Stop
+          Copy-Item -LiteralPath requirements-provider-test.lock.txt -Destination generated-locks/requirements-provider-test.lock.txt -ErrorAction Stop
           .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider.lock.txt requirements-provider.in
           if ($LASTEXITCODE -ne 0) { throw "RUNTIME_LOCK_GENERATION_FAILED" }
           .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider-test.lock.txt requirements-provider-test.in
