@@ -47,7 +47,7 @@ def make_fixture(tmp_path: Path) -> dict[str, Path]:
     wheel_hash = sha(wheel)
 
     install_lock = tmp_path / "requirements-provider-setuptools-bootstrap.lock.txt"
-    install_lock.write_text(f"setuptools==80.9.0 --hash=sha256:{wheel_hash}\n", encoding="utf-8")
+    install_lock.write_text(f"setuptools==80.9.0 --hash=sha256:{wheel_hash}\n", encoding="utf-8", newline="\n")
     install_lock_hash = sha(install_lock)
     manifest = {
         "schema": "forexai.provider_setuptools_source_bootstrap.v1",
