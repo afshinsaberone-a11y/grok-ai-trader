@@ -271,3 +271,35 @@ The source-wheel workflow now builds a nine-wheel offline wheelhouse. It verifie
 The workflow then installs both overlays from the wheelhouse with `--no-index --find-links --require-hashes --only-binary=:all:`, verifies imports and runs the four focused Provider contract test files. It generates and verifies a second GitHub attestation for the assembled wheelhouse and uploads the wheelhouse, candidate lock overlays, wheel digests and manifests for independent review.
 
 This workflow only produces review candidates. It does not change the accepted production lock, the bootstrap's immutable source SHA, trust anchors, services, registries or trading permissions. Three upstream source commits remain unsigned, and the build-tool transitive dependency closure is not hash-locked in this exploratory workflow. Independent source review, reviewed/hash-locked build tooling and a separately controlled destination-install rehearsal remain required. The generated manifest keeps `production_approved=false` and `bootstrap_approved=false`.
+
+
+## Integrated offline wheelhouse candidate passed — 2026-10-26
+
+The integrated workflow completed successfully on source SHA `b18a68967ec5b02146b812332e7cad7c6ae85b68`: [run 40305852128](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40305852128).
+
+Verified gates:
+- source-built four wheels from the four pinned upstream Git commits, checked source commit-signature status and produced GitHub-signed source-wheel attestations;
+- generated fresh runtime/test hash-lock candidates and downloaded the five remaining PyPI wheels with `--require-hashes --only-binary=:all:`;
+- cryptographically verified the five exact PyPI attestations against the code-reviewed expected repositories;
+- replaced the four no-provenance PyPI wheel files with the exact source-built candidates and wrote distinct runtime/test lock overlays containing their wheel SHA-256 values;
+- installed runtime and test overlays offline using `--no-index --find-links --require-hashes --only-binary=:all:`, verified imports, and passed all four focused Provider contract-test files;
+- generated a signed GitHub attestation for the nine-wheel wheelhouse and successfully verified the attestation for each of its nine wheel subjects;
+- uploaded the complete candidate artifact. The workflow and its final boundary step explicitly keep production approval, bootstrap, service installation, Grant, Demo/Live and order submission disabled.
+
+### Artifact, manifests and exact hashes
+
+- GitHub Actions artifact ID: `12643245994`
+- Artifact ZIP SHA-256: `ae1dae0c849d20572200ad76307026796e1e34415518e85572c6a4e3f2a17a05`
+- Wheelhouse manifest SHA-256: `30194e0624ea2b2ce258d316cb2536a6759606cc0a601e083e518f34a1fdc1ac`
+- PyPI provenance-verification report SHA-256: `f9c613181bca94275e44ed19ab7bc7c7e8f93a7baa6f6b2aee266de92356f45d`
+- Offline runtime Lock overlay SHA-256: `1c5adda06841280c96f2318d64467836b82b00a96d65e36e87e127d07aab5510`
+- Offline test Lock overlay SHA-256: `4f25537fcfcbee63f050f6632f36dbac8eaf7029ded473b025c5765c641061d1`
+- Wheelhouse size: 9 wheels. PyPI provenance: 5 cryptographic passes. Source-built candidate wheels: cffi, pycparser, colorama and Pygments.
+
+The downloaded artifact ZIP and its contents were independently inspected. Each wheel SHA-256 matches the wheelhouse manifest, all four custom wheel hashes appear in the appropriate overlay files, both overlay hashes match the wheelhouse manifest, the PyPI report contains five PASS records, and the source manifest lists the three unsigned upstream commits.
+
+### Production disposition
+
+**This is a complete, successful candidate rehearsal, not production approval.** The manifests remain `production_approved=false` and `bootstrap_approved=false`. The upstream commits for pycparser 3.12, colorama 0.4.6 and Pygments 2.21.0 are unsigned; the builder-tool transitive dependency closure is recorded but not yet hash-locked. Those are independent source/build trust gates, not fixed by a passing offline installation or by a signed GitHub attestation for the build process.
+
+PR #331 is still open/unmerged and has no independent submitted review. `main` remains `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. No accepted production lock, immutable bootstrap SHA, key, trust anchor, service or registry was changed. Do not merge or run the elevated Bootstrap until an independent reviewer approves the unsigned sources, locked build tools, wheelhouse/lock artifacts and a separately controlled destination-install rehearsal. No Grant was issued, Demo is unauthorized, Live remains disabled and no orders were submitted.
