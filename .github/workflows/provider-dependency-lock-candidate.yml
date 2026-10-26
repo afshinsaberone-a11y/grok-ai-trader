@@ -4,6 +4,15 @@ name: Provider Dependency Lock Candidate
 # authority provisioning, or deployment are performed.
 on:
   workflow_dispatch:
+  # Generate a review-only candidate automatically for narrowly scoped dependency
+  # input/workflow changes on this branch. No secrets or write permissions exist.
+  push:
+    branches:
+      - ops/bootstrap-provider-host-v1-20261025
+    paths:
+      - .github/workflows/provider-dependency-lock-candidate.yml
+      - requirements-provider-lock.in
+      - requirements.txt
 
 permissions:
   contents: read
