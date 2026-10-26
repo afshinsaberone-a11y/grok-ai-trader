@@ -32,16 +32,22 @@ STATUS = "SIGNED_SOURCE_BUILD_CANDIDATE_NOT_APPROVED"
 
 
 def run(command: list[str], *, cwd: Path | None = None) -> str:
-    result = subprocess.run(
-        command,
-        cwd=str(cwd) if cwd else None,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=str(cwd) if cwd else None,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except subprocess.CalledProcessError as exc:
+        output = exc.stdout or exc.output or ""
+        if output:
+            print(output, file=sys.stderr)
+        raise
     return result.stdout.strip()
 
 
