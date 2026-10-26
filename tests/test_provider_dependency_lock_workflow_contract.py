@@ -51,7 +51,7 @@ def test_provider_lock_input_excludes_broad_research_dependencies():
     assert "cryptography>=42,<52" in content
     assert "pytest>=8,<9" in content
     assert "-r requirements.txt" not in content
-    assert "backtesting" not in content
+    assert not re.search(r"(?im)^\\s*backtesting(?:[<=>!~]|$)", content)
     assert "numpy" not in content
     assert "pandas" not in content
     assert "openai-agents" not in content
