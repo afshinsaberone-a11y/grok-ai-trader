@@ -281,3 +281,30 @@ def test_release_tag_metadata_binds_release_ref_to_exact_commit_and_reports_sign
         assert "UPSTREAM_RELEASE_TAG_REF_CHANGED" in str(exc)
     else:
         raise AssertionError("unexpectedly moved release tag must fail closed")
+
+
+def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_tested():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "provider-source-wheel-candidate.yml").read_text(encoding="utf-8")
+    compiler_input = (root / "requirements-provider-lock-compiler.in").read_text(encoding="utf-8")
+    verifier_input = (root / "requirements-provider-pypi-verifier.in").read_text(encoding="utf-8")
+
+    assert compiler_input.strip().endswith("pip-tools==7.6.1")
+    assert verifier_input.strip().endswith("pypi-attestations==0.0.30")
+    assert "requirements-provider-lock-compiler.in" in workflow
+    assert "requirements-provider-pypi-verifier.in" in workflow
+    assert "requirements-provider-lock-compiler.lock.txt" in workflow
+    assert "requirements-provider-pypi-verifier.lock.txt" in workflow
+    assert "SOURCE_LOCK_COMPILER_TOOL_LOCK_COMPILE_FAILED" in workflow
+    assert "SOURCE_PYPI_VERIFIER_TOOL_LOCK_COMPILE_FAILED" in workflow
+    assert "SOURCE_HELPER_TOOL_LOCK_PIN_OR_HASH_VALIDATION_FAILED" in workflow
+    assert "SOURCE_HELPER_TOOL_LOCK_TOP_LEVEL_PIN_MISMATCH" in workflow
+    assert "SOURCE_HELPER_TOOL_LOCK_BINARY_DOWNLOAD_FAILED" in workflow
+    assert "SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED" in workflow
+    assert "SOURCE_HELPER_TOOL_LOCK_IMPORT_FAILED" in workflow
+    assert "--require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path" in workflow
+    assert "--no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $toolLock.path" in workflow
+    assert "'CANDIDATE_LOCKS_GENERATED_AND_OFFLINE_TESTED_NOT_APPROVED'" in workflow
+    assert "'production_approved' = $false" in workflow
+    assert "'bootstrap_approved' = $false" in workflow
+    assert "artifacts/provider-source-build/tool-lock-candidates/*" in workflow
