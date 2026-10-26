@@ -302,6 +302,9 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     assert "SOURCE_HELPER_TOOL_LOCK_BINARY_DOWNLOAD_FAILED" in workflow
     assert "SOURCE_HELPER_TOOL_LOCK_OFFLINE_INSTALL_FAILED" in workflow
     assert "SOURCE_HELPER_TOOL_LOCK_IMPORT_FAILED" in workflow
+    assert "importlib.metadata.version('pip-tools')" in workflow
+    assert "importlib.metadata.version('pypi-attestations')" in workflow
+    assert "piptools --version" not in workflow
     assert "--require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path" in workflow
     assert "--no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $toolLock.path" in workflow
     assert "'CANDIDATE_LOCKS_GENERATED_AND_OFFLINE_TESTED_NOT_APPROVED'" in workflow
