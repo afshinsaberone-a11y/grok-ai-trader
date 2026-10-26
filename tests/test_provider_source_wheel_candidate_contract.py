@@ -322,7 +322,12 @@ def test_helper_tool_lock_candidates_are_generated_hashed_and_offline_install_te
     assert "importlib.metadata.version('pypi-attestations')" in workflow
     assert "piptools --version" not in workflow
     assert "--require-hashes --only-binary=:all: --no-deps --dest $checkWheelhouse -r $toolLock.path" in workflow
-    assert "--no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $toolLock.path" in workflow
+    assert "tools/compact_provider_target_lock_v1.py --lock $toolLock.path --wheelhouse $checkWheelhouse --output $targetLockPath" in workflow
+    assert "$targetPins.Count -ne $pins.Count -or $targetHashes.Count -ne $pins.Count" in workflow
+    assert "--no-index --find-links $checkWheelhouse --require-hashes --only-binary=:all: -r $targetLockPath" in workflow
+    assert "$locks.Count -ne 4" in workflow
+    assert "--require-hashes --only-binary=:all: -r $compilerLock" in workflow
+    assert "SOURCE_HELPER_TOOL_TARGET_LOCK_COMPACTION_FAILED" in workflow
     assert "'CANDIDATE_LOCKS_GENERATED_AND_OFFLINE_TESTED_NOT_APPROVED'" in workflow
     assert "production_approved = $false" in workflow
     assert "bootstrap_approved = $false" in workflow
