@@ -191,3 +191,27 @@ The 404 results for cffi 2.1.1, colorama 0.4.6, pycparser 3.12, and Pygments 2.2
 The byte-preserving fix was tightened after checking Microsoft’s PowerShell documentation. With `Invoke-WebRequest -OutFile`, response content is written to disk rather than returned to the pipeline, unless `-PassThru` is used. The workflow does not need the response body object; therefore it now pipes the successful request to `Out-Null` and records HTTP 200 only after the request returns without throwing. HTTP failures continue through `catch`, where the actual status code is collected. The downloaded file is then passed to the PyPI attestation verifier unchanged.
 
 This is covered by a new contract assertion. It avoids a null response-object status check and preserves the raw provenance JSON bytes. Source: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/invoke-webrequest?view=powershell-7.
+
+
+## Final result of byte-preserving cryptographic audit — 2026-10-26
+
+The corrected workflow passed its cryptographic-verification step and uploaded artifact ID `12640428004` on run [40301471299](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40301471299). The candidate's overall conclusion is intentionally **failure** at the final provenance policy gate because four wheel files have no PyPI provenance.
+
+Verified against the exact candidate wheels and the configured repository allowlist:
+- PASS: `cryptography==50.0.2`
+- PASS: `iniconfig==2.3.1`
+- PASS: `packaging==26.3`
+- PASS: `pluggy==1.7.0`
+- PASS: `pytest==8.4.2`
+
+Still blocked due to missing provenance:
+- `cffi==2.1.1`
+- `colorama==0.4.6`
+- `pycparser==3.12`
+- `pygments==2.21.0`
+
+This validates the previous PowerShell response-byte fix: the five present attestations now pass; the missing four remain missing. The CI for this source SHA also passed repository tests, PowerShell parsing, G13 static validation and Agent Runtime. Real-data smoke was skipped. None of this is a production install or independent human approval.
+
+The published PyPI release history for cffi and pycparser shows that earlier versions also lack PyPI provenance; Pygments 2.20.0 likewise lists no provenance. A simple version downgrade therefore is not a defensible resolution. The remaining engineering choice is an independently reviewed source/build path (with immutable upstream source identity, build inputs, output wheel digests and verifiable build attestations) or a formally reviewed exception backed by adequate source evidence. An internally generated attestation can prove how ForexAI built a wheel; it cannot by itself prove upstream source code is trustworthy. No automatic acceptance or use of internally built wheels is authorized by this status record.
+
+The current lock candidate remains unapproved, PR #331 remains open/unmerged without independent review, main is unchanged, and the bootstrap/trading authorization boundary remains closed.
