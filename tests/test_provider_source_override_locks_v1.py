@@ -4,7 +4,6 @@ import hashlib
 import importlib.util
 import json
 import zipfile
-from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -23,6 +22,7 @@ def sha(path: Path) -> str:
 
 
 def make_fixture(tmp_path: Path) -> dict[str, Path]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     source_lock = tmp_path / "requirements-provider-lock-compiler.lock.txt"
     source_lock.write_text(
         "# source candidate closure\n"
