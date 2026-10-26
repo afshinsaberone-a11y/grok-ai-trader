@@ -80,12 +80,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m pip install --disable-pip-version-check "pip-tools==7.5.0"
+          python -m venv .lock-tools
+          if ($LASTEXITCODE -ne 0) { throw "LOCK_TOOLS_VENV_FAILED" }
+          .\.lock-tools\Scripts\python.exe -m pip install --disable-pip-version-check "pip==25.3" "pip-tools==7.5.0"
           if ($LASTEXITCODE -ne 0) { throw "PIP_TOOLS_INSTALL_FAILED" }
           New-Item -ItemType Directory -Path generated-locks -ErrorAction Stop | Out-Null
-          python -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider.lock.txt requirements-provider.in
+          .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider.lock.txt requirements-provider.in
           if ($LASTEXITCODE -ne 0) { throw "RUNTIME_LOCK_GENERATION_FAILED" }
-          python -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider-test.lock.txt requirements-provider-test.in
+          .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider-test.lock.txt requirements-provider-test.in
           if ($LASTEXITCODE -ne 0) { throw "TEST_LOCK_GENERATION_FAILED" }
           Write-Output "===== BEGIN requirements-provider.lock.txt ====="
           Get-Content -LiteralPath generated-locks/requirements-provider.lock.txt -Raw
