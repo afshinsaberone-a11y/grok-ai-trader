@@ -127,7 +127,9 @@ function Set-ProtectedProviderRootAcl {
         }
         $actualSids += $ruleSid
     }
-    if (@($actualSids | Sort-Object -Unique) -join '|' -ne @($allowed | Sort-Object -Unique) -join '|') {
+    $actualPrincipalSet = (@($actualSids | Sort-Object -Unique) -join '|')
+    $expectedPrincipalSet = (@($allowed | Sort-Object -Unique) -join '|')
+    if ($actualPrincipalSet -ne $expectedPrincipalSet) {
         throw 'PROVIDER_ROOT_ACL_PRINCIPAL_SET_MISMATCH'
     }
 
