@@ -9,6 +9,7 @@ from tools.control_plane_provider_host_preflight_v1 import (
     REGISTRY_ENVIRONMENT,
     inspect_environment,
 )
+from tests.trust_registry_bundle_test_support import build_test_bundle
 
 
 def _configured_environment(tmp_path: Path) -> dict[str, str]:
@@ -17,6 +18,8 @@ def _configured_environment(tmp_path: Path) -> dict[str, str]:
         for index, name in enumerate(KEY_ENVIRONMENTS)
     }
     environment[REGISTRY_ENVIRONMENT] = str(tmp_path / "issued-admissions.sqlite3")
+    bundle_environment, _bundle_path, _test_root_key = build_test_bundle(tmp_path / "trust-registry-bundle")
+    environment.update(bundle_environment)
     return environment
 
 
