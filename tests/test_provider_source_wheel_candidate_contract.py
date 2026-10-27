@@ -62,6 +62,8 @@ def test_source_wheel_builder_has_immutable_sources_and_discloses_signature_stat
     assert 'source_date_epoch_source": "pinned_upstream_commit_committer_timestamp"' in source
     assert 'arguments.append("/Brepro")' in source
     assert 'environment["SOURCE_DATE_EPOCH"] = str(source_date_epoch)' in source
+    assert 'source_metadata["source_date_epoch"]' in source
+    assert '"reproducibility_controls": reproducibility_controls' in source
 
 
 def test_source_build_environment_pins_archive_epoch_and_requests_msvc_reproducibility():
