@@ -4,7 +4,7 @@
 
 The Provider Source-built Wheel Candidate workflow builds **review-only** dependencies from exact upstream source commits. This check compares the exact source-build manifest and produced wheel digests against an externally signed trust-registry bundle's approved source-signer allowlist.
 
-The workflow writes `artifacts/provider-source-build/source-signer-eligibility-report.json` and uploads it alongside the candidate artifacts.
+The workflow writes `artifacts/provider-source-build/source-signer-eligibility-report.json` and uploads it alongside the candidate artifacts. Only after the upload step does it enforce the report: a missing report or a `BLOCKED` status fails the workflow. This preserves evidence for review while ensuring a green run cannot hide a failed source-signer eligibility gate.
 
 ## Optional public review inputs
 
@@ -20,7 +20,7 @@ These inputs are public verification material only. Do not put a private key or 
 ## Meaning of outcomes
 
 - `PASS_SOURCE_SIGNER_ALLOWLIST_MATCH`: every source tuple and wheel/bootstrap digest in this candidate matches the signed bundle's currently valid signer allowlist. **This is eligibility evidence only; it does not approve a production install.**
-- `BLOCKED`: a required input or verification predicate is missing or invalid. The candidate artifacts may still be uploaded for independent review, but the report records that source-signer eligibility was not established.
+- `BLOCKED`: a required input or verification predicate is missing or invalid. Candidate artifacts and the report are uploaded first, then the workflow fails closed with `SOURCE_SIGNER_ELIGIBILITY_GATE_BLOCKED`. The report records why source-signer eligibility was not established.
 
 Every report hard-pins `production_approved=false`, `bootstrap_approved=false`, and `trading_authorization_created=false`.
 
