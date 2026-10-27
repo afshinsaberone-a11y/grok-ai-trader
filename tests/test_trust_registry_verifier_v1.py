@@ -145,6 +145,7 @@ def _make_fixture(
         "signer_fingerprint": "not_applicable_source_exception",
         "evidence_reference": "https://example.invalid/audit/test-review-source-1",
         "evidence_sha256": "c" * 64,
+        "source_author_identity": "upstream-source-author",
         "reviewer_identity": "test-independent-reviewer",
         "review_id": "test-review-source-1",
         "reviewed_at_utc": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
