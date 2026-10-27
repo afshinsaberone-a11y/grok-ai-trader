@@ -6,7 +6,8 @@ Run `tools/control_plane_provider_host_preflight_v1.py` under the actual
 `ForexAIProviderSvc` identity before any provider deployment test. It gives a
 redacted, machine-readable report for the five public keys consumed by the Provider
 (Admission plus Promotion, Signal, Risk, and Operator Approval), the configured
-issuance-registry location, and the externally pinned signed trust-registry bundle.
+issuance-registry location, the externally pinned signed trust-registry bundle,
+and a separately digest-pinned Provider source-build manifest.
 The Grant public key is included and fingerprint-checked inside the signed registry,
 but its signature-validation authority remains the separately administered
 Grant/Promotion-attestor boundary; the Provider does not consume a second Grant
@@ -169,8 +170,9 @@ configured target file is missing, the report remains `BLOCKED` with
 `registry_check.status=REGISTRY_FILE_NOT_FOUND`; a successful parent probe
 does not establish that the durable registry exists. The JSON report never
 prints key values, private key material, passphrases, or the registry path. It
-includes a sanitized `trust_registry_bundle_check` record and never marks it as
-trading authority.
+includes sanitized `trust_registry_bundle_check` and `source_build_manifest_check`
+records; neither result is trading authority. A missing or mismatched source-build
+manifest digest pin is a preflight blocker.
 
 ## Provider issuance registry (one-time provisioning)
 
