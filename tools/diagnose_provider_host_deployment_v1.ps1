@@ -240,6 +240,17 @@ foreach ($name in $trustRegistryEnvironmentNames) {
     $trustRegistryEnvironmentPresence[$name] = Get-EnvironmentPresence -Name $name
 }
 
+# The manifest digest is an out-of-band integrity pin, not a value derived from
+# the manifest itself. Report presence only; never echo paths or digests.
+$sourceBuildEnvironmentNames = @(
+    'FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_PATH',
+    'FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_SHA256'
+)
+$sourceBuildEnvironmentPresence = [ordered]@{}
+foreach ($name in $sourceBuildEnvironmentNames) {
+    $sourceBuildEnvironmentPresence[$name] = Get-EnvironmentPresence -Name $name
+}
+
 $passphraseNames = @(
     'FOREXAI_PROVIDER_SIGNING_KEY_PASSPHRASE',
     'FOREXAI_G13_ATTESTOR_KEY_PASSPHRASE'
@@ -284,6 +295,10 @@ foreach ($name in $publicEnvironmentNames) {
 foreach ($name in $trustRegistryEnvironmentNames) {
     $presence = $trustRegistryEnvironmentPresence[$name]
     if (-not $presence.Process) { $blockers.Add("TRUST_REGISTRY_CONFIGURATION_NOT_IN_PROCESS:$name") }
+}
+foreach ($name in $sourceBuildEnvironmentNames) {
+    $presence = $sourceBuildEnvironmentPresence[$name]
+    if (-not $presence.Process) { $blockers.Add("SOURCE_BUILD_CONFIGURATION_NOT_IN_PROCESS:$name") }
 }
 foreach ($check in $publicKeyChecks) {
     if ($check.public_file_status -ne 'VALID_32_BYTE_KEY') { $blockers.Add("PUBLIC_KEY_FILE_INVALID:$($check.role)") }
@@ -336,6 +351,7 @@ $report = [PSCustomObject]@{
     private_key_headers = [PSCustomObject]$privateKeyHeaders
     public_environment_presence = [PSCustomObject]$environmentPresence
     trust_registry_environment_presence = [PSCustomObject]$trustRegistryEnvironmentPresence
+    source_build_environment_presence = [PSCustomObject]$sourceBuildEnvironmentPresence
     passphrase_environment_presence = [PSCustomObject]$passphrasePresence
     registry = [PSCustomObject]@{
         environment_presence = $registryPresence
