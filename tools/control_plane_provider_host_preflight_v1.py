@@ -23,7 +23,7 @@ except ModuleNotFoundError as exc:
     # deployment command that invokes this file by its absolute path.
     if exc.name not in {"tools", "tools.verify_provider_trust_registry_bundle_v1"}:
         raise
-    from verify_provider_trust_registry_bundle import inspect_trust_registry_bundle
+    from verify_provider_trust_registry_bundle_v1 import inspect_trust_registry_bundle
 
 try:
     from tools.verify_provider_source_signer_manifest_v1 import inspect_source_manifest
