@@ -56,7 +56,8 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     # Presence is not trust. The exact local wheel and PyPI attestation must be
     # cryptographically verified against a reviewed expected upstream repository.
     assert "Cryptographically verify PyPI provenance against expected repository identities" in workflow
-    assert "pypi-attestations==0.0.30" in workflow
+    verifier_lock = (root / "requirements-provider-pypi-verifier.windows-py313.lock.txt").read_text(encoding="utf-8")
+    assert re.search(r"(?m)^pypi-attestations==0\.0\.30(?:\s|$)", verifier_lock)
     assert "entry_points(group='console_scripts')" in workflow
     assert "pypi-attestation" in workflow
     assert "pypi-attestations" in workflow
