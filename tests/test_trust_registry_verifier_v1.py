@@ -52,6 +52,7 @@ def _make_fixture(
     policy_overrides: dict | None = None,
     signer_status: str = "APPROVED_FOR_SOURCE_SIGNER_VERIFICATION",
     signer_records: list[dict] | None = None,
+    signer_record_overrides: dict | None = None,
     key_overrides: dict[str, dict] | None = None,
 ) -> tuple[bytes, dict[str, str], bytes, str]:
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -154,6 +155,8 @@ def _make_fixture(
         "status": "ACTIVE",
         "independently_reviewed": True,
     }
+    if signer_record_overrides:
+        valid_signer.update(signer_record_overrides)
     signers = {
         "schema": SIGNERS_SCHEMA,
         "status": signer_status,
@@ -308,26 +311,31 @@ def test_empty_trusted_signer_allowlist_blocks_even_with_valid_root_signature():
 
 
 def test_source_exception_must_bind_exact_review_id():
-    raw0, config0, _, _ = _make_fixture()
-    envelope = json.loads(raw0.decode("utf-8"))
-    signer = envelope["payload"]["trusted_signers"]["signers"][0]
-    signer["signer_identity"] = "unrelated-identity"
-    # Re-sign this malformed policy fixture with a new ephemeral root so validation
-    # reaches the signer-contract check rather than failing cryptographic verification.
-    from cryptography.hazmat.primitives import serialization
-    root = Ed25519PrivateKey.generate()
-    root_public = root.public_key().public_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PublicFormat.Raw,
+    raw, config, _, _ = _make_fixture(
+        signer_record_overrides={"signer_identity": "unrelated-identity"}
     )
-    envelope["payload"]["registry_revision"] = "d" * 40
-    envelope["signature"]["signature_base64"] = _encoded(root.sign(canonical_json(envelope["payload"])))
-    raw = canonical_json(envelope) + b"\n"
-    config = dict(config0)
-    config[ROOT_PUBLIC_KEY_ENV] = _encoded(root_public)
-    config[ROOT_FINGERPRINT_ENV] = _fingerprint(root_public)
-    config[EXPECTED_BUNDLE_SHA256_ENV] = "sha256:" + hashlib.sha256(raw).hexdigest()
     with pytest.raises(TrustRegistryVerificationError, match="SOURCE_EXCEPTION_IDENTITY_INVALID"):
+        _verify(raw, config)
+
+
+def test_source_exception_reviewer_must_differ_from_source_author():
+    raw, config, _, _ = _make_fixture(
+        signer_record_overrides={"reviewer_identity": "upstream-source-author"}
+    )
+    with pytest.raises(TrustRegistryVerificationError, match="REVIEWER_MUST_DIFFER_FROM_SOURCE_AUTHOR"):
+        _verify(raw, config)
+
+
+def test_verified_signer_requires_pinned_fingerprint_format():
+    raw, config, _, _ = _make_fixture(
+        signer_record_overrides={
+            "trust_basis": "VERIFIED_SIGNATURE_IDENTITY_PIN",
+            "signature_status": "VERIFIED",
+            "signer_identity": "upstream-maintainer",
+            "signer_fingerprint": "not-a-fingerprint",
+        }
+    )
+    with pytest.raises(TrustRegistryVerificationError, match="SIGNER_FINGERPRINT_REQUIRED"):
         _verify(raw, config)
 
 
