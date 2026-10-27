@@ -125,7 +125,7 @@ function Set-ProtectedProviderRootAcl {
         }
         $seen += $ruleSid
     }
-    if (@($seen | Sort-Object) -join '|' -ne (@($allowed | Sort-Object) -join '|')) {
+    if ((@($seen | Sort-Object) -join '|') -ne (@($allowed | Sort-Object) -join '|')) {
         throw 'PROVIDER_ROOT_ACL_PRINCIPAL_SET_MISMATCH'
     }
 
