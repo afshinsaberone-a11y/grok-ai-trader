@@ -134,3 +134,19 @@ def test_provider_runtime_and_test_locks_are_separated_from_research_dependencie
         assert not re.search(r"(?im)^\s*numpy(?:[<=>!~]|$)", content)
         assert not re.search(r"(?im)^\s*pandas(?:[<=>!~]|$)", content)
         assert not re.search(r"(?im)^\s*openai-agents(?:[<=>!~]|$)", content)
+
+def test_repository_provider_lock_generation_uses_hash_locked_compiler():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    section = workflow.split("  provider-lock-generation:", 1)[1].split("  real-data-smoke:", 1)[0]
+
+    # This workflow runs on every push and PR, so its compiler bootstrap must
+    # be as strict as the dedicated candidate generator.
+    assert "requirements-provider-lock-compiler.lock.txt" in section
+    assert "--require-hashes --only-binary=:all: -r $compilerLock" in section
+    assert "PIP_TOOLS_HASH_LOCK_INSTALL_FAILED" in section
+    assert "LOCK_TOOLS_DEPENDENCY_CHECK_FAILED" in section
+    assert "LOCK_TOOLS_FREEZE_MISMATCH" in section
+    assert "'pip-tools==7.6.2'" in section
+    assert "& $lockToolsPython -m piptools compile" in section
+    assert '.\\.lock-tools\\Scripts\\python.exe -m pip install --disable-pip-version-check "pip-tools==7.6.2"' not in section
