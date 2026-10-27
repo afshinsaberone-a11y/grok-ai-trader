@@ -10,6 +10,7 @@ from tools.control_plane_provider_host_preflight_v1 import (
     inspect_environment,
 )
 from tests.trust_registry_bundle_test_support import build_test_bundle
+from tools.verify_provider_trust_registry_bundle_v1 import BUNDLE_PATH_ENV
 
 
 def _configured_environment(tmp_path: Path) -> dict[str, str]:
@@ -39,6 +40,7 @@ def test_valid_configuration_passes_only_non_authorizing_preflight(tmp_path: Pat
     assert report["registry_check"]["target_file_exists"] is True
     assert report["registry_check"]["target_is_symlink"] is False
     assert report["registry_check"]["sqlite_probe"] == "PASS"
+    assert report["trust_registry_bundle_check"]["status"] == "PASS"
     assert report["admission_issuance_authorized"] is False
     assert report["signed_request_created"] is False
     assert report["orders_submitted"] is False
@@ -49,6 +51,20 @@ def test_valid_configuration_passes_only_non_authorizing_preflight(tmp_path: Pat
     assert registry.read_bytes() == b""
     assert list(tmp_path.glob(".forexai-provider-preflight-*")) == []
 
+
+def test_missing_signed_trust_registry_bundle_blocks_preflight(tmp_path: Path):
+    environment = _configured_environment(tmp_path)
+    environment.pop(BUNDLE_PATH_ENV)
+
+    report = inspect_environment(environment)
+
+    assert report["status"] == "BLOCKED"
+    assert report["trust_registry_bundle_check"]["status"] == "BLOCKED"
+    assert report["trust_registry_bundle_check"]["reason"] == "BUNDLE_PATH_NOT_CONFIGURED"
+    assert report["admission_issuance_authorized"] is False
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
+    assert report["orders_submitted"] is False
 
 def test_missing_registry_file_blocks_even_when_parent_sqlite_probe_passes(tmp_path: Path):
     environment = _configured_environment(tmp_path)
