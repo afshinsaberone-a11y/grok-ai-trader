@@ -77,6 +77,13 @@ def test_setuptools_source_identity_fails_closed(mutation, expected_error):
         MODULE.validate_source_identity(commit, ref, tag)
 
 
+def test_setuptools_source_build_environment_pins_commit_archive_timestamp():
+    env = MODULE.prepare_source_date_env(1790000000, {"OTHER": "keep"})
+    assert env == {"OTHER": "keep", "SOURCE_DATE_EPOCH": "1790000000"}
+    with pytest.raises(RuntimeError, match="SOURCE_DATE_EPOCH_INVALID"):
+        MODULE.prepare_source_date_env(-1, {})
+
+
 def test_bootstrap_wheel_metadata_is_read_from_wheel_contents(tmp_path: Path):
     wheel = tmp_path / "setuptools-80.9.0-py3-none-any.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
@@ -125,6 +132,10 @@ def test_source_bootstrap_build_is_hash_locked_and_does_not_install_pypi_setupto
     assert '"setup.py", "bdist_wheel"' in source
     assert "pip wheel" not in source
     assert "SETUPTOOLS_ABSENT" in source
+    assert "prepare_source_date_env" in source
+    assert "SOURCE_DATE_EPOCH" in source
+    assert "archive_timestamp_normalization_requested" in source
+    assert "independent_wheel_hash_comparison_required" in source
     assert "SETUPTOOLS_COMMIT_SIGNATURE_NOT_VERIFIED" in source
     assert "SETUPTOOLS_RELEASE_TAG_SIGNATURE_NOT_VERIFIED" in source
     assert "setup.cfg" in source
