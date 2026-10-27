@@ -73,11 +73,11 @@ def compact_lock(lock_path: Path, wheelhouse: Path, output_path: Path) -> None:
         raise ValueError(f"WHEEL_PIN_COUNT_MISMATCH:WHEELS={len(wheels)}:PINS={len(pins)}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_text = "\\n".join(lines) + "\\n"
+    output_text = "\n".join(lines) + "\n"
     created_by_this_call = False
     try:
         # Exclusive creation closes the check/write race and prevents overwrite.
-        with output_path.open("x", encoding="utf-8", newline="\\n") as stream:
+        with output_path.open("x", encoding="utf-8", newline="\n") as stream:
             created_by_this_call = True
             stream.write(output_text)
     except FileExistsError as exc:
