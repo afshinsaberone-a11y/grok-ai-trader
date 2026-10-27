@@ -9,6 +9,8 @@ from tools.control_plane_provider_host_preflight_v1 import (
     REGISTRY_ENVIRONMENT,
     inspect_environment,
 )
+from tools.trust_registry_verifier_v1 import BUNDLE_PATH_ENV
+from test_trust_registry_verifier_v1 import _make_fixture
 
 
 def _configured_environment(tmp_path: Path) -> dict[str, str]:
@@ -17,6 +19,16 @@ def _configured_environment(tmp_path: Path) -> dict[str, str]:
         for index, name in enumerate(KEY_ENVIRONMENTS)
     }
     environment[REGISTRY_ENVIRONMENT] = str(tmp_path / "issued-admissions.sqlite3")
+
+    # This test-only bundle is signed by an ephemeral Ed25519 key. It proves
+    # the verifier's contract but is never a production trust root or key.
+    bundle_bytes, trust_config, _, _ = _make_fixture()
+    bundle_path = tmp_path / "signed-trust-registry-test-only.json"
+    bundle_path.write_bytes(bundle_bytes)
+    environment[BUNDLE_PATH_ENV] = str(bundle_path)
+    for name, value in trust_config.items():
+        if name not in KEY_ENVIRONMENTS:
+            environment[name] = value
     return environment
 
 
