@@ -59,6 +59,24 @@ def test_valid_configuration_passes_only_non_authorizing_preflight(tmp_path: Pat
     assert list(tmp_path.glob(".forexai-provider-preflight-*")) == []
 
 
+def test_missing_signed_trust_registry_blocks_even_when_other_prerequisites_pass(tmp_path: Path):
+    environment = _configured_environment(tmp_path)
+    operational_registry = Path(environment[REGISTRY_ENVIRONMENT])
+    operational_registry.touch()
+    environment.pop(BUNDLE_PATH_ENV)
+
+    report = inspect_environment(environment)
+
+    assert report["status"] == "BLOCKED"
+    assert report["registry_check"]["status"] == "PASS"
+    assert report["trust_registry_check"]["status"] == "NOT_CONFIGURED"
+    assert report["trust_registry_check"]["reason_code"] == "TRUST_REGISTRY_BUNDLE_PATH_NOT_CONFIGURED"
+    assert report["admission_issuance_authorized"] is False
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
+    assert report["orders_submitted"] is False
+
+
 def test_missing_registry_file_blocks_even_when_parent_sqlite_probe_passes(tmp_path: Path):
     environment = _configured_environment(tmp_path)
     registry = Path(environment[REGISTRY_ENVIRONMENT])
