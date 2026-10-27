@@ -3,6 +3,10 @@ import hashlib
 import re
 from pathlib import Path
 
+import pytest
+
+from tools.build_provider_source_wheel_candidate_v1 import prepare_reproducible_build_env
+
 
 def test_source_wheel_builder_has_immutable_sources_and_discloses_signature_status():
     root = Path(__file__).resolve().parents[1]
@@ -54,6 +58,35 @@ def test_source_wheel_builder_has_immutable_sources_and_discloses_signature_stat
     assert 'production_approved": False' in source
     assert 'bootstrap_approved": False' in source
     assert "transitive_build_tool_dependencies_hash_locked" in source
+    assert "prepare_reproducible_build_env" in source
+    assert 'source_date_epoch_source": "pinned_upstream_commit_committer_timestamp"' in source
+    assert 'arguments.append("/Brepro")' in source
+    assert 'environment["SOURCE_DATE_EPOCH"] = str(source_date_epoch)' in source
+
+
+def test_source_build_environment_pins_archive_epoch_and_requests_msvc_reproducibility():
+    cffi_env, controls = prepare_reproducible_build_env(
+        {"name": "cffi"},
+        1790000000,
+        {"CL": "/O2", "LINK": "/DEBUG"},
+    )
+    assert cffi_env["SOURCE_DATE_EPOCH"] == "1790000000"
+    assert cffi_env["CL"] == "/O2 /Brepro"
+    assert cffi_env["LINK"] == "/DEBUG /Brepro"
+    assert controls["source_date_epoch_source"] == "pinned_upstream_commit_committer_timestamp"
+    assert controls["msvc_brepro_requested"] is True
+    assert controls["final_wheel_hash_comparison_required"] is True
+
+    pure_env, pure_controls = prepare_reproducible_build_env(
+        {"name": "pycparser"},
+        1790000000,
+        {},
+    )
+    assert pure_env == {"SOURCE_DATE_EPOCH": "1790000000"}
+    assert pure_controls["msvc_brepro_requested"] is False
+
+    with pytest.raises(RuntimeError, match="SOURCE_DATE_EPOCH_INVALID"):
+        prepare_reproducible_build_env({"name": "cffi"}, -1, {})
 
 
 def test_source_wheel_candidate_workflow_is_pinned_and_cannot_deploy_or_trade():
