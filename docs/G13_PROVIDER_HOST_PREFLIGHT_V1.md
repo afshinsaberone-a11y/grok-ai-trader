@@ -55,6 +55,35 @@ those outputs false. The verifier scans neither Git history nor upstream source
 repositories, and a bundle signature does not independently prove that each
 upstream signer is trustworthy without reviewed signer evidence.
 
+## Source-built Provider dependency manifest (required for preflight)
+
+The same read-only preflight also calls `tools/verify_provider_source_signer_manifest_v1.py`.
+It requires an exact source-build manifest and wheel tree to match the signed
+source-signer allowlist, and separately requires an externally maintained SHA-256
+pin for the manifest itself. The manifest is not allowed to approve production or
+bootstrap, and this check never creates trading authority.
+
+- `FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_PATH`: absolute path to
+  `source-build-manifest.json`, outside the checked-out repository.
+- `FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_SHA256`: `sha256:<64 lowercase hex>`
+  of the exact manifest bytes, including the final newline. Provision this value
+  through an independently controlled release/deployment review; do not calculate
+  and trust a new pin automatically on the Provider host or commit it to this repo.
+
+The layout is fixed: the manifest's sibling `wheels/` directory contains the four
+expected package wheels; a sibling `provider-setuptools-bootstrap/` directory
+contains `setuptools-bootstrap-manifest.json` and its `wheels/` subdirectory.
+The verifier checks the external manifest digest, exact source commit/release-tag
+tuples against the signed registry's signer allowlist, every declared wheel hash,
+and the setuptools bootstrap manifest and wheel hash. Missing pins, missing files,
+mismatched hashes, or unreviewed source tuples block preflight.
+
+**Limit:** a valid candidate-manifest check is not production approval, and it does
+not by itself prove that the deployed virtual environment was installed from these
+exact wheel files. Deployment must use this verified wheel tree and retain separate
+installation/build evidence. The report keeps `production_approved=false`,
+`bootstrap_approved=false`, and all trading-authorization flags false.
+
 ## Promotion trust anchor and Provider execution identity (required before deployment)
 
 ### Promotion key: authority is currently unresolved
