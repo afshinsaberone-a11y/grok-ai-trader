@@ -50,7 +50,8 @@ def _make_fixture(
     registry_status: str = APPROVED_REGISTRY_STATUS,
     registry_overrides: dict | None = None,
     policy_overrides: dict | None = None,
-    signer_status: str = "DRAFT_NOT_APPROVED",
+    signer_status: str = "APPROVED_FOR_SOURCE_SIGNER_VERIFICATION",
+    signer_records: list[dict] | None = None,
     key_overrides: dict[str, dict] | None = None,
 ) -> tuple[bytes, dict[str, str], bytes, str]:
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -132,11 +133,31 @@ def _make_fixture(
     if policy_overrides:
         policy.update(policy_overrides)
 
+    now_iso = now.isoformat().replace("+00:00", "Z")
+    valid_signer = {
+        "signer_id": "test-source-exception-v1",
+        "repository": "example-org/example-source",
+        "commit_sha": "b" * 40,
+        "release_tag": "test-release-v1",
+        "trust_basis": "INDEPENDENT_SOURCE_EXCEPTION",
+        "signature_status": "NOT_VERIFIED",
+        "signer_identity": "source-exception:test-review-source-1",
+        "signer_fingerprint": "not_applicable_source_exception",
+        "evidence_reference": "https://example.invalid/audit/test-review-source-1",
+        "evidence_sha256": "c" * 64,
+        "reviewer_identity": "test-independent-reviewer",
+        "review_id": "test-review-source-1",
+        "reviewed_at_utc": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        "valid_from_utc": (now - timedelta(days=1)).isoformat().replace("+00:00", "Z"),
+        "valid_until_utc": (now + timedelta(days=90)).isoformat().replace("+00:00", "Z"),
+        "status": "ACTIVE",
+        "independently_reviewed": True,
+    }
     signers = {
         "schema": SIGNERS_SCHEMA,
         "status": signer_status,
-        "signers": [],
-        "note": "Test fixture only",
+        "signers": [valid_signer] if signer_records is None else signer_records,
+        "note": "Ephemeral test fixture; never a real source approval",
     }
     payload = {
         "schema": PAYLOAD_SCHEMA,
@@ -260,7 +281,7 @@ def test_duplicate_role_key_material_blocks():
 
 def test_invalid_signer_list_status_blocks():
     raw, config, _, _ = _make_fixture(signer_status="APPROVED_WITHOUT_POLICY")
-    with pytest.raises(TrustRegistryVerificationError, match="SIGNERS_STATUS_INVALID"):
+    with pytest.raises(TrustRegistryVerificationError, match="SIGNERS_NOT_APPROVED"):
         _verify(raw, config)
 
 
@@ -277,6 +298,36 @@ def test_missing_external_pins_block_in_environment(tmp_path: Path):
     assert report["status"] == "BLOCKED"
     assert report["reason_code"] == "TRUST_REGISTRY_ROOT_FINGERPRINT_NOT_CONFIGURED"
     assert report["signature_verified"] is False
+
+
+def test_empty_trusted_signer_allowlist_blocks_even_with_valid_root_signature():
+    raw, config, _, _ = _make_fixture(signer_records=[])
+    with pytest.raises(TrustRegistryVerificationError, match="SIGNERS_LIST_EMPTY_OR_INVALID"):
+        _verify(raw, config)
+
+
+def test_source_exception_must_bind_exact_review_id():
+    raw0, config0, _, _ = _make_fixture()
+    envelope = json.loads(raw0.decode("utf-8"))
+    signer = envelope["payload"]["trusted_signers"]["signers"][0]
+    signer["signer_identity"] = "unrelated-identity"
+    # Re-sign this malformed policy fixture with a new ephemeral root so validation
+    # reaches the signer-contract check rather than failing cryptographic verification.
+    from cryptography.hazmat.primitives import serialization
+    root = Ed25519PrivateKey.generate()
+    root_public = root.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    envelope["payload"]["registry_revision"] = "d" * 40
+    envelope["signature"]["signature_base64"] = _encoded(root.sign(canonical_json(envelope["payload"])))
+    raw = canonical_json(envelope) + b"\n"
+    config = dict(config0)
+    config[ROOT_PUBLIC_KEY_ENV] = _encoded(root_public)
+    config[ROOT_FINGERPRINT_ENV] = _fingerprint(root_public)
+    config[EXPECTED_BUNDLE_SHA256_ENV] = "sha256:" + hashlib.sha256(raw).hexdigest()
+    with pytest.raises(TrustRegistryVerificationError, match="SOURCE_EXCEPTION_IDENTITY_INVALID"):
+        _verify(raw, config)
 
 
 def test_environment_verifier_passes_only_with_external_root_and_bundle_pins(tmp_path: Path):
