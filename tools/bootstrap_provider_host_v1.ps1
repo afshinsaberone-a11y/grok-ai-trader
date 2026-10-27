@@ -84,6 +84,67 @@ function New-ProtectedWorkRoot {
     throw 'BOOTSTRAP_WORK_ROOT_COLLISION'
 }
 
+
+function Set-ProtectedProviderRootAcl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # The Provider root is created by this elevated bootstrap and may later
+    # contain executable code. Replace inherited access with exactly the
+    # provisioning administrator SID and SYSTEM, then read the DACL back.
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'PROVIDER_ROOT_ACL_TARGET_REPARSE_POINT'
+    }
+
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    & icacls.exe $Path /inheritance:r /grant:r "*$($sid):(OI)(CI)F" /grant '*S-1-5-18:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'PROVIDER_ROOT_ACL_SETUP_FAILED' }
+    foreach ($extraSid in @('*S-1-5-32-544', '*S-1-3-4')) {
+        & icacls.exe $Path /remove $extraSid | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'PROVIDER_ROOT_ACL_SETUP_FAILED' }
+    }
+
+    $acl = Get-Acl -LiteralPath $Path
+    if (-not $acl.AreAccessRulesProtected) {
+        throw 'PROVIDER_ROOT_ACL_INHERITANCE_ENABLED'
+    }
+    $rules = @($acl.Access)
+    if ($rules.Count -ne 2) {
+        throw 'PROVIDER_ROOT_ACL_UNEXPECTED_ACE_COUNT'
+    }
+    $allowed = @($sid, 'S-1-5-18')
+    $seen = @()
+    foreach ($rule in $rules) {
+        $ruleSid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        if ($ruleSid -notin $allowed -or
+            $ruleSid -in $seen -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $rule.IsInherited -or
+            $rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl) {
+            throw 'PROVIDER_ROOT_ACL_UNEXPECTED_ACE'
+        }
+        $seen += $ruleSid
+    }
+    if (@($seen | Sort-Object) -join '|' -ne (@($allowed | Sort-Object) -join '|')) {
+        throw 'PROVIDER_ROOT_ACL_PRINCIPAL_SET_MISMATCH'
+    }
+
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'PROVIDER_ROOT_ACL_TARGET_REPARSE_POINT'
+    }
+
+    return [PSCustomObject]@{
+        status = 'PASS'
+        inheritance_disabled = $true
+        explicit_allow_full_control_ace_count = 2
+        provisioning_sid = $sid
+        system_sid = 'S-1-5-18'
+        unexpected_principals = $false
+        reparse_point = $false
+    }
+}
+
 function Get-VerifiedInstaller {
     param(
         [Parameter(Mandatory = $true)][string]$Uri,
@@ -277,6 +338,7 @@ try {
     if (($createdProviderItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'PROVIDER_ROOT_CREATED_AS_REPARSE_POINT'
     }
+    $providerRootAclReport = Set-ProtectedProviderRootAcl -Path $ProviderRoot
     $sourceRoot = Join-Path $ProviderRoot 'source'
     $venvRoot = Join-Path $ProviderRoot 'venv'
 
@@ -373,6 +435,7 @@ try {
         dependency_lock_sha256 = $providerLockCanonicalSha256
         test_dependency_lock_sha256 = $providerTestLockCanonicalSha256
         provider_root = $ProviderRoot
+        provider_root_acl = $providerRootAclReport
         source_directory_created = $true
         virtual_environment_created = $true
         git_installer = $gitInstallerReport
