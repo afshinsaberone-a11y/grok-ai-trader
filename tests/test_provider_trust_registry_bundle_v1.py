@@ -26,7 +26,11 @@ def test_valid_signed_bundle_passes_but_never_authorizes(tmp_path: Path):
     assert report["default_decision"] == "DENY"
     assert report["trusted_source_signer_count"] == 1
     assert len(report["role_key_checks"]) == 6
-    assert all(value == "MATCH" for value in report["role_key_checks"].values())
+    assert all(
+        report["role_key_checks"][role] == "MATCH"
+        for role in ("admission", "promotion", "signal", "risk", "operator")
+    )
+    assert report["role_key_checks"]["capital_firewall_grant"] == "REGISTRY_KEY_VALIDATED_SEPARATE_AUTHORITY"
     assert report["production_approved"] is False
     assert report["bootstrap_approved"] is False
     assert report["admission_issuance_authorized"] is False
@@ -103,12 +107,14 @@ def test_role_key_mismatch_fails(tmp_path: Path):
     assert report["reason"] == "RUNTIME_ROLE_PUBLIC_KEYS_NOT_DISTINCT"
 
 
-def test_missing_capital_firewall_grant_key_fails(tmp_path: Path):
+def test_grant_role_stays_separate_from_provider_runtime_anchors(tmp_path: Path):
     environ, _path, _private = build_test_bundle(tmp_path)
-    environ.pop("FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY")
+    # The bundle's Grant public key is fingerprint-checked, but Grant signature
+    # validation remains at the separately administered Grant/attestor boundary.
+    environ.pop("FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY", None)
     report = inspect_trust_registry_bundle(environ, repository_root=REPOSITORY_ROOT)
-    assert report["status"] == "BLOCKED"
-    assert report["reason"] == "ROLE_PUBLIC_KEY_NOT_CONFIGURED:capital_firewall_grant"
+    assert report["status"] == "PASS"
+    assert report["role_key_checks"]["capital_firewall_grant"] == "REGISTRY_KEY_VALIDATED_SEPARATE_AUTHORITY"
 
 
 def test_expired_role_key_fails_with_valid_root_signature(tmp_path: Path):
