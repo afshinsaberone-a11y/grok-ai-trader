@@ -588,7 +588,7 @@ jobs:
           report["bootstrap_approved"] = False
           report["trading_authorization_created"] = False
           target = Path(sys.argv[1])
-          target.write_text(json.dumps(report, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+          target.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
           print("SOURCE_SIGNER_ELIGIBILITY_STATUS=" + str(report.get("status", "BLOCKED")))
           print("SOURCE_SIGNER_ELIGIBILITY_REASON=" + str(report.get("reason_code", "UNSPECIFIED")))
           print("SOURCE_SIGNER_PRODUCTION_APPROVED=false")
