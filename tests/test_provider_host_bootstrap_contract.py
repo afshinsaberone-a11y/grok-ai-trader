@@ -57,6 +57,16 @@ def test_provider_clean_host_bootstrap_is_pinned_and_fail_closed():
     assert "PROVIDER_ROOT_CREATED_AS_REPARSE_POINT" in script
     assert "New-Item -ItemType Directory -Path $ProviderRoot -ErrorAction Stop" in script
 
+    # Before the bootstrap writes source or creates a venv under the elevated
+    # Provider root, it must break inheritance and read back an exact two-ACE DACL.
+    assert "function Set-ProtectedProviderRootAcl" in script
+    assert "PROVIDER_ROOT_ACL_INHERITANCE_ENABLED" in script
+    assert "PROVIDER_ROOT_ACL_UNEXPECTED_ACE_COUNT" in script
+    assert "PROVIDER_ROOT_ACL_UNEXPECTED_ACE" in script
+    assert "PROVIDER_ROOT_ACL_PRINCIPAL_SET_MISMATCH" in script
+    assert "provider_root_acl = $providerRootAclReport" in script
+    assert script.index("$providerRootAclReport = Set-ProtectedProviderRootAcl -Path $ProviderRoot") < script.index("$sourceRoot = Join-Path $ProviderRoot 'source'")
+
     # Do not adopt an executable that was already present and only claims the
     # expected version; install verified packages into dedicated empty paths.
     assert "ForexAI-Pinned-Git-2.56.0.3" in script
