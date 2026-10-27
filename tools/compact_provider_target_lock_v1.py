@@ -4,7 +4,8 @@
 This utility deliberately does not discover versions or download packages. The
 input lock determines exact versions; the wheelhouse supplies the precise wheel
 bytes accepted by the target interpreter/platform. Missing, duplicate, or
-mismatched wheels fail closed.
+mismatched wheels fail closed. The output is never overwritten, and any failed
+validation occurs before a lock file is created.
 """
 from __future__ import annotations
 
@@ -35,6 +36,11 @@ def parse_pins(lock_path: Path) -> dict[str, tuple[str, str]]:
 
 
 def compact_lock(lock_path: Path, wheelhouse: Path, output_path: Path) -> None:
+    # Refuse output reuse up front, including a broken symlink. Never overwrite
+    # a previous result or a path an operator may need to inspect.
+    if output_path.exists() or output_path.is_symlink():
+        raise ValueError("OUTPUT_PATH_ALREADY_EXISTS")
+
     pins = parse_pins(lock_path)
     wheels: dict[tuple[str, str], list[Path]] = {}
     for wheel in sorted(wheelhouse.glob("*.whl")):
@@ -63,10 +69,32 @@ def compact_lock(lock_path: Path, wheelhouse: Path, output_path: Path) -> None:
     if missing:
         raise ValueError("TARGET_WHEEL_MAPPING_FAILED:" + ";".join(missing))
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    # A matching wheel for every pin is not enough: reject extra/unpinned
+    # wheel files before writing anything, so an exception cannot leave a
+    # plausible-looking lock artifact behind.
     if len(wheels) != len(pins):
         raise ValueError(f"WHEEL_PIN_COUNT_MISMATCH:WHEELS={len(wheels)}:PINS={len(pins)}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_text = "\n".join(lines) + "\n"
+    created_by_this_call = False
+    try:
+        # Exclusive creation closes the check/write race and never overwrites.
+        with output_path.open("x", encoding="utf-8", newline="\n") as stream:
+            created_by_this_call = True
+            stream.write(output_text)
+            stream.flush()
+    except FileExistsError as exc:
+        raise ValueError("OUTPUT_PATH_ALREADY_EXISTS") from exc
+    except OSError:
+        # If a write fails after exclusive creation, remove only the partial
+        # file this invocation created; preserve any pre-existing path.
+        if created_by_this_call:
+            try:
+                output_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
 
 
 def main() -> int:
