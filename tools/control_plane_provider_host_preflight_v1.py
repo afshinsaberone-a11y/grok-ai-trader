@@ -16,6 +16,8 @@ import tempfile
 from pathlib import Path
 from typing import Mapping
 
+from tools.trust_registry_verifier_v1 import inspect_trust_registry
+
 
 SCHEMA = "forexai.control_plane_provider_host_preflight.v1"
 
@@ -156,13 +158,16 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
 
     keys_pass = all(key_checks.get(name) == "FORMAT_PASS" for name in KEY_ENVIRONMENTS)
     registry_pass = registry_check["status"] == "PASS"
-    blocked = not (keys_pass and registry_pass)
+    trust_registry_check = inspect_trust_registry(env)
+    trust_registry_pass = trust_registry_check.get("status") == "PASS"
+    blocked = not (keys_pass and registry_pass and trust_registry_pass)
 
     return {
         "schema": SCHEMA,
         "status": "BLOCKED" if blocked else "PREFLIGHT_PASS_SOURCE_EVIDENCE_STILL_REQUIRED",
         "key_checks": key_checks,
         "registry_check": registry_check,
+        "trust_registry_check": trust_registry_check,
         # This is intentionally never true: this tool does not validate signed source packets.
         "admission_issuance_authorized": False,
         "signed_request_created": False,
@@ -175,6 +180,7 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
             "independently signed risk decision and actual risk reservation",
             "independently signed human approval scoped to ONE_SIGNAL_DEMO_ONLY",
             "valid Capital Firewall grant signed by its independent authority",
+            "signed trust registry bundle verified against out-of-band root fingerprint and exact bundle SHA-256 pin",
             "explicit source-governed one-signal Demo permission; historical readiness alone is insufficient",
         ],
     }
