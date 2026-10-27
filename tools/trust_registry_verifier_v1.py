@@ -82,6 +82,7 @@ AUTHORIZATION_FLAGS = (
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 FINGERPRINT = re.compile(r"^sha256:[0-9a-f]{64}$")
+SIGNER_FINGERPRINT = re.compile(r"^(?:gpg:[0-9a-fA-F]{40}|gpg:[0-9a-fA-F]{64}|ssh:SHA256:[A-Za-z0-9+/]{20,}={0,2})$")
 
 TRUSTED_SIGNER_RECORD_FIELDS = {
     "signer_id",
@@ -94,6 +95,7 @@ TRUSTED_SIGNER_RECORD_FIELDS = {
     "signer_fingerprint",
     "evidence_reference",
     "evidence_sha256",
+    "source_author_identity",
     "reviewer_identity",
     "review_id",
     "reviewed_at_utc",
@@ -252,7 +254,7 @@ def _check_trusted_signers(signers: Mapping[str, Any], now: datetime) -> int:
         if basis == "VERIFIED_SIGNATURE_IDENTITY_PIN":
             if signature_status != "VERIFIED":
                 raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_SIGNATURE_BASIS_MISMATCH")
-            if not isinstance(signer_fingerprint, str) or not signer_fingerprint.strip() or signer_fingerprint == "not_applicable_source_exception":
+            if not isinstance(signer_fingerprint, str) or not SIGNER_FINGERPRINT.fullmatch(signer_fingerprint):
                 raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_FINGERPRINT_REQUIRED")
             if not isinstance(signer_identity, str) or not signer_identity.strip():
                 raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_IDENTITY_REQUIRED")
@@ -264,10 +266,12 @@ def _check_trusted_signers(signers: Mapping[str, Any], now: datetime) -> int:
         else:
             raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_TRUST_BASIS_INVALID")
 
-        for field in ("evidence_reference", "reviewer_identity", "review_id"):
+        for field in ("evidence_reference", "source_author_identity", "reviewer_identity", "review_id"):
             item = record.get(field)
             if not isinstance(item, str) or not item.strip():
                 raise TrustRegistryVerificationError(f"TRUST_REGISTRY_SIGNER_REVIEW_METADATA_MISSING:{field}")
+        if record["source_author_identity"].strip().casefold() == record["reviewer_identity"].strip().casefold():
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_REVIEWER_MUST_DIFFER_FROM_SOURCE_AUTHOR")
         if not isinstance(record.get("evidence_sha256"), str) or not HEX_64.fullmatch(record["evidence_sha256"]):
             raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_EVIDENCE_DIGEST_INVALID")
         if record.get("status") != "ACTIVE" or record.get("independently_reviewed") is not True:
