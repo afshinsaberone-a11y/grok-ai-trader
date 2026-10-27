@@ -698,3 +698,35 @@ jobs:
           Write-Output 'DEMO_TRADING_AUTHORIZED=false'
           Write-Output 'LIVE_TRADING_ALLOWED=false'
           Write-Output 'ORDERS_SUBMITTED=false'
+
+      # Upload candidate artifacts and the explicit BLOCKED/PASS report before
+      # enforcing allowlist eligibility, so reviewers can inspect why it blocked.
+      - name: Enforce source-signer allowlist eligibility after evidence upload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportPath = 'artifacts/provider-source-build/source-signer-eligibility-report.json'
+          if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+            throw 'SOURCE_SIGNER_ELIGIBILITY_REPORT_MISSING'
+          }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.status -ne 'PASS_SOURCE_SIGNER_ALLOWLIST_MATCH') {
+            Write-Output 'SOURCE_SIGNER_ELIGIBILITY_GATE=BLOCKED'
+            Write-Output ('SOURCE_SIGNER_ELIGIBILITY_REASON=' + [string]$report.reason_code)
+            Write-Output 'SOURCE_WHEELS_ARE_CANDIDATES_ONLY=true'
+            Write-Output 'PRODUCTION_APPROVED=false'
+            Write-Output 'BOOTSTRAP_APPROVED=false'
+            Write-Output 'GRANT_ISSUED=false'
+            Write-Output 'DEMO_TRADING_AUTHORIZED=false'
+            Write-Output 'LIVE_TRADING_ALLOWED=false'
+            Write-Output 'ORDERS_SUBMITTED=false'
+            throw 'SOURCE_SIGNER_ELIGIBILITY_GATE_BLOCKED'
+          }
+          Write-Output 'SOURCE_SIGNER_ELIGIBILITY_GATE=PASS_ALLOWLIST_MATCH_ONLY'
+          Write-Output 'SOURCE_SIGNER_ELIGIBILITY_IS_NOT_PRODUCTION_APPROVAL=true'
+          Write-Output 'PRODUCTION_APPROVED=false'
+          Write-Output 'BOOTSTRAP_APPROVED=false'
+          Write-Output 'GRANT_ISSUED=false'
+          Write-Output 'DEMO_TRADING_AUTHORIZED=false'
+          Write-Output 'LIVE_TRADING_ALLOWED=false'
+          Write-Output 'ORDERS_SUBMITTED=false'
