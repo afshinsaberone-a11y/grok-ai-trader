@@ -267,9 +267,12 @@ def test_modified_manifest_without_updating_external_digest_pin_blocks(tmp_path:
     config[MANIFEST_SHA256_ENV] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
     manifest_path.write_bytes(manifest_path.read_bytes() + b" ")
+    # Simulate a host administrator changing both the file and mutable env pin.
+    # The root-signed registry digest must still reject this substitution.
+    config[MANIFEST_SHA256_ENV] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
     report = inspect_source_manifest(config)
 
     assert report["status"] == "BLOCKED"
-    assert report["reason_code"] == "SOURCE_MANIFEST_DIGEST_PIN_MISMATCH"
+    assert report["reason_code"] == "SIGNED_SOURCE_MANIFEST_DIGEST_PIN_MISMATCH"
     assert report["trading_authorization_created"] is False
