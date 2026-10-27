@@ -119,6 +119,9 @@ def build_test_bundle(
     signers = {
         "schema": SIGNERS_SCHEMA,
         "status": APPROVED_SIGNERS_STATUS,
+        # Synthetic fixture value only; source-manifest tests replace it with
+        # the digest of their test manifest before signing the bundle.
+        "source_build_manifest_sha256": "sha256:" + ("d" * 64),
         "signers": [{
             "signer_id": "synthetic-source-exception-1",
             "repository": "synthetic-project/synthetic-source",
