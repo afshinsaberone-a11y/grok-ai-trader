@@ -38,6 +38,7 @@ def test_compact_lock_fails_closed_for_missing_wheel(tmp_path: Path) -> None:
     wheelhouse = tmp_path / "wheelhouse"
     wheelhouse.mkdir()
     lock_path = tmp_path / "input.lock.txt"
+    output_path = tmp_path / "target.lock.txt"
     lock_path.write_text(
         "missing-package==1.0.0 \\\n"
         "    --hash=sha256:" + ("a" * 64) + "\n",
@@ -45,4 +46,45 @@ def test_compact_lock_fails_closed_for_missing_wheel(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="TARGET_WHEEL_MAPPING_FAILED"):
-        compact_lock(lock_path, wheelhouse, tmp_path / "target.lock.txt")
+        compact_lock(lock_path, wheelhouse, output_path)
+
+    assert not output_path.exists()
+
+
+def test_compact_lock_rejects_extra_wheel_before_creating_output(tmp_path: Path) -> None:
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    lock_path = tmp_path / "input.lock.txt"
+    output_path = tmp_path / "target.lock.txt"
+    lock_path.write_text(
+        "expected-package==1.0.0 \\\n"
+        "    --hash=sha256:" + ("a" * 64) + "\n",
+        encoding="utf-8",
+    )
+    (wheelhouse / "expected_package-1.0.0-py3-none-any.whl").write_bytes(b"expected")
+    (wheelhouse / "unlisted_package-9.9.9-py3-none-any.whl").write_bytes(b"unlisted")
+
+    with pytest.raises(ValueError, match="WHEEL_PIN_COUNT_MISMATCH"):
+        compact_lock(lock_path, wheelhouse, output_path)
+
+    assert not output_path.exists()
+
+
+def test_compact_lock_does_not_overwrite_existing_output(tmp_path: Path) -> None:
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    lock_path = tmp_path / "input.lock.txt"
+    output_path = tmp_path / "target.lock.txt"
+    lock_path.write_text(
+        "expected-package==1.0.0 \\\n"
+        "    --hash=sha256:" + ("a" * 64) + "\n",
+        encoding="utf-8",
+    )
+    (wheelhouse / "expected_package-1.0.0-py3-none-any.whl").write_bytes(b"expected")
+    sentinel = "PRESERVE_EXISTING_OUTPUT\n"
+    output_path.write_text(sentinel, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="OUTPUT_PATH_ALREADY_EXISTS"):
+        compact_lock(lock_path, wheelhouse, output_path)
+
+    assert output_path.read_text(encoding="utf-8") == sentinel
