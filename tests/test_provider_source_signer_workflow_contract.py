@@ -46,3 +46,20 @@ def test_documentation_states_blocked_default_and_production_limits():
     assert "production_approved=false" in text
     assert "bootstrap_approved=false" in text
     assert "does not deploy it" in text
+
+
+def test_blocked_source_signer_report_is_uploaded_before_workflow_fails():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    upload = text.index("- name: Upload wheel candidates and source/build manifest for independent review")
+    enforce = text.index("- name: Enforce source-signer allowlist eligibility after evidence upload")
+    assert upload < enforce
+    assert "source-signer-eligibility-report.json" in text[upload:enforce]
+    enforcement = text[enforce:]
+    assert "SOURCE_SIGNER_ELIGIBILITY_REPORT_MISSING" in enforcement
+    assert "SOURCE_SIGNER_ELIGIBILITY_GATE_BLOCKED" in enforcement
+    assert "PASS_SOURCE_SIGNER_ALLOWLIST_MATCH" in enforcement
+    assert "PRODUCTION_APPROVED=false" in enforcement
+    assert "GRANT_ISSUED=false" in enforcement
+    assert "DEMO_TRADING_AUTHORIZED=false" in enforcement
+    assert "LIVE_TRADING_ALLOWED=false" in enforcement
+    assert "ORDERS_SUBMITTED=false" in enforcement
