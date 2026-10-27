@@ -113,7 +113,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python -m venv .lock-tools
           if ($LASTEXITCODE -ne 0) { throw "LOCK_TOOLS_VENV_FAILED" }
-          $lockToolsPython = (Resolve-Path '.lock-tools\\Scripts\\python.exe').Path
+          $lockToolsPython = (Resolve-Path '.lock-tools\Scripts\python.exe').Path
           $compilerLock = (Resolve-Path 'requirements-provider-lock-compiler.lock.txt').Path
           if (-not (Test-Path -LiteralPath $compilerLock -PathType Leaf)) { throw "LOCK_COMPILER_HASH_LOCK_MISSING" }
           & $lockToolsPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $compilerLock
