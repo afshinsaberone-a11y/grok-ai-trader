@@ -141,10 +141,11 @@ def make_artifact_tree(tmp_path: Path, source_signers: list[dict]) -> tuple[Path
     return manifest_path, manifest
 
 
-def make_bundle_config(tmp_path: Path, source_signers: list[dict]) -> tuple[dict[str, str], dict]:
+def make_bundle_config(tmp_path: Path, source_signers: list[dict], manifest_path: Path) -> tuple[dict[str, str], dict]:
     # Synthetic trust roots remain in memory; no private key is written to disk.
     def install_signers(payload: dict) -> None:
         payload["trusted_signers"]["signers"] = source_signers
+        payload["trusted_signers"]["source_build_manifest_sha256"] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
     config, bundle_path, _test_root_key = build_test_bundle(
         tmp_path / "trust-registry-test-bundle",
@@ -163,7 +164,7 @@ def make_source_signers(count: int | None = None) -> list[dict]:
 def test_signed_bundle_allowlist_matches_all_exact_wheel_and_bootstrap_sources(tmp_path: Path):
     signers = make_source_signers()
     manifest_path, _ = make_artifact_tree(tmp_path, signers)
-    config, _ = make_bundle_config(tmp_path, signers)
+    config, _ = make_bundle_config(tmp_path, signers, manifest_path)
     config[MANIFEST_PATH_ENV] = str(manifest_path)
     config[MANIFEST_SHA256_ENV] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
@@ -183,7 +184,7 @@ def test_signed_bundle_allowlist_matches_all_exact_wheel_and_bootstrap_sources(t
 def test_missing_exact_source_allowlist_entry_blocks(tmp_path: Path):
     signers = make_source_signers(count=4)
     manifest_path, _ = make_artifact_tree(tmp_path, signers)
-    config, _ = make_bundle_config(tmp_path, signers)
+    config, _ = make_bundle_config(tmp_path, signers, manifest_path)
     config[MANIFEST_PATH_ENV] = str(manifest_path)
     config[MANIFEST_SHA256_ENV] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
@@ -198,7 +199,7 @@ def test_modified_wheel_after_manifest_creation_blocks(tmp_path: Path):
     signers = make_source_signers()
     manifest_path, _ = make_artifact_tree(tmp_path, signers)
     (manifest_path.parent / "wheels" / "cffi-2.1.1-py3-none-any.whl").write_bytes(b"changed after review")
-    config, _ = make_bundle_config(tmp_path, signers)
+    config, _ = make_bundle_config(tmp_path, signers, manifest_path)
     config[MANIFEST_PATH_ENV] = str(manifest_path)
     config[MANIFEST_SHA256_ENV] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
@@ -214,7 +215,7 @@ def test_source_commit_not_matching_signer_allowlist_blocks(tmp_path: Path):
     manifest["wheels"][0]["source"]["commit"] = "f" * 40
     manifest["wheels"][0]["source"]["github_release_tag_target_commit"] = "f" * 40
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    config, _ = make_bundle_config(tmp_path, signers)
+    config, _ = make_bundle_config(tmp_path, signers, manifest_path)
     config[MANIFEST_PATH_ENV] = str(manifest_path)
     config[MANIFEST_SHA256_ENV] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
@@ -229,7 +230,7 @@ def test_candidate_manifest_cannot_self_approve_production(tmp_path: Path):
     manifest_path, manifest = make_artifact_tree(tmp_path, signers)
     manifest["production_approved"] = True
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    config, _ = make_bundle_config(tmp_path, signers)
+    config, _ = make_bundle_config(tmp_path, signers, manifest_path)
     config[MANIFEST_PATH_ENV] = str(manifest_path)
     config[MANIFEST_SHA256_ENV] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
@@ -248,7 +249,7 @@ def test_verified_identity_pin_requires_signer_fingerprint_in_build_manifest(tmp
     manifest_path, manifest = make_artifact_tree(tmp_path, signers)
     manifest["wheels"][0]["source"]["github_commit_signature_verified"] = True
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    config, _ = make_bundle_config(tmp_path, signers)
+    config, _ = make_bundle_config(tmp_path, signers, manifest_path)
     config[MANIFEST_PATH_ENV] = str(manifest_path)
     config[MANIFEST_SHA256_ENV] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
@@ -261,7 +262,7 @@ def test_verified_identity_pin_requires_signer_fingerprint_in_build_manifest(tmp
 def test_modified_manifest_without_updating_external_digest_pin_blocks(tmp_path: Path):
     signers = make_source_signers()
     manifest_path, _ = make_artifact_tree(tmp_path, signers)
-    config, _ = make_bundle_config(tmp_path, signers)
+    config, _ = make_bundle_config(tmp_path, signers, manifest_path)
     config[MANIFEST_PATH_ENV] = str(manifest_path)
     config[MANIFEST_SHA256_ENV] = "sha256:" + sha256_bytes(manifest_path.read_bytes())
 
