@@ -545,6 +545,7 @@ jobs:
           $sourceManifestPath = Join-Path $outputRoot 'source-build-manifest.json'
           $eligibilityReportPath = Join-Path $outputRoot 'source-signer-eligibility-report.json'
           $setupError = ''
+          $env:FOREXAI_TRUST_REGISTRY_BUNDLE_PATH = ''
           $bundleBase64 = $env:FOREXAI_TRUST_REGISTRY_BUNDLE_BASE64
           if ([string]::IsNullOrWhiteSpace($bundleBase64)) {
             $setupError = 'TRUST_REGISTRY_BUNDLE_NOT_CONFIGURED'
