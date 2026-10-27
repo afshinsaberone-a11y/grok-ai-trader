@@ -374,6 +374,11 @@ def _check_key_records(
     # directly by this Provider host; the Grant authority remains separately run.
     env_checks: dict[str, str] = {}
     for role, env_name in ROLE_KEY_ENVIRONMENTS.items():
+        # Provider preflight supplies all five environment bindings and requires
+        # exact equality. Source-manifest verification can pass an empty mapping:
+        # it validates the signed registry but does not pretend to provision keys.
+        if env_name not in expected_role_keys:
+            continue
         expected = expected_role_keys.get(env_name, "")
         try:
             env_raw = _decode_raw_public_key(expected, f"TRUST_REGISTRY_ROLE_ENV_KEY_MISSING:{role}")
