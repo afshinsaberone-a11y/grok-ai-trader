@@ -226,6 +226,10 @@ def test_provider_host_diagnostic_does_not_expose_public_key_or_passphrase_value
         "FOREXAI_PROVIDER_SIGNING_KEY_PASSPHRASE",
         "FOREXAI_G13_ATTESTOR_KEY_PASSPHRASE",
         "FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH",
+        "FOREXAI_TRUST_REGISTRY_BUNDLE_PATH",
+        "FOREXAI_TRUST_REGISTRY_ROOT_PUBLIC_KEY",
+        "FOREXAI_TRUST_REGISTRY_ROOT_FINGERPRINT",
+        "FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256",
     ):
         assert variable in script
 
@@ -233,6 +237,7 @@ def test_provider_host_diagnostic_does_not_expose_public_key_or_passphrase_value
         "public_environment_presence",
         "passphrase_environment_presence",
         "environment_presence = $registryPresence",
+        "trust_registry_environment_presence",
     ):
         assert field in script
 
