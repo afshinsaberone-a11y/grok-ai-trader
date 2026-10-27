@@ -60,9 +60,13 @@ upstream signer is trustworthy without reviewed signer evidence.
 
 The same read-only preflight also calls `tools/verify_provider_source_signer_manifest_v1.py`.
 It requires an exact source-build manifest and wheel tree to match the signed
-source-signer allowlist, and separately requires an externally maintained SHA-256
-pin for the manifest itself. The manifest is not allowed to approve production or
-bootstrap, and this check never creates trading authority.
+source-signer allowlist. Critically, the authoritative manifest SHA-256 must also
+be present as `trusted_signers.source_build_manifest_sha256` inside the root-signed
+trust-registry bundle. A process environment pin alone is not an independent trust
+anchor because a host administrator could change both the manifest and that pin.
+The environment pin below is an additional consistency check, not the authority.
+The manifest is not allowed to approve production or bootstrap, and this check
+never creates trading authority.
 
 - `FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_PATH`: absolute path to
   `source-build-manifest.json`, outside the checked-out repository.
@@ -70,6 +74,7 @@ bootstrap, and this check never creates trading authority.
   of the exact manifest bytes, including the final newline. Provision this value
   through an independently controlled release/deployment review; do not calculate
   and trust a new pin automatically on the Provider host or commit it to this repo.
+  It must equal the digest covered by the root signature in the trust-registry bundle.
 
 The layout is fixed: the manifest's sibling `wheels/` directory contains the four
 expected package wheels; a sibling `provider-setuptools-bootstrap/` directory
