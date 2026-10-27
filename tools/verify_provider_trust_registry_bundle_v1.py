@@ -44,8 +44,11 @@ ROLE_KEY_ENVS = {
     "signal": "FOREXAI_PROVIDER_SIGNAL_PUBLIC_KEY",
     "risk": "FOREXAI_PROVIDER_RISK_PUBLIC_KEY",
     "operator": "FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY",
-    "capital_firewall_grant": "FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY",
 }
+REQUIRED_ROLES = (
+    "admission", "promotion", "signal", "risk", "operator", "capital_firewall_grant",
+)
+PROVIDER_CONSUMED_ROLES = tuple(ROLE_KEY_ENVS)
 ROLE_KEY_IDS = {
     "admission": "forexai-demo-admission-provider-v1",
     "promotion": "forexai-g13-evidence-attestor-v1",
@@ -54,7 +57,6 @@ ROLE_KEY_IDS = {
     "operator": "forexai-demo-operator-approval-v1",
     "capital_firewall_grant": "forexai-capital-firewall-grant-v1",
 }
-REQUIRED_ROLES = tuple(ROLE_KEY_ENVS)
 AUTHORIZATION_FLAGS = (
     "production_approved",
     "bootstrap_approved",
@@ -268,7 +270,7 @@ def _validate_key_records(
     # runtime public-key configuration; the bundle is not allowed to self-pin.
     role_status: dict[str, str] = {}
     runtime_material: set[bytes] = set()
-    for role in REQUIRED_ROLES:
+    for role in PROVIDER_CONSUMED_ROLES:
         env_name = ROLE_KEY_ENVS[role]
         configured = environ.get(env_name, "").strip()
         if not configured:
@@ -283,6 +285,11 @@ def _validate_key_records(
         if not hmac.compare_digest(runtime_key, registry_key):
             raise TrustRegistryVerificationError(f"RUNTIME_ROLE_PUBLIC_KEY_MISMATCH:{role}")
         role_status[role] = "MATCH"
+
+    # The Grant key is included and fingerprint-checked in the signed registry,
+    # but Grant validation belongs to the separately administered Grant/attestor
+    # boundary. Do not silently create a second Provider Grant authority.
+    role_status["capital_firewall_grant"] = "REGISTRY_KEY_VALIDATED_SEPARATE_AUTHORITY"
     return role_status
 
 
