@@ -12,6 +12,8 @@ on:
       - .github/workflows/provider-dependency-lock-candidate.yml
       - requirements-provider-lock.in
       - requirements-provider-test-lock.in
+      - requirements-provider-lock-compiler.lock.txt
+      - requirements-provider-pypi-verifier.windows-py313.lock.txt
 
 permissions:
   contents: read
@@ -37,29 +39,56 @@ jobs:
 
       # The generator runs on an ephemeral GitHub-hosted runner, not on the
       # elevated Provider. Its output is untrusted until independently reviewed.
-      - name: Install pinned lock compiler
-        run: python -m pip install --disable-pip-version-check "pip-tools==7.6.1"
+      # Install the compiler's entire target-specific dependency closure from hashes.
+      - name: Install hash-locked lock compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compilerVenv = Join-Path $env:RUNNER_TEMP ('forexai-lock-compiler-' + [Guid]::NewGuid().ToString('N'))
+          & python -m venv $compilerVenv
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_COMPILER_VENV_CREATION_FAILED' }
+          $compilerPython = Join-Path $compilerVenv 'Scripts\\python.exe'
+          if (-not (Test-Path -LiteralPath $compilerPython -PathType Leaf)) {
+            throw 'LOCK_COMPILER_PYTHON_NOT_FOUND'
+          }
+          & $compilerPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-provider-lock-compiler.lock.txt
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_COMPILER_HASH_LOCK_INSTALL_FAILED' }
+          & $compilerPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_COMPILER_DEPENDENCY_CHECK_FAILED' }
+          $actualCompilerFreeze = @(& $compilerPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_COMPILER_FREEZE_FAILED' }
+          $expectedCompilerFreeze = @(
+            'build==1.6.1',
+            'click==8.5.0',
+            'colorama==0.4.6',
+            'packaging==26.3',
+            'pip==26.2.2',
+            'pip-tools==7.6.1',
+            'pyproject-hooks==1.3.3',
+            'setuptools==84.2.1',
+            'wheel==0.48.0'
+          ) | Sort-Object
+          if (($actualCompilerFreeze -join '|') -ne ($expectedCompilerFreeze -join '|')) {
+            Write-Output ('ACTUAL_LOCK_COMPILER_FREEZE=' + ($actualCompilerFreeze -join ';'))
+            throw 'LOCK_COMPILER_FREEZE_MISMATCH'
+          }
+          "FOREXAI_LOCK_COMPILER_PYTHON=$compilerPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Output 'LOCK_COMPILER_HASH_LOCK=PASS'
+          Write-Output 'LOCK_COMPILER_FREEZE=PASS'
 
       - name: Compile production and test dependency closures with SHA-256 hashes
-        shell: bash
+        shell: pwsh
         run: |
-          mkdir -p artifacts/provider-dependency-lock
-          python -m piptools compile \
-            --no-header \
-            --resolver=backtracking \
-            --generate-hashes \
-            --allow-unsafe \
-            --strip-extras \
-            --output-file artifacts/provider-dependency-lock/requirements-provider.lock.txt \
-            requirements-provider-lock.in
-          python -m piptools compile \
-            --no-header \
-            --resolver=backtracking \
-            --generate-hashes \
-            --allow-unsafe \
-            --strip-extras \
-            --output-file artifacts/provider-dependency-lock/requirements-provider-test.lock.txt \
-            requirements-provider-test-lock.in
+          $ErrorActionPreference = 'Stop'
+          $compilerPython = $env:FOREXAI_LOCK_COMPILER_PYTHON
+          if ([string]::IsNullOrWhiteSpace($compilerPython) -or -not (Test-Path -LiteralPath $compilerPython -PathType Leaf)) {
+            throw 'LOCK_COMPILER_PYTHON_NOT_FOUND'
+          }
+          New-Item -ItemType Directory -Path 'artifacts/provider-dependency-lock' -ErrorAction Stop | Out-Null
+          & $compilerPython -m piptools compile --no-header --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file artifacts/provider-dependency-lock/requirements-provider.lock.txt requirements-provider-lock.in
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_RUNTIME_CANDIDATE_COMPILE_FAILED' }
+          & $compilerPython -m piptools compile --no-header --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file artifacts/provider-dependency-lock/requirements-provider-test.lock.txt requirements-provider-test-lock.in
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_TEST_CANDIDATE_COMPILE_FAILED' }
 
       - name: Verify binary-only production install and test environment on Windows Python 3.13
         shell: pwsh
@@ -179,8 +208,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $verifierPython -PathType Leaf)) {
             throw 'LOCK_ATTESTATION_VERIFIER_PYTHON_NOT_FOUND'
           }
-          & $verifierPython -m pip install --disable-pip-version-check --only-binary=:all: 'pypi-attestations==0.0.30'
-          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_INSTALL_FAILED' }
+          & $verifierPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-provider-pypi-verifier.windows-py313.lock.txt
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_HASH_LOCK_INSTALL_FAILED' }
+          & $verifierPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_DEPENDENCY_CHECK_FAILED' }
           $entryPointJson = & $verifierPython -c "import json; from importlib.metadata import entry_points; print(json.dumps([e.name for e in entry_points(group='console_scripts') if e.name in ('pypi-attestation', 'pypi-attestations')]))"
           if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_ENTRY_POINT_ENUMERATION_FAILED' }
           $entryPointNames = @($entryPointJson | ConvertFrom-Json)
