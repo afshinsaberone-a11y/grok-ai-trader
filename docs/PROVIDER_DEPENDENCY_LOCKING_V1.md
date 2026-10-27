@@ -466,7 +466,7 @@ The manifest records the observed blob and patch digests. A contract test now ex
 **Still blocked:** patch/blob pinning does not turn an unsigned commit into a signed commit and does not replace an independent source review. Separately, the setuptools wheel used by the build toolchain has no PyPI provenance, and the production runtime wheels for cffi/pycparser lack upstream PyPI attestations. The candidate workflow must be rerun on this head, its output independently reviewed, and the clean Windows Server 2022 installation rehearsed. No accepted production lock, bootstrap source SHA, key, trust anchor, service, registry, Grant, or trading permission is changed by this patch. Demo remains unauthorized, Live remains disabled, and no orders are submitted.
 
 
-## Follow-up audit: helper-tool bootstrap is still unhashed — 2026-10-26
+## Superseded finding: helper-tool bootstrap was unhashed — 2026-10-26
 
 A fresh review of the current source-wheel workflow found a separate integrity gap in the **candidate-generation helper environments**, not in the successfully installed runtime/test overlay candidates:
 
@@ -486,6 +486,8 @@ This means the candidate wheelhouse's nine wheel hashes and attestations remain 
 5. Rerun the integrated workflow and independent ZIP/hash inspection after this change.
 
 This follow-up records a newly identified gap; it does not change or invalidate the recorded success of the previous candidate rehearsal. No production lock, immutable Bootstrap SHA, key, trust anchor, service, registry or trading permission was changed. PR #331 remains unmerged and unreviewed. Grant remains unissued, Demo unauthorized, Live disabled, and no orders submitted.
+
+**Status correction:** the finding above was valid at the time it was written, but was subsequently closed by the committed hash-locked helper bootstrap described in the following verification updates. Do not treat lines in this historical section as the current workflow state. The current workflow uses `requirements-provider-lock-compiler.lock.txt` and `requirements-provider-pypi-verifier.windows-py313.lock.txt`, installs via hash-checked offline wheelhouses, verifies exact installed inventories, and validates the generated helper lock candidates. The remaining blocker is source/publisher provenance and the independent Provider authority-key/service boundary, not an un-hashed helper install.
 
 
 ## Verification update — helper bootstrap closure and independent artifact review (2026-10-26)
@@ -600,3 +602,14 @@ The lock-override unit tests now pass on Windows; the implementation still fails
 This closes the identified unhashed-helper-install and PyPI-setuptools-bootstrap gaps for the candidate workflow; it does **not** approve the artifact for bootstrap or production. The upstream commits for colorama, pycparser, and Pygments remain unsigned/unverified; cffi's commit signature verifies, but its lightweight release tag has no independent tag signature. A GitHub CI attestation records what CI built and uploaded—it does not turn unsigned upstream source into signed source.
 
 No accepted production lock or `main` SHA was changed. PR #331 remains open and unmerged. No Provider service or production registry was activated, no authority trust anchor was rotated, and no Grant was issued. The separate independent Promotion, Signal, Risk, and Operator source-service/key-custody/registry blockers remain. Demo stays unauthorized, Live stays disabled, and no orders were submitted.
+
+
+## Latest candidate re-run — helper-lock evidence refreshed (2026-10-27)
+
+- Source commit: `b4f866d3af52fd52f8f7c9bf0be3a51563a5f68d`.
+- Integrated workflow run [40346412934](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40346412934): **success**.
+- Artifact ID: `12661791364`; GitHub ZIP SHA-256: `5bb46d9df2cbfe5419e8ea5a7d85a7de87f4095a0e5dedc4cf83422356bbd2ce`. The downloaded ZIP independently recomputed to the same digest and passed ZIP integrity inspection.
+- Helper lock candidate report: compiler `9` pins / `18` cross-platform hash entries; verifier `33` pins / `537` cross-platform hash entries. These full candidate locks are offline-tested and attested in the artifact. The committed target-specific helper locks remain the ones used for the actual compiler/verifier bootstraps.
+- The workflow additionally records the verifier's exact `pip freeze --all` inventory and runs `pip check`; the candidate run passed.
+
+**Remaining boundary:** candidate manifests remain `production_approved=false` and `bootstrap_approved=false`. The three upstream source commits for colorama, pycparser, and Pygments are still unsigned/unverified. cffi has a verified commit signature but only a lightweight release tag. CI attestation proves what the workflow built, not upstream authorship or source trust. The independent Promotion, Signal, Risk, Operator and Capital Firewall Grant authority/key-custody blockers remain separate and unresolved. No production lock, main SHA, Provider service, trust anchor, Grant, Demo permission, Live permission or order state changed.
