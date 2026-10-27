@@ -56,6 +56,16 @@ def test_provider_clean_host_bootstrap_is_pinned_and_fail_closed():
     assert "PROVIDER_ROOT_PARENT_MUST_NOT_BE_REPARSE_POINT" in script
     assert "PROVIDER_ROOT_CREATED_AS_REPARSE_POINT" in script
     assert "New-Item -ItemType Directory -Path $ProviderRoot -ErrorAction Stop" in script
+    assert "function Set-ProtectedProviderRootAcl" in script
+    assert "Set-ProtectedProviderRootAcl -Path $ProviderRoot" in script
+    assert "/inheritance:r" in script
+    assert "icacls.exe $Path /inheritance:r /grant:r" in script
+    assert "Get-Acl -LiteralPath $Path" in script
+    assert "PROVIDER_ROOT_ACL_INHERITANCE_ENABLED" in script
+    assert "PROVIDER_ROOT_ACL_UNEXPECTED_COUNT" in script
+    assert "PROVIDER_ROOT_ACL_UNEXPECTED_RULE" in script
+    assert "PROVIDER_ROOT_ACL_PRINCIPAL_SET_MISMATCH" in script
+    assert script.index("Set-ProtectedProviderRootAcl -Path $ProviderRoot") < script.index("$sourceRoot = Join-Path $ProviderRoot 'source'")
 
     # Do not adopt an executable that was already present and only claims the
     # expected version; install verified packages into dedicated empty paths.
