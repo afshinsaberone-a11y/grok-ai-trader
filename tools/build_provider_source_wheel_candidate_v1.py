@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -129,10 +130,19 @@ EXPECTED_BUILD_TOOL_PINS = {
 }
 
 
-def run(command: list[str], *, cwd: Path | None = None) -> str:
+def run(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> str:
+    process_env = os.environ.copy()
+    if env is not None:
+        process_env.update(env)
     result = subprocess.run(
         command,
         cwd=str(cwd) if cwd else None,
+        env=process_env,
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -141,6 +151,38 @@ def run(command: list[str], *, cwd: Path | None = None) -> str:
         errors="replace",
     )
     return result.stdout.strip()
+
+
+def prepare_reproducible_build_env(
+    spec: dict[str, Any],
+    source_date_epoch: int,
+    base_env: dict[str, str] | None = None,
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Pin archive timestamps and request deterministic MSVC metadata for cffi.
+
+    The setting improves repeatability but is not treated as proof: final wheel
+    hashes must still be compared across separate clean builds.
+    """
+    if not isinstance(source_date_epoch, int) or isinstance(source_date_epoch, bool) or source_date_epoch < 0:
+        raise RuntimeError("SOURCE_DATE_EPOCH_INVALID")
+
+    environment = dict(os.environ if base_env is None else base_env)
+    environment["SOURCE_DATE_EPOCH"] = str(source_date_epoch)
+    msvc_brepro_requested = spec.get("name") == "cffi"
+    if msvc_brepro_requested:
+        for variable in ("CL", "LINK"):
+            current = environment.get(variable, "").strip()
+            arguments = current.split() if current else []
+            if not any(argument.casefold() == "/brepro" for argument in arguments):
+                arguments.append("/Brepro")
+            environment[variable] = " ".join(arguments)
+
+    return environment, {
+        "source_date_epoch": source_date_epoch,
+        "source_date_epoch_source": "pinned_upstream_commit_committer_timestamp",
+        "msvc_brepro_requested": msvc_brepro_requested,
+        "final_wheel_hash_comparison_required": True,
+    }
 
 
 def sha256_file(path: Path) -> str:
@@ -401,8 +443,12 @@ def clone_exact_source(spec: dict[str, Any], source_root: Path) -> tuple[Path, d
         raise RuntimeError(f"CHECKED_OUT_SOURCE_SHA_MISMATCH:{spec['name']}")
     if run(["git", "-C", str(directory), "status", "--porcelain=v1"]):
         raise RuntimeError(f"SOURCE_CHECKOUT_NOT_CLEAN:{spec['name']}")
+    epoch_text = run(["git", "-C", str(directory), "show", "-s", "--format=%ct", "HEAD"])
+    if not re.fullmatch(r"[0-9]+", epoch_text):
+        raise RuntimeError(f"SOURCE_COMMIT_EPOCH_INVALID:{spec['name']}")
     source_metadata = github_commit_metadata(spec["repository"], spec["commit"])
     source_metadata.update(github_release_tag_metadata(spec))
+    source_metadata["source_date_epoch"] = int(epoch_text)
     return directory, source_metadata
 
 
@@ -530,6 +576,9 @@ def main() -> int:
             unsigned_sources.append(spec["name"])
 
         before = {item.name for item in wheel_root.glob("*.whl")}
+        reproducible_env, reproducibility_controls = prepare_reproducible_build_env(
+            spec, source_metadata["source_date_epoch"]
+        )
         run(
             [
                 str(builder_python), "-m", "pip", "wheel",
@@ -540,6 +589,7 @@ def main() -> int:
                 ".",
             ],
             cwd=source_dir,
+            env=reproducible_env,
         )
         created = [item for item in wheel_root.glob("*.whl") if item.name not in before]
         if len(created) != 1:
@@ -557,6 +607,7 @@ def main() -> int:
                 "build_backend": spec["build_backend"],
                 "license": spec["license"],
                 "source": source_metadata,
+                "reproducibility_controls": reproducibility_controls,
             }
         )
 
