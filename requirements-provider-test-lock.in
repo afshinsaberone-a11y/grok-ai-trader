@@ -1,0 +1,3 @@
+# Isolated test environment: runtime closure plus the focused contract-test runner.
+-r requirements-provider-lock.in
+pytest>=8,<9

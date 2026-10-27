@@ -1,0 +1,423 @@
+name: Provider Dependency Lock Candidate
+
+# Generates untrusted review artifacts only. No repository writes, secrets,
+# authority provisioning, or deployment are performed.
+on:
+  workflow_dispatch:
+  # Run the read-only candidate check automatically for scoped dependency changes.
+  push:
+    branches:
+      - ops/bootstrap-provider-host-v1-20261025
+    paths:
+      - .github/workflows/provider-dependency-lock-candidate.yml
+      - requirements-provider-lock.in
+      - requirements-provider-test-lock.in
+      - requirements-provider-lock-compiler.lock.txt
+      - requirements-provider-pypi-verifier.windows-py313.lock.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-dependency-lock-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile-lock-candidate:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout the explicitly selected source ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the bootstrap target Python version
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13.17"
+
+      # The generator runs on an ephemeral GitHub-hosted runner, not on the
+      # elevated Provider. Its output is untrusted until independently reviewed.
+      # Install the compiler's entire target-specific dependency closure from hashes.
+      - name: Install hash-locked lock compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compilerVenv = Join-Path $env:RUNNER_TEMP ('forexai-lock-compiler-' + [Guid]::NewGuid().ToString('N'))
+          & python -m venv $compilerVenv
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_COMPILER_VENV_CREATION_FAILED' }
+          $compilerPython = Join-Path $compilerVenv 'Scripts\\python.exe'
+          if (-not (Test-Path -LiteralPath $compilerPython -PathType Leaf)) {
+            throw 'LOCK_COMPILER_PYTHON_NOT_FOUND'
+          }
+          & $compilerPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-provider-lock-compiler.lock.txt
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_COMPILER_HASH_LOCK_INSTALL_FAILED' }
+          & $compilerPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_COMPILER_DEPENDENCY_CHECK_FAILED' }
+          $actualCompilerFreeze = @(& $compilerPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_COMPILER_FREEZE_FAILED' }
+          $expectedCompilerFreeze = @(
+            'build==1.6.1',
+            'click==8.5.0',
+            'colorama==0.4.6',
+            'packaging==26.3',
+            'pip==26.2.2',
+            'pip-tools==7.6.1',
+            'pyproject_hooks==1.3.3',
+            'setuptools==84.2.1',
+            'wheel==0.48.0'
+          ) | Sort-Object
+          if (($actualCompilerFreeze -join '|') -ne ($expectedCompilerFreeze -join '|')) {
+            Write-Output ('ACTUAL_LOCK_COMPILER_FREEZE=' + ($actualCompilerFreeze -join ';'))
+            throw 'LOCK_COMPILER_FREEZE_MISMATCH'
+          }
+          "FOREXAI_LOCK_COMPILER_PYTHON=$compilerPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Output 'LOCK_COMPILER_HASH_LOCK=PASS'
+          Write-Output 'LOCK_COMPILER_FREEZE=PASS'
+
+      - name: Compile production and test dependency closures with SHA-256 hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compilerPython = $env:FOREXAI_LOCK_COMPILER_PYTHON
+          if ([string]::IsNullOrWhiteSpace($compilerPython) -or -not (Test-Path -LiteralPath $compilerPython -PathType Leaf)) {
+            throw 'LOCK_COMPILER_PYTHON_NOT_FOUND'
+          }
+          New-Item -ItemType Directory -Path 'artifacts/provider-dependency-lock' -ErrorAction Stop | Out-Null
+          & $compilerPython -m piptools compile --no-header --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file artifacts/provider-dependency-lock/requirements-provider.lock.txt requirements-provider-lock.in
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_RUNTIME_CANDIDATE_COMPILE_FAILED' }
+          & $compilerPython -m piptools compile --no-header --resolver=backtracking --generate-hashes --allow-unsafe --strip-extras --output-file artifacts/provider-dependency-lock/requirements-provider-test.lock.txt requirements-provider-test-lock.in
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_TEST_CANDIDATE_COMPILE_FAILED' }
+
+      - name: Verify binary-only production install and test environment on Windows Python 3.13
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtimeLock = 'artifacts/provider-dependency-lock/requirements-provider.lock.txt'
+          $testLock = 'artifacts/provider-dependency-lock/requirements-provider-test.lock.txt'
+          $runtimeVenv = Join-Path $env:RUNNER_TEMP ('forexai-provider-runtime-' + [Guid]::NewGuid().ToString('N'))
+          $testVenv = Join-Path $env:RUNNER_TEMP ('forexai-provider-tests-' + [Guid]::NewGuid().ToString('N'))
+
+          & python -m venv $runtimeVenv
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_RUNTIME_VENV_CREATION_FAILED' }
+          $runtimePython = Join-Path $runtimeVenv 'Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $runtimePython -PathType Leaf)) {
+            throw 'LOCK_RUNTIME_PYTHON_NOT_FOUND'
+          }
+          & $runtimePython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $runtimeLock
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_RUNTIME_BINARY_ONLY_INSTALL_FAILED' }
+          & $runtimePython -c "import cryptography; print('PROVIDER_RUNTIME_IMPORTS=PASS'); print('CRYPTOGRAPHY=' + cryptography.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_RUNTIME_IMPORTS_FAILED' }
+
+          & python -m venv $testVenv
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_TEST_VENV_CREATION_FAILED' }
+          $testPython = Join-Path $testVenv 'Scripts\python.exe'
+          "FOREXAI_TEST_PYTHON=$testPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if (-not (Test-Path -LiteralPath $testPython -PathType Leaf)) {
+            throw 'LOCK_TEST_PYTHON_NOT_FOUND'
+          }
+          & $testPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $testLock
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_TEST_BINARY_ONLY_INSTALL_FAILED' }
+          & $testPython -c "import cryptography, pytest; print('PROVIDER_TEST_IMPORTS=PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_TEST_IMPORTS_FAILED' }
+
+          $focusedTests = @(
+            'tests/test_control_plane_provider_host_preflight_v1.py',
+            'tests/test_control_plane_admission_provider_v1.py',
+            'tests/test_control_plane_provider_service_v1.py',
+            'tests/test_control_plane_service_v1.py'
+          )
+          & $testPython -m pytest -q -p no:cacheprovider $focusedTests
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_VALIDATION_PROVIDER_CONTRACT_TESTS_FAILED' }
+
+      - name: Validate and identify both candidate artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $paths = @(
+            'artifacts/provider-dependency-lock/requirements-provider.lock.txt',
+            'artifacts/provider-dependency-lock/requirements-provider-test.lock.txt'
+          )
+          foreach ($path in $paths) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw 'LOCK_CANDIDATE_NOT_CREATED'
+            }
+            $content = Get-Content -LiteralPath $path -Raw
+            if ([string]::IsNullOrWhiteSpace($content)) {
+              throw 'LOCK_CANDIDATE_EMPTY'
+            }
+            $pins = [regex]::Matches($content, '(?m)^\s*[A-Za-z0-9][A-Za-z0-9._-]*==')
+            $hashes = [regex]::Matches($content, '--hash=sha256:[0-9a-fA-F]{64}')
+            if ($pins.Count -lt 1 -or $hashes.Count -lt $pins.Count) {
+              throw 'LOCK_CANDIDATE_PIN_OR_HASH_CHECK_FAILED'
+            }
+            $packageNames = @(
+              [regex]::Matches($content, '(?m)^\s*([A-Za-z0-9][A-Za-z0-9._-]*)==') |
+                ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } |
+                Sort-Object -Unique
+            )
+            if ($path -eq $paths[0]) {
+              $forbiddenRuntimePackages = @(
+                $packageNames | Where-Object { $_ -in @('pytest', 'numpy', 'pandas', 'backtesting', 'openai-agents') }
+              )
+              if ($packageNames -notcontains 'cryptography' -or $forbiddenRuntimePackages.Count -gt 0) {
+                throw 'LOCK_RUNTIME_SCOPE_CHECK_FAILED'
+              }
+              Write-Output "RUNTIME_PACKAGE_SET=$($packageNames -join ',')"
+            }
+            else {
+              if ($packageNames -notcontains 'cryptography' -or $packageNames -notcontains 'pytest') {
+                throw 'LOCK_TEST_SCOPE_CHECK_FAILED'
+              }
+              Write-Output "TEST_PACKAGE_SET=$($packageNames -join ',')"
+            }
+            $lockHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Output "LOCK_FILE=$path"
+            Write-Output "SOURCE_SHA=${{ github.sha }}"
+            Write-Output "LOCK_CANDIDATE_SHA256=$lockHash"
+            Write-Output "PINNED_REQUIREMENT_COUNT=$($pins.Count)"
+            Write-Output "HASH_COUNT=$($hashes.Count)"
+          }
+          Write-Output 'LOCK_CANDIDATES_ARE_NOT_APPROVED_FOR_BOOTSTRAP=true'
+
+      # HTTP 200 is not sufficient: verify the attestation and expected source repository.
+      # Diagnostic detail is bounded in the report; a blocked report uploads before enforcement.
+      # This run includes per-wheel diagnostic reset to prevent stale error attribution.
+      # Provenance JSON is written verbatim from the Integrity API response.
+      # OutFile intentionally emits no response object; HTTP status is set only after successful return.
+      - name: Cryptographically verify PyPI provenance against expected repository identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $testPython = $env:FOREXAI_TEST_PYTHON
+          if ([string]::IsNullOrWhiteSpace($testPython) -or -not (Test-Path -LiteralPath $testPython -PathType Leaf)) {
+            throw 'LOCK_PROVENANCE_TEST_PYTHON_NOT_FOUND'
+          }
+          $testLock = 'artifacts/provider-dependency-lock/requirements-provider-test.lock.txt'
+          $wheelDir = Join-Path $env:RUNNER_TEMP ('forexai-provider-wheels-' + [Guid]::NewGuid().ToString('N'))
+          $verifierVenv = Join-Path $env:RUNNER_TEMP ('forexai-pypi-attestation-verifier-' + [Guid]::NewGuid().ToString('N'))
+          $reportPath = 'artifacts/provider-dependency-lock/provenance-verification-report.json'
+          New-Item -ItemType Directory -Path $wheelDir -ErrorAction Stop | Out-Null
+
+          # The verifier is an isolated, exact-version-pinned CI tool. It is not
+          # installed into the durable Provider runtime environment or lock.
+          & python -m venv $verifierVenv
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_VENV_FAILED' }
+          $verifierPython = Join-Path $verifierVenv 'Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $verifierPython -PathType Leaf)) {
+            throw 'LOCK_ATTESTATION_VERIFIER_PYTHON_NOT_FOUND'
+          }
+          & $verifierPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-provider-pypi-verifier.windows-py313.lock.txt
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_HASH_LOCK_INSTALL_FAILED' }
+          & $verifierPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_DEPENDENCY_CHECK_FAILED' }
+          $entryPointJson = & $verifierPython -c "import json; from importlib.metadata import entry_points; print(json.dumps([e.name for e in entry_points(group='console_scripts') if e.name in ('pypi-attestation', 'pypi-attestations')]))"
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_ATTESTATION_VERIFIER_ENTRY_POINT_ENUMERATION_FAILED' }
+          $entryPointNames = @($entryPointJson | ConvertFrom-Json)
+          if ($entryPointNames.Count -ne 1) {
+            Write-Output "PYPI_ATTESTATION_CLI_CANDIDATES=$($entryPointNames -join ',')"
+            throw 'LOCK_ATTESTATION_VERIFIER_ENTRY_POINT_AMBIGUOUS'
+          }
+          $verifierCliName = [string]$entryPointNames[0]
+          $verifierCli = Join-Path (Join-Path $verifierVenv 'Scripts') ($verifierCliName + '.exe')
+          if (-not (Test-Path -LiteralPath $verifierCli -PathType Leaf)) {
+            throw 'LOCK_ATTESTATION_VERIFIER_CLI_NOT_FOUND'
+          }
+          $verifierVersion = (& $verifierCli --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $verifierVersion -notmatch '0\.0\.30') {
+            throw 'LOCK_ATTESTATION_VERIFIER_VERSION_MISMATCH'
+          }
+          Write-Output "PYPI_ATTESTATION_VERIFIER=$verifierVersion"
+
+          # Re-download exact compatible wheels selected by the lock. pip still
+          # enforces the candidate hashes before provenance is examined.
+          & $testPython -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps --dest $wheelDir -r $testLock
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_PROVENANCE_WHEEL_DOWNLOAD_FAILED' }
+
+          $wheelInventoryScript = @'
+          import json
+          import sys
+          from pathlib import Path
+          from packaging.utils import canonicalize_name, parse_wheel_filename
+
+          wheels = []
+          for path in sorted(Path(sys.argv[1]).glob("*.whl")):
+              name, version, _, _ = parse_wheel_filename(path.name)
+              wheels.append({
+                  "name": canonicalize_name(name),
+                  "version": str(version),
+                  "filename": path.name,
+              })
+          print(json.dumps(wheels))
+          '@
+          $wheelJson = & $testPython -c $wheelInventoryScript $wheelDir
+          if ($LASTEXITCODE -ne 0) { throw 'LOCK_PROVENANCE_WHEEL_INVENTORY_FAILED' }
+          $wheelRecords = @($wheelJson | ConvertFrom-Json)
+          if ($wheelRecords.Count -lt 1) { throw 'LOCK_PROVENANCE_WHEEL_INVENTORY_EMPTY' }
+
+          # This allowlist is code-reviewed. Package metadata and PyPI responses
+          # may not silently choose the publisher repository that is trusted.
+          $expectedRepositories = @{
+            cffi = 'https://github.com/python-cffi/cffi'
+            colorama = 'https://github.com/tartley/colorama'
+            cryptography = 'https://github.com/pyca/cryptography'
+            iniconfig = 'https://github.com/pytest-dev/iniconfig'
+            packaging = 'https://github.com/pypa/packaging'
+            pluggy = 'https://github.com/pytest-dev/pluggy'
+            pycparser = 'https://github.com/eliben/pycparser'
+            pygments = 'https://github.com/pygments/pygments'
+            pytest = 'https://github.com/pytest-dev/pytest'
+          }
+
+          $rows = @()
+          $hasMissing = $false
+          $hasLookupError = $false
+          $hasVerificationFailure = $false
+          foreach ($wheel in $wheelRecords) {
+            $packageName = [string]$wheel.name
+            $wheelPath = Join-Path $wheelDir ([string]$wheel.filename)
+            $expectedRepository = $expectedRepositories[$packageName]
+            $escapedName = [Uri]::EscapeDataString($packageName)
+            $escapedVersion = [Uri]::EscapeDataString([string]$wheel.version)
+            $escapedFilename = [Uri]::EscapeDataString([string]$wheel.filename)
+            $uri = "https://pypi.org/integrity/$escapedName/$escapedVersion/$escapedFilename/provenance"
+            $provenancePath = Join-Path $wheelDir ([string]$wheel.filename + '.provenance.json')
+            $presence = 'LOOKUP_ERROR'
+            $verification = 'NOT_ATTEMPTED'
+            $statusCode = $null
+            $verificationExitCode = $null
+            $verificationDetail = $null
+
+            if ([string]::IsNullOrWhiteSpace($expectedRepository)) {
+              $presence = 'UNMAPPED_PACKAGE'
+              $verification = 'BLOCKED_EXPECTED_REPOSITORY_NOT_CONFIGURED'
+              $hasVerificationFailure = $true
+            }
+            else {
+              try {
+                # Preserve the HTTP response bytes exactly. PowerShell's
+                # string conversion of response.Content can corrupt JSON when the
+                # response is represented as a byte array.
+                Invoke-WebRequest -Method Get -Uri $uri -Headers @{ Accept = 'application/vnd.pypi.integrity.v1+json' } -OutFile $provenancePath -TimeoutSec 20 | Out-Null
+                # With -OutFile, Invoke-WebRequest does not emit its response object.
+                # Reaching this line means the request completed successfully (2xx).
+                $statusCode = 200
+                if (Test-Path -LiteralPath $provenancePath -PathType Leaf) {
+                  $presence = 'PRESENT'
+                  # Verify the exact wheel against the supplied attestation and
+                  # require the explicit upstream repository identity.
+                  $verifyOutput = & $verifierCli verify pypi --repository $expectedRepository --provenance-file $provenancePath $wheelPath 2>&1 | Out-String
+                  $verificationExitCode = $LASTEXITCODE
+                  $verificationDetail = ($verifyOutput -replace '[\r\n\t]+', ' ').Trim()
+                  if ($verificationDetail.Length -gt 1200) {
+                    $verificationDetail = $verificationDetail.Substring(0, 1200)
+                  }
+                  if ($verificationExitCode -eq 0) {
+                    $verification = 'PASS_CRYPTOGRAPHICALLY_VERIFIED_EXPECTED_REPOSITORY'
+                  }
+                  else {
+                    $verification = 'BLOCKED_ATTESTATION_VERIFICATION_FAILED'
+                    $hasVerificationFailure = $true
+                    Write-Output "PYPI_ATTESTATION_VERIFICATION_FAILED=$($wheel.filename)"
+                    if (-not [string]::IsNullOrWhiteSpace($verificationDetail)) {
+                      Write-Output "PYPI_ATTESTATION_VERIFIER_DETAIL=$verificationDetail"
+                    }
+                  }
+                }
+                else {
+                  $presence = 'UNEXPECTED_HTTP_STATUS'
+                  $verification = 'BLOCKED_PROVENANCE_RESPONSE_INVALID'
+                  $hasLookupError = $true
+                }
+              }
+              catch {
+                $caught = $_
+                try {
+                  if ($null -ne $caught.Exception.Response) {
+                    $statusCode = [int]$caught.Exception.Response.StatusCode
+                  }
+                }
+                catch {
+                  $statusCode = $null
+                }
+                if ($statusCode -eq 404) {
+                  $presence = 'MISSING'
+                  $verification = 'BLOCKED_PROVENANCE_MISSING'
+                  $hasMissing = $true
+                }
+                else {
+                  $presence = 'LOOKUP_ERROR'
+                  $verification = 'BLOCKED_PROVENANCE_LOOKUP_ERROR'
+                  $hasLookupError = $true
+                }
+              }
+            }
+
+            $rows += [PSCustomObject]@{
+              package = $packageName
+              version = [string]$wheel.version
+              filename = [string]$wheel.filename
+              expected_publisher_repository = $expectedRepository
+              http_status = $statusCode
+              provenance_presence = $presence
+              attestation_verification = $verification
+              verifier_exit_code = $verificationExitCode
+              verifier_detail = $verificationDetail
+              endpoint = $uri
+            }
+            Write-Output "PYPI_PROVENANCE_FILE=$($wheel.filename)"
+            Write-Output "PYPI_PROVENANCE_PRESENCE=$presence"
+            Write-Output "PYPI_ATTESTATION_VERIFICATION=$verification"
+          }
+
+          $reportStatus = 'PASS_CRYPTOGRAPHIC_VERIFICATION'
+          if ($hasLookupError) { $reportStatus = 'BLOCKED_LOOKUP_ERROR' }
+          elseif ($hasVerificationFailure) { $reportStatus = 'BLOCKED_ATTESTATION_VERIFICATION' }
+          elseif ($hasMissing) { $reportStatus = 'BLOCKED_PROVENANCE_MISSING' }
+          $report = [PSCustomObject]@{
+            schema = 'forexai.provider_dependency_provenance_verification_audit.v1'
+            checked_utc = [DateTime]::UtcNow.ToString('o')
+            status = $reportStatus
+            policy = 'PASS requires cryptographic verification of the exact wheel against its PyPI attestation and a reviewed expected repository identity. Missing provenance or any verification failure blocks. This is not human approval of upstream code.'
+            target = 'GitHub-hosted windows-2022, CPython 3.13.17, compatible wheels selected by pip'
+            verifier = 'pypi-attestations 0.0.30'
+            wheel_count = $rows.Count
+            wheels = $rows
+          }
+          $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reportPath -Encoding utf8
+          Write-Output "PYPI_PROVENANCE_REPORT=$reportPath"
+          Write-Output "PYPI_PROVENANCE_STATUS=$reportStatus"
+          Write-Output "PYPI_PROVENANCE_WHEEL_COUNT=$($rows.Count)"
+          # A completed report must reach artifact upload even when its policy
+          # result is BLOCKED. The separate enforcement step fails closed later.
+          $global:LASTEXITCODE = 0
+          exit 0
+
+      - name: Upload both candidates and provenance report for explicit review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: provider-dependency-lock-candidate-${{ github.sha }}
+          path: |
+            artifacts/provider-dependency-lock/requirements-provider.lock.txt
+            artifacts/provider-dependency-lock/requirements-provider-test.lock.txt
+            artifacts/provider-dependency-lock/provenance-verification-report.json
+          if-no-files-found: error
+          retention-days: 7
+
+      # Upload the diagnostic artifact before failing the policy gate, so the
+      # missing/invalid attestation evidence remains inspectable.
+      - name: Enforce PyPI provenance verification gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportPath = 'artifacts/provider-dependency-lock/provenance-verification-report.json'
+          if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+            throw 'LOCK_PROVENANCE_REPORT_MISSING'
+          }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.status -ne 'PASS_CRYPTOGRAPHIC_VERIFICATION') {
+            Write-Output "PYPI_PROVENANCE_GATE_BLOCKED=$($report.status)"
+            throw 'DEPENDENCY_PROVENANCE_GATE_BLOCKED'
+          }
+          Write-Output 'PYPI_PROVENANCE_CRYPTOGRAPHIC_VERIFICATION_PASS=true'

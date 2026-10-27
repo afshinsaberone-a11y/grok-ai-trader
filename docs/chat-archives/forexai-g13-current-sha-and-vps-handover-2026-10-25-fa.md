@@ -74,3 +74,56 @@ SHA: `531bb0e135076d52d6387b7cc48b019e40c8886d`
 - [Control Plane Storage Inventory](../G13_CONTROL_PLANE_STORAGE_INVENTORY_V1.md)
 
 **وضعیت:** شواهد G13 روی SHA جدید تأیید شده‌اند؛ موانع صدور Admission و فایل‌های عملیاتی MT5 باقی هستند؛ VPS هلند هنوز در دسترس نیست؛ انتقال و مجوز معامله انجام نشده است.
+
+
+---
+
+## ۶. دسترسی اولیه به VPS هلند و وضعیت مقصد — ۲۰۲۶-۱۰-۲۵
+
+این افزوده، بخش قدیمی «مقصد هنوز قابل‌دسترسی نیست» را به‌عنوان تاریخچه حفظ می‌کند و وضعیت جدید را ثبت می‌کند؛ هیچ بخش قبلی حذف یا جایگزین نشده است.
+
+کاربر خروجی موجودی‌برداری سرور مقصد را فرستاد:
+
+- نام میزبان: `WIN-32DFDCJOHEF`
+- سیستم‌عامل: Windows Server 2022 Datacenter، ساخت `20348`
+- حساب: `WIN-32DFDCJOHEF\Administrator`
+- `C:\ProgramData\ForexAI-Provider` وجود ندارد و پوشه‌های `source`، `venv`، `keys`، `in`، `out` و `state` وجود ندارند.
+- مفسر Python یا checkout سورس پیدا نشده است.
+- سرویس `ForexAIProviderSvc` ثبت نشده است.
+- تمام متغیرهای بررسی‌شدهٔ Process/User/Machine برای کلیدهای عمومی Admission/Promotion/Signal/Risk/Operator، مسیر رجیستری Provider، رمز Admission/Promotion و HMAC secret تنظیم نشده‌اند.
+
+این خروجی نشان می‌دهد **دسترسی به مقصد برقرار شده است، اما مهاجرت و استقرار هنوز انجام نشده‌اند**. نبود کلیدها و سرویس در مقصد با وضعیت اولیهٔ تمیز سازگار است؛ نباید آن‌ها را با مقادیر ساختگی تنظیم کرد.
+
+### کار آماده‌شده برای مرحلهٔ اول
+
+در شاخهٔ بازبینی `ops/bootstrap-provider-host-v1-20261025` یک اسکریپت bootstrap ایجاد شده است: `tools/bootstrap_provider_host_v1.ps1`. این اسکریپت برای Windows Server 2022+ x64 است؛ SHA-256 و Authenticode نصب‌کننده‌های رسمی Git for Windows 2.56.0(3) و Python 3.13.17 را بررسی می‌کند، سورس را روی SHA ثابت `41883f30d32747d07d7b7772f8ee7c656a95e4a1` checkout می‌کند، محیط مجازی می‌سازد و تست‌های قراردادی Provider را اجرا می‌کند. اسکریپت سرویس نصب نمی‌کند، رجیستری عملیاتی را ایجاد نمی‌کند، کلید یا رمز تنظیم نمی‌کند و مجوز معامله صادر نمی‌کند.
+
+- [مستند مهاجرت VPS Provider](../PROVIDER_VPS_MIGRATION_RUNBOOK_V1.md)
+- [اسکریپت clean-host bootstrap](../../tools/bootstrap_provider_host_v1.ps1) (در شاخهٔ بازبینی؛ قبل از اجرای نهایی باید CI و PR را بررسی کرد)
+
+### آخرین وضعیت شواهد G13 روی SHA مورد استفاده برای bootstrap
+
+SHA: `41883f30d32747d07d7b7772f8ee7c656a95e4a1`
+
+| دروازه | Run ID | نتیجهٔ ثبت‌شده |
+|---|---:|---|
+| Validation M15 | 40176071204 | موفق |
+| Robustness M15 | 40176072462 | موفق |
+| OOS M15 | 40176214390 | موفق |
+| Final Promotion M15 | 40176324110 | موفق |
+| Compile + Signal Parity | 40176443408 | موفق |
+| Runtime Safety Probe | 40176693755 | موفق |
+| Controlled Demo Package Preflight | 40176790887 | موفق |
+| Execution Safety Audit | 40176809457 | موفق |
+| Demo Readiness Gate | 40176825695 | موفق |
+| Capital Firewall Authorization Preflight | 40176844505 | ناموفق؛ سه فایل عملیاتی MT5 مفقود |
+
+دروازهٔ Authorization سه مانع را همچنان گزارش می‌کند: `AUTHENTICATED_ENVELOPE_FILE_MISSING`، `MQL5_AUTHORIZATION_RECORD_MISSING` و `TRADE_LEDGER_FILE_MISSING`. Readiness مجوز اجرا نیست: `demo_trading_allowed=false`، `live_trading_allowed=false` و `orders_submitted=false` باقی‌اند.
+
+### اقدام بعدی
+
+۱. اسکریپت bootstrap و تست‌هایش در CI بررسی شوند؛ بعد اسکریپتِ همان commit ثابت روی مقصد اجرا و خروجی بررسی شود.
+۲. VPS قدیمی و پوشهٔ backup اسکریپت تشخیصی محلی حفظ شوند تا مراحل کلید و داده با موفقیت تطبیق داده شوند.
+۳. Promotion private key به Provider هلند منتقل نشود؛ اختلاف لنگر Promotion و مرجع مستقل آن باید با مالک کلید حل شود.
+۴. رجیستری Provider به‌دلیل نبود فایل فعلی نباید از روی حدس reset یا ساخته شود؛ تاریخچهٔ صدور/Grant باید با مراجع معتبر تطبیق داده شود.
+۵. سرویس، ورودی امضاشده و مجوزهای Demo/Live فعال نشوند تا مرجع‌های مستقل و پیش‌نیازهای واقعی تأیید شوند.
