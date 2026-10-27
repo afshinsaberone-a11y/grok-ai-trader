@@ -54,11 +54,7 @@ def test_compact_lock_rejects_extra_wheel_without_creating_output(tmp_path: Path
     wheelhouse.mkdir()
     lock_path = tmp_path / "input.lock.txt"
     output_path = tmp_path / "target.lock.txt"
-    lock_path.write_text(
-        "expected-package==1.0.0 \\\\n"
-        "    --hash=sha256:" + ("a" * 64) + "\\n",
-        encoding="utf-8",
-    )
+    lock_path.write_text("expected-package==1.0.0\n", encoding="utf-8")
     (wheelhouse / "expected_package-1.0.0-py3-none-any.whl").write_bytes(b"expected")
     (wheelhouse / "unexpected_package-2.0.0-py3-none-any.whl").write_bytes(b"unexpected")
 
@@ -73,13 +69,9 @@ def test_compact_lock_refuses_to_overwrite_existing_output(tmp_path: Path) -> No
     wheelhouse.mkdir()
     lock_path = tmp_path / "input.lock.txt"
     output_path = tmp_path / "target.lock.txt"
-    lock_path.write_text(
-        "example-package==1.0.0 \\\\n"
-        "    --hash=sha256:" + ("a" * 64) + "\\n",
-        encoding="utf-8",
-    )
+    lock_path.write_text("example-package==1.0.0\n", encoding="utf-8")
     (wheelhouse / "example_package-1.0.0-py3-none-any.whl").write_bytes(b"wheel")
-    sentinel = "DO_NOT_OVERWRITE\\n"
+    sentinel = "DO_NOT_OVERWRITE\n"
     output_path.write_text(sentinel, encoding="utf-8")
 
     with pytest.raises(ValueError, match="OUTPUT_PATH_ALREADY_EXISTS"):
