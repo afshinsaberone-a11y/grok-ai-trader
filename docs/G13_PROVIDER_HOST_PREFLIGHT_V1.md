@@ -5,11 +5,12 @@
 Run `tools/control_plane_provider_host_preflight_v1.py` under the actual
 `ForexAIProviderSvc` identity before any provider deployment test. It gives a
 redacted, machine-readable report for the five public keys consumed by the Provider
-(Admission plus Promotion, Signal, Risk, and Operator Approval) and the configured
-issuance-registry location. The Capital Firewall Grant public key is intentionally
-owned by the separately administered Grant/Promotion-attestor boundary: the
-Promotion Attestor verifies the signed Grant before it signs Promotion evidence,
-so the Provider does not consume a second Grant trust anchor.
+(Admission plus Promotion, Signal, Risk, and Operator Approval), the configured
+issuance-registry location, and the externally pinned signed trust-registry bundle.
+The Grant public key is included and fingerprint-checked inside the signed registry,
+but its signature-validation authority remains the separately administered
+Grant/Promotion-attestor boundary; the Provider does not consume a second Grant
+trust anchor.
 
 The diagnostic checks canonical base64 encoding of raw 32-byte Ed25519 public
 keys, ensures the configured key material is not duplicated, checks that the
@@ -20,6 +21,39 @@ production registry file and does not validate its schema or integrity.
 Temporary probe files are deleted; a cleanup failure is reported as a failed
 preflight. The issuer separately requires a pre-initialized, versioned schema
 and refuses to create or migrate the registry during admission issuance.
+
+## Signed trust-registry bundle check (required before Provider preflight can pass)
+
+The preflight invokes `tools/verify_provider_trust_registry_bundle_v1.py` through
+a read-only verifier. It requires all of the following values to be configured
+for the Provider process, with the root fingerprint and bundle digest pinned
+independently of this GitHub repository:
+
+- `FOREXAI_TRUST_REGISTRY_BUNDLE_PATH`: absolute path to the public signed bundle,
+  stored outside the checked-out source repository in the controlled Provider area.
+- `FOREXAI_TRUST_REGISTRY_ROOT_PUBLIC_KEY`: canonical base64 encoding of the
+  root Ed25519 public key (raw 32 bytes only).
+- `FOREXAI_TRUST_REGISTRY_ROOT_FINGERPRINT`: `sha256:<64 lowercase hex>`
+  calculated from those raw public-key bytes and independently confirmed out of band.
+- `FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256`: `sha256:<64 lowercase hex>`
+  for the exact delivered bundle bytes, including its final newline, maintained
+  in the independently controlled Provider configuration.
+
+The verifier checks the pinned bundle digest, root fingerprint, Ed25519 signature,
+exact schemas, duplicate JSON fields, validity windows, review metadata, all six
+role records, the source-signer allowlist, and default-DENY/no-authorization flags.
+It compares the five role keys actually consumed by the Provider against their
+runtime public-key configuration. The Capital Firewall Grant role is checked as
+part of the signed registry but remains a separate authority boundary.
+
+The root **private** key is not needed on Provider and must not be placed in the
+repository, Provider host, or GitHub Actions secrets. It stays with the separately
+controlled registry signer. An absent, malformed, mismatched, stale, unapproved,
+or invalid bundle blocks the preflight. A successful bundle check is still not an
+admission, Grant, Demo/Live or order authorization; the preflight always leaves
+those outputs false. The verifier scans neither Git history nor upstream source
+repositories, and a bundle signature does not independently prove that each
+upstream signer is trustworthy without reviewed signer evidence.
 
 ## Promotion trust anchor and Provider execution identity (required before deployment)
 
@@ -105,7 +139,9 @@ preflight is blocked. If the parent-directory SQLite probe passes but the
 configured target file is missing, the report remains `BLOCKED` with
 `registry_check.status=REGISTRY_FILE_NOT_FOUND`; a successful parent probe
 does not establish that the durable registry exists. The JSON report never
-prints key values, private key material, or the registry path.
+prints key values, private key material, passphrases, or the registry path. It
+includes a sanitized `trust_registry_bundle_check` record and never marks it as
+trading authority.
 
 ## Provider issuance registry (one-time provisioning)
 
