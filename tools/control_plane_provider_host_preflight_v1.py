@@ -190,7 +190,7 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
             "independently signed risk decision and actual risk reservation",
             "independently signed human approval scoped to ONE_SIGNAL_DEMO_ONLY",
             "valid Capital Firewall grant signed by its independent authority",
-            "externally pinned signed trust-registry bundle verified against all six role public keys",
+            "signed bundle contains all six reviewed role keys; five Provider runtime keys match, with Grant authority kept separate",
             "explicit source-governed one-signal Demo permission; historical readiness alone is insufficient",
         ],
     }
