@@ -84,6 +84,59 @@ function New-ProtectedWorkRoot {
     throw 'BOOTSTRAP_WORK_ROOT_COLLISION'
 }
 
+function Set-ProtectedProviderRootAcl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # The prepared Provider tree must not inherit broad access from ProgramData.
+    # Until a separately reviewed service-install phase chooses the final
+    # service principal, grant explicit FullControl only to this bootstrap SID
+    # and SYSTEM. Descendants inherit this restricted DACL.
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'PROVIDER_ROOT_REPARSE_POINT_BEFORE_ACL'
+    }
+
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    & icacls.exe $Path /inheritance:r /grant:r "*$($sid):(OI)(CI)F" /grant '*S-1-5-18:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'PROVIDER_ROOT_ACL_SETUP_FAILED' }
+
+    foreach ($extraSid in @('*S-1-5-32-544', '*S-1-3-4')) {
+        & icacls.exe $Path /remove $extraSid | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'PROVIDER_ROOT_ACL_SETUP_FAILED' }
+    }
+
+    # Read the resulting DACL back; do not infer security from icacls exit code.
+    $acl = Get-Acl -LiteralPath $Path
+    if (-not $acl.AreAccessRulesProtected) {
+        throw 'PROVIDER_ROOT_ACL_INHERITANCE_ENABLED'
+    }
+    $rules = @($acl.Access)
+    if ($rules.Count -ne 2) {
+        throw 'PROVIDER_ROOT_ACL_UNEXPECTED_COUNT'
+    }
+    $allowed = @($sid, 'S-1-5-18')
+    $actualSids = @()
+    foreach ($rule in $rules) {
+        $ruleSid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        if ($ruleSid -notin $allowed -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $rule.IsInherited -or
+            $rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl -or
+            $actualSids -contains $ruleSid) {
+            throw 'PROVIDER_ROOT_ACL_UNEXPECTED_RULE'
+        }
+        $actualSids += $ruleSid
+    }
+    if (@($actualSids | Sort-Object -Unique) -join '|' -ne @($allowed | Sort-Object -Unique) -join '|') {
+        throw 'PROVIDER_ROOT_ACL_PRINCIPAL_SET_MISMATCH'
+    }
+
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'PROVIDER_ROOT_REPARSE_POINT_AFTER_ACL'
+    }
+}
+
 function Get-VerifiedInstaller {
     param(
         [Parameter(Mandatory = $true)][string]$Uri,
@@ -277,6 +330,7 @@ try {
     if (($createdProviderItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'PROVIDER_ROOT_CREATED_AS_REPARSE_POINT'
     }
+    Set-ProtectedProviderRootAcl -Path $ProviderRoot
     $sourceRoot = Join-Path $ProviderRoot 'source'
     $venvRoot = Join-Path $ProviderRoot 'venv'
 
