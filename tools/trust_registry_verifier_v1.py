@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
@@ -257,7 +257,7 @@ def _check_key_records(
         reviewed_at = _parse_utc(entry.get("reviewed_at_utc"), f"TRUST_REGISTRY_KEY_REVIEW_TIME_INVALID:{role}")
         if valid_until <= valid_from or now < valid_from or now >= valid_until:
             raise TrustRegistryVerificationError(f"TRUST_REGISTRY_KEY_OUTSIDE_VALIDITY_WINDOW:{role}")
-        if reviewed_at > now.replace(microsecond=0):
+        if reviewed_at > now + timedelta(seconds=2):
             raise TrustRegistryVerificationError(f"TRUST_REGISTRY_KEY_REVIEW_TIME_IN_FUTURE:{role}")
 
         by_role[role] = entry
