@@ -16,16 +16,30 @@ from pathlib import Path
 import re
 from typing import Any, Mapping
 
-from tools.verify_provider_trust_registry_bundle_v1 import (
-    BUNDLE_PATH_ENV,
-    EXPECTED_BUNDLE_SHA256_ENV,
-    ROOT_FINGERPRINT_ENV,
-    ROOT_PUBLIC_KEY_ENV,
-    TrustRegistryVerificationError,
-    _unique_object,
-    _validate_source_signers,
-    verify_trust_registry_bundle,
-)
+try:
+    from tools.verify_provider_trust_registry_bundle_v1 import (
+        BUNDLE_PATH_ENV,
+        EXPECTED_BUNDLE_SHA256_ENV,
+        ROOT_FINGERPRINT_ENV,
+        ROOT_PUBLIC_KEY_ENV,
+        TrustRegistryVerificationError,
+        _unique_object,
+        _validate_source_signers,
+        verify_trust_registry_bundle,
+    )
+except ModuleNotFoundError as exc:
+    if exc.name not in {"tools", "tools.verify_provider_trust_registry_bundle_v1"}:
+        raise
+    from verify_provider_trust_registry_bundle_v1 import (
+        BUNDLE_PATH_ENV,
+        EXPECTED_BUNDLE_SHA256_ENV,
+        ROOT_FINGERPRINT_ENV,
+        ROOT_PUBLIC_KEY_ENV,
+        TrustRegistryVerificationError,
+        _unique_object,
+        _validate_source_signers,
+        verify_trust_registry_bundle,
+    )
 
 MANIFEST_PATH_ENV = "FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_PATH"
 MANIFEST_SHA256_ENV = "FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_SHA256"
