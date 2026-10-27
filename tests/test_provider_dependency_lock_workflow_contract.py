@@ -39,6 +39,9 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "--require-hashes --only-binary=:all: -r $compilerLock" in workflow
     assert "LOCK_COMPILER_HASH_LOCK_INSTALL_FAILED" in workflow
     assert "LOCK_COMPILER_FREEZE_MISMATCH" in workflow
+    assert "& python -m venv $compilerVenv" in workflow
+    assert '"FOREXAI_LOCK_COMPILER_PYTHON=$compilerPython" | Out-File -FilePath $env:GITHUB_ENV' in workflow
+    assert "& $compilerPython -m piptools compile" in workflow
     assert "pip install --disable-pip-version-check \"pip-tools==7.6.1\"" not in workflow
 
     # Candidate generation must also prove the lock is actually installable as
