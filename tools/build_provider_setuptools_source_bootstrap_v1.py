@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -32,11 +33,20 @@ MANIFEST_SCHEMA = "forexai.provider_setuptools_source_bootstrap.v1"
 STATUS = "SIGNED_SOURCE_BUILD_CANDIDATE_NOT_APPROVED"
 
 
-def run(command: list[str], *, cwd: Path | None = None) -> str:
+def run(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> str:
+    process_env = os.environ.copy()
+    if env is not None:
+        process_env.update(env)
     try:
         result = subprocess.run(
             command,
             cwd=str(cwd) if cwd else None,
+            env=process_env,
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -50,6 +60,18 @@ def run(command: list[str], *, cwd: Path | None = None) -> str:
             print(output, file=sys.stderr)
         raise
     return result.stdout.strip()
+
+
+def prepare_source_date_env(
+    source_date_epoch: int,
+    base_env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Normalize archive timestamps against the immutable upstream commit time."""
+    if not isinstance(source_date_epoch, int) or isinstance(source_date_epoch, bool) or source_date_epoch < 0:
+        raise RuntimeError("SOURCE_DATE_EPOCH_INVALID")
+    environment = dict(os.environ if base_env is None else base_env)
+    environment["SOURCE_DATE_EPOCH"] = str(source_date_epoch)
+    return environment
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -277,6 +299,11 @@ def main() -> int:
         raise RuntimeError("SETUPTOOLS_CHECKED_OUT_COMMIT_MISMATCH")
     if run(["git", "-C", str(source_dir), "status", "--porcelain=v1"]):
         raise RuntimeError("SETUPTOOLS_SOURCE_CHECKOUT_NOT_CLEAN")
+    source_date_epoch_text = run(["git", "-C", str(source_dir), "show", "-s", "--format=%ct", "HEAD"])
+    if not re.fullmatch(r"[0-9]+", source_date_epoch_text):
+        raise RuntimeError("SETUPTOOLS_SOURCE_COMMIT_EPOCH_INVALID")
+    source_date_epoch = int(source_date_epoch_text)
+    reproducible_build_env = prepare_source_date_env(source_date_epoch)
 
     wheel_builder_version = run([
         str(builder_python), "-c",
@@ -290,7 +317,7 @@ def main() -> int:
     run([
         str(builder_python), "setup.py", "bdist_wheel",
         "--dist-dir", str(wheel_dir),
-    ], cwd=build_source_dir)
+    ], cwd=build_source_dir, env=reproducible_build_env)
 
     wheels = sorted(wheel_dir.glob("*.whl"))
     if len(wheels) != 1:
@@ -339,6 +366,10 @@ def main() -> int:
             "source_checkout_commit": checked_out,
             "source_checkout_clean_before_build": True,
             "source_checkout_left_unmodified_after_copy": run(["git", "-C", str(source_dir), "status", "--porcelain=v1"]) == "",
+            "source_date_epoch": source_date_epoch,
+            "source_date_epoch_source": "pinned_upstream_commit_committer_timestamp",
+            "archive_timestamp_normalization_requested": True,
+            "independent_wheel_hash_comparison_required": True,
             "build_source_tree_config_override": build_override,
             "build_source_tree_path": "build-source",
         },
