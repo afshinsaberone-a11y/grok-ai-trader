@@ -82,6 +82,7 @@ REVIEW_SWITCHES = (
 )
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+SHA256_PIN = re.compile(r"^sha256:[0-9a-f]{64}$")
 ROOT_FINGERPRINT = re.compile(r"^sha256:[0-9a-f]{64}$")
 SIGNER_FINGERPRINT = re.compile(
     r"^(?:gpg:[0-9a-fA-F]{40}|gpg:[0-9a-fA-F]{64}|ssh:SHA256:[A-Za-z0-9+/]{20,}={0,2})$"
@@ -294,6 +295,15 @@ def _validate_key_records(
 
 
 def _validate_source_signers(signers: Mapping[str, Any], now: datetime) -> int:
+    # The manifest digest is a trust anchor only because it is included in the
+    # payload covered by the root Ed25519 signature. Do not accept an env-only pin.
+    if "source_build_manifest_sha256" not in signers:
+        raise TrustRegistryVerificationError("SIGNED_SOURCE_MANIFEST_DIGEST_PIN_MISSING_OR_INVALID")
+    if set(signers) != {"schema", "status", "signers", "source_build_manifest_sha256"}:
+        raise TrustRegistryVerificationError("TRUSTED_SIGNERS_FIELDS_INVALID")
+    manifest_digest = signers.get("source_build_manifest_sha256")
+    if not isinstance(manifest_digest, str) or not SHA256_PIN.fullmatch(manifest_digest):
+        raise TrustRegistryVerificationError("SIGNED_SOURCE_MANIFEST_DIGEST_PIN_MISSING_OR_INVALID")
     if signers.get("schema") != SIGNERS_SCHEMA:
         raise TrustRegistryVerificationError("TRUSTED_SIGNERS_SCHEMA_INVALID")
     if signers.get("status") != APPROVED_SIGNERS_STATUS:
@@ -473,6 +483,7 @@ def verify_trust_registry_bundle(
         "registry_revision": revision,
         "role_key_checks": roles,
         "trusted_source_signer_count": signer_count,
+        "signed_source_build_manifest_sha256": signers["source_build_manifest_sha256"],
         "default_decision": "DENY",
         "production_approved": False,
         "bootstrap_approved": False,
