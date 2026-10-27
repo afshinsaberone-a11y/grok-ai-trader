@@ -31,7 +31,16 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert (
         "paths:\n      - .github/workflows/provider-dependency-lock-candidate.yml"
         "\n      - requirements-provider-lock.in\n      - requirements-provider-test-lock.in"
+        "\n      - requirements-provider-lock-compiler.lock.txt"
     ) in workflow
+    # The lock compiler itself must use the checked-in hash-locked, binary-only
+    # dependency closure and must match the expected exact installed package set.
+    assert "requirements-provider-lock-compiler.lock.txt" in workflow
+    assert "--require-hashes --only-binary=:all: -r $compilerLock" in workflow
+    assert "LOCK_COMPILER_HASH_LOCK_INSTALL_FAILED" in workflow
+    assert "LOCK_COMPILER_FREEZE_MISMATCH" in workflow
+    assert "pip install --disable-pip-version-check \"pip-tools==7.6.1\"" not in workflow
+
     # Candidate generation must also prove the lock is actually installable as
     # binary-only under the same strict pip flags used by the elevated bootstrap.
     assert "Verify binary-only production install and test environment on Windows Python 3.13" in workflow
