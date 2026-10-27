@@ -83,6 +83,27 @@ HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 FINGERPRINT = re.compile(r"^sha256:[0-9a-f]{64}$")
 
+TRUSTED_SIGNER_RECORD_FIELDS = {
+    "signer_id",
+    "repository",
+    "commit_sha",
+    "release_tag",
+    "trust_basis",
+    "signature_status",
+    "signer_identity",
+    "signer_fingerprint",
+    "evidence_reference",
+    "evidence_sha256",
+    "reviewer_identity",
+    "review_id",
+    "reviewed_at_utc",
+    "valid_from_utc",
+    "valid_until_utc",
+    "status",
+    "independently_reviewed",
+}
+REPOSITORY_NAME = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
 
 class TrustRegistryVerificationError(RuntimeError):
     """A sanitized reason code for a rejected trust-registry bundle."""
@@ -181,6 +202,85 @@ def _check_policy(registry: Mapping[str, Any], policy: Mapping[str, Any]) -> Non
         if review.get(field) is not True:
             raise TrustRegistryVerificationError(f"TRUST_REGISTRY_REVIEW_REQUIREMENT_NOT_TRUE:{field}")
 
+
+
+def _check_trusted_signers(signers: Mapping[str, Any], now: datetime) -> int:
+    """Require an approved, non-empty, version-scoped upstream source trust list.
+
+    A valid root signature over a draft/empty signer list is not evidence that
+    package publishers are trusted. Unsigned upstream commits may be admitted
+    only through an explicit, independently reviewed exception pinned to one
+    repository + commit + release tag and an immutable review-evidence digest.
+    """
+    if signers.get("schema") != SIGNERS_SCHEMA:
+        raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNERS_SCHEMA_INVALID")
+    if signers.get("status") != APPROVED_SIGNERS_STATUS:
+        raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNERS_NOT_APPROVED")
+    records = signers.get("signers")
+    if not isinstance(records, list) or not records:
+        raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNERS_LIST_EMPTY_OR_INVALID")
+
+    seen_ids: set[str] = set()
+    seen_sources: set[tuple[str, str]] = set()
+    for value in records:
+        record = _require_exact_fields(
+            value, TRUSTED_SIGNER_RECORD_FIELDS, "TRUST_REGISTRY_SIGNER_RECORD_FIELDS_INVALID"
+        )
+        signer_id = record.get("signer_id")
+        repository = record.get("repository")
+        commit_sha = record.get("commit_sha")
+        release_tag = record.get("release_tag")
+        if not isinstance(signer_id, str) or not signer_id.strip() or signer_id in seen_ids:
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_ID_INVALID_OR_DUPLICATE")
+        if not isinstance(repository, str) or not REPOSITORY_NAME.fullmatch(repository):
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_REPOSITORY_INVALID")
+        if not isinstance(commit_sha, str) or not HEX_40.fullmatch(commit_sha):
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_COMMIT_SHA_INVALID")
+        if not isinstance(release_tag, str) or not release_tag.strip():
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_RELEASE_TAG_INVALID")
+        source_identity = (repository, commit_sha)
+        if source_identity in seen_sources:
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_SOURCE_DUPLICATE")
+        seen_ids.add(signer_id)
+        seen_sources.add(source_identity)
+
+        basis = record.get("trust_basis")
+        signature_status = record.get("signature_status")
+        signer_identity = record.get("signer_identity")
+        signer_fingerprint = record.get("signer_fingerprint")
+        review_id = record.get("review_id")
+        if basis == "VERIFIED_SIGNATURE_IDENTITY_PIN":
+            if signature_status != "VERIFIED":
+                raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_SIGNATURE_BASIS_MISMATCH")
+            if not isinstance(signer_fingerprint, str) or not signer_fingerprint.strip() or signer_fingerprint == "not_applicable_source_exception":
+                raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_FINGERPRINT_REQUIRED")
+            if not isinstance(signer_identity, str) or not signer_identity.strip():
+                raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_IDENTITY_REQUIRED")
+        elif basis == "INDEPENDENT_SOURCE_EXCEPTION":
+            if signature_status != "NOT_VERIFIED":
+                raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_SIGNATURE_BASIS_MISMATCH")
+            if signer_identity != f"source-exception:{review_id}" or signer_fingerprint != "not_applicable_source_exception":
+                raise TrustRegistryVerificationError("TRUST_REGISTRY_SOURCE_EXCEPTION_IDENTITY_INVALID")
+        else:
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_TRUST_BASIS_INVALID")
+
+        for field in ("evidence_reference", "reviewer_identity", "review_id"):
+            item = record.get(field)
+            if not isinstance(item, str) or not item.strip():
+                raise TrustRegistryVerificationError(f"TRUST_REGISTRY_SIGNER_REVIEW_METADATA_MISSING:{field}")
+        if not isinstance(record.get("evidence_sha256"), str) or not HEX_64.fullmatch(record["evidence_sha256"]):
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_EVIDENCE_DIGEST_INVALID")
+        if record.get("status") != "ACTIVE" or record.get("independently_reviewed") is not True:
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_REVIEW_NOT_APPROVED")
+
+        reviewed_at = _parse_utc(record.get("reviewed_at_utc"), "TRUST_REGISTRY_SIGNER_REVIEW_TIME_INVALID")
+        valid_from = _parse_utc(record.get("valid_from_utc"), "TRUST_REGISTRY_SIGNER_VALID_FROM_INVALID")
+        valid_until = _parse_utc(record.get("valid_until_utc"), "TRUST_REGISTRY_SIGNER_VALID_UNTIL_INVALID")
+        if reviewed_at > now + timedelta(seconds=2):
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_REVIEW_TIME_FROM_FUTURE")
+        if valid_until <= valid_from or now < valid_from or now >= valid_until:
+            raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNER_OUTSIDE_VALIDITY_WINDOW")
+    return len(records)
 
 def _check_key_records(
     registry: Mapping[str, Any],
@@ -361,16 +461,10 @@ def verify_signed_bundle_bytes(
     signers = payload.get("trusted_signers")
     if not isinstance(registry, dict) or not isinstance(policy, dict) or not isinstance(signers, dict):
         raise TrustRegistryVerificationError("TRUST_REGISTRY_DOCUMENTS_NOT_OBJECTS")
-    if signers.get("schema") != SIGNERS_SCHEMA:
-        raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNERS_SCHEMA_INVALID")
-    if signers.get("status") not in ("DRAFT_NOT_APPROVED", APPROVED_SIGNERS_STATUS):
-        raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNERS_STATUS_INVALID")
-    if not isinstance(signers.get("signers"), list):
-        raise TrustRegistryVerificationError("TRUST_REGISTRY_SIGNERS_LIST_INVALID")
-
     checked_at = now or datetime.now(timezone.utc)
     _check_policy(registry, policy)
     role_checks = _check_key_records(registry, expected_role_keys, checked_at)
+    trusted_signer_count = _check_trusted_signers(signers, checked_at)
     return {
         "status": "PASS",
         "reason_code": "TRUST_REGISTRY_SIGNATURE_AND_ROLE_BINDINGS_VERIFIED",
@@ -381,7 +475,7 @@ def verify_signed_bundle_bytes(
         "signature_verified": True,
         "role_key_checks": role_checks,
         "trusted_source_signer_list_status": signers["status"],
-        "trusted_source_signer_count": len(signers["signers"]),
+        "trusted_source_signer_count": trusted_signer_count,
         "trading_authorization_created": False,
     }
 
