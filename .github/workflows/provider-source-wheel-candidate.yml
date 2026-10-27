@@ -8,6 +8,9 @@ on:
   push:
     branches:
       - ops/bootstrap-provider-host-v1-20261025
+      # Temporary validation branch: run one full review-only candidate build
+      # against the source-signer allowlist gate; remove before merge.
+      - security/provider-source-signer-gate-20261027
     paths:
       - .github/workflows/provider-source-wheel-candidate.yml
       - tools/build_provider_source_wheel_candidate_v1.py
