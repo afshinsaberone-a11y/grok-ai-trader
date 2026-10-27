@@ -353,6 +353,7 @@ def inspect_source_manifest(environ: Mapping[str, str] | None = None) -> dict[st
         payload = bundle.get("payload", {})
         trusted_signers = payload.get("trusted_signers", {}) if isinstance(payload, dict) else {}
         report.update(verify_source_manifest_tree(resolved_manifest, manifest, trusted_signers))
+        report["reason_code"] = "ALL_SOURCE_COMMITS_EXACTLY_ALLOWLISTED"
         report["source_manifest_sha256"] = manifest_digest
         report["manifest_digest_pin_verified"] = True
         report["verified_bundle_sha256"] = verify_report["bundle_sha256"]
