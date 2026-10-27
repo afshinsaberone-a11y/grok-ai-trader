@@ -16,7 +16,14 @@ import tempfile
 from pathlib import Path
 from typing import Mapping
 
-from tools.verify_provider_trust_registry_bundle_v1 import inspect_trust_registry_bundle
+try:
+    from tools.verify_provider_trust_registry_bundle_v1 import inspect_trust_registry_bundle
+except ModuleNotFoundError as exc:
+    # Support both module execution from the repository root and the existing
+    # deployment command that invokes this file by its absolute path.
+    if exc.name not in {"tools", "tools.verify_provider_trust_registry_bundle_v1"}:
+        raise
+    from verify_provider_trust_registry_bundle_v1 import inspect_trust_registry_bundle
 
 
 SCHEMA = "forexai.control_plane_provider_host_preflight.v1"
