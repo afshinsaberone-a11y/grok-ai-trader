@@ -39,6 +39,12 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "--require-hashes --only-binary=:all: -r $compilerLock" in workflow
     assert "LOCK_COMPILER_HASH_LOCK_INSTALL_FAILED" in workflow
     assert "LOCK_COMPILER_FREEZE_MISMATCH" in workflow
+    assert "'pip-tools==7.6.2'" in workflow
+    compiler_lock = (root / "requirements-provider-lock-compiler.lock.txt").read_text(encoding="utf-8")
+    assert re.search(
+        r"(?m)^pip-tools==7\\.6\\.2 --hash=sha256:f37eb4b736859c2c30230e50977312c61918b7ef931071ff7811fd067715c25f$",
+        compiler_lock,
+    )
     assert "& python -m venv $compilerVenv" in workflow
     assert '"FOREXAI_LOCK_COMPILER_PYTHON=$compilerPython" | Out-File -FilePath $env:GITHUB_ENV' in workflow
     assert "& $compilerPython -m piptools compile" in workflow
