@@ -62,7 +62,10 @@ The same read-only preflight also calls `tools/verify_provider_source_signer_man
 It requires an exact source-build manifest and wheel tree to match the signed
 source-signer allowlist. Critically, the authoritative manifest SHA-256 must also
 be present as `trusted_signers.source_build_manifest_sha256` inside the root-signed
-trust-registry bundle. A process environment pin alone is not an independent trust
+trust-registry bundle. The trust-registry verifier requires this exact wrapper
+schema (no missing or unknown wrapper fields) and a canonical
+`sha256:<64 lowercase hex>` digest; it reports the root-signed digest after signature
+verification. A process environment pin alone is not an independent trust
 anchor because a host administrator could change both the manifest and that pin.
 The environment pin below is an additional consistency check, not the authority.
 The manifest is not allowed to approve production or bootstrap, and this check
