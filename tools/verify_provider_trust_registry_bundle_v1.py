@@ -126,7 +126,7 @@ def _canonical_json(value: Any) -> bytes:
             value, ensure_ascii=False, sort_keys=True,
             separators=(",", ":"), allow_nan=False,
         ).encode("utf-8")
-    except (TypeError, ValueError, UnicodeError) as exc:
+    except (TypeError, ValueError, UnicodeError, RecursionError, OverflowError) as exc:
         raise TrustRegistryVerificationError("BUNDLE_CANONICAL_JSON_INVALID") from exc
 
 
@@ -139,7 +139,7 @@ def _parse_json_object(raw: bytes) -> dict[str, Any]:
         )
     except TrustRegistryVerificationError:
         raise
-    except (UnicodeError, json.JSONDecodeError) as exc:
+    except (UnicodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise TrustRegistryVerificationError("BUNDLE_JSON_INVALID") from exc
     if not isinstance(value, dict):
         raise TrustRegistryVerificationError("BUNDLE_JSON_ROOT_NOT_OBJECT")
@@ -366,9 +366,14 @@ def _read_bundle_file(raw_path: str, repository_root: Path) -> tuple[bytes, Path
     path = Path(raw_path)
     if not path.is_absolute():
         raise TrustRegistryVerificationError("BUNDLE_PATH_NOT_ABSOLUTE")
-    if path.is_symlink() or not path.is_file():
-        raise TrustRegistryVerificationError("BUNDLE_PATH_NOT_REGULAR_FILE")
-    resolved = path.resolve(strict=True)
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise TrustRegistryVerificationError("BUNDLE_PATH_NOT_REGULAR_FILE")
+        resolved = path.resolve(strict=True)
+    except TrustRegistryVerificationError:
+        raise
+    except OSError as exc:
+        raise TrustRegistryVerificationError("BUNDLE_PATH_INSPECTION_FAILED") from exc
     try:
         resolved.relative_to(repository_root.resolve())
     except ValueError:
@@ -486,28 +491,35 @@ def inspect_trust_registry_bundle(
 ) -> dict[str, Any]:
     """Return sanitized diagnostics without leaking bundle keys or configured values."""
     try:
-        return verify_trust_registry_bundle(
+        report = verify_trust_registry_bundle(
             environ=environ, repository_root=repository_root, now=now
         )
+        return report
     except TrustRegistryVerificationError as exc:
-        return {
-            "schema": "forexai.provider_trust_registry_bundle_verification.v1",
-            "status": "BLOCKED",
-            "reason": str(exc),
-            "bundle_sha256": None,
-            "root_key_fingerprint_sha256": None,
-            "registry_revision": None,
-            "role_key_checks": {},
-            "trusted_source_signer_count": 0,
-            "default_decision": "DENY",
-            "production_approved": False,
-            "bootstrap_approved": False,
-            "admission_issuance_authorized": False,
-            "signed_request_created": False,
-            "demo_trading_authorized": False,
-            "live_trading_allowed": False,
-            "orders_submitted": False,
-        }
+        reason = str(exc)
+    except (OSError, ValueError, TypeError, OverflowError, RecursionError):
+        # Unexpected malformed-input or filesystem errors still fail closed.
+        # Do not echo raw configuration values or local filesystem details.
+        reason = "BUNDLE_VERIFICATION_INPUT_OR_IO_INVALID"
+
+    return {
+        "schema": "forexai.provider_trust_registry_bundle_verification.v1",
+        "status": "BLOCKED",
+        "reason": reason,
+        "bundle_sha256": None,
+        "root_key_fingerprint_sha256": None,
+        "registry_revision": None,
+        "role_key_checks": {},
+        "trusted_source_signer_count": 0,
+        "default_decision": "DENY",
+        "production_approved": False,
+        "bootstrap_approved": False,
+        "admission_issuance_authorized": False,
+        "signed_request_created": False,
+        "demo_trading_authorized": False,
+        "live_trading_allowed": False,
+        "orders_submitted": False,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
