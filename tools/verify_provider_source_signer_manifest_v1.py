@@ -8,6 +8,7 @@ otherwise an exact, reviewed source exception is required.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -19,7 +20,6 @@ from tools.trust_registry_verifier_v1 import (
     APPROVED_SIGNERS_STATUS,
     BUNDLE_PATH_ENV,
     EXPECTED_BUNDLE_SHA256_ENV,
-    MAX_BUNDLE_BYTES,
     ROOT_FINGERPRINT_ENV,
     ROOT_PUBLIC_KEY_ENV,
     SIGNERS_SCHEMA,
@@ -138,7 +138,7 @@ def verify_source_manifest_tree(
         if manifest.get(field) is not False:
             raise SourceSignerManifestError(f"SOURCE_MANIFEST_APPROVAL_FLAG_MUST_REMAIN_FALSE:{field}")
 
-    signer_count = _check_trusted_signers(trusted_signers, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
+    signer_count = _check_trusted_signers(trusted_signers, datetime.now(timezone.utc))
     signer_entries = trusted_signers.get("signers")
     if signer_count <= 0 or not isinstance(signer_entries, list):
         raise SourceSignerManifestError("SOURCE_SIGNER_ALLOWLIST_EMPTY")
