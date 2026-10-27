@@ -16,6 +16,8 @@ import tempfile
 from pathlib import Path
 from typing import Mapping
 
+from tools.verify_provider_trust_registry_bundle_v1 import inspect_trust_registry_bundle
+
 
 SCHEMA = "forexai.control_plane_provider_host_preflight.v1"
 
@@ -25,6 +27,7 @@ KEY_ENVIRONMENTS = (
     "FOREXAI_PROVIDER_SIGNAL_PUBLIC_KEY",
     "FOREXAI_PROVIDER_RISK_PUBLIC_KEY",
     "FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY",
+    "FOREXAI_CAPITAL_FIREWALL_GRANT_PUBLIC_KEY",
 )
 
 REGISTRY_ENVIRONMENT = "FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH"
@@ -156,13 +159,19 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
 
     keys_pass = all(key_checks.get(name) == "FORMAT_PASS" for name in KEY_ENVIRONMENTS)
     registry_pass = registry_check["status"] == "PASS"
-    blocked = not (keys_pass and registry_pass)
+    # The signed trust-registry bundle is distinct from the SQLite issuance
+    # registry. Verify its externally pinned digest/root and exact role-key
+    # bindings; the check is read-only and never grants authority.
+    trust_registry_bundle_check = inspect_trust_registry_bundle(env)
+    trust_bundle_pass = trust_registry_bundle_check["status"] == "PASS"
+    blocked = not (keys_pass and registry_pass and trust_bundle_pass)
 
     return {
         "schema": SCHEMA,
         "status": "BLOCKED" if blocked else "PREFLIGHT_PASS_SOURCE_EVIDENCE_STILL_REQUIRED",
         "key_checks": key_checks,
         "registry_check": registry_check,
+        "trust_registry_bundle_check": trust_registry_bundle_check,
         # This is intentionally never true: this tool does not validate signed source packets.
         "admission_issuance_authorized": False,
         "signed_request_created": False,
@@ -175,6 +184,7 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
             "independently signed risk decision and actual risk reservation",
             "independently signed human approval scoped to ONE_SIGNAL_DEMO_ONLY",
             "valid Capital Firewall grant signed by its independent authority",
+            "externally pinned signed trust-registry bundle verified against all six role public keys",
             "explicit source-governed one-signal Demo permission; historical readiness alone is insufficient",
         ],
     }
