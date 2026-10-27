@@ -72,3 +72,14 @@ These runs validate the changed software contracts but are not a Windows Server 
 6. Separately close the real Promotion Attestor, Signal Source, Risk Engine durable reservation, Operator Approval, Capital Firewall Grant, Provider registry/runtime identity/ACL/backup/restore, and MT5 authenticated envelope/MQL5 authorization/TradeLedger gates.
 
 No private keys, trust anchors, service/registry, Grant, production lock approval, Demo authorization, Live authorization, or order submission were changed in this review. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+## 6. Follow-up — hash-lock every lock compiler entry point
+
+A later review of run [40491476957](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40491476957) found that the always-on `.github/workflows/tests.yml` job `provider-lock-generation` still installed `pip-tools==7.6.2` using a direct unhashed pip command. The prior follow-up only changed the dedicated `provider-dependency-lock-candidate.yml` workflow, so it did not cover this second code path.
+
+Corrective changes on the follow-up branch:
+- The shared `requirements-provider-lock-compiler.lock.txt` now pins `pip-tools==7.6.2` to wheel SHA-256 `f37eb4b736859c2c30230e50977312c61918b7ef931071ff7811fd067715c25f` (the checksum shown by the [PyPI release page](https://pypi.org/project/pip-tools/7.6.2/)).
+- Both lock-generation workflows install the compiler closure with `--require-hashes --only-binary=:all:` in an isolated venv, run `pip check`, and compare an exact package freeze before compiling candidate locks.
+- A contract test now guards the always-on `tests.yml` job against returning to a direct unhashed `pip-tools` installation.
+
+The hash lock constrains the exact compiler artifacts, but hash matching alone is not an independent runtime-code audit. The generator remains a candidate/review tool; it does not approve or replace the production lock files. CI must pass again on the newest branch head. Source provenance for all compiler dependencies and the independent Windows rebuild requirement remain separate review items.
