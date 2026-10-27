@@ -35,6 +35,10 @@ def parse_pins(lock_path: Path) -> dict[str, tuple[str, str]]:
 
 
 def compact_lock(lock_path: Path, wheelhouse: Path, output_path: Path) -> None:
+    # Never replace a pre-existing lock, even if the candidate later validates.
+    if output_path.exists() or output_path.is_symlink():
+        raise ValueError("OUTPUT_PATH_ALREADY_EXISTS")
+
     pins = parse_pins(lock_path)
     wheels: dict[tuple[str, str], list[Path]] = {}
     for wheel in sorted(wheelhouse.glob("*.whl")):
@@ -63,11 +67,29 @@ def compact_lock(lock_path: Path, wheelhouse: Path, output_path: Path) -> None:
     if missing:
         raise ValueError("TARGET_WHEEL_MAPPING_FAILED:" + ";".join(missing))
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    # Validate the entire wheelhouse before materializing any output. In
+    # particular, an extra package must not leave behind a plausible lock file.
     if len(wheels) != len(pins):
         raise ValueError(f"WHEEL_PIN_COUNT_MISMATCH:WHEELS={len(wheels)}:PINS={len(pins)}")
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_text = "\\n".join(lines) + "\\n"
+    created_by_this_call = False
+    try:
+        # Exclusive creation closes the check/write race and prevents overwrite.
+        with output_path.open("x", encoding="utf-8", newline="\\n") as stream:
+            created_by_this_call = True
+            stream.write(output_text)
+    except FileExistsError as exc:
+        raise ValueError("OUTPUT_PATH_ALREADY_EXISTS") from exc
+    except OSError:
+        # Remove only an output that this invocation successfully created.
+        if created_by_this_call:
+            try:
+                output_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
 
 def main() -> int:
     parser = argparse.ArgumentParser()
