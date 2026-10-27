@@ -23,7 +23,14 @@ except ModuleNotFoundError as exc:
     # deployment command that invokes this file by its absolute path.
     if exc.name not in {"tools", "tools.verify_provider_trust_registry_bundle_v1"}:
         raise
-    from verify_provider_trust_registry_bundle_v1 import inspect_trust_registry_bundle
+    from verify_provider_trust_registry_bundle import inspect_trust_registry_bundle
+
+try:
+    from tools.verify_provider_source_signer_manifest_v1 import inspect_source_manifest
+except ModuleNotFoundError as exc:
+    if exc.name not in {"tools", "tools.verify_provider_source_signer_manifest_v1"}:
+        raise
+    from verify_provider_source_signer_manifest_v1 import inspect_source_manifest
 
 
 SCHEMA = "forexai.control_plane_provider_host_preflight.v1"
@@ -170,7 +177,9 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
     # bindings; the check is read-only and never grants authority.
     trust_registry_bundle_check = inspect_trust_registry_bundle(env)
     trust_bundle_pass = trust_registry_bundle_check["status"] == "PASS"
-    blocked = not (keys_pass and registry_pass and trust_bundle_pass)
+    source_build_manifest_check = inspect_source_manifest(env)
+    source_manifest_pass = source_build_manifest_check.get("status") == "PASS_SOURCE_SIGNER_ALLOWLIST_MATCH"
+    blocked = not (keys_pass and registry_pass and trust_bundle_pass and source_manifest_pass)
 
     return {
         "schema": SCHEMA,
@@ -178,6 +187,7 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
         "key_checks": key_checks,
         "registry_check": registry_check,
         "trust_registry_bundle_check": trust_registry_bundle_check,
+        "source_build_manifest_check": source_build_manifest_check,
         # This is intentionally never true: this tool does not validate signed source packets.
         "admission_issuance_authorized": False,
         "signed_request_created": False,
@@ -191,6 +201,7 @@ def inspect_environment(environ: Mapping[str, str] | None = None) -> dict[str, o
             "independently signed human approval scoped to ONE_SIGNAL_DEMO_ONLY",
             "valid Capital Firewall grant signed by its independent authority",
             "signed bundle contains all six reviewed role keys; five Provider runtime keys match, with Grant authority kept separate",
+            "externally pinned Provider source-build manifest and wheel hashes match the signed source-signer allowlist; this remains candidate provenance, not production approval",
             "explicit source-governed one-signal Demo permission; historical readiness alone is insufficient",
         ],
     }
