@@ -352,6 +352,16 @@ def inspect_source_manifest(environ: Mapping[str, str] | None = None) -> dict[st
 
         payload = bundle.get("payload", {})
         trusted_signers = payload.get("trusted_signers", {}) if isinstance(payload, dict) else {}
+        # The authoritative digest must be covered by the root signature on the
+        # trust-registry bundle. A process environment pin alone is mutable by
+        # the same host administrator and is not an independent trust anchor.
+        signed_manifest_pin = trusted_signers.get("source_build_manifest_sha256") if isinstance(trusted_signers, dict) else None
+        if not isinstance(signed_manifest_pin, str) or not SHA256_PIN.fullmatch(signed_manifest_pin):
+            raise SourceSignerManifestError("SIGNED_SOURCE_MANIFEST_DIGEST_PIN_MISSING_OR_INVALID")
+        if not hmac_compare(manifest_digest, signed_manifest_pin):
+            raise SourceSignerManifestError("SIGNED_SOURCE_MANIFEST_DIGEST_PIN_MISMATCH")
+        if not hmac_compare(manifest_digest, manifest_pin):
+            raise SourceSignerManifestError("SOURCE_MANIFEST_DIGEST_PIN_MISMATCH")
         report.update(verify_source_manifest_tree(resolved_manifest, manifest, trusted_signers))
         report["reason_code"] = "ALL_SOURCE_COMMITS_EXACTLY_ALLOWLISTED"
         report["source_manifest_sha256"] = manifest_digest
