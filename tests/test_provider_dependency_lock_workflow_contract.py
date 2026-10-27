@@ -88,6 +88,12 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "requirements-provider-lock-compiler.lock.txt" in workflow
     assert "--require-hashes --only-binary=:all: -r requirements-provider-lock-compiler.lock.txt" in workflow
     assert "LOCK_COMPILER_FREEZE_MISMATCH" in workflow
+    assert "'pip-tools==7.6.2'" in workflow
+    compiler_lock = (root / "requirements-provider-lock-compiler.lock.txt").read_text(encoding="utf-8")
+    assert re.search(
+        r"(?m)^pip-tools==7\.6\.2 --hash=sha256:f37eb4b736859c2c30230e50977312c61918b7ef931071ff7811fd067715c25f$",
+        compiler_lock,
+    )
     assert "LOCK_COMPILER_DEPENDENCY_CHECK_FAILED" in workflow
     assert "requirements-provider-pypi-verifier.windows-py313.lock.txt" in workflow
     assert "--require-hashes --only-binary=:all: -r requirements-provider-pypi-verifier.windows-py313.lock.txt" in workflow
@@ -134,3 +140,18 @@ def test_provider_runtime_and_test_locks_are_separated_from_research_dependencie
         assert not re.search(r"(?im)^\s*numpy(?:[<=>!~]|$)", content)
         assert not re.search(r"(?im)^\s*pandas(?:[<=>!~]|$)", content)
         assert not re.search(r"(?im)^\s*openai-agents(?:[<=>!~]|$)", content)
+
+def test_repository_provider_lock_generation_uses_hash_locked_compiler():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    section = workflow.split("  provider-lock-generation:", 1)[1].split("  real-data-smoke:", 1)[0]
+
+    # This job runs on every push and PR; helper-tool bytes must be hash-locked.
+    assert "requirements-provider-lock-compiler.lock.txt" in section
+    assert "--require-hashes --only-binary=:all: -r $compilerLock" in section
+    assert "PIP_TOOLS_HASH_LOCK_INSTALL_FAILED" in section
+    assert "LOCK_TOOLS_DEPENDENCY_CHECK_FAILED" in section
+    assert "LOCK_TOOLS_FREEZE_MISMATCH" in section
+    assert "'pip-tools==7.6.2'" in section
+    assert "& $lockToolsPython -m piptools compile" in section
+    assert '.\\.lock-tools\\Scripts\\python.exe -m pip install --disable-pip-version-check "pip-tools==7.6.2"' not in section
