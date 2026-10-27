@@ -170,6 +170,8 @@ def test_signed_bundle_allowlist_matches_all_exact_wheel_and_bootstrap_sources(t
     report = inspect_source_manifest(config)
 
     assert report["status"] == "PASS_SOURCE_SIGNER_ALLOWLIST_MATCH"
+    assert report["reason_code"] == "ALL_SOURCE_COMMITS_EXACTLY_ALLOWLISTED"
+    assert report["manifest_digest_pin_verified"] is True
     assert report["source_count"] == 5
     assert report["source_wheel_count"] == 4
     assert report["bundle_source_signer_count"] == 5
