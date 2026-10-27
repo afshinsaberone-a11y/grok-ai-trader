@@ -81,6 +81,17 @@ def test_provider_lock_candidate_workflow_pins_actions_and_limits_permissions():
     assert "BLOCKED_ATTESTATION_VERIFICATION" in workflow
     assert "BLOCKED_LOOKUP_ERROR" in workflow
     assert "DEPENDENCY_PROVENANCE_GATE_BLOCKED" in workflow
+
+    # Both helper environments must consume checked-in hash locks rather than
+    # resolving a floating tool dependency during the candidate build.
+    assert "requirements-provider-lock-compiler.lock.txt" in workflow
+    assert "--require-hashes --only-binary=:all: -r requirements-provider-lock-compiler.lock.txt" in workflow
+    assert "LOCK_COMPILER_FREEZE_MISMATCH" in workflow
+    assert "LOCK_COMPILER_DEPENDENCY_CHECK_FAILED" in workflow
+    assert "requirements-provider-pypi-verifier.windows-py313.lock.txt" in workflow
+    assert "--require-hashes --only-binary=:all: -r requirements-provider-pypi-verifier.windows-py313.lock.txt" in workflow
+    assert "LOCK_ATTESTATION_VERIFIER_DEPENDENCY_CHECK_FAILED" in workflow
+    assert "pip install --disable-pip-version-check --only-binary=:all: 'pypi-attestations==0.0.30'" not in workflow
     for repository in (
         "https://github.com/python-cffi/cffi",
         "https://github.com/tartley/colorama",
