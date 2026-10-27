@@ -28,9 +28,9 @@ def test_source_signer_report_is_uploaded_and_is_not_an_approval():
     assert "SOURCE_SIGNER_ALLOWLIST_MATCH_ONLY_NO_PRODUCTION_APPROVAL=true" in text
     assert "SOURCE_SIGNER_PRODUCTION_ELIGIBILITY=BLOCKED" in text
     assert "TRUST_REGISTRY_BUNDLE_NOT_CONFIGURED" in text
-    assert "production_approved = False" in text
-    assert "bootstrap_approved = False" in text
-    assert "trading_authorization_created = False" in text
+    assert '"production_approved": False' in text
+    assert '"bootstrap_approved": False' in text
+    assert '"trading_authorization_created": False' in text
 
 
 def test_source_built_candidate_remains_separate_from_production_bootstrap():
