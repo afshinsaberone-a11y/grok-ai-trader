@@ -113,16 +113,38 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python -m venv .lock-tools
           if ($LASTEXITCODE -ne 0) { throw "LOCK_TOOLS_VENV_FAILED" }
-          .\.lock-tools\Scripts\python.exe -m pip install --disable-pip-version-check "pip-tools==7.6.2"
-          if ($LASTEXITCODE -ne 0) { throw "PIP_TOOLS_INSTALL_FAILED" }
+          $lockToolsPython = (Resolve-Path '.lock-tools\Scripts\python.exe').Path
+          $compilerLock = (Resolve-Path 'requirements-provider-lock-compiler.lock.txt').Path
+          if (-not (Test-Path -LiteralPath $compilerLock -PathType Leaf)) { throw "LOCK_COMPILER_HASH_LOCK_MISSING" }
+          & $lockToolsPython -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r $compilerLock
+          if ($LASTEXITCODE -ne 0) { throw "PIP_TOOLS_HASH_LOCK_INSTALL_FAILED" }
+          & $lockToolsPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "LOCK_TOOLS_DEPENDENCY_CHECK_FAILED" }
+          $actualFreeze = @(& $lockToolsPython -m pip freeze --all | ForEach-Object { $_.Trim() } | Sort-Object)
+          if ($LASTEXITCODE -ne 0) { throw "LOCK_TOOLS_FREEZE_FAILED" }
+          $expectedFreeze = @(
+            'build==1.6.1',
+            'click==8.5.0',
+            'colorama==0.4.6',
+            'packaging==26.3',
+            'pip==26.2.2',
+            'pip-tools==7.6.2',
+            'pyproject_hooks==1.3.3',
+            'setuptools==84.2.1',
+            'wheel==0.48.0'
+          ) | Sort-Object
+          if (($actualFreeze -join '|') -ne ($expectedFreeze -join '|')) {
+            Write-Output ('ACTUAL_LOCK_TOOLS_FREEZE=' + ($actualFreeze -join ';'))
+            throw "LOCK_TOOLS_FREEZE_MISMATCH"
+          }
           New-Item -ItemType Directory -Path generated-locks -ErrorAction Stop | Out-Null
           # Seed pip-compile from committed lock files to retain reviewed transitive pins
           # and hashes when the package index later adds newer dependency versions.
           Copy-Item -LiteralPath requirements-provider.lock.txt -Destination generated-locks/requirements-provider.lock.txt -ErrorAction Stop
           Copy-Item -LiteralPath requirements-provider-test.lock.txt -Destination generated-locks/requirements-provider-test.lock.txt -ErrorAction Stop
-          .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider.lock.txt requirements-provider.in
+          & $lockToolsPython -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider.lock.txt requirements-provider.in
           if ($LASTEXITCODE -ne 0) { throw "RUNTIME_LOCK_GENERATION_FAILED" }
-          .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider-test.lock.txt requirements-provider-test.in
+          & $lockToolsPython -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider-test.lock.txt requirements-provider-test.in
           if ($LASTEXITCODE -ne 0) { throw "TEST_LOCK_GENERATION_FAILED" }
           $generatedRuntimeLock = [IO.File]::ReadAllText("generated-locks/requirements-provider.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
           $committedRuntimeLock = [IO.File]::ReadAllText("requirements-provider.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
