@@ -12,6 +12,11 @@ on:
       - .github/workflows/provider-source-wheel-candidate.yml
       - tools/build_provider_source_wheel_candidate_v1.py
       - tools/build_provider_setuptools_source_bootstrap_v1.py
+      - tools/trust_registry_verifier_v1.py
+      - tools/verify_provider_source_signer_manifest_v1.py
+      - tests/test_trust_registry_verifier_v1.py
+      - tests/test_provider_source_signer_manifest_v1.py
+      - tests/test_provider_source_signer_workflow_contract.py
       - tools/assemble_provider_offline_wheelhouse_v1.py
       - tests/test_provider_source_wheel_candidate_contract.py
       - tests/test_provider_setuptools_source_bootstrap_v1.py
@@ -493,6 +498,13 @@ jobs:
 
       - name: Install overlay locks offline and run Provider contract tests
         shell: pwsh
+        env:
+          # These are public, optional review inputs only. Missing/invalid values
+          # produce a BLOCKED eligibility report; they never approve production.
+          FOREXAI_TRUST_REGISTRY_BUNDLE_BASE64: ${{ vars.FOREXAI_TRUST_REGISTRY_BUNDLE_BASE64 }}
+          FOREXAI_TRUST_REGISTRY_ROOT_PUBLIC_KEY: ${{ vars.FOREXAI_TRUST_REGISTRY_ROOT_PUBLIC_KEY }}
+          FOREXAI_TRUST_REGISTRY_ROOT_FINGERPRINT: ${{ vars.FOREXAI_TRUST_REGISTRY_ROOT_FINGERPRINT }}
+          FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256: ${{ vars.FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256 }}
         run: |
           $ErrorActionPreference = 'Stop'
           $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\provider-source-build'
@@ -519,10 +531,83 @@ jobs:
             'tests/test_control_plane_admission_provider_v1.py',
             'tests/test_control_plane_provider_service_v1.py',
             'tests/test_control_plane_service_v1.py',
-            'tests/test_provider_source_override_locks_v1.py'
+            'tests/test_provider_source_override_locks_v1.py',
+            'tests/test_trust_registry_verifier_v1.py',
+            'tests/test_provider_source_signer_manifest_v1.py',
+            'tests/test_provider_source_signer_workflow_contract.py'
           )
           & $testPython -m pytest -q -p no:cacheprovider $focusedTests
           if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_PROVIDER_CONTRACT_TESTS_FAILED' }
+
+          # Run the source-signer allowlist check against the exact wheel manifest.
+          # A missing bundle is recorded as BLOCKED, not silently treated as PASS;
+          # candidate artifacts remain review-only regardless of this result.
+          $sourceManifestPath = Join-Path $outputRoot 'source-build-manifest.json'
+          $eligibilityReportPath = Join-Path $outputRoot 'source-signer-eligibility-report.json'
+          $setupError = ''
+          $env:FOREXAI_TRUST_REGISTRY_BUNDLE_PATH = ''
+          $bundleBase64 = $env:FOREXAI_TRUST_REGISTRY_BUNDLE_BASE64
+          if ([string]::IsNullOrWhiteSpace($bundleBase64)) {
+            $setupError = 'TRUST_REGISTRY_BUNDLE_NOT_CONFIGURED'
+          }
+          else {
+            try {
+              $bundleBytes = [Convert]::FromBase64String($bundleBase64)
+              if ($bundleBytes.Length -lt 1 -or $bundleBytes.Length -gt 1048576) {
+                throw 'TRUST_REGISTRY_BUNDLE_SIZE_INVALID'
+              }
+              $bundlePath = Join-Path $env:RUNNER_TEMP ('forexai-trust-registry-' + [Guid]::NewGuid().ToString('N') + '.json')
+              [IO.File]::WriteAllBytes($bundlePath, $bundleBytes)
+              $env:FOREXAI_TRUST_REGISTRY_BUNDLE_PATH = $bundlePath
+            }
+            catch {
+              $setupError = 'TRUST_REGISTRY_BUNDLE_BASE64_INVALID_OR_UNSAFE'
+            }
+          }
+          $env:FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_PATH = [IO.Path]::GetFullPath($sourceManifestPath)
+          $env:FOREXAI_SOURCE_SIGNER_GATE_SETUP_ERROR = $setupError
+          $eligibilityScript = @'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          from tools.verify_provider_source_signer_manifest_v1 import inspect_source_manifest
+
+          setup_error = os.environ.get("FOREXAI_SOURCE_SIGNER_GATE_SETUP_ERROR", "")
+          if setup_error:
+              report = {
+                  "status": "BLOCKED",
+                  "reason_code": setup_error,
+                  "production_approved": False,
+                  "bootstrap_approved": False,
+                  "trading_authorization_created": False,
+                  "signature_verified": False,
+              }
+          else:
+              report = inspect_source_manifest()
+          report["production_approved"] = False
+          report["bootstrap_approved"] = False
+          report["trading_authorization_created"] = False
+          target = Path(sys.argv[1])
+          target.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          print("SOURCE_SIGNER_ELIGIBILITY_STATUS=" + str(report.get("status", "BLOCKED")))
+          print("SOURCE_SIGNER_ELIGIBILITY_REASON=" + str(report.get("reason_code", "UNSPECIFIED")))
+          print("SOURCE_SIGNER_PRODUCTION_APPROVED=false")
+          print("SOURCE_SIGNER_BOOTSTRAP_APPROVED=false")
+          print("SOURCE_SIGNER_TRADING_AUTHORIZATION_CREATED=false")
+          '@
+          & $testPython -c $eligibilityScript $eligibilityReportPath
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_SIGNER_ELIGIBILITY_REPORT_FAILED' }
+          $eligibilityReport = Get-Content -LiteralPath $eligibilityReportPath -Raw | ConvertFrom-Json
+          if ($eligibilityReport.status -eq 'PASS_SOURCE_SIGNER_ALLOWLIST_MATCH') {
+            Write-Output 'SOURCE_SIGNER_ALLOWLIST_MATCH=PASS'
+            Write-Output 'SOURCE_SIGNER_ALLOWLIST_MATCH_ONLY_NO_PRODUCTION_APPROVAL=true'
+          }
+          else {
+            Write-Output 'SOURCE_SIGNER_ALLOWLIST_MATCH=BLOCKED'
+            Write-Output "SOURCE_SIGNER_BLOCK_REASON=$($eligibilityReport.reason_code)"
+            Write-Output 'SOURCE_SIGNER_PRODUCTION_ELIGIBILITY=BLOCKED'
+          }
 
       - name: Create GitHub-signed attestation for the assembled offline wheelhouse
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -594,6 +679,7 @@ jobs:
             artifacts/provider-source-build/tool-lock-candidates/*
             artifacts/provider-source-build/helper-bootstrap-locks/*
             artifacts/provider-source-build/source-build-manifest.json
+            artifacts/provider-source-build/source-signer-eligibility-report.json
             artifacts/provider-source-build/wheelhouse-manifest.json
             artifacts/provider-source-build/pypi-provenance-report.json
             artifacts/provider-source-build/pypi-verifier-bootstrap-freeze.txt
@@ -608,6 +694,38 @@ jobs:
           Write-Output 'PRODUCTION_LOCKS_CHANGED=false'
           Write-Output 'BOOTSTRAP_AUTHORIZED=false'
           Write-Output 'PROVIDER_SERVICE_INSTALLED=false'
+          Write-Output 'GRANT_ISSUED=false'
+          Write-Output 'DEMO_TRADING_AUTHORIZED=false'
+          Write-Output 'LIVE_TRADING_ALLOWED=false'
+          Write-Output 'ORDERS_SUBMITTED=false'
+
+      # Upload candidate artifacts and the explicit BLOCKED/PASS report before
+      # enforcing allowlist eligibility, so reviewers can inspect why it blocked.
+      - name: Enforce source-signer allowlist eligibility after evidence upload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportPath = 'artifacts/provider-source-build/source-signer-eligibility-report.json'
+          if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+            throw 'SOURCE_SIGNER_ELIGIBILITY_REPORT_MISSING'
+          }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.status -ne 'PASS_SOURCE_SIGNER_ALLOWLIST_MATCH') {
+            Write-Output 'SOURCE_SIGNER_ELIGIBILITY_GATE=BLOCKED'
+            Write-Output ('SOURCE_SIGNER_ELIGIBILITY_REASON=' + [string]$report.reason_code)
+            Write-Output 'SOURCE_WHEELS_ARE_CANDIDATES_ONLY=true'
+            Write-Output 'PRODUCTION_APPROVED=false'
+            Write-Output 'BOOTSTRAP_APPROVED=false'
+            Write-Output 'GRANT_ISSUED=false'
+            Write-Output 'DEMO_TRADING_AUTHORIZED=false'
+            Write-Output 'LIVE_TRADING_ALLOWED=false'
+            Write-Output 'ORDERS_SUBMITTED=false'
+            throw 'SOURCE_SIGNER_ELIGIBILITY_GATE_BLOCKED'
+          }
+          Write-Output 'SOURCE_SIGNER_ELIGIBILITY_GATE=PASS_ALLOWLIST_MATCH_ONLY'
+          Write-Output 'SOURCE_SIGNER_ELIGIBILITY_IS_NOT_PRODUCTION_APPROVAL=true'
+          Write-Output 'PRODUCTION_APPROVED=false'
+          Write-Output 'BOOTSTRAP_APPROVED=false'
           Write-Output 'GRANT_ISSUED=false'
           Write-Output 'DEMO_TRADING_AUTHORIZED=false'
           Write-Output 'LIVE_TRADING_ALLOWED=false'
