@@ -5,6 +5,8 @@ import pytest
 from research.optimization.v51_hybrid_regime import (
     V51Config,
     _Position,
+    _bid_ohlc_entry_fill,
+    _bid_ohlc_exit_fill,
     _intrabar_exit,
     _wilder_rma,
     backtest_v51,
@@ -109,10 +111,6 @@ def test_range_or_trend_does_not_signal_when_required_indicators_are_missing():
 
 def test_same_bar_stop_is_resolved_before_target():
     config = V51Config()
-    execution = __import__(
-        "research.optimization.execution_contract_v1",
-        fromlist=["ExecutionConfig"],
-    ).ExecutionConfig()
     position = _Position(
         side=1,
         setup="A-trend",
@@ -131,7 +129,6 @@ def test_same_bar_stop_is_resolved_before_target():
         row,
         pd.Timestamp("2024-01-01T00:15:00Z"),
         config,
-        execution,
     )
     assert result is not None
     assert result["exit_reason"] == "SL"
@@ -152,7 +149,7 @@ def test_backtest_requires_prepared_features_and_does_not_invent_trades():
     assert report["simulation_status"] == "COMPLETED"
     assert report["performance_status"] == "NOT_ASSESSED"
     assert report["trades"] == 0
-    assert report["round_trip_cost_pips"] == pytest.approx(1.4)
+    assert report["round_trip_cost_pips"] == pytest.approx(0.9)
     assert report["open_position_at_end"] is False
 
 
@@ -161,3 +158,23 @@ def test_unsorted_real_input_is_rejected_not_silently_reordered():
     data.iloc[[4, 5]] = data.iloc[[5, 4]].to_numpy()
     with pytest.raises(ValueError, match="EXECUTION_CONTRACT_NON_MONOTONIC"):
         prepare_v51_features(data)
+
+
+def test_bid_ohlc_entry_and_exit_costs_apply_spread_once_and_slippage_each_side():
+    config = V51Config(spread_pips=0.5, slippage_pips=0.2, pip_size=0.0001)
+    bid = 1.10000
+    ask = bid + 0.5 * config.pip_size
+
+    long_entry = _bid_ohlc_entry_fill(bid, 1, config)
+    long_exit = _bid_ohlc_exit_fill(bid, 1, config)
+    short_entry = _bid_ohlc_entry_fill(bid, -1, config)
+    short_exit = _bid_ohlc_exit_fill(ask, -1, config)
+
+    assert long_entry == pytest.approx(bid + 0.7 * config.pip_size)
+    assert long_exit == pytest.approx(bid - 0.2 * config.pip_size)
+    assert short_entry == pytest.approx(bid - 0.2 * config.pip_size)
+    assert short_exit == pytest.approx(ask + 0.2 * config.pip_size)
+
+    # Spread is charged once per round trip; slippage is charged on entry and exit.
+    round_trip_cost = config.spread_pips + 2.0 * config.slippage_pips
+    assert round_trip_cost == pytest.approx(0.9)
