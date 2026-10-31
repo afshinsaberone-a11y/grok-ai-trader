@@ -493,9 +493,9 @@ def _intrabar_exit(
     else:
         ask_high, ask_low = high + spread_price, low + spread_price
         if ask_high >= position.stop:
-            return _close_position(position, position.stop, timestamp, "SL", execution)
+            return _close_position(position, position.stop, timestamp, "SL", config)
         if ask_low <= position.target:
-            return _close_position(position, position.target, timestamp, "TP", execution)
+            return _close_position(position, position.target, timestamp, "TP", config)
     return None
 
 
