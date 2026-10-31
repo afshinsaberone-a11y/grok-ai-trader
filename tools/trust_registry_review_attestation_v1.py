@@ -116,6 +116,19 @@ def verify_review_attestation(
     fingerprint = "sha256:" + hashlib.sha256(public_raw).hexdigest()
     if reviewer_pin.get("fingerprint_sha256") != fingerprint:
         raise ReviewAttestationError("REVIEWER_PUBLIC_KEY_FINGERPRINT_MISMATCH")
+    role_records = registry.get("keys")
+    if not isinstance(role_records, list):
+        raise ReviewAttestationError("REVIEW_ATTESTATION_REGISTRY_KEYS_INVALID")
+    for record in role_records:
+        if not isinstance(record, Mapping):
+            raise ReviewAttestationError("REVIEW_ATTESTATION_REGISTRY_KEYS_INVALID")
+        role_key = _canonical_key(
+            record.get("public_key_base64"), "REVIEW_ATTESTATION_ROLE_KEY_INVALID"
+        )
+        if role_key == public_raw:
+            raise ReviewAttestationError("REVIEWER_KEY_MUST_DIFFER_FROM_ROLE_KEYS")
+        if record.get("key_id") == pin_key_id:
+            raise ReviewAttestationError("REVIEWER_KEY_ID_COLLIDES_WITH_ROLE_KEY")
 
     if not isinstance(attestation, Mapping) or set(attestation) != ATTESTATION_FIELDS:
         raise ReviewAttestationError("REVIEW_ATTESTATION_MISSING_OR_INVALID")
