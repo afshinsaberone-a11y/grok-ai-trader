@@ -172,7 +172,9 @@ def build_test_bundle(
         "public_key_base64": base64.b64encode(reviewer_public).decode("ascii"),
         "fingerprint_sha256": "sha256:" + hashlib.sha256(reviewer_public).hexdigest(),
     }
-    manifest_digest = signers["source_build_manifest_sha256"]
+    manifest_digest = signers.get(
+        "source_build_manifest_sha256", "sha256:" + ("d" * 64)
+    )
     review_payload = {
         "schema": "forexai.trust_registry.review_attestation_payload.v1",
         "repository": "afshinsaberone-a11y/forexai-trust-registry",
