@@ -23,6 +23,11 @@ from tools.verify_provider_trust_registry_bundle_v1 import (
     ROOT_FINGERPRINT_ENV,
     ROOT_KEY_ID,
     ROOT_PUBLIC_KEY_ENV,
+    REVIEWER_PUBLIC_KEY_ENV,
+    REVIEWER_FINGERPRINT_ENV,
+    REVIEWER_IDENTITY_ENV,
+    REVIEWER_KEY_ID_ENV,
+    REVIEWER_PIN_SCHEMA,
     ROLE_KEY_ENVS,
     ROLE_KEY_IDS,
     REQUIRED_ROLES,
@@ -68,7 +73,7 @@ def build_test_bundle(
             "fingerprint_sha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
             "source_reference": f"test-review-source:{role}",
             "reviewer_identity": "synthetic-independent-reviewer",
-            "review_id": f"synthetic-key-review-{role}",
+            "review_id": "synthetic-registry-review-1",
             "reviewed_at_utc": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
             "valid_from_utc": (now - timedelta(days=1)).isoformat().replace("+00:00", "Z"),
             "valid_until_utc": (now + timedelta(days=90)).isoformat().replace("+00:00", "Z"),
@@ -115,7 +120,7 @@ def build_test_bundle(
             "record_review_evidence": True,
         },
     }
-    review_id = "synthetic-source-review-1"
+    review_id = "synthetic-registry-review-1"
     signers = {
         "schema": SIGNERS_SCHEMA,
         "status": APPROVED_SIGNERS_STATUS,
@@ -152,6 +157,50 @@ def build_test_bundle(
     }
     if mutate_payload is not None:
         mutate_payload(payload)
+
+    # Synthetic reviewer key exists only inside this unit-test fixture.
+    reviewer_private = Ed25519PrivateKey.generate()
+    reviewer_public = _public_bytes(reviewer_private)
+    reviewer_key_id = "synthetic-independent-reviewer-key-v1"
+    reviewer_identity = "synthetic-independent-reviewer"
+    reviewer_pin = {
+        "schema": REVIEWER_PIN_SCHEMA,
+        "key_id": reviewer_key_id,
+        "identity": reviewer_identity,
+        "algorithm": "Ed25519",
+        "encoding": "base64-raw-32",
+        "public_key_base64": base64.b64encode(reviewer_public).decode("ascii"),
+        "fingerprint_sha256": "sha256:" + hashlib.sha256(reviewer_public).hexdigest(),
+    }
+    manifest_digest = signers["source_build_manifest_sha256"]
+    review_payload = {
+        "schema": "forexai.trust_registry.review_attestation_payload.v1",
+        "repository": "afshinsaberone-a11y/forexai-trust-registry",
+        "review_id": "synthetic-registry-review-1",
+        "reviewer_key_id": reviewer_key_id,
+        "reviewer_identity": reviewer_identity,
+        "change_author_identity": "synthetic-change-author",
+        "reviewed_at_utc": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        "valid_from_utc": (now - timedelta(days=1)).isoformat().replace("+00:00", "Z"),
+        "valid_until_utc": (now + timedelta(days=90)).isoformat().replace("+00:00", "Z"),
+        "scope": "TRUST_REGISTRY_KEYS_POLICY_SIGNERS_AND_SOURCE_BUILD_MANIFEST",
+        "registry_sha256": "sha256:" + hashlib.sha256(canonical_json(registry)).hexdigest(),
+        "policy_sha256": "sha256:" + hashlib.sha256(canonical_json(policy)).hexdigest(),
+        "trusted_signers_sha256": "sha256:" + hashlib.sha256(canonical_json(signers)).hexdigest(),
+        "source_build_manifest_sha256": manifest_digest,
+    }
+    review_attestation = {
+        "schema": "forexai.trust_registry.review_attestation.v1",
+        "payload": review_payload,
+        "signature": {
+            "algorithm": "Ed25519",
+            "key_id": reviewer_key_id,
+            "signature_base64": base64.b64encode(
+                reviewer_private.sign(canonical_json(review_payload))
+            ).decode("ascii"),
+        },
+    }
+    payload["review_attestation"] = review_attestation
     signature = root_private.sign(canonical_json(payload))
     envelope = {
         "schema": BUNDLE_SCHEMA,
@@ -171,6 +220,10 @@ def build_test_bundle(
         ROOT_PUBLIC_KEY_ENV: base64.b64encode(root_public).decode("ascii"),
         ROOT_FINGERPRINT_ENV: "sha256:" + hashlib.sha256(root_public).hexdigest(),
         EXPECTED_BUNDLE_SHA256_ENV: "sha256:" + hashlib.sha256(raw_bundle).hexdigest(),
+        REVIEWER_PUBLIC_KEY_ENV: base64.b64encode(reviewer_public).decode("ascii"),
+        REVIEWER_FINGERPRINT_ENV: reviewer_pin["fingerprint_sha256"],
+        REVIEWER_IDENTITY_ENV: reviewer_identity,
+        REVIEWER_KEY_ID_ENV: reviewer_key_id,
     }
     for role, env_name in ROLE_KEY_ENVS.items():
         environment[env_name] = base64.b64encode(role_keys[role]).decode("ascii")
