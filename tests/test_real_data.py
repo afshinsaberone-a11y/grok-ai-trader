@@ -149,6 +149,39 @@ def test_manifest_and_sha256(tmp_path: Path):
     assert manifest_with_data_hash["data_sha256"] == sha256_file(dataset)
 
 
+def test_download_range_continues_after_a_day_failure(tmp_path: Path, monkeypatch):
+    from datetime import date
+
+    ingestor = DukascopyM1Ingestor(
+        tmp_path, workers=1, batch_size=1, batch_pause=0
+    )
+    attempted = []
+
+    def fake_download(url, destination, *, day, force=False):
+        attempted.append(day)
+        if day == date(2026, 1, 5):
+            raise DukascopyIngestError("temporary source outage")
+        destination.write_text("{}", encoding="utf-8")
+        return True
+
+    def fake_legacy(destination, *, day, force=False):
+        raise DukascopyIngestError("legacy source unavailable")
+
+    monkeypatch.setattr(ingestor, "_download", fake_download)
+    monkeypatch.setattr(ingestor, "_download_legacy", fake_legacy)
+
+    with pytest.raises(DukascopyIngestError, match="2026-01-05"):
+        ingestor.download_range(date(2026, 1, 5), date(2026, 1, 8))
+
+    assert attempted == [
+        date(2026, 1, 5),
+        date(2026, 1, 6),
+        date(2026, 1, 7),
+    ]
+    assert (tmp_path / "raw" / "EURUSD" / "m1" / "2026-01-06.json").exists()
+    assert (tmp_path / "raw" / "EURUSD" / "m1" / "2026-01-07.json").exists()
+
+
 def test_missing_real_dataset_fails(tmp_path: Path):
     ingestor = DukascopyM1Ingestor(tmp_path)
     with pytest.raises(DukascopyIngestError, match="REAL_DATA_REQUIRED"):

@@ -11,21 +11,41 @@ on:
       end:
         description: "UTC end date (exclusive)"
         required: true
-        default: "2026-01-01"
+        default: "2026-10-31"
         type: string
       timeframe:
         description: "Research timeframe"
         required: true
-        default: "M5"
+        default: "M15"
         type: choice
         options:
           - M1
           - M5
           - M15
+      server_utc_offset_hours:
+        description: "Broker server UTC offset for session filters; verify this against the actual broker"
+        required: true
+        default: "0"
+        type: string
+      spread_pips:
+        description: "Fixed spread assumption when historical Bid/Ask is unavailable"
+        required: true
+        default: "0.5"
+        type: string
+      slippage_pips:
+        description: "Adverse slippage assumption per side"
+        required: true
+        default: "0.2"
+        type: string
+
+concurrency:
+  group: forexai-real-research-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   real-research:
     runs-on: ubuntu-latest
+    # The ingestor stops cleanly after 75 minutes so the cache-save step can run.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -34,14 +54,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Restore and save are deliberately separate. The save action below runs
+      # even when ingestion fails, preserving complete raw files for the next run.
       - name: Restore Dukascopy raw-data cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: data/real/raw/EURUSD/m1
-          key: dukascopy-eurusd-m1-${{ inputs.start }}-${{ inputs.end }}
+          key: dukascopy-eurusd-m1-v2-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            dukascopy-eurusd-m1-${{ inputs.start }}-
-            dukascopy-eurusd-m1-
+            dukascopy-eurusd-m1-v2-
 
       - name: Install dependencies
         run: |
@@ -49,30 +70,39 @@ jobs:
           pip install -r requirements.txt
 
       - name: Download and validate REAL EURUSD data
+        id: ingest
         env:
           START: ${{ inputs.start }}
           END: ${{ inputs.end }}
           TIMEFRAME: ${{ inputs.timeframe }}
         run: |
-          set -u
-          success=0
-          for attempt in 1 2 3; do
-            echo "Dukascopy ingestion attempt $attempt/3"
-            if python -m research.real_data.dukascopy_ingest \
-              --symbol EURUSD \
-              --timeframe "$TIMEFRAME" \
-              --start "$START" \
-              --end "$END" \
-              --output data/real \
-              --validate \
-              --manifest; then
-              success=1
-              break
-            fi
-            echo "Attempt $attempt failed; cached raw files will be reused on the next attempt."
-            sleep $((attempt * 30))
-          done
-          test "$success" -eq 1
+          set -euo pipefail
+          echo "REAL_DATA_REQUEST start=$START end_exclusive=$END timeframe=$TIMEFRAME"
+          echo "RAW_FEED=EURUSD BID M1; normalized timeframe=$TIMEFRAME"
+          echo "RESUME_POLICY=restore latest rolling cache; skip complete raw files; retry only missing dates"
+          echo "RUNTIME_BUDGET_SECONDS=4500; cache save runs after this step even on failure"
+          python -m research.real_data.dukascopy_ingest \
+            --symbol EURUSD \
+            --timeframe "$TIMEFRAME" \
+            --start "$START" \
+            --end "$END" \
+            --output data/real \
+            --validate \
+            --manifest \
+            --resume \
+            --timeout 45 \
+            --retries 5 \
+            --workers 2 \
+            --batch-size 4 \
+            --batch-pause 2 \
+            --max-runtime-seconds 4500
+
+      - name: Save Dukascopy raw-data cache
+        if: ${{ always() && steps.ingest.outcome != 'skipped' }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: dukascopy-eurusd-m1-v2-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Locate normalized dataset
         run: |
@@ -97,6 +127,31 @@ jobs:
             --timeframe "$TIMEFRAME" \
             --output artifacts/real_backtest_report.json
 
+      - name: Run V51 hybrid-regime backtest on REAL EURUSD M15
+        if: ${{ inputs.timeframe == 'M15' }}
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          SERVER_UTC_OFFSET_HOURS: ${{ inputs.server_utc_offset_hours }}
+          SPREAD_PIPS: ${{ inputs.spread_pips }}
+          SLIPPAGE_PIPS: ${{ inputs.slippage_pips }}
+        run: |
+          END_INCLUSIVE=$(date -u -d "$END - 1 day" +%Y%m%d)
+          START_COMPACT=${START//-/}
+          DATA="data/real/normalized/EURUSD_M15_${START_COMPACT}_${END_INCLUSIVE}.csv"
+          if [ ! -f "$DATA" ]; then
+            DATA=$(find data/real/normalized -maxdepth 1 -type f -name "EURUSD_M15_*.csv" | head -n 1)
+          fi
+          test -n "$DATA"
+          test -f "$DATA"
+          python -m research.optimization.run_v51_real_backtest \
+            --data "$DATA" \
+            --timeframe M15 \
+            --server-utc-offset-hours "$SERVER_UTC_OFFSET_HOURS" \
+            --spread-pips "$SPREAD_PIPS" \
+            --slippage-pips "$SLIPPAGE_PIPS" \
+            --output artifacts/v51_real_backtest.json
+
       - name: Upload research artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -104,4 +159,12 @@ jobs:
           path: |
             data/real/normalized/
             artifacts/real_backtest_report.json
+          if-no-files-found: error
+
+      - name: Upload V51 research artifact
+        if: ${{ inputs.timeframe == 'M15' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: v51-real-backtest-${{ inputs.start }}-${{ inputs.end }}
+          path: artifacts/v51_real_backtest.json
           if-no-files-found: error
