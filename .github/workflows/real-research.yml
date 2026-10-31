@@ -1,6 +1,16 @@
 name: real-research
 
 on:
+  # Run the long real-data research job only when its ingestion/backtest code
+  # changes on the dedicated V51 research branch.
+  push:
+    branches:
+      - research/v51-python-parity-backtester-20261031
+    paths:
+      - ".github/workflows/real-research.yml"
+      - "research/real_data/dukascopy_ingest.py"
+      - "research/optimization/run_v51_real_backtest.py"
+      - "research/optimization/v51_hybrid_regime.py"
   workflow_dispatch:
     inputs:
       start:
