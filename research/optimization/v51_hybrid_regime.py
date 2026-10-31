@@ -167,7 +167,12 @@ def prepare_v51_features(
     """
     cfg = config or V51Config()
     frame, utc_index = _normalize_ohlc(data)
-    server_index = utc_index + pd.to_timedelta(cfg.server_utc_offset_hours, unit="h")
+    # Store broker wall-clock time as a naive index; retain true UTC separately.
+    # Adding the broker offset then keeping a UTC tz label would misrepresent the
+    # server clock as UTC even though its displayed hour had been shifted.
+    server_index = utc_index.tz_localize(None) + pd.to_timedelta(
+        cfg.server_utc_offset_hours, unit="h"
+    )
     frame.index = server_index
     frame.index.name = "server_timestamp"
     frame["utc_timestamp"] = utc_index
