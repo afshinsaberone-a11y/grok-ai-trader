@@ -635,13 +635,17 @@ def backtest_v51(
                         trades_today += 1
                         if wide_spread and cfg.wide_spread_half_risk:
                             wide_spread_entries += 1
+                        signal_bar_timestamp = features.index[i - 2]
+                        signal_bar_utc = pd.Timestamp(features["utc_timestamp"].iloc[i - 2])
                         signals.append({
                             "timestamp_utc": utc_timestamp.isoformat(),
                             "timestamp_server": timestamp.isoformat(),
+                            "signal_bar_timestamp_utc": signal_bar_utc.isoformat(),
+                            "signal_bar_timestamp_server": signal_bar_timestamp.isoformat(),
+                            "signal_bar_shift": 2,
                             "side": "LONG" if signal.side > 0 else "SHORT",
                             "setup": signal.setup,
                             "stable_regime": stable_regime,
-                            "signal_bar_shift": 2,
                             "entry_price_model": entry_price,
                             "stop": signal.stop,
                             "target": signal.target,
