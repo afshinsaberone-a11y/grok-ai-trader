@@ -184,7 +184,7 @@ def build_test_bundle(
         "change_author_identity": "synthetic-change-author",
         "reviewed_at_utc": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
         "valid_from_utc": (now - timedelta(days=1)).isoformat().replace("+00:00", "Z"),
-        "valid_until_utc": (now + timedelta(days=90)).isoformat().replace("+00:00", "Z"),
+        "valid_until_utc": (now + timedelta(days=7)).isoformat().replace("+00:00", "Z"),
         "scope": "TRUST_REGISTRY_KEYS_POLICY_SIGNERS_AND_SOURCE_BUILD_MANIFEST",
         "registry_sha256": "sha256:" + hashlib.sha256(canonical_json(registry)).hexdigest(),
         "policy_sha256": "sha256:" + hashlib.sha256(canonical_json(policy)).hexdigest(),
