@@ -73,3 +73,49 @@ def test_python_signal_log_binds_trace_time_to_shift_two_source_bar(monkeypatch)
     assert signal["signal_bar_timestamp_server"] == server_index[1].isoformat()
     assert "+00:00" not in signal["signal_bar_timestamp_server"]
     assert signal["signal_bar_timestamp_utc"] == utc_index[1].isoformat()
+
+
+def test_python_rejects_signal_when_shift_two_source_bar_is_unavailable(monkeypatch):
+    index = pd.date_range("2026-01-05 10:00:00", periods=2, freq="15min")
+    utc = (index - pd.Timedelta(hours=2)).tz_localize("UTC")
+    features = pd.DataFrame(
+        {
+            "Open": [1.10, 1.10],
+            "High": [1.1001, 1.1001],
+            "Low": [1.0999, 1.0999],
+            "Close": [1.10, 1.10],
+            "utc_timestamp": utc,
+            "DECISION_ATR": [0.001, 0.001],
+            "DECISION_ADX": [25.0, 25.0],
+            "DECISION_DI_PLUS": [20.0, 20.0],
+            "DECISION_DI_MINUS": [10.0, 10.0],
+            "DECISION_CLOSE": [1.0, 1.0],
+            "DECISION_SMA200": [1.0, 1.0],
+            "HTF_CLOSE_SHIFT2": [1.1, 1.1],
+            "HTF_SMA200_SHIFT2": [1.0, 1.0],
+            "DECISION_BB_UPPER": [1.101, 1.101],
+            "DECISION_BB_LOWER": [1.099, 1.099],
+            "DECISION_BB_MID": [1.10, 1.10],
+            "SQUEEZE_OLDER_ATR_MEAN": [0.001, 0.001],
+            "SQUEEZE_OLD_ATR": [0.001, 0.001],
+            "SQUEEZE_PREV_CLOSE": [1.1, 1.1],
+            "SQUEEZE_PREV_BB_UPPER": [1.101, 1.101],
+            "SQUEEZE_PREV_BB_LOWER": [1.099, 1.099],
+            "DECISION_ADX_PREV": [20.0, 20.0],
+            "DECISION_HIGH": [1.1001, 1.1001],
+            "DECISION_LOW": [1.0999, 1.0999],
+        },
+        index=index,
+    )
+    monkeypatch.setattr(v51, "_regime_raw", lambda row, config: 1)
+    monkeypatch.setattr(v51, "_spread_ok", lambda row, config: True)
+    monkeypatch.setattr(v51, "_session_ok", lambda timestamp, config: True)
+    monkeypatch.setattr(v51, "_news_ok", lambda timestamp, config: True)
+    monkeypatch.setattr(
+        v51,
+        "evaluate_v51_signal",
+        lambda row, **kwargs: v51.V51Signal(1, "A-trend", 0.001, 1.095, 1.110),
+    )
+    report = v51.backtest_v51(features, v51.V51Config(regime_confirm_bars=1))
+    assert report["signal_log"] == []
+    assert report["entries"] == 0
