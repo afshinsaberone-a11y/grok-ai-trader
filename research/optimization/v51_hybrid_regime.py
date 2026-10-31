@@ -597,7 +597,8 @@ def backtest_v51(
             # A position already open at this bar's first tick blocks new
             # entries for the full bar, even if its SL/TP closes intrabar.
             if (
-                not had_open_position_at_bar_start
+                i >= 2
+                and not had_open_position_at_bar_start
                 and spread_pass and session_pass and news_pass and daily_pass
                 and trades_today < cfg.max_trades_per_day
             ):
