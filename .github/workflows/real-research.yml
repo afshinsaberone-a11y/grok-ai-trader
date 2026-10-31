@@ -144,5 +144,12 @@ jobs:
           path: |
             data/real/normalized/
             artifacts/real_backtest_report.json
-            artifacts/v51_real_backtest.json
+          if-no-files-found: error
+
+      - name: Upload V51 research artifact
+        if: ${{ inputs.timeframe == 'M15' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: v51-real-backtest-${{ inputs.start }}-${{ inputs.end }}
+          path: artifacts/v51_real_backtest.json
           if-no-files-found: error
