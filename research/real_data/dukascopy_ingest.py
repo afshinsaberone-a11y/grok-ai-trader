@@ -261,6 +261,7 @@ class DukascopyM1Ingestor:
             # resume, even when the legacy BI5 file was already present.
             if (
                 not force
+                and not (destination.exists() and destination.stat().st_size > 0)
                 and legacy_destination.exists()
                 and legacy_destination.stat().st_size > 0
             ):
