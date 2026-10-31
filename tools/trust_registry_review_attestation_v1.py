@@ -165,9 +165,6 @@ def verify_review_attestation(
         raise ReviewAttestationError("REVIEW_ATTESTATION_SIGNATURE_FIELDS_INVALID")
     if signature_obj.get("algorithm") != "Ed25519" or signature_obj.get("key_id") != pin_key_id:
         raise ReviewAttestationError("REVIEW_ATTESTATION_SIGNATURE_METADATA_INVALID")
-    signature = _canonical_key(signature_obj.get("signature_base64"), "REVIEW_ATTESTATION_SIGNATURE_INVALID")
-    # Ed25519 signatures are 64 bytes; _canonical_key intentionally validates 32-byte keys,
-    # so decode the signature separately.
     try:
         signature = base64.b64decode(signature_obj.get("signature_base64"), validate=True)
     except (TypeError, binascii.Error, ValueError) as exc:
