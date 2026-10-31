@@ -45,7 +45,7 @@ concurrency:
 jobs:
   real-research:
     runs-on: ubuntu-latest
-    # The ingestor stops cleanly after 90 minutes so the cache-save step can run.
+    # The ingestor stops cleanly after 75 minutes so the cache-save step can run.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
