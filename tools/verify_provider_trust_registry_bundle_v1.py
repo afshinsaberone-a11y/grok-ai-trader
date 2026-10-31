@@ -510,6 +510,7 @@ def verify_trust_registry_bundle(
             attestation=payload["review_attestation"],
             reviewer_pin=reviewer_pin,
             repository="afshinsaberone-a11y/forexai-trust-registry",
+            root_public_key=root_key,
             registry=registry,
             policy=policy,
             trusted_signers=signers,
