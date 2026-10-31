@@ -95,6 +95,32 @@ def test_dukascopy_legacy_url_uses_zero_based_month():
     assert url.endswith("/EURUSD/2026/01/14/BID_candles_min_1.bi5")
 
 
+def test_download_range_prefers_cached_bi5_without_network(tmp_path: Path, monkeypatch):
+    from datetime import date, timedelta
+
+    ingestor = DukascopyM1Ingestor(
+        tmp_path, workers=1, batch_size=1, batch_pause=0
+    )
+    day = date(2026, 1, 5)
+    cached_bi5 = tmp_path / "raw" / "EURUSD" / "m1" / f"{day:%Y-%m-%d}.bi5"
+    cached_bi5.parent.mkdir(parents=True, exist_ok=True)
+    cached_bi5.write_bytes(lzma.compress(
+        struct.pack(">IIIIIf", 60, 110000, 110200, 109900, 110300, 12.5)
+    ))
+
+    def unexpected_network_call(*args, **kwargs):
+        raise AssertionError("network must not be used when a cached BI5 file exists")
+
+    monkeypatch.setattr(ingestor, "_download", unexpected_network_call)
+    monkeypatch.setattr(ingestor, "_download_legacy", unexpected_network_call)
+
+    downloaded = ingestor.download_range(day, day + timedelta(days=1))
+
+    assert len(downloaded) == 1
+    assert downloaded[0].path == cached_bi5
+    assert downloaded[0].source == "Dukascopy datafeed BID candles (BI5)"
+
+
 def test_dukascopy_bi5_ohlc_field_order(tmp_path: Path):
     # Dukascopy candle BI5 order is seconds, Open, Close, Low, High, Volume.
     payload = struct.pack(">IIIIIf", 60, 110000, 110200, 109900, 110300, 12.5)
