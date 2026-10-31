@@ -121,6 +121,34 @@ def test_download_range_prefers_cached_bi5_without_network(tmp_path: Path, monke
     assert downloaded[0].source == "Dukascopy datafeed BID candles (BI5)"
 
 
+def test_download_range_prefers_cached_json_over_cached_bi5(tmp_path: Path, monkeypatch):
+    from datetime import date, timedelta
+
+    ingestor = DukascopyM1Ingestor(
+        tmp_path, workers=1, batch_size=1, batch_pause=0
+    )
+    day = date(2026, 1, 5)
+    raw_dir = tmp_path / "raw" / "EURUSD" / "m1"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    cached_json = raw_dir / f"{day:%Y-%m-%d}.json"
+    cached_bi5 = raw_dir / f"{day:%Y-%m-%d}.bi5"
+    cached_json.write_text("{}", encoding="utf-8")
+    cached_bi5.write_bytes(lzma.compress(
+        struct.pack(">IIIIIf", 60, 110000, 110200, 109900, 110300, 12.5)
+    ))
+
+    def unexpected_legacy_call(*args, **kwargs):
+        raise AssertionError("cached JSON must take precedence over cached BI5")
+
+    monkeypatch.setattr(ingestor, "_download_legacy", unexpected_legacy_call)
+
+    downloaded = ingestor.download_range(day, day + timedelta(days=1))
+
+    assert len(downloaded) == 1
+    assert downloaded[0].path == cached_json
+    assert downloaded[0].source == "Dukascopy JETTA v1 BID candles (JSON)"
+
+
 def test_dukascopy_bi5_ohlc_field_order(tmp_path: Path):
     # Dukascopy candle BI5 order is seconds, Open, Close, Low, High, Volume.
     payload = struct.pack(">IIIIIf", 60, 110000, 110200, 109900, 110300, 12.5)
