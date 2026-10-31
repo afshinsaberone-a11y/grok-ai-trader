@@ -1129,25 +1129,28 @@ void OnTick()
 {
   TimeStopStale();
   if(!runtime_trace_healthy) return;
-  if(!SpreadOk()) return;
-  if(!SessionOk()) return;
-  if(!NewsBlackoutOk()) return;
-  if(!DailyLossOk()) return;
-  if(!DailyProfitLockOk()) return;
-  if(consec_losses >= ConsecutiveHalt) return;
-  if(trades_today >= MaxTradesPerDay) return;
-  if(PositionsByMagic() >= MaxPositions) return;
 
+  // Advance the loss cooldown exactly once per new chart bar. Keep this
+  // ahead of entry filters so spread/session gates cannot freeze its timer.
   static datetime last_bar = 0;
   datetime t = iTime(_Symbol, PERIOD_CURRENT, 0);
   if(t == last_bar) return;
   last_bar = t;
+
   if(halt_bars_left > 0)
   {
     halt_bars_left--;
     PersistSafetyState();
     return;
   }
+
+  if(!SpreadOk()) return;
+  if(!SessionOk()) return;
+  if(!NewsBlackoutOk()) return;
+  if(!DailyLossOk()) return;
+  if(!DailyProfitLockOk()) return;
+  if(trades_today >= MaxTradesPerDay) return;
+  if(PositionsByMagic() >= MaxPositions) return;
 
   int rg = Regime();
   if(rg == 1) TryTrendPullback();
