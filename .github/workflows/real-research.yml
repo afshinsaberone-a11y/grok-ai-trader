@@ -41,6 +41,7 @@ on:
 jobs:
   real-research:
     runs-on: ubuntu-latest
+    # The ingestor stops cleanly after 90 minutes so the cache-save step can run.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -49,16 +50,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Restore and save are deliberately separate. The save action below runs
+      # even when ingestion fails, preserving complete raw files for the next run.
       - name: Restore Dukascopy raw-data cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: data/real/raw/EURUSD/m1
-          key: dukascopy-eurusd-m1-${{ inputs.start }}-${{ inputs.end }}
+          key: dukascopy-eurusd-m1-v2-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            dukascopy-eurusd-m1-${{ inputs.start }}-
-            dukascopy-eurusd-m1-
-          # Retain complete BI5 files downloaded before a transient feed failure.
-          save-always: true
+            dukascopy-eurusd-m1-v2-
 
       - name: Install dependencies
         run: |
@@ -66,38 +66,39 @@ jobs:
           pip install -r requirements.txt
 
       - name: Download and validate REAL EURUSD data
+        id: ingest
         env:
           START: ${{ inputs.start }}
           END: ${{ inputs.end }}
           TIMEFRAME: ${{ inputs.timeframe }}
         run: |
-          set -u
+          set -euo pipefail
           echo "REAL_DATA_REQUEST start=$START end_exclusive=$END timeframe=$TIMEFRAME"
           echo "RAW_FEED=EURUSD BID M1; normalized timeframe=$TIMEFRAME"
-          success=0
-          for attempt in 1 2 3; do
-            echo "Dukascopy ingestion attempt $attempt/3"
-            if python -m research.real_data.dukascopy_ingest \
-              --symbol EURUSD \
-              --timeframe "$TIMEFRAME" \
-              --start "$START" \
-              --end "$END" \
-              --output data/real \
-              --validate \
-              --manifest \
-              --resume \
-              --timeout 45 \
-              --retries 5 \
-              --workers 2 \
-              --batch-size 10 \
-              --batch-pause 2; then
-              success=1
-              break
-            fi
-            echo "Attempt $attempt failed; complete raw files will be preserved in Actions cache and reused on the next run."
-            sleep $((attempt * 30))
-          done
-          test "$success" -eq 1
+          echo "RESUME_POLICY=restore latest rolling cache; skip complete raw files; retry only missing dates"
+          echo "RUNTIME_BUDGET_SECONDS=5400; cache save runs after this step even on failure"
+          python -m research.real_data.dukascopy_ingest \
+            --symbol EURUSD \
+            --timeframe "$TIMEFRAME" \
+            --start "$START" \
+            --end "$END" \
+            --output data/real \
+            --validate \
+            --manifest \
+            --resume \
+            --timeout 45 \
+            --retries 5 \
+            --workers 2 \
+            --batch-size 10 \
+            --batch-pause 2 \
+            --max-runtime-seconds 5400
+
+      - name: Save Dukascopy raw-data cache
+        if: ${{ always() && steps.ingest.outcome != 'skipped' }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: dukascopy-eurusd-m1-v2-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Locate normalized dataset
         run: |
