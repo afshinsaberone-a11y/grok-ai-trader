@@ -57,6 +57,8 @@ jobs:
           restore-keys: |
             dukascopy-eurusd-m1-${{ inputs.start }}-
             dukascopy-eurusd-m1-
+          # Retain complete BI5 files downloaded before a transient feed failure.
+          save-always: true
 
       - name: Install dependencies
         run: |
@@ -70,6 +72,8 @@ jobs:
           TIMEFRAME: ${{ inputs.timeframe }}
         run: |
           set -u
+          echo "REAL_DATA_REQUEST start=$START end_exclusive=$END timeframe=$TIMEFRAME"
+          echo "RAW_FEED=EURUSD BID M1; normalized timeframe=$TIMEFRAME"
           success=0
           for attempt in 1 2 3; do
             echo "Dukascopy ingestion attempt $attempt/3"
@@ -80,11 +84,17 @@ jobs:
               --end "$END" \
               --output data/real \
               --validate \
-              --manifest; then
+              --manifest \
+              --resume \
+              --timeout 45 \
+              --retries 5 \
+              --workers 2 \
+              --batch-size 10 \
+              --batch-pause 2; then
               success=1
               break
             fi
-            echo "Attempt $attempt failed; cached raw files will be reused on the next attempt."
+            echo "Attempt $attempt failed; complete raw files will be preserved in Actions cache and reused on the next run."
             sleep $((attempt * 30))
           done
           test "$success" -eq 1
