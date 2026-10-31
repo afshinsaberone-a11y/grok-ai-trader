@@ -253,6 +253,27 @@ class DukascopyM1Ingestor:
         def fetch(day: date) -> DownloadedDay | None:
             destination = self.raw_dir / f"{day:%Y-%m-%d}.json"
             url = self.url_for(day)
+            legacy_destination = self.raw_dir / f"{day:%Y-%m-%d}.bi5"
+            legacy_url = self.legacy_url_for(day)
+
+            # Prefer a previously downloaded, complete BI5 cache before making
+            # any network request. Earlier versions tried JETTA first on every
+            # resume, even when the legacy BI5 file was already present.
+            if (
+                not force
+                and legacy_destination.exists()
+                and legacy_destination.stat().st_size > 0
+            ):
+                LOGGER.info(
+                    "Using cached Dukascopy BI5 before network request: %s",
+                    legacy_destination,
+                )
+                return DownloadedDay(
+                    day, legacy_destination, legacy_url, sha256_file(legacy_destination),
+                    legacy_destination.stat().st_size,
+                    "Dukascopy datafeed BID candles (BI5)",
+                )
+
             try:
                 if not self._download(url, destination, day=day, force=force):
                     return None
@@ -261,8 +282,6 @@ class DukascopyM1Ingestor:
                     "Dukascopy JETTA v1 BID candles (JSON)",
                 )
             except DukascopyIngestError as primary_error:
-                legacy_destination = self.raw_dir / f"{day:%Y-%m-%d}.bi5"
-                legacy_url = self.legacy_url_for(day)
                 LOGGER.warning(
                     "JETTA unavailable for %s; attempting real Dukascopy BI5 fallback: %s",
                     day.isoformat(), primary_error,
