@@ -25,7 +25,10 @@ def test_v51_runner_reports_empty_validation_and_oos_instead_of_fabricating_data
     report = run(dataset, output_path=output)
 
     assert report["data"]["synthetic_data"] is False
+    assert report["data"]["price_side"] == "BID"
     assert report["data"]["rows"] == rows
+    assert report["execution_assumptions"]["round_trip_adverse_cost_pips"] == 0.9
+    assert report["execution_assumptions"]["bid_ohlc_fill_model"]["spread_is_charged_once_per_round_trip"] is True
     assert report["splits"]["IS_2022_2024"]["rows"] == rows
     assert report["splits"]["VALIDATION_2025"]["status"] == "NO_DATA"
     assert report["splits"]["OOS_2026"]["status"] == "NO_DATA"
