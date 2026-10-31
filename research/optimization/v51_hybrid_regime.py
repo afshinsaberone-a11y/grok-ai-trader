@@ -148,7 +148,7 @@ def _normalize_ohlc(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DatetimeIndex]
         utc_index = utc_index.tz_convert("UTC")
     frame.index = utc_index
     frame.index.name = "timestamp_utc"
-    frame = frame.sort_index()
+    # Validate the incoming order; do not silently repair chronological data.
     validate_ohlc(frame)
     numeric = frame[["Open", "High", "Low", "Close"]].apply(pd.to_numeric, errors="coerce")
     if numeric.isna().any().any() or not np.isfinite(numeric.to_numpy(dtype=float)).all():
@@ -156,6 +156,7 @@ def _normalize_ohlc(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DatetimeIndex]
     if (numeric <= 0).any().any():
         raise ValueError("REAL_DATA_INVALID: non-positive OHLC values")
     frame[["Open", "High", "Low", "Close"]] = numeric
+    utc_index = pd.DatetimeIndex(frame.index)
     return frame, utc_index
 
 
@@ -532,18 +533,8 @@ def backtest_v51(
     for i, (timestamp, row) in enumerate(features.iterrows()):
         bid_open = float(row["Open"])
         utc_timestamp = pd.Timestamp(row["utc_timestamp"])
-        current_day = timestamp.date()
-        if active_day != current_day:
-            active_day = current_day
-            day_start_equity = equity
-            trades_today = 0
-            consecutive_losses = 0
-            cooldown_left = 0
 
-        # TimeStopStale runs before the entry filters in MQL5. A timed-out
-        # position is closed at this bar open; that same bar then observes the
-        # newly armed cooldown and cannot submit another order.
-        time_stopped = False
+        # TimeStopStale runs before the entry filters in MQL5.
         if position is not None and i - position.entry_index >= cfg.max_hold_bars:
             raw_exit = bid_open if position.side > 0 else bid_open + cfg.spread_pips * cfg.pip_size
             closed = _close_position(position, raw_exit, timestamp, "MAX_HOLD_BARS", execution)
@@ -559,7 +550,6 @@ def backtest_v51(
             else:
                 consecutive_losses = 0
             position = None
-            time_stopped = True
 
         had_open_position_at_bar_start = position is not None
         if not had_open_position_at_bar_start:
@@ -570,6 +560,17 @@ def backtest_v51(
                 spread_pass = _spread_ok(row, cfg)
                 session_pass = _session_ok(timestamp, cfg)
                 news_pass = _news_ok(timestamp, cfg)
+                filters_pass = spread_pass and session_pass and news_pass
+                if filters_pass:
+                    # In the MQL5 EA, RollDayIfNeeded is called inside the
+                    # daily-lock functions after spread/session/news gates.
+                    current_day = timestamp.date()
+                    if active_day != current_day:
+                        active_day = current_day
+                        day_start_equity = equity
+                        trades_today = 0
+                        consecutive_losses = 0
+                        cooldown_left = 0
                 daily_loss_pass = 100.0 * (day_start_equity - equity) / day_start_equity < cfg.daily_loss_limit_pct
                 daily_profit_pass = 100.0 * (equity - day_start_equity) / day_start_equity < cfg.daily_profit_lock_pct
                 daily_pass = daily_loss_pass and daily_profit_pass
