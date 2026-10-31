@@ -241,7 +241,7 @@ def test_reviewer_signature_is_verified_separately_from_root_signature(tmp_path:
     envelope["signature"]["signature_base64"] = base64.b64encode(
         root_private.sign(canonical_json(envelope["payload"]))
     ).decode("ascii")
-    raw = canonical_json(envelope) + b"\\n"
+    raw = canonical_json(envelope) + b"\n"
     path.write_bytes(raw)
     environ["FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256"] = "sha256:" + hashlib.sha256(raw).hexdigest()
 
