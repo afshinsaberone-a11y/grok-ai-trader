@@ -51,8 +51,10 @@ independently of this GitHub repository:
 The root signer requires `reviewer-public-pin.json` next to its Root key directory
 and `audit/review-attestation.json` in the reviewed registry checkout. The
 attestation signs the canonical digests of the normalized registry, policy,
-trusted-signer list and exact source-build manifest digest. The Provider repeats
-the signature and digest checks using the four external reviewer-pin settings.
+trusted-signer list and exact source-build manifest digest. Its validity interval
+is limited to seven days, and its review timestamp must fall inside that interval.
+The Provider repeats the signature and digest checks using the four external
+reviewer-pin settings.
 The reviewer private key must remain with the reviewer and must never be sent to
 the Root signer, Provider or GitHub.
 
