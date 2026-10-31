@@ -148,7 +148,9 @@ def test_backtest_requires_prepared_features_and_does_not_invent_trades():
     # The monotonic fixture does not satisfy the configured ADX regime/pullback
     # combinations with all gates, and no broker/tick prices are invented.
     report = backtest_v51(features.iloc[:100], config)
-    assert report["status"] == "PASS_RESEARCH_SIMULATION"
+    assert report["status"] == "NO_CLOSED_TRADES"
+    assert report["simulation_status"] == "COMPLETED"
+    assert report["performance_status"] == "NOT_ASSESSED"
     assert report["trades"] == 0
     assert report["round_trip_cost_pips"] == pytest.approx(1.4)
     assert report["open_position_at_end"] is False
