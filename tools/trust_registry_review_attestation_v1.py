@@ -94,6 +94,7 @@ def verify_review_attestation(
     attestation: Mapping[str, Any],
     reviewer_pin: Mapping[str, Any],
     repository: str,
+    root_public_key: bytes,
     registry: Mapping[str, Any],
     policy: Mapping[str, Any],
     trusted_signers: Mapping[str, Any],
@@ -113,6 +114,10 @@ def verify_review_attestation(
     public_raw = _canonical_key(
         reviewer_pin.get("public_key_base64"), "REVIEWER_PUBLIC_KEY_PIN_INVALID"
     )
+    if not isinstance(root_public_key, bytes) or len(root_public_key) != 32:
+        raise ReviewAttestationError("ROOT_PUBLIC_KEY_INVALID_FOR_REVIEW_SEPARATION")
+    if public_raw == root_public_key:
+        raise ReviewAttestationError("REVIEWER_KEY_MUST_DIFFER_FROM_ROOT_KEY")
     fingerprint = "sha256:" + hashlib.sha256(public_raw).hexdigest()
     if reviewer_pin.get("fingerprint_sha256") != fingerprint:
         raise ReviewAttestationError("REVIEWER_PUBLIC_KEY_FINGERPRINT_MISMATCH")
@@ -127,6 +132,8 @@ def verify_review_attestation(
         )
         if role_key == public_raw:
             raise ReviewAttestationError("REVIEWER_KEY_MUST_DIFFER_FROM_ROLE_KEYS")
+        if role_key == root_public_key:
+            raise ReviewAttestationError("ROOT_KEY_MUST_DIFFER_FROM_ROLE_KEYS")
         if record.get("key_id") == pin_key_id:
             raise ReviewAttestationError("REVIEWER_KEY_ID_COLLIDES_WITH_ROLE_KEY")
 
