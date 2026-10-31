@@ -22,6 +22,19 @@ from typing import Any, Mapping
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+try:
+    from tools.trust_registry_review_attestation_v1 import (
+        PIN_SCHEMA as REVIEWER_PIN_SCHEMA,
+        verify_review_attestation,
+    )
+except ModuleNotFoundError as exc:
+    if exc.name not in {"tools", "tools.trust_registry_review_attestation_v1"}:
+        raise
+    from trust_registry_review_attestation_v1 import (
+        PIN_SCHEMA as REVIEWER_PIN_SCHEMA,
+        verify_review_attestation,
+    )
+
 
 BUNDLE_SCHEMA = "forexai.trust_registry.signed_bundle.v1"
 PAYLOAD_SCHEMA = "forexai.trust_registry.bundle_payload.v1"
@@ -37,6 +50,14 @@ BUNDLE_PATH_ENV = "FOREXAI_TRUST_REGISTRY_BUNDLE_PATH"
 ROOT_PUBLIC_KEY_ENV = "FOREXAI_TRUST_REGISTRY_ROOT_PUBLIC_KEY"
 ROOT_FINGERPRINT_ENV = "FOREXAI_TRUST_REGISTRY_ROOT_FINGERPRINT"
 EXPECTED_BUNDLE_SHA256_ENV = "FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256"
+REVIEWER_PUBLIC_KEY_ENV = "FOREXAI_TRUST_REGISTRY_REVIEWER_PUBLIC_KEY"
+REVIEWER_FINGERPRINT_ENV = "FOREXAI_TRUST_REGISTRY_REVIEWER_FINGERPRINT"
+REVIEWER_IDENTITY_ENV = "FOREXAI_TRUST_REGISTRY_REVIEWER_IDENTITY"
+REVIEWER_KEY_ID_ENV = "FOREXAI_TRUST_REGISTRY_REVIEWER_KEY_ID"
+REVIEWER_PIN_ENVIRONMENTS = (
+    REVIEWER_PUBLIC_KEY_ENV, REVIEWER_FINGERPRINT_ENV,
+    REVIEWER_IDENTITY_ENV, REVIEWER_KEY_ID_ENV,
+)
 
 ROLE_KEY_ENVS = {
     "admission": "FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY",
@@ -437,7 +458,8 @@ def verify_trust_registry_bundle(
         raise TrustRegistryVerificationError("BUNDLE_SCHEMA_INVALID")
     payload = envelope.get("payload")
     if not isinstance(payload, dict) or set(payload) != {
-        "schema", "registry_revision", "registry", "policy", "trusted_signers"
+        "schema", "registry_revision", "registry", "policy", "trusted_signers",
+        "review_attestation",
     }:
         raise TrustRegistryVerificationError("BUNDLE_PAYLOAD_FIELDS_INVALID")
     if payload.get("schema") != PAYLOAD_SCHEMA:
@@ -474,7 +496,28 @@ def verify_trust_registry_bundle(
         raise TrustRegistryVerificationError("BUNDLE_DOCUMENTS_INVALID")
     roles = _validate_key_records(registry, policy, env, current)
     signer_count = _validate_source_signers(signers, current)
-
+    reviewer_pin = {
+        "schema": REVIEWER_PIN_SCHEMA,
+        "key_id": env.get(REVIEWER_KEY_ID_ENV, "").strip(),
+        "identity": env.get(REVIEWER_IDENTITY_ENV, "").strip(),
+        "algorithm": "Ed25519",
+        "encoding": "base64-raw-32",
+        "public_key_base64": env.get(REVIEWER_PUBLIC_KEY_ENV, "").strip(),
+        "fingerprint_sha256": env.get(REVIEWER_FINGERPRINT_ENV, "").strip(),
+    }
+    try:
+        review = verify_review_attestation(
+            attestation=payload["review_attestation"],
+            reviewer_pin=reviewer_pin,
+            repository="afshinsaberone-a11y/forexai-trust-registry",
+            root_public_key=root_key,
+            registry=registry,
+            policy=policy,
+            trusted_signers=signers,
+            now=current,
+        )
+    except ValueError as exc:
+        raise TrustRegistryVerificationError(str(exc)) from exc
     return {
         "schema": "forexai.provider_trust_registry_bundle_verification.v1",
         "status": "PASS",
@@ -484,6 +527,10 @@ def verify_trust_registry_bundle(
         "role_key_checks": roles,
         "trusted_source_signer_count": signer_count,
         "signed_source_build_manifest_sha256": signers["source_build_manifest_sha256"],
+        "review_attestation_status": "PASS",
+        "reviewer_identity": review["reviewer_identity"],
+        "reviewer_key_id": review["reviewer_key_id"],
+        "reviewer_fingerprint_sha256": review["reviewer_fingerprint_sha256"],
         "default_decision": "DENY",
         "production_approved": False,
         "bootstrap_approved": False,
@@ -522,6 +569,10 @@ def inspect_trust_registry_bundle(
         "registry_revision": None,
         "role_key_checks": {},
         "trusted_source_signer_count": 0,
+        "review_attestation_status": "BLOCKED",
+        "reviewer_identity": None,
+        "reviewer_key_id": None,
+        "reviewer_fingerprint_sha256": None,
         "default_decision": "DENY",
         "production_approved": False,
         "bootstrap_approved": False,

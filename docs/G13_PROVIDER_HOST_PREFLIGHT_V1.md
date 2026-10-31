@@ -39,10 +39,32 @@ independently of this GitHub repository:
 - `FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256`: `sha256:<64 lowercase hex>`
   for the exact delivered bundle bytes, including its final newline, maintained
   in the independently controlled Provider configuration.
+- `FOREXAI_TRUST_REGISTRY_REVIEWER_PUBLIC_KEY`: canonical base64 raw 32-byte
+  Ed25519 public key for the independent human reviewer.
+- `FOREXAI_TRUST_REGISTRY_REVIEWER_FINGERPRINT`: `sha256:<64 lowercase hex>`
+  for that reviewer's public key, independently confirmed out of band.
+- `FOREXAI_TRUST_REGISTRY_REVIEWER_IDENTITY` and
+  `FOREXAI_TRUST_REGISTRY_REVIEWER_KEY_ID`: the exact identity and stable key ID
+  bound by the reviewer's signature. These values must be provisioned separately
+  from the signed bundle; the bundle cannot introduce its own reviewer trust pin.
 
-The verifier checks the pinned bundle digest, root fingerprint, Ed25519 signature,
-exact schemas, duplicate JSON fields, validity windows, review metadata, all six
-role records, the source-signer allowlist, and default-DENY/no-authorization flags.
+The root signer requires `reviewer-public-pin.json` next to its Root key directory
+and `audit/review-attestation.json` in the reviewed registry checkout. The
+attestation signs the canonical digests of the normalized registry, policy,
+trusted-signer list and exact source-build manifest digest. Its validity interval
+is limited to seven days, and its review timestamp must fall inside that interval.
+The Provider repeats the signature and digest checks using the four external
+reviewer-pin settings.
+The reviewer private key must remain with the reviewer and must never be sent to
+the Root signer, Provider or GitHub.
+
+The verifier checks the pinned bundle digest, root fingerprint, Root Ed25519 signature,
+separate reviewer Ed25519 signature, exact schemas, duplicate JSON fields,
+validity windows, review-document digests, all six role records, the source-signer
+allowlist, and default-DENY/no-authorization flags. Metadata booleans alone are
+not proof of review. The reviewer-key fingerprint itself still requires an
+out-of-band independent check; the verifier cannot establish who owns a key from
+a self-declared identity string.
 It compares the five role keys actually consumed by the Provider against their
 runtime public-key configuration. The Capital Firewall Grant role is checked as
 part of the signed registry but remains a separate authority boundary.
