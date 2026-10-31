@@ -98,7 +98,7 @@ def run(
         "execution_assumptions": {
             "spread_pips": spread_pips,
             "slippage_pips_per_side": slippage_pips,
-            "round_trip_adverse_cost_pips": 2.0 * (spread_pips + slippage_pips),
+            "round_trip_adverse_cost_pips": spread_pips + 2.0 * slippage_pips,
             "server_utc_offset_hours": server_utc_offset_hours,
             "server_offset_status": "USER_OR_OPERATOR_ASSUMPTION_NOT_BROKER_VERIFIED",
             "commission_included": False,
@@ -117,7 +117,7 @@ def run(
             "This runner does not optimize parameters or select a champion.",
             "The Python indicator implementation is a research approximation; MT5-exported signal parity remains a separate required check.",
             "The broker server UTC offset must be verified before interpreting session-filter results.",
-            "Spread and slippage are explicit fixed assumptions, not verified historical tick-by-tick costs.",
+            "Bid-OHLC cost treatment applies the assumed spread once per round trip and adverse slippage on both sides; values are not historical tick-by-tick costs.",
             "Commission and swap are omitted because no verified account-specific schedule was supplied.",
             "The research simulator does not read or issue runtime authorization and cannot submit orders.",
         ],
