@@ -232,6 +232,33 @@ def test_missing_external_reviewer_pin_fails_closed(tmp_path: Path):
     assert report["reason"] == "REVIEWER_PUBLIC_KEY_PIN_INVALID"
 
 
+def test_reviewer_key_must_differ_from_root_key(tmp_path: Path):
+    environ, _path, _private = build_test_bundle(tmp_path)
+    root_raw = base64.b64decode(environ["FOREXAI_TRUST_REGISTRY_ROOT_PUBLIC_KEY"])
+    environ["FOREXAI_TRUST_REGISTRY_REVIEWER_PUBLIC_KEY"] = base64.b64encode(root_raw).decode("ascii")
+    environ["FOREXAI_TRUST_REGISTRY_REVIEWER_FINGERPRINT"] = "sha256:" + hashlib.sha256(root_raw).hexdigest()
+
+    report = inspect_trust_registry_bundle(environ, repository_root=REPOSITORY_ROOT)
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "REVIEWER_KEY_MUST_DIFFER_FROM_ROOT_KEY"
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
+
+
+def test_reviewer_key_must_differ_from_role_keys(tmp_path: Path):
+    environ, _path, _private = build_test_bundle(tmp_path)
+    role_key_env = "FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY"
+    role_raw = base64.b64decode(environ[role_key_env])
+    environ["FOREXAI_TRUST_REGISTRY_REVIEWER_PUBLIC_KEY"] = base64.b64encode(role_raw).decode("ascii")
+    environ["FOREXAI_TRUST_REGISTRY_REVIEWER_FINGERPRINT"] = "sha256:" + hashlib.sha256(role_raw).hexdigest()
+
+    report = inspect_trust_registry_bundle(environ, repository_root=REPOSITORY_ROOT)
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "REVIEWER_KEY_MUST_DIFFER_FROM_ROLE_KEYS"
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
+
+
 def test_reviewer_signature_is_verified_separately_from_root_signature(tmp_path: Path):
     environ, path, root_private = build_test_bundle(tmp_path)
     envelope = json.loads(path.read_text(encoding="utf-8"))
