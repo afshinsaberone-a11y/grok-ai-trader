@@ -43,6 +43,8 @@ def test_mql5_copybuffer_series_index_one_is_reproduced_as_shift_two():
     data = _ohlc(500)
     features = prepare_v51_features(data)
     # The entry-bar row at index i uses MQL5 shift 2, not shift 1.
+    assert features.index.tz is None
+    assert str(features["utc_timestamp"].dt.tz) == "UTC"
     assert features["DECISION_CLOSE"].iloc[20] == pytest.approx(features["Close"].iloc[18])
     assert features["DECISION_ATR"].iloc[300] == pytest.approx(features["ATR"].iloc[298])
     assert features["DECISION_ADX"].iloc[300] == pytest.approx(features["ADX"].iloc[298])
@@ -51,7 +53,7 @@ def test_mql5_copybuffer_series_index_one_is_reproduced_as_shift_two():
 def test_h4_shift_two_points_to_second_most_recent_completed_h4_bar():
     data = _ohlc(24 * 4 * 15)
     features = prepare_v51_features(data)
-    at_0800 = pd.Timestamp("2024-01-01T08:00:00Z")
+    at_0800 = pd.Timestamp("2024-01-01T08:00:00")
     expected_h4_close = (
         data.assign(timestamp=pd.to_datetime(data["timestamp"], utc=True))
         .set_index("timestamp")["close"]
