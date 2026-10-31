@@ -58,6 +58,7 @@ class DukascopyM1Ingestor:
         workers: int = 4,
         batch_size: int = 10,
         batch_pause: float = 1.0,
+        max_runtime_seconds: int | None = None,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.raw_dir = self.output_dir / "raw" / "EURUSD" / "m1"
@@ -69,6 +70,7 @@ class DukascopyM1Ingestor:
         self.workers = workers
         self.batch_size = batch_size
         self.batch_pause = batch_pause
+        self.max_runtime_seconds = max_runtime_seconds
 
     @staticmethod
     def url_for(day: date) -> str:
@@ -237,6 +239,7 @@ class DukascopyM1Ingestor:
             raise ValueError("end must be after start")
 
         downloaded: list[DownloadedDay] = []
+        failures: list[str] = []
         days = []
         current = start
         while current < end:
@@ -272,23 +275,70 @@ class DukascopyM1Ingestor:
                     "Dukascopy datafeed BID candles (BI5)",
                 )
 
-        # CI uses bounded batches plus resume-cache behavior so long historical pulls
-        # remain restartable without turning expected weekend gaps into network retries.
-        # Download in small batches with bounded concurrency and a short pause.
-        # This mirrors common Dukascopy client behavior and reduces the chance of
-        # sustained transport resets while preserving resumability via raw cache.
+        # Continue after individual day failures. This lets a later run reuse all
+        # successfully downloaded days and retry only missing dates from the cache.
+        # A failed day must never prevent collection of later real market data.
+        started_at = time.monotonic()
+        processed_days = 0
+        paused = False
         for batch_start in range(0, len(days), self.batch_size):
             batch = days[batch_start:batch_start + self.batch_size]
             with ThreadPoolExecutor(max_workers=self.workers) as executor:
                 futures = {executor.submit(fetch, day): day for day in batch}
                 for future in as_completed(futures):
-                    downloaded_day = future.result()
+                    day = futures[future]
+                    try:
+                        downloaded_day = future.result()
+                    except Exception as exc:
+                        failure = f"{day.isoformat()}: {type(exc).__name__}: {exc}"
+                        failures.append(failure)
+                        LOGGER.error(
+                            "REAL_DATA_REQUIRED: day %s failed; continuing with later dates: %s",
+                            day.isoformat(), exc,
+                        )
+                        continue
                     if downloaded_day is not None:
                         downloaded.append(downloaded_day)
+
+            processed_days += len(batch)
+            elapsed = time.monotonic() - started_at
+            remaining_days = len(days) - processed_days
+            if (
+                self.max_runtime_seconds is not None
+                and self.max_runtime_seconds > 0
+                and elapsed >= self.max_runtime_seconds
+                and remaining_days > 0
+            ):
+                paused = True
+                LOGGER.warning(
+                    "INGESTION_PAUSED: runtime budget reached after %d/%d trading days; "
+                    "raw files remain available for the next cache-backed run",
+                    processed_days, len(days),
+                )
+                break
+
             if batch_start + self.batch_size < len(days) and self.batch_pause > 0:
                 time.sleep(self.batch_pause)
 
         downloaded.sort(key=lambda item: item.day)
+        if failures or paused:
+            details = "; ".join(failures[:20])
+            if len(failures) > 20:
+                details += f"; ... and {len(failures) - 20} more failed dates"
+            reasons = []
+            if failures:
+                reasons.append(f"{len(failures)} trading date(s) failed")
+            if paused:
+                reasons.append(
+                    f"time budget reached with {len(days) - processed_days} trading date(s) not attempted"
+                )
+            suffix = f" First errors: {details}" if details else ""
+            raise DukascopyIngestError(
+                "REAL_DATA_REQUIRED: ingestion incomplete; "
+                + ", ".join(reasons)
+                + ". Successfully downloaded raw files are preserved for resume."
+                + suffix
+            )
         if not downloaded:
             raise DukascopyIngestError("REAL_DATA_REQUIRED: no real Dukascopy files were downloaded")
         return downloaded
@@ -441,6 +491,7 @@ def ingest_m1(
     workers: int = 4,
     batch_size: int = 10,
     batch_pause: float = 1.0,
+    max_runtime_seconds: int | None = None,
 ) -> dict[str, object]:
     ingestor = DukascopyM1Ingestor(
         output_dir,
@@ -449,6 +500,7 @@ def ingest_m1(
         workers=workers,
         batch_size=batch_size,
         batch_pause=batch_pause,
+        max_runtime_seconds=max_runtime_seconds,
     )
     files = ingestor.download_range(start, end, force=force)
     dataset_id = f"{start:%Y%m%d}_{(end - timedelta(days=1)):%Y%m%d}"
@@ -476,6 +528,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--batch-pause", type=float, default=1.0)
+    parser.add_argument(
+        "--max-runtime-seconds",
+        type=int,
+        default=None,
+        help="Stop cleanly after a runtime budget so a workflow can save the raw-data cache",
+    )
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -493,6 +551,7 @@ def main(argv: list[str] | None = None) -> int:
             workers=args.workers,
             batch_size=args.batch_size,
             batch_pause=args.batch_pause,
+            max_runtime_seconds=args.max_runtime_seconds,
         )
         if args.timeframe != "M1":
             m1 = pd.read_csv(result["dataset"], parse_dates=["timestamp"])
