@@ -6,7 +6,7 @@ element [1]; this corresponds to chart shift 2. The adapter therefore uses
 values from two bars before the current (entry) bar, not shift 1.
 
 Execution is a conservative OHLC shadow model, not a MetaTrader tick replay.
-It uses the repository's adverse 0.7-pip-per-side execution contract, stop-first
+It reconstructs ASK from BID plus an assumed spread, applies slippage on each side, and uses stop-first
 same-bar resolution, one position, daily locks, loss cooldown and time stop.
 No downloads, synthetic market data, optimization, or trading authorization.
 """
