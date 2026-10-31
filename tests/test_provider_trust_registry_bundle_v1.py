@@ -232,6 +232,28 @@ def test_missing_external_reviewer_pin_fails_closed(tmp_path: Path):
     assert report["reason"] == "REVIEWER_PUBLIC_KEY_PIN_INVALID"
 
 
+def test_reviewer_attestation_lifetime_is_bounded(tmp_path: Path):
+    environ, path, root_private = build_test_bundle(tmp_path)
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    envelope["payload"]["review_attestation"]["payload"]["valid_until_utc"] = (
+        now + timedelta(days=8)
+    ).isoformat().replace("+00:00", "Z")
+    envelope["signature"]["signature_base64"] = base64.b64encode(
+        root_private.sign(canonical_json(envelope["payload"]))
+    ).decode("ascii")
+    raw = canonical_json(envelope) + b"\n"
+    path.write_bytes(raw)
+    environ["FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256"] = "sha256:" + hashlib.sha256(raw).hexdigest()
+
+    report = inspect_trust_registry_bundle(environ, repository_root=REPOSITORY_ROOT)
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "REVIEW_ATTESTATION_OUTSIDE_VALIDITY_WINDOW"
+    assert report["live_trading_allowed"] is False
+    assert report["orders_submitted"] is False
+
+
 def test_reviewer_key_must_differ_from_root_key(tmp_path: Path):
     environ, _path, _private = build_test_bundle(tmp_path)
     root_raw = base64.b64decode(environ["FOREXAI_TRUST_REGISTRY_ROOT_PUBLIC_KEY"])
