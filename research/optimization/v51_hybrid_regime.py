@@ -666,7 +666,9 @@ def backtest_v51(
     total_r = sum(trade["R"] for trade in trades)
     closed_count = len(trades)
     report = {
-        "status": "PASS_RESEARCH_SIMULATION",
+        "status": "NO_CLOSED_TRADES" if closed_count == 0 else "COMPLETED_RESEARCH_SIMULATION",
+        "simulation_status": "COMPLETED",
+        "performance_status": "NOT_ASSESSED",
         "rows": int(len(features)),
         "trades": closed_count,
         "entries": len(signals),
