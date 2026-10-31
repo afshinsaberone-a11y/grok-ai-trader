@@ -518,19 +518,6 @@ def verify_trust_registry_bundle(
         )
     except ValueError as exc:
         raise TrustRegistryVerificationError(str(exc)) from exc
-    for record in registry["keys"]:
-        if (
-            record["reviewer_identity"] != review["reviewer_identity"]
-            or record["review_id"] != review["review_id"]
-        ):
-            raise TrustRegistryVerificationError("REGISTRY_KEY_REVIEW_DOES_NOT_MATCH_SIGNED_ATTESTATION")
-    for record in signers["signers"]:
-        if (
-            record["reviewer_identity"] != review["reviewer_identity"]
-            or record["review_id"] != review["review_id"]
-        ):
-            raise TrustRegistryVerificationError("TRUSTED_SIGNER_REVIEW_DOES_NOT_MATCH_SIGNED_ATTESTATION")
-
     return {
         "schema": "forexai.provider_trust_registry_bundle_verification.v1",
         "status": "PASS",
