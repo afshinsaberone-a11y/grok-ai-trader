@@ -570,15 +570,17 @@ def backtest_v51(
                     trades_today = 0
                     consecutive_losses = 0
                     cooldown_left = 0
-            daily_loss_pass = 100.0 * (day_start_equity - equity) / day_start_equity < cfg.daily_loss_limit_pct
-            daily_profit_pass = 100.0 * (equity - day_start_equity) / day_start_equity < cfg.daily_profit_lock_pct
-            daily_pass = daily_loss_pass and daily_profit_pass
+            daily_pass = True
+            if filters_pass:
+                daily_loss_pass = 100.0 * (day_start_equity - equity) / day_start_equity < cfg.daily_loss_limit_pct
+                daily_profit_pass = 100.0 * (equity - day_start_equity) / day_start_equity < cfg.daily_profit_lock_pct
+                daily_pass = daily_loss_pass and daily_profit_pass
+                if not daily_pass:
+                    skipped_daily_lock += 1
             if not spread_pass:
                 skipped_spread += 1
             if not session_pass or not news_pass:
                 skipped_session += 1
-            if not daily_pass:
-                skipped_daily_lock += 1
             # A position already open at this bar's first tick blocks new
             # entries for the full bar, even if its SL/TP closes intrabar.
             if (
