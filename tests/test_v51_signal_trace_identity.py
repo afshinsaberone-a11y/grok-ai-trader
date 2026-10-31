@@ -20,8 +20,8 @@ def test_mql5_trace_identity_uses_the_same_shift_two_signal_bar_as_v51_rules():
 
 
 def test_python_signal_log_binds_trace_time_to_shift_two_source_bar(monkeypatch):
-    server_index = pd.date_range("2026-01-05T08:00:00Z", periods=4, freq="15min")
-    utc_index = server_index - pd.Timedelta(hours=2)
+    server_index = pd.date_range("2026-01-05 10:00:00", periods=4, freq="15min")
+    utc_index = (server_index - pd.Timedelta(hours=2)).tz_localize("UTC")
     features = pd.DataFrame(
         {
             "Open": [1.10] * 4,
@@ -71,4 +71,5 @@ def test_python_signal_log_binds_trace_time_to_shift_two_source_bar(monkeypatch)
     signal = report["signal_log"][0]
     assert signal["signal_bar_shift"] == 2
     assert signal["signal_bar_timestamp_server"] == server_index[1].isoformat()
+    assert "+00:00" not in signal["signal_bar_timestamp_server"]
     assert signal["signal_bar_timestamp_utc"] == utc_index[1].isoformat()
