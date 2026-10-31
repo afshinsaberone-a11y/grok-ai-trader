@@ -1,6 +1,7 @@
 """Tests for the read-only signed trust-registry bundle verifier."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ from tools.verify_provider_trust_registry_bundle_v1 import (
 from tests.trust_registry_bundle_test_support import (
     REPOSITORY_ROOT,
     build_test_bundle,
+    canonical_json,
 )
 
 
@@ -26,6 +28,9 @@ def test_valid_signed_bundle_passes_but_never_authorizes(tmp_path: Path):
     assert report["default_decision"] == "DENY"
     assert report["trusted_source_signer_count"] == 1
     assert report["signed_source_build_manifest_sha256"] == "sha256:" + ("d" * 64)
+    assert report["review_attestation_status"] == "PASS"
+    assert report["reviewer_identity"] == "synthetic-independent-reviewer"
+    assert report["reviewer_key_id"] == "synthetic-independent-reviewer-key-v1"
     assert len(report["role_key_checks"]) == 6
     assert all(
         report["role_key_checks"][role] == "MATCH"
@@ -216,3 +221,33 @@ def test_noncanonical_or_invalid_root_public_key_fails(tmp_path: Path):
     report = inspect_trust_registry_bundle(environ, repository_root=REPOSITORY_ROOT)
     assert report["status"] == "BLOCKED"
     assert report["reason"] == "ROOT_PUBLIC_KEY_PIN_MISSING_OR_INVALID"
+
+
+
+def test_missing_external_reviewer_pin_fails_closed(tmp_path: Path):
+    environ, _path, _private = build_test_bundle(tmp_path)
+    environ.pop("FOREXAI_TRUST_REGISTRY_REVIEWER_PUBLIC_KEY", None)
+    report = inspect_trust_registry_bundle(environ, repository_root=REPOSITORY_ROOT)
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "REVIEWER_PUBLIC_KEY_PIN_INVALID"
+
+
+def test_reviewer_signature_is_verified_separately_from_root_signature(tmp_path: Path):
+    environ, path, root_private = build_test_bundle(tmp_path)
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    envelope["payload"]["review_attestation"]["signature"]["signature_base64"] = base64.b64encode(
+        b"not-the-reviewer-signature".ljust(64, b"x")
+    ).decode("ascii")
+    envelope["signature"]["signature_base64"] = base64.b64encode(
+        root_private.sign(canonical_json(envelope["payload"]))
+    ).decode("ascii")
+    raw = canonical_json(envelope) + b"\\n"
+    path.write_bytes(raw)
+    environ["FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256"] = "sha256:" + hashlib.sha256(raw).hexdigest()
+
+    report = inspect_trust_registry_bundle(environ, repository_root=REPOSITORY_ROOT)
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "REVIEW_ATTESTATION_SIGNATURE_VERIFICATION_FAILED"
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
+    assert report["orders_submitted"] is False
