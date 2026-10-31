@@ -18,12 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from research.optimization.execution_contract_v1 import (
-    ExecutionConfig,
-    apply_entry_cost,
-    apply_exit_cost,
-    validate_ohlc,
-)
+from research.optimization.execution_contract_v1 import validate_ohlc
 
 
 @dataclass(frozen=True)
@@ -275,6 +270,27 @@ def prepare_v51_features(
     return features
 
 
+def _bid_ohlc_entry_fill(bid_open: float, side: int, config: V51Config) -> float:
+    """Model a market entry from BID OHLC plus an assumed fixed spread.
+
+    Buy fills at ASK plus adverse slippage; sell fills at BID minus adverse
+    slippage. Historical BID-only candles do not contain the ASK series.
+    """
+    slip = config.slippage_pips * config.pip_size
+    spread = config.spread_pips * config.pip_size
+    return float(bid_open + spread + slip) if side > 0 else float(bid_open - slip)
+
+
+def _bid_ohlc_exit_fill(quote_price: float, side: int, config: V51Config) -> float:
+    """Apply adverse slippage to the quote side on which the position exits.
+
+    Longs close by selling at BID; shorts close by buying at ASK. For short
+    exits quote_price is already an ASK level (BID OHLC + assumed spread).
+    """
+    slip = config.slippage_pips * config.pip_size
+    return float(quote_price - slip) if side > 0 else float(quote_price + slip)
+
+
 def _finite(row: pd.Series, name: str) -> float | None:
     value = row.get(name)
     try:
@@ -439,9 +455,9 @@ def _close_position(
     raw_exit: float,
     timestamp: pd.Timestamp,
     reason: str,
-    execution: ExecutionConfig,
+    config: V51Config,
 ) -> dict[str, Any]:
-    exit_price = apply_exit_cost(raw_exit, position.side, execution)
+    exit_price = _bid_ohlc_exit_fill(raw_exit, position.side, config)
     result_r = position.side * (exit_price - position.entry_price) / position.risk_distance
     return {
         "entry_time_server": position.entry_time.isoformat(),
@@ -465,16 +481,15 @@ def _intrabar_exit(
     row: pd.Series,
     timestamp: pd.Timestamp,
     config: V51Config,
-    execution: ExecutionConfig,
 ) -> dict[str, Any] | None:
     high = float(row["High"])
     low = float(row["Low"])
     spread_price = config.spread_pips * config.pip_size
     if position.side > 0:
         if low <= position.stop:
-            return _close_position(position, position.stop, timestamp, "SL", execution)
+            return _close_position(position, position.stop, timestamp, "SL", config)
         if high >= position.target:
-            return _close_position(position, position.target, timestamp, "TP", execution)
+            return _close_position(position, position.target, timestamp, "TP", config)
     else:
         ask_high, ask_low = high + spread_price, low + spread_price
         if ask_high >= position.stop:
@@ -507,13 +522,6 @@ def backtest_v51(
     if not features.index.is_monotonic_increasing or features.index.has_duplicates:
         raise ValueError("V51_FEATURES_INDEX_INVALID")
 
-    execution = ExecutionConfig(
-        spread_pips=cfg.spread_pips,
-        slippage_pips=cfg.slippage_pips,
-        pip_size=cfg.pip_size,
-        risk_pct=cfg.risk_fraction,
-        expiry_bars=cfg.max_hold_bars,
-    )
     equity = peak = float(cfg.initial_equity)
     max_dd = 0.0
     day_start_equity = equity
@@ -537,7 +545,7 @@ def backtest_v51(
         # TimeStopStale runs before the entry filters in MQL5.
         if position is not None and i - position.entry_index >= cfg.max_hold_bars:
             raw_exit = bid_open if position.side > 0 else bid_open + cfg.spread_pips * cfg.pip_size
-            closed = _close_position(position, raw_exit, timestamp, "MAX_HOLD_BARS", execution)
+            closed = _close_position(position, raw_exit, timestamp, "MAX_HOLD_BARS", cfg)
             closed["holding_bars"] = i - position.entry_index
             trades.append(closed)
             equity *= 1.0 + closed["R"] * position.risk_fraction
@@ -609,7 +617,7 @@ def backtest_v51(
                     spread_price = cfg.spread_pips * cfg.pip_size
                     wide_spread = spread_price > cfg.spread_mult_max * atr_for_risk * 0.08
                     risk_fraction = cfg.risk_fraction * (0.5 if cfg.wide_spread_half_risk and wide_spread else 1.0)
-                    entry_price = apply_entry_cost(bid_open, signal.side, execution)
+                    entry_price = _bid_ohlc_entry_fill(bid_open, signal.side, cfg)
                     risk_distance = abs(entry_price - signal.stop)
                     if risk_distance > 0 and np.isfinite(risk_distance):
                         position = _Position(
@@ -642,7 +650,7 @@ def backtest_v51(
         # An existing position blocks a new signal for this bar, but its
         # broker-side SL/TP continues to be evaluated regardless of entry gates.
         if position is not None:
-            closed = _intrabar_exit(position, row, timestamp, cfg, execution)
+            closed = _intrabar_exit(position, row, timestamp, cfg)
             if closed is not None:
                 closed["holding_bars"] = i - position.entry_index + 1
                 trades.append(closed)
@@ -680,7 +688,7 @@ def backtest_v51(
         "final_equity": round(equity, 2),
         "max_dd_pct": round(100.0 * max_dd, 4),
         "average_holding_bars": round(float(np.mean([t["holding_bars"] for t in trades])), 3) if trades else 0.0,
-        "round_trip_cost_pips": execution.round_trip_cost_pips,
+        "round_trip_cost_pips": cfg.spread_pips + 2.0 * cfg.slippage_pips,
         "spread_pips_assumed": cfg.spread_pips,
         "slippage_pips_per_side_assumed": cfg.slippage_pips,
         "wide_spread_half_risk_entries": wide_spread_entries,
@@ -694,7 +702,7 @@ def backtest_v51(
         "signal_log": signals,
         "config": asdict(cfg),
         "limitations": [
-            "OHLC bar simulation; no tick-level fills or broker-specific execution.",
+            "BID-OHLC bar simulation; ASK is reconstructed with a fixed assumed spread, and no tick-level fills or broker-specific execution are available.",
             "MQL5 built-in indicator buffers are approximated with Wilder smoothing and SMA Bollinger bands; export-based MT5 parity is still required.",
             "The default server UTC offset is an explicit assumption and must be replaced with the broker's observed offset.",
             "Commission and swap are not included because no verified historical commission schedule was supplied.",
