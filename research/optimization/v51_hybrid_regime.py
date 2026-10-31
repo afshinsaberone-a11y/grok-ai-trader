@@ -552,85 +552,90 @@ def backtest_v51(
             position = None
 
         had_open_position_at_bar_start = position is not None
-        if not had_open_position_at_bar_start:
-            if cooldown_left > 0:
-                cooldown_left -= 1
-                skipped_cooldown += 1
-            else:
-                spread_pass = _spread_ok(row, cfg)
-                session_pass = _session_ok(timestamp, cfg)
-                news_pass = _news_ok(timestamp, cfg)
-                filters_pass = spread_pass and session_pass and news_pass
-                if filters_pass:
-                    # In the MQL5 EA, RollDayIfNeeded is called inside the
-                    # daily-lock functions after spread/session/news gates.
-                    current_day = timestamp.date()
-                    if active_day != current_day:
-                        active_day = current_day
-                        day_start_equity = equity
-                        trades_today = 0
-                        consecutive_losses = 0
-                        cooldown_left = 0
-                daily_loss_pass = 100.0 * (day_start_equity - equity) / day_start_equity < cfg.daily_loss_limit_pct
-                daily_profit_pass = 100.0 * (equity - day_start_equity) / day_start_equity < cfg.daily_profit_lock_pct
-                daily_pass = daily_loss_pass and daily_profit_pass
-                if not spread_pass:
-                    skipped_spread += 1
-                if not session_pass or not news_pass:
-                    skipped_session += 1
-                if not daily_pass:
-                    skipped_daily_lock += 1
-                if spread_pass and session_pass and news_pass and daily_pass and trades_today < cfg.max_trades_per_day:
-                    raw_regime = _regime_raw(row, cfg)
-                    if raw_regime == previous_raw_regime:
-                        same_regime_count += 1
-                    else:
-                        previous_raw_regime = raw_regime
-                        same_regime_count = 1
-                    if same_regime_count >= cfg.regime_confirm_bars:
-                        stable_regime = raw_regime
-                    signal = evaluate_v51_signal(
-                        row,
-                        regime=stable_regime,
-                        current_bid_open=bid_open,
-                        spread_price=cfg.spread_pips * cfg.pip_size,
-                        config=cfg,
-                    )
-                    if signal is not None:
-                        atr_for_risk = _finite(row, "DECISION_ATR")
-                        assert atr_for_risk is not None
-                        spread_price = cfg.spread_pips * cfg.pip_size
-                        wide_spread = spread_price > cfg.spread_mult_max * atr_for_risk * 0.08
-                        risk_fraction = cfg.risk_fraction * (0.5 if cfg.wide_spread_half_risk and wide_spread else 1.0)
-                        entry_price = apply_entry_cost(bid_open, signal.side, execution)
-                        risk_distance = abs(entry_price - signal.stop)
-                        if risk_distance > 0 and np.isfinite(risk_distance):
-                            position = _Position(
-                                side=signal.side,
-                                setup=signal.setup,
-                                entry_time=timestamp,
-                                entry_index=i,
-                                entry_price=entry_price,
-                                stop=signal.stop,
-                                target=signal.target,
-                                risk_distance=risk_distance,
-                                risk_fraction=risk_fraction,
-                                spread_pips=cfg.spread_pips,
-                            )
-                            trades_today += 1
-                            if wide_spread and cfg.wide_spread_half_risk:
-                                wide_spread_entries += 1
-                            signals.append({
-                                "timestamp_utc": utc_timestamp.isoformat(),
-                                "timestamp_server": timestamp.isoformat(),
-                                "side": "LONG" if signal.side > 0 else "SHORT",
-                                "setup": signal.setup,
-                                "stable_regime": stable_regime,
-                                "signal_bar_shift": 2,
-                                "entry_price_model": entry_price,
-                                "stop": signal.stop,
-                                "target": signal.target,
-                            })
+        if cooldown_left > 0:
+            cooldown_left -= 1
+            skipped_cooldown += 1
+        else:
+            spread_pass = _spread_ok(row, cfg)
+            session_pass = _session_ok(timestamp, cfg)
+            news_pass = _news_ok(timestamp, cfg)
+            filters_pass = spread_pass and session_pass and news_pass
+            if filters_pass:
+                # In the MQL5 EA, RollDayIfNeeded is called inside the
+                # daily-lock functions after spread/session/news gates.
+                current_day = timestamp.date()
+                if active_day != current_day:
+                    active_day = current_day
+                    day_start_equity = equity
+                    trades_today = 0
+                    consecutive_losses = 0
+                    cooldown_left = 0
+            daily_loss_pass = 100.0 * (day_start_equity - equity) / day_start_equity < cfg.daily_loss_limit_pct
+            daily_profit_pass = 100.0 * (equity - day_start_equity) / day_start_equity < cfg.daily_profit_lock_pct
+            daily_pass = daily_loss_pass and daily_profit_pass
+            if not spread_pass:
+                skipped_spread += 1
+            if not session_pass or not news_pass:
+                skipped_session += 1
+            if not daily_pass:
+                skipped_daily_lock += 1
+            # A position already open at this bar's first tick blocks new
+            # entries for the full bar, even if its SL/TP closes intrabar.
+            if (
+                not had_open_position_at_bar_start
+                and spread_pass and session_pass and news_pass and daily_pass
+                and trades_today < cfg.max_trades_per_day
+            ):
+                raw_regime = _regime_raw(row, cfg)
+                if raw_regime == previous_raw_regime:
+                    same_regime_count += 1
+                else:
+                    previous_raw_regime = raw_regime
+                    same_regime_count = 1
+                if same_regime_count >= cfg.regime_confirm_bars:
+                    stable_regime = raw_regime
+                signal = evaluate_v51_signal(
+                    row,
+                    regime=stable_regime,
+                    current_bid_open=bid_open,
+                    spread_price=cfg.spread_pips * cfg.pip_size,
+                    config=cfg,
+                )
+                if signal is not None:
+                    atr_for_risk = _finite(row, "DECISION_ATR")
+                    assert atr_for_risk is not None
+                    spread_price = cfg.spread_pips * cfg.pip_size
+                    wide_spread = spread_price > cfg.spread_mult_max * atr_for_risk * 0.08
+                    risk_fraction = cfg.risk_fraction * (0.5 if cfg.wide_spread_half_risk and wide_spread else 1.0)
+                    entry_price = apply_entry_cost(bid_open, signal.side, execution)
+                    risk_distance = abs(entry_price - signal.stop)
+                    if risk_distance > 0 and np.isfinite(risk_distance):
+                        position = _Position(
+                            side=signal.side,
+                            setup=signal.setup,
+                            entry_time=timestamp,
+                            entry_index=i,
+                            entry_price=entry_price,
+                            stop=signal.stop,
+                            target=signal.target,
+                            risk_distance=risk_distance,
+                            risk_fraction=risk_fraction,
+                            spread_pips=cfg.spread_pips,
+                        )
+                        trades_today += 1
+                        if wide_spread and cfg.wide_spread_half_risk:
+                            wide_spread_entries += 1
+                        signals.append({
+                            "timestamp_utc": utc_timestamp.isoformat(),
+                            "timestamp_server": timestamp.isoformat(),
+                            "side": "LONG" if signal.side > 0 else "SHORT",
+                            "setup": signal.setup,
+                            "stable_regime": stable_regime,
+                            "signal_bar_shift": 2,
+                            "entry_price_model": entry_price,
+                            "stop": signal.stop,
+                            "target": signal.target,
+                        })
 
         # An existing position blocks a new signal for this bar, but its
         # broker-side SL/TP continues to be evaluated regardless of entry gates.
