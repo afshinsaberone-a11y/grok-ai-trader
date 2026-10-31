@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
@@ -24,6 +24,7 @@ ATTESTATION_SCHEMA = "forexai.trust_registry.review_attestation.v1"
 PAYLOAD_SCHEMA = "forexai.trust_registry.review_attestation_payload.v1"
 REVIEW_SCOPE = "TRUST_REGISTRY_KEYS_POLICY_SIGNERS_AND_SOURCE_BUILD_MANIFEST"
 ROOT_KEY_ID = "forexai-trust-registry-root-v1"
+MAX_REVIEW_ATTESTATION_LIFETIME = timedelta(days=7)
 SHA256_PIN = re.compile(r"^sha256:[0-9a-f]{64}$")
 PIN_FIELDS = {
     "schema", "key_id", "identity", "algorithm", "encoding",
@@ -177,7 +178,14 @@ def verify_review_attestation(
     valid_until = _parse_time(payload.get("valid_until_utc"), "REVIEW_ATTESTATION_TIMESTAMP_INVALID")
     if reviewed_at > current:
         raise ReviewAttestationError("REVIEW_ATTESTATION_REVIEW_TIME_FROM_FUTURE")
-    if valid_until <= valid_from or current < valid_from or current >= valid_until:
+    if (
+        valid_until <= valid_from
+        or valid_until - valid_from > MAX_REVIEW_ATTESTATION_LIFETIME
+        or reviewed_at < valid_from
+        or reviewed_at >= valid_until
+        or current < valid_from
+        or current >= valid_until
+    ):
         raise ReviewAttestationError("REVIEW_ATTESTATION_OUTSIDE_VALIDITY_WINDOW")
 
     signature_obj = attestation.get("signature")
