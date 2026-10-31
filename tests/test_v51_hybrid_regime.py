@@ -178,3 +178,65 @@ def test_bid_ohlc_entry_and_exit_costs_apply_spread_once_and_slippage_each_side(
     # Spread is charged once per round trip; slippage is charged on entry and exit.
     round_trip_cost = config.spread_pips + 2.0 * config.slippage_pips
     assert round_trip_cost == pytest.approx(0.9)
+
+
+def test_short_position_uses_ask_high_low_for_sl_and_tp_exits():
+    config = V51Config(spread_pips=0.5, slippage_pips=0.2, pip_size=0.0001)
+    timestamp = pd.Timestamp("2024-01-01T00:15:00Z")
+    position = _Position(
+        side=-1,
+        setup="A-trend",
+        entry_time=pd.Timestamp("2024-01-01T00:00:00Z"),
+        entry_index=0,
+        entry_price=1.09980,
+        stop=1.10050,
+        target=1.09850,
+        risk_distance=0.00070,
+        risk_fraction=0.005,
+        spread_pips=0.5,
+    )
+
+    stop_result = _intrabar_exit(
+        position,
+        pd.Series({"High": 1.10060, "Low": 1.09900}),
+        timestamp,
+        config,
+    )
+    target_result = _intrabar_exit(
+        position,
+        pd.Series({"High": 1.10000, "Low": 1.09840}),
+        timestamp,
+        config,
+    )
+
+    assert stop_result is not None
+    assert stop_result["exit_reason"] == "SL"
+    assert stop_result["R"] < 0
+    assert target_result is not None
+    assert target_result["exit_reason"] == "TP"
+    assert target_result["R"] > 0
+
+
+def test_short_same_bar_stop_remains_conservative_when_stop_and_target_both_touch():
+    config = V51Config(spread_pips=0.5, slippage_pips=0.2, pip_size=0.0001)
+    position = _Position(
+        side=-1,
+        setup="B-squeeze",
+        entry_time=pd.Timestamp("2024-01-01T00:00:00Z"),
+        entry_index=0,
+        entry_price=1.09980,
+        stop=1.10050,
+        target=1.09850,
+        risk_distance=0.00070,
+        risk_fraction=0.005,
+        spread_pips=0.5,
+    )
+    result = _intrabar_exit(
+        position,
+        pd.Series({"High": 1.10060, "Low": 1.09840}),
+        pd.Timestamp("2024-01-01T00:15:00Z"),
+        config,
+    )
+    assert result is not None
+    assert result["exit_reason"] == "SL"
+    assert result["R"] < 0
