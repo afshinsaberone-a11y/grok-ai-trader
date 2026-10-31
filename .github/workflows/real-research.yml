@@ -82,9 +82,9 @@ jobs:
       - name: Download and validate REAL EURUSD data
         id: ingest
         env:
-          START: ${{ inputs.start }}
-          END: ${{ inputs.end }}
-          TIMEFRAME: ${{ inputs.timeframe }}
+          START: ${{ inputs.start || '2022-01-01' }}
+          END: ${{ inputs.end || '2026-10-31' }}
+          TIMEFRAME: ${{ inputs.timeframe || 'M15' }}
         run: |
           set -euo pipefail
           echo "REAL_DATA_REQUEST start=$START end_exclusive=$END timeframe=$TIMEFRAME"
@@ -120,9 +120,9 @@ jobs:
 
       - name: Run baseline backtest on IS and Validation only
         env:
-          START: ${{ inputs.start }}
-          END: ${{ inputs.end }}
-          TIMEFRAME: ${{ inputs.timeframe }}
+          START: ${{ inputs.start || '2022-01-01' }}
+          END: ${{ inputs.end || '2026-10-31' }}
+          TIMEFRAME: ${{ inputs.timeframe || 'M15' }}
         run: |
           END_INCLUSIVE=$(date -u -d "$END - 1 day" +%Y%m%d)
           START_COMPACT=${START//-/}
@@ -138,13 +138,13 @@ jobs:
             --output artifacts/real_backtest_report.json
 
       - name: Run V51 hybrid-regime backtest on REAL EURUSD M15
-        if: ${{ inputs.timeframe == 'M15' }}
+        if: ${{ (inputs.timeframe || 'M15') == 'M15' }}
         env:
-          START: ${{ inputs.start }}
-          END: ${{ inputs.end }}
-          SERVER_UTC_OFFSET_HOURS: ${{ inputs.server_utc_offset_hours }}
-          SPREAD_PIPS: ${{ inputs.spread_pips }}
-          SLIPPAGE_PIPS: ${{ inputs.slippage_pips }}
+          START: ${{ inputs.start || '2022-01-01' }}
+          END: ${{ inputs.end || '2026-10-31' }}
+          SERVER_UTC_OFFSET_HOURS: ${{ inputs.server_utc_offset_hours || '0' }}
+          SPREAD_PIPS: ${{ inputs.spread_pips || '0.5' }}
+          SLIPPAGE_PIPS: ${{ inputs.slippage_pips || '0.2' }}
         run: |
           END_INCLUSIVE=$(date -u -d "$END - 1 day" +%Y%m%d)
           START_COMPACT=${START//-/}
@@ -165,16 +165,16 @@ jobs:
       - name: Upload research artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: real-research-${{ inputs.timeframe }}-${{ inputs.start }}-${{ inputs.end }}
+          name: real-research-${{ inputs.timeframe || 'M15' }}-${{ inputs.start || '2022-01-01' }}-${{ inputs.end || '2026-10-31' }}
           path: |
             data/real/normalized/
             artifacts/real_backtest_report.json
           if-no-files-found: error
 
       - name: Upload V51 research artifact
-        if: ${{ inputs.timeframe == 'M15' }}
+        if: ${{ (inputs.timeframe || 'M15') == 'M15' }}
         uses: actions/upload-artifact@v4
         with:
-          name: v51-real-backtest-${{ inputs.start }}-${{ inputs.end }}
+          name: v51-real-backtest-${{ inputs.start || '2022-01-01' }}-${{ inputs.end || '2026-10-31' }}
           path: artifacts/v51_real_backtest.json
           if-no-files-found: error
