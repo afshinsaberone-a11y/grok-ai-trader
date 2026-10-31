@@ -152,3 +152,10 @@ def test_backtest_requires_prepared_features_and_does_not_invent_trades():
     assert report["trades"] == 0
     assert report["round_trip_cost_pips"] == pytest.approx(1.4)
     assert report["open_position_at_end"] is False
+
+
+def test_unsorted_real_input_is_rejected_not_silently_reordered():
+    data = _ohlc(30)
+    data.iloc[[4, 5]] = data.iloc[[5, 4]].to_numpy()
+    with pytest.raises(ValueError, match="EXECUTION_CONTRACT_NON_MONOTONIC"):
+        prepare_v51_features(data)
