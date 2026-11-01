@@ -32,4 +32,17 @@ def test_v51_runner_reports_empty_validation_and_oos_instead_of_fabricating_data
     assert report["splits"]["IS_2022_2024"]["rows"] == rows
     assert report["splits"]["VALIDATION_2025"]["status"] == "NO_DATA"
     assert report["splits"]["OOS_2026"]["status"] == "NO_DATA"
+    ablation = report["branch_ablation"]
+    assert ablation["schema"] == "forexai.v51.branch_ablation.v1"
+    assert ablation["selection_policy"]["full_engine_rerun"] is True
+    assert ablation["selection_policy"]["post_hoc_trade_log_filtering"] is False
+    assert ablation["selection_policy"]["OOS_2026"].startswith("Excluded entirely")
+    assert "OOS_2026" not in ablation["splits"]
+    assert ablation["splits"]["VALIDATION_2025"]["status"] == "NO_DATA"
+    scenarios = ablation["splits"]["IS_2022_2024"]["scenarios"]
+    assert set(scenarios) == {
+        "only_A-trend", "only_B-squeeze", "only_C-range",
+        "without_A-trend", "without_B-squeeze", "without_C-range",
+    }
+    assert scenarios["only_A-trend"]["status"] == "NO_CLOSED_TRADES"
     assert output.is_file()
