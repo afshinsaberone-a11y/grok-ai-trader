@@ -532,6 +532,14 @@ def _parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
+def _resampled_source_label(m1_source: str, timeframe: str) -> str:
+    """Describe the actual M1 provider lineage retained by a resampled dataset."""
+    source = m1_source.strip()
+    if not source:
+        raise DukascopyIngestError("REAL_DATA_REQUIRED: M1 source provenance is empty")
+    return f"{source} resampled to {timeframe}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Download and validate real Dukascopy EURUSD data")
     parser.add_argument("--symbol", default="EURUSD", choices=["EURUSD"])
@@ -593,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
                 dataset_id=f"{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}",
                 symbol="EURUSD",
                 timeframe=args.timeframe,
-                source=f"Dukascopy JETTA v1 BID candles resampled to {args.timeframe}",
+                source=_resampled_source_label(str(result["manifest"]["source"]), args.timeframe),
                 source_hash=str(result["manifest"]["source_hash"]),
                 quality_status=report.status,
                 output_path=Path(args.output) / "normalized" / f"EURUSD_{args.timeframe}_{_parse_date(args.start):%Y%m%d}_{(_parse_date(args.end) - timedelta(days=1)):%Y%m%d}.manifest.json",
