@@ -50,6 +50,8 @@ class V51Config:
     news_blackout_start: int = -1
     news_blackout_end: int = -1
     max_hold_bars: int = 30
+    # Research-only branch switch for full-engine ablation reruns.
+    enabled_branches: tuple[str, ...] = ("A-trend", "B-squeeze", "C-range")
     pip_size: float = 0.0001
     spread_pips: float = 0.5
     slippage_pips: float = 0.2
@@ -63,6 +65,14 @@ class V51Config:
             raise ValueError("V51_RESEARCH_CONTRACT_REQUIRES_ONE_POSITION")
         if self.max_trades_per_day < 1 or self.max_hold_bars < 1:
             raise ValueError("V51_INVALID_TRADE_LIMIT")
+        allowed_branches = {"A-trend", "B-squeeze", "C-range"}
+        if (
+            not isinstance(self.enabled_branches, tuple)
+            or not self.enabled_branches
+            or len(set(self.enabled_branches)) != len(self.enabled_branches)
+            or not set(self.enabled_branches).issubset(allowed_branches)
+        ):
+            raise ValueError("V51_INVALID_ENABLED_BRANCHES")
         if self.atr_sl_mult <= 0 or self.rr_target < 1:
             raise ValueError("V51_INVALID_STOP_OR_REWARD_RATIO")
         if self.spread_pips <= 0 or self.slippage_pips < 0 or self.pip_size <= 0:
@@ -332,6 +342,9 @@ def evaluate_v51_signal(
 ) -> V51Signal | None:
     """Evaluate one V51 branch for the current entry bar using shifted features."""
     cfg = config or V51Config()
+    branch_for_regime = {1: "A-trend", 2: "B-squeeze", -1: "C-range"}.get(regime)
+    if branch_for_regime is None or branch_for_regime not in cfg.enabled_branches:
+        return None
     atr = _finite(row, "DECISION_ATR")
     if atr is None or atr <= 0:
         return None
