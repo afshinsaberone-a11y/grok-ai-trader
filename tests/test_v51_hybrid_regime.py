@@ -91,6 +91,37 @@ def test_trend_branch_uses_shifted_ma_atr_di_and_h4_filters():
     assert signal.target == pytest.approx(105.51)
 
 
+def test_disabled_branch_is_suppressed_before_signal_creation():
+    row = pd.Series(
+        {
+            "DECISION_ATR": 2.0,
+            "DECISION_CLOSE": 101.0,
+            "DECISION_SMA200": 100.0,
+            "DECISION_DI_PLUS": 24.0,
+            "DECISION_DI_MINUS": 12.0,
+            "HTF_CLOSE_SHIFT2": 105.0,
+            "HTF_SMA200_SHIFT2": 100.0,
+        }
+    )
+    config = V51Config(enabled_branches=("C-range",))
+    assert evaluate_v51_signal(
+        row,
+        regime=1,
+        current_bid_open=100.0,
+        spread_price=0.00005,
+        config=config,
+    ) is None
+
+
+def test_branch_switch_rejects_empty_duplicate_or_unknown_branch_sets():
+    with pytest.raises(ValueError, match="V51_INVALID_ENABLED_BRANCHES"):
+        V51Config(enabled_branches=())
+    with pytest.raises(ValueError, match="V51_INVALID_ENABLED_BRANCHES"):
+        V51Config(enabled_branches=("A-trend", "A-trend"))
+    with pytest.raises(ValueError, match="V51_INVALID_ENABLED_BRANCHES"):
+        V51Config(enabled_branches=("A-trend", "D-breakout"))
+
+
 def test_range_or_trend_does_not_signal_when_required_indicators_are_missing():
     row = pd.Series(
         {
