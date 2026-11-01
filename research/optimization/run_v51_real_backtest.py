@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,80 @@ def _json_default(value: Any) -> Any:
     if isinstance(value, (pd.Timestamp, Path)):
         return str(value)
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _ablation_summary(report: dict[str, Any]) -> dict[str, Any]:
+    """Keep the comparison report compact while retaining per-branch trade counts."""
+    fields = (
+        "status", "simulation_status", "performance_status", "rows", "trades",
+        "entries", "win_rate_pct", "expectancy_R", "profit_factor", "total_R",
+        "final_equity", "max_dd_pct", "average_holding_bars",
+        "round_trip_cost_pips", "skipped",
+    )
+    summary = {key: report[key] for key in fields if key in report}
+    trade_log = report.get("trade_log", [])
+    summary["closed_trades_by_branch"] = {
+        branch: sum(1 for trade in trade_log if trade.get("setup") == branch)
+        for branch in ("A-trend", "B-squeeze", "C-range")
+    }
+    return summary
+
+
+def _build_branch_ablation(
+    features: pd.DataFrame,
+    config: V51Config,
+    baseline_reports: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Rerun the complete simulator with branches enabled/disabled.
+
+    Only IS and Validation bars are passed to this function. OOS is intentionally
+    excluded so its results remain untouched by branch exploration.
+    """
+    branch_names = ("A-trend", "B-squeeze", "C-range")
+    scenarios: dict[str, tuple[str, ...]] = {
+        f"only_{branch}": (branch,) for branch in branch_names
+    }
+    scenarios.update({
+        f"without_{branch}": tuple(name for name in branch_names if name != branch)
+        for branch in branch_names
+    })
+    split_ranges = {
+        "IS_2022_2024": (IS_START, VALIDATION_START),
+        "VALIDATION_2025": (VALIDATION_START, OOS_START),
+    }
+    utc = pd.to_datetime(features["utc_timestamp"], utc=True)
+    result: dict[str, Any] = {
+        "schema": "forexai.v51.branch_ablation.v1",
+        "selection_policy": {
+            "IS_2022_2024": "Exploration only; branch comparisons may be inspected here.",
+            "VALIDATION_2025": "Confirmation only; do not tune thresholds or parameters on this split.",
+            "OOS_2026": "Excluded entirely from branch ablation and remains held out.",
+            "parameters_changed": False,
+            "full_engine_rerun": True,
+            "post_hoc_trade_log_filtering": False,
+        },
+        "branch_scenarios": {name: list(enabled) for name, enabled in scenarios.items()},
+        "splits": {},
+    }
+    for split_name, (start, end) in split_ranges.items():
+        mask = (utc >= start) & (utc < end)
+        part = features.loc[mask]
+        if part.empty:
+            result["splits"][split_name] = {"status": "NO_DATA", "rows": 0}
+            continue
+
+        split_result: dict[str, Any] = {
+            "status": "COMPLETED",
+            "rows": int(len(part)),
+            "baseline_all_branches": _ablation_summary(baseline_reports[split_name]),
+            "scenarios": {},
+        }
+        for scenario_name, enabled in scenarios.items():
+            scenario_config = replace(config, enabled_branches=enabled)
+            scenario_report = backtest_v51(part, scenario_config)
+            split_result["scenarios"][scenario_name] = _ablation_summary(scenario_report)
+        result["splits"][split_name] = split_result
+    return result
 
 
 def run(
@@ -80,6 +155,8 @@ def run(
         report["end_utc"] = utc.loc[mask].max().isoformat()
         split_reports[name] = report
 
+    branch_ablation = _build_branch_ablation(features, config, split_reports)
+
     payload: dict[str, Any] = {
         "schema": "forexai.v51.real_backtest.v1",
         "status": "COMPLETED_WITH_REAL_DATA",
@@ -120,6 +197,7 @@ def run(
             "OOS_used_for_parameter_selection": False,
         },
         "splits": split_reports,
+        "branch_ablation": branch_ablation,
         "config": config.__dict__,
         "limitations": [
             "This runner does not optimize parameters or select a champion.",
