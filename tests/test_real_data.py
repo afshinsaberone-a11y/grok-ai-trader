@@ -269,3 +269,22 @@ def test_strategy_does_not_trade_before_atr_warmup():
     }, index=ts)
     result = GrokHybridStrategy().backtest_simple(data)
     assert result["trades"] == 0
+
+
+
+def test_resampled_manifest_source_tracks_actual_m1_provider():
+    from research.real_data.dukascopy_ingest import _resampled_source_label
+
+    assert _resampled_source_label(
+        "Dukascopy datafeed BID candles (BI5)", "M15"
+    ) == "Dukascopy datafeed BID candles (BI5) resampled to M15"
+    assert _resampled_source_label(
+        "Dukascopy real EURUSD M1 (JETTA JSON + legacy BI5 fallback)", "M5"
+    ) == "Dukascopy real EURUSD M1 (JETTA JSON + legacy BI5 fallback) resampled to M5"
+
+
+def test_resampled_manifest_rejects_empty_source_provenance():
+    from research.real_data.dukascopy_ingest import _resampled_source_label
+
+    with pytest.raises(DukascopyIngestError, match="source provenance is empty"):
+        _resampled_source_label("  ", "M15")
