@@ -32,6 +32,16 @@ def test_v51_runner_reports_empty_validation_and_oos_instead_of_fabricating_data
     assert report["splits"]["IS_2022_2024"]["rows"] == rows
     assert report["splits"]["VALIDATION_2025"]["status"] == "NO_DATA"
     assert report["splits"]["OOS_2026"]["status"] == "NO_DATA"
+    design_diagnostic = report["is_only_design_diagnostics"]
+    assert design_diagnostic["schema"] == "forexai.v51.is_only_design_diagnostics.v1"
+    assert design_diagnostic["scope"] == "IS_2022_2024_ONLY"
+    assert design_diagnostic["minimum_net_reward_risk"] == 1.0
+    assert design_diagnostic["full_engine_rerun"] is True
+    assert design_diagnostic["post_hoc_trade_log_filtering"] is False
+    assert design_diagnostic["validation_and_oos_used"] is False
+    assert design_diagnostic["mql5_parity_status"] == "NOT_IMPLEMENTED_RESEARCH_ONLY_VARIANT"
+    assert design_diagnostic["production_ea_changed"] is False
+    assert design_diagnostic["candidate"]["status"] == "NO_CLOSED_TRADES"
     ablation = report["branch_ablation"]
     assert ablation["schema"] == "forexai.v51.branch_ablation.v1"
     assert ablation["selection_policy"]["full_engine_rerun"] is True
