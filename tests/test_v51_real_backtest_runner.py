@@ -56,6 +56,12 @@ def test_v51_runner_reports_empty_validation_and_oos_instead_of_fabricating_data
     assert directional["mql5_parity_status"] == "NOT_IMPLEMENTED_RESEARCH_ONLY_VARIANT"
     assert directional["production_ea_changed"] is False
     assert directional["candidate"]["status"] == "NO_CLOSED_TRADES"
+    confirmation = report["validation_directional_confirmation"]
+    assert confirmation["schema"] == "forexai.v51.validation_directional_confirmation.v1"
+    assert confirmation["status"] == "NO_DATA"
+    assert confirmation["scope"] == "VALIDATION_2025_ONLY"
+    assert confirmation["validation_used_for_parameter_selection"] is False
+    assert confirmation["oos_used"] is False
     assert design_diagnostic["candidate"]["status"] == "NO_CLOSED_TRADES"
     ablation = report["branch_ablation"]
     assert ablation["schema"] == "forexai.v51.branch_ablation.v1"
@@ -78,4 +84,44 @@ def test_v51_runner_reports_empty_validation_and_oos_instead_of_fabricating_data
     baseline_breakdown = ablation["splits"]["IS_2022_2024"]["baseline_all_branches"]["closed_trades_by_branch_side"]
     assert "C-range:LONG" in baseline_breakdown
     assert "C-range:SHORT" in baseline_breakdown
+    assert output.is_file()
+
+
+
+def test_v51_locked_directional_candidate_validation_is_confirmation_only(tmp_path):
+    rows = 80
+    timestamps = pd.date_range("2025-01-02T00:00:00Z", periods=rows, freq="15min")
+    close = [1.10 + i * 0.00001 for i in range(rows)]
+    data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "open": close,
+            "high": [value + 0.00005 for value in close],
+            "low": [value - 0.00005 for value in close],
+            "close": close,
+            "volume": [1.0] * rows,
+            "spread": [float("nan")] * rows,
+        }
+    )
+    dataset = tmp_path / "real_eurusd_m15_validation.csv"
+    output = tmp_path / "validation_report.json"
+    data.to_csv(dataset, index=False)
+
+    report = run(dataset, output_path=output)
+    confirmation = report["validation_directional_confirmation"]
+
+    assert confirmation["status"] == "COMPLETED"
+    assert confirmation["scope"] == "VALIDATION_2025_ONLY"
+    assert confirmation["locked_candidate"] is True
+    assert confirmation["enabled_branch_sides"] == [
+        "A-trend:SHORT", "B-squeeze:LONG", "B-squeeze:SHORT", "C-range:LONG",
+    ]
+    assert confirmation["validation_used_for_parameter_selection"] is False
+    assert confirmation["validation_is_confirmation_only"] is True
+    assert confirmation["oos_used"] is False
+    assert confirmation["mql5_parity_status"] == "NOT_IMPLEMENTED_RESEARCH_ONLY_VARIANT"
+    assert confirmation["production_ea_changed"] is False
+    assert confirmation["demo_live_eligibility"] == "NOT_ELIGIBLE_RESEARCH_ONLY"
+    assert confirmation["candidate"]["status"] == "NO_CLOSED_TRADES"
+    assert confirmation["confirmation_passed"] is False
     assert output.is_file()

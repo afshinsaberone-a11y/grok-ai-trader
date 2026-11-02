@@ -65,3 +65,34 @@ These values are included only as historical context from the previous full repo
 ## Decision
 
 Do not promote V51. Do not enable the failed RR guard. Run only the declared IS directional ablation, inspect its full-engine result, and preserve the current production EA and all Demo/Live locks.
+
+
+## 5. Real IS directional-ablation result — workflow run 41496903998
+
+The full stateful engine rerun completed on the same validated 120,960-row Dukascopy dataset. The predeclared candidate disabled A-trend LONG and C-range SHORT only.
+
+| IS metric | Baseline | Locked candidate |
+|---|---:|---:|
+| Closed trades | 416 | 228 |
+| Expectancy | -0.128780R | -0.079412R |
+| Profit Factor | 0.794412 | 0.869114 |
+| Win rate | 37.50% | 39.47% |
+| Total R | -53.5723R | -18.1059R |
+| Final equity from $10,000 | $8,019.97 | $9,148.22 |
+| Maximum drawdown | 22.0775% | 12.0547% |
+
+The stateful rerun reduced the trade count by 188, improved expectancy by 0.049368R, improved profit factor by 0.074702, and reduced maximum drawdown by about 10.02 percentage points. The candidate still lost about 8.52% of starting equity over IS; negative expectancy and PF below 1 mean the strategy remains unprofitable under this model. The candidate is therefore retained only as a research hypothesis, not a champion or trading configuration.
+
+The full engine produced 132 C-range LONG trades for the candidate versus 131 in baseline, because changing earlier position occupancy and cooldown state changes subsequent entries. This confirms why post-hoc trade-log filtering would have been invalid.
+
+## 6. Locked Validation confirmation protocol
+
+The exact candidate side set is now locked for a single confirmation-only evaluation on 2025 Validation:
+- A-trend SHORT, B-squeeze LONG/SHORT, and C-range LONG remain enabled.
+- A-trend LONG and C-range SHORT remain disabled.
+- Predeclared criteria: at least 50 closed trades, positive expectancy, PF > 1.0, and drawdown no greater than the Validation baseline.
+- Validation is not used for parameter or branch-side tuning. OOS 2026 is excluded entirely.
+- The Validation baseline was previously inspected, so this is not described as a pristine unseen holdout. The exact locked candidate has not been evaluated there yet; it will be run once and not iterated against the result.
+- Regardless of the confirmation result, the candidate remains Python research only and is not eligible for Demo/Live without MQL5 parity, tick-level/broker execution validation, commission/swap, and a further independent forward confirmation.
+
+No production EA, authorization key, grant, Demo/Live permission, or live trading configuration was changed.
