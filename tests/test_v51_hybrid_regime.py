@@ -8,6 +8,7 @@ from research.optimization.v51_hybrid_regime import (
     _build_signal_context,
     _close_position,
     _signal_side_enabled,
+    _modeled_target_stop_rr,
     _bid_ohlc_entry_fill,
     _bid_ohlc_exit_fill,
     _intrabar_exit,
@@ -383,3 +384,28 @@ def test_short_same_bar_stop_remains_conservative_when_stop_and_target_both_touc
     assert result is not None
     assert result["exit_reason"] == "SL"
     assert result["R"] < 0
+
+
+
+def test_quote_aware_range_net_rr_uses_executable_buy_and_sell_fills():
+    config = V51Config(spread_pips=0.5, slippage_pips=0.2, range_min_net_rr=1.0)
+    bid_open = 1.10000
+
+    # The pre-cost chart-price ratio is 1.10R, but executable-side spread and
+    # slippage reduce the modeled round-trip target/stop ratio below 1R.
+    buy = V51Signal(1, "C-range", 0.001, 1.09900, 1.10110)
+    sell = V51Signal(-1, "C-range", 0.001, 1.10105, 1.09895)
+    assert _modeled_target_stop_rr(buy, bid_open, config) < 1.0
+    assert _modeled_target_stop_rr(sell, bid_open, config) < 1.0
+
+    # Wider target distances remain eligible after the same modeled costs.
+    buy_wide = V51Signal(1, "C-range", 0.001, 1.09900, 1.10130)
+    sell_wide = V51Signal(-1, "C-range", 0.001, 1.10105, 1.09875)
+    assert _modeled_target_stop_rr(buy_wide, bid_open, config) >= 1.0
+    assert _modeled_target_stop_rr(sell_wide, bid_open, config) >= 1.0
+
+
+def test_quote_aware_range_net_rr_guard_is_opt_in_and_validated():
+    assert V51Config().range_min_net_rr == 0.0
+    with pytest.raises(ValueError, match="V51_INVALID_RANGE_NET_RR"):
+        V51Config(range_min_net_rr=-0.01)
