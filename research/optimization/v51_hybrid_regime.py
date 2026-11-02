@@ -57,6 +57,10 @@ class V51Config:
         "B-squeeze:LONG", "B-squeeze:SHORT",
         "C-range:LONG", "C-range:SHORT",
     )
+    # Research-only C-range guard; 0.0 preserves the MQL5-mirror baseline.
+    # A positive value enforces minimum reward/risk using modeled entry, stop,
+    # and target fills after spread and adverse slippage.
+    range_min_net_rr: float = 0.0
     pip_size: float = 0.0001
     spread_pips: float = 0.5
     slippage_pips: float = 0.2
@@ -94,6 +98,8 @@ class V51Config:
             raise ValueError("V51_INVALID_STOP_OR_REWARD_RATIO")
         if self.spread_pips <= 0 or self.slippage_pips < 0 or self.pip_size <= 0:
             raise ValueError("V51_INVALID_EXECUTION_COST")
+        if not np.isfinite(self.range_min_net_rr) or self.range_min_net_rr < 0:
+            raise ValueError("V51_INVALID_RANGE_NET_RR")
         if self.regime_confirm_bars < 1 or self.halt_cooldown_bars < 0:
             raise ValueError("V51_INVALID_STATEFUL_FILTER")
         if not 0 <= self.session_start_hour <= 23 or not 0 <= self.session_end_hour <= 23:
@@ -327,6 +333,18 @@ def _bid_ohlc_exit_fill(quote_price: float, side: int, config: V51Config) -> flo
 def _signal_side_enabled(signal: V51Signal, config: V51Config) -> bool:
     side = "LONG" if signal.side > 0 else "SHORT"
     return f"{signal.setup}:{side}" in config.enabled_branch_sides
+
+
+def _modeled_target_stop_rr(signal: V51Signal, bid_open: float, config: V51Config) -> float:
+    """Return target/stop distance from executable modeled fills, after costs."""
+    entry_fill = _bid_ohlc_entry_fill(bid_open, signal.side, config)
+    stop_fill = _bid_ohlc_exit_fill(signal.stop, signal.side, config)
+    target_fill = _bid_ohlc_exit_fill(signal.target, signal.side, config)
+    risk_distance = abs(stop_fill - entry_fill)
+    reward_distance = signal.side * (target_fill - entry_fill)
+    if risk_distance <= 0 or reward_distance <= 0:
+        return 0.0
+    return float(reward_distance / risk_distance)
 
 
 def _finite(row: pd.Series, name: str) -> float | None:
@@ -740,6 +758,15 @@ def backtest_v51(
                     config=cfg,
                 )
                 if signal is not None and not _signal_side_enabled(signal, cfg):
+                    signal = None
+                # Optional C-range research hypothesis only. The default remains
+                # disabled so baseline Python/MQL5 rule parity is unchanged.
+                if (
+                    signal is not None
+                    and signal.setup == "C-range"
+                    and cfg.range_min_net_rr > 0
+                    and _modeled_target_stop_rr(signal, bid_open, cfg) < cfg.range_min_net_rr
+                ):
                     signal = None
                 if signal is not None:
                     atr_for_risk = _finite(row, "DECISION_ATR")
