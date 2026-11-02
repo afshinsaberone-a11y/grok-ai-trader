@@ -124,4 +124,53 @@ def test_v51_locked_directional_candidate_validation_is_confirmation_only(tmp_pa
     assert confirmation["demo_live_eligibility"] == "NOT_ELIGIBLE_RESEARCH_ONLY"
     assert confirmation["candidate"]["status"] == "NO_CLOSED_TRADES"
     assert confirmation["confirmation_passed"] is False
+    oos_confirmation = report["oos_directional_confirmation"]
+    assert oos_confirmation["schema"] == "forexai.v51.oos_directional_confirmation.v1"
+    assert oos_confirmation["status"] == "NO_DATA"
+    assert oos_confirmation["scope"] == "OOS_2026_ONLY"
+    assert oos_confirmation["is_used"] is False
+    assert oos_confirmation["validation_used"] is False
+    assert output.is_file()
+
+
+
+def test_v51_locked_directional_candidate_oos_is_one_time_and_fail_closed(tmp_path):
+    rows = 80
+    timestamps = pd.date_range("2026-01-02T00:00:00Z", periods=rows, freq="15min")
+    close = [1.10 + i * 0.00001 for i in range(rows)]
+    data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "open": close,
+            "high": [value + 0.00005 for value in close],
+            "low": [value - 0.00005 for value in close],
+            "close": close,
+            "volume": [1.0] * rows,
+            "spread": [float("nan")] * rows,
+        }
+    )
+    dataset = tmp_path / "real_eurusd_m15_oos.csv"
+    output = tmp_path / "oos_report.json"
+    data.to_csv(dataset, index=False)
+
+    report = run(dataset, output_path=output)
+    confirmation = report["oos_directional_confirmation"]
+
+    assert confirmation["status"] == "COMPLETED"
+    assert confirmation["scope"] == "OOS_2026_ONLY"
+    assert confirmation["locked_candidate"] is True
+    assert confirmation["enabled_branch_sides"] == [
+        "A-trend:SHORT", "B-squeeze:LONG", "B-squeeze:SHORT", "C-range:LONG",
+    ]
+    assert confirmation["is_used"] is False
+    assert confirmation["validation_used"] is False
+    assert confirmation["oos_used_for_candidate_evaluation"] is True
+    assert confirmation["oos_used_for_parameter_selection"] is False
+    assert confirmation["candidate_may_be_retuned_after_oos"] is False
+    assert confirmation["baseline_oos_previously_inspected"] is True
+    assert confirmation["mql5_parity_status"] == "NOT_IMPLEMENTED_RESEARCH_ONLY_VARIANT"
+    assert confirmation["production_ea_changed"] is False
+    assert confirmation["demo_live_eligibility"] == "NOT_ELIGIBLE_RESEARCH_ONLY"
+    assert confirmation["candidate"]["status"] == "NO_CLOSED_TRADES"
+    assert confirmation["confirmation_passed"] is False
     assert output.is_file()

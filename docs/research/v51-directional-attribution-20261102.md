@@ -96,3 +96,20 @@ The exact candidate side set is now locked for a single confirmation-only evalua
 - Regardless of the confirmation result, the candidate remains Python research only and is not eligible for Demo/Live without MQL5 parity, tick-level/broker execution validation, commission/swap, and a further independent forward confirmation.
 
 No production EA, authorization key, grant, Demo/Live permission, or live trading configuration was changed.
+
+
+## 7. One-time locked OOS evaluation protocol
+
+The locked candidate passed the predeclared Validation criteria on the 2025 split: 61 trades, +0.078041R expectancy, PF 1.141549, and 4.4568% maximum drawdown versus the Validation baseline's 17.8283%. The baseline Validation had been inspected previously; see the limitation above.
+
+The exact same candidate is now evaluated once on OOS 2026 (2026-01-01 through the latest available 2026-10-30 bar), with no IS or Validation bars passed into the candidate simulator. It is not permitted to change side gates or other parameters after seeing this result.
+
+Predeclared OOS confirmation criteria:
+- At least 50 closed trades.
+- Strictly positive expectancy.
+- Profit Factor strictly greater than 1.0.
+- Maximum drawdown no greater than the OOS baseline.
+
+The baseline OOS from the existing real-data report was 130 trades, -0.002242R expectancy, PF 0.995972, and 5.7655% maximum drawdown. Its metrics had been inspected before the candidate OOS run; therefore only the locked candidate's OOS performance is new evidence. This is a one-time fixed-candidate evaluation and cannot be used for tuning or selection of follow-on variants.
+
+Regardless of pass/fail, this remains a Python research-only configuration. It has not passed MQL5 side-gate parity, broker tick replay, commission/swap modeling, or forward Demo evidence. A passing OOS result is not by itself permission to trade.

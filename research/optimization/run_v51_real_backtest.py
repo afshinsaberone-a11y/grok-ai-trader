@@ -323,6 +323,81 @@ def _build_validation_directional_confirmation(
         ],
     }
 
+
+def _build_oos_locked_directional_confirmation(
+    features: pd.DataFrame,
+    config: V51Config,
+    baseline_reports: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Evaluate the exact IS/Validation-locked candidate once on OOS 2026.
+
+    No IS or Validation bars are passed to this candidate run. The exact side
+    set is fixed and cannot be selected or tuned from the OOS result.
+    """
+    utc = pd.to_datetime(features["utc_timestamp"], utc=True)
+    mask = utc >= OOS_START
+    oos_features = features.loc[mask]
+    if oos_features.empty:
+        return {
+            "schema": "forexai.v51.oos_directional_confirmation.v1",
+            "status": "NO_DATA",
+            "scope": "OOS_2026_ONLY",
+            "is_used": False,
+            "validation_used": False,
+        }
+
+    enabled_sides = (
+        "A-trend:SHORT", "B-squeeze:LONG",
+        "B-squeeze:SHORT", "C-range:LONG",
+    )
+    candidate_config = replace(config, enabled_branch_sides=enabled_sides)
+    candidate_report = backtest_v51(oos_features, candidate_config)
+    baseline = _ablation_summary(baseline_reports["OOS_2026"])
+    candidate = _ablation_summary(candidate_report)
+
+    min_trades = 50
+    baseline_dd = float(baseline.get("max_dd_pct", 0.0))
+    candidate_dd = float(candidate.get("max_dd_pct", 0.0))
+    criteria = {
+        "minimum_50_closed_trades": int(candidate.get("trades", 0)) >= min_trades,
+        "positive_expectancy": float(candidate.get("expectancy_R", 0.0)) > 0.0,
+        "profit_factor_above_1": float(candidate.get("profit_factor", 0.0)) > 1.0,
+        "drawdown_not_above_baseline": candidate_dd <= baseline_dd,
+    }
+    return {
+        "schema": "forexai.v51.oos_directional_confirmation.v1",
+        "status": "COMPLETED",
+        "scope": "OOS_2026_ONLY",
+        "locked_candidate": True,
+        "enabled_branch_sides": list(enabled_sides),
+        "baseline": baseline,
+        "candidate": candidate,
+        "predeclared_confirmation_criteria": {
+            "minimum_closed_trades": min_trades,
+            "expectancy_R": "strictly_positive",
+            "profit_factor": "strictly_greater_than_1.0",
+            "max_dd_pct": "not_greater_than_oos_baseline",
+        },
+        "criteria_results": criteria,
+        "confirmation_passed": all(criteria.values()),
+        "is_used": False,
+        "validation_used": False,
+        "oos_used_for_candidate_evaluation": True,
+        "oos_used_for_parameter_selection": False,
+        "candidate_may_be_retuned_after_oos": False,
+        "baseline_oos_previously_inspected": True,
+        "mql5_parity_status": "NOT_IMPLEMENTED_RESEARCH_ONLY_VARIANT",
+        "production_ea_changed": False,
+        "demo_live_eligibility": "NOT_ELIGIBLE_RESEARCH_ONLY",
+        "limitations": [
+            "The OOS baseline was previously inspected, but this locked candidate has not previously been evaluated on OOS.",
+            "This is a one-time evaluation; do not tune or select variants from this OOS result.",
+            "Commission and swap are omitted; fills are modeled from BID OHLC, not broker tick replay.",
+            "The candidate is Python research only and has not passed MT5 signal parity or forward demo validation.",
+        ],
+    }
+
+
 def run(
     data_path: str | Path,
     *,
@@ -382,6 +457,9 @@ def run(
     validation_directional_confirmation = _build_validation_directional_confirmation(
         features, config, split_reports
     )
+    oos_directional_confirmation = _build_oos_locked_directional_confirmation(
+        features, config, split_reports
+    )
 
     payload: dict[str, Any] = {
         "schema": "forexai.v51.real_backtest.v1",
@@ -427,6 +505,7 @@ def run(
         "is_only_design_diagnostics": is_only_design_diagnostics,
         "is_only_directional_diagnostics": is_only_directional_diagnostics,
         "validation_directional_confirmation": validation_directional_confirmation,
+        "oos_directional_confirmation": oos_directional_confirmation,
         "config": config.__dict__,
         "limitations": [
             "This runner does not optimize parameters or select a champion.",
