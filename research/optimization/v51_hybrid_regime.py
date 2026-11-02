@@ -52,6 +52,11 @@ class V51Config:
     max_hold_bars: int = 30
     # Research-only branch switch for full-engine ablation reruns.
     enabled_branches: tuple[str, ...] = ("A-trend", "B-squeeze", "C-range")
+    enabled_branch_sides: tuple[str, ...] = (
+        "A-trend:LONG", "A-trend:SHORT",
+        "B-squeeze:LONG", "B-squeeze:SHORT",
+        "C-range:LONG", "C-range:SHORT",
+    )
     pip_size: float = 0.0001
     spread_pips: float = 0.5
     slippage_pips: float = 0.2
@@ -73,6 +78,18 @@ class V51Config:
             or not set(self.enabled_branches).issubset(allowed_branches)
         ):
             raise ValueError("V51_INVALID_ENABLED_BRANCHES")
+        allowed_branch_sides = {
+            f"{branch}:{side}"
+            for branch in allowed_branches
+            for side in ("LONG", "SHORT")
+        }
+        if (
+            not isinstance(self.enabled_branch_sides, tuple)
+            or not self.enabled_branch_sides
+            or len(set(self.enabled_branch_sides)) != len(self.enabled_branch_sides)
+            or not set(self.enabled_branch_sides).issubset(allowed_branch_sides)
+        ):
+            raise ValueError("V51_INVALID_ENABLED_BRANCH_SIDES")
         if self.atr_sl_mult <= 0 or self.rr_target < 1:
             raise ValueError("V51_INVALID_STOP_OR_REWARD_RATIO")
         if self.spread_pips <= 0 or self.slippage_pips < 0 or self.pip_size <= 0:
@@ -305,6 +322,11 @@ def _bid_ohlc_exit_fill(quote_price: float, side: int, config: V51Config) -> flo
     """
     slip = config.slippage_pips * config.pip_size
     return float(quote_price - slip) if side > 0 else float(quote_price + slip)
+
+
+def _signal_side_enabled(signal: V51Signal, config: V51Config) -> bool:
+    side = "LONG" if signal.side > 0 else "SHORT"
+    return f"{signal.setup}:{side}" in config.enabled_branch_sides
 
 
 def _finite(row: pd.Series, name: str) -> float | None:
@@ -717,6 +739,8 @@ def backtest_v51(
                     spread_price=cfg.spread_pips * cfg.pip_size,
                     config=cfg,
                 )
+                if signal is not None and not _signal_side_enabled(signal, cfg):
+                    signal = None
                 if signal is not None:
                     atr_for_risk = _finite(row, "DECISION_ATR")
                     assert atr_for_risk is not None
