@@ -46,6 +46,28 @@ def _ablation_summary(report: dict[str, Any]) -> dict[str, Any]:
         branch: sum(1 for trade in trade_log if trade.get("setup") == branch)
         for branch in ("A-trend", "B-squeeze", "C-range")
     }
+    side_breakdown: dict[str, Any] = {}
+    for branch in ("A-trend", "B-squeeze", "C-range"):
+        for side in ("LONG", "SHORT"):
+            rows = [
+                trade for trade in trade_log
+                if trade.get("setup") == branch and trade.get("side") == side
+            ]
+            wins = sum(float(trade["R"]) for trade in rows if float(trade["R"]) > 0)
+            losses = abs(sum(float(trade["R"]) for trade in rows if float(trade["R"]) < 0))
+            count = len(rows)
+            side_breakdown[f"{branch}:{side}"] = {
+                "trades": count,
+                "win_rate_pct": round(100.0 * sum(float(trade["R"]) > 0 for trade in rows) / count, 3) if count else 0.0,
+                "expectancy_R": round(sum(float(trade["R"]) for trade in rows) / count, 6) if count else 0.0,
+                "total_R": round(sum(float(trade["R"]) for trade in rows), 6),
+                "profit_factor": round(wins / losses, 6) if losses > 0 else (3.0 if wins > 0 else 0.0),
+                "exit_reasons": {
+                    reason: sum(1 for trade in rows if trade.get("exit_reason") == reason)
+                    for reason in sorted({str(trade.get("exit_reason")) for trade in rows})
+                },
+            }
+    summary["closed_trades_by_branch_side"] = side_breakdown
     return summary
 
 
@@ -60,13 +82,27 @@ def _build_branch_ablation(
     excluded so its results remain untouched by branch exploration.
     """
     branch_names = ("A-trend", "B-squeeze", "C-range")
-    scenarios: dict[str, tuple[str, ...]] = {
-        f"only_{branch}": (branch,) for branch in branch_names
+    all_sides = (
+        "A-trend:LONG", "A-trend:SHORT",
+        "B-squeeze:LONG", "B-squeeze:SHORT",
+        "C-range:LONG", "C-range:SHORT",
+    )
+    scenarios: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+        f"only_{branch}": ((branch,), all_sides) for branch in branch_names
     }
     scenarios.update({
-        f"without_{branch}": tuple(name for name in branch_names if name != branch)
+        f"without_{branch}": (
+            tuple(name for name in branch_names if name != branch),
+            all_sides,
+        )
         for branch in branch_names
     })
+    # These two directional hypotheses are fixed before the new Validation run.
+    scenarios["only_C-range_LONG"] = (("C-range",), ("C-range:LONG",))
+    scenarios["without_A-trend_and_C-range_SHORT"] = (
+        ("B-squeeze", "C-range"),
+        ("B-squeeze:LONG", "B-squeeze:SHORT", "C-range:LONG"),
+    )
     split_ranges = {
         "IS_2022_2024": (IS_START, VALIDATION_START),
         "VALIDATION_2025": (VALIDATION_START, OOS_START),
@@ -82,7 +118,8 @@ def _build_branch_ablation(
             "full_engine_rerun": True,
             "post_hoc_trade_log_filtering": False,
         },
-        "branch_scenarios": {name: list(enabled) for name, enabled in scenarios.items()},
+        "branch_scenarios": {name: list(enabled) for name, (enabled, _) in scenarios.items()},
+        "branch_side_scenarios": {name: list(enabled_sides) for name, (_, enabled_sides) in scenarios.items()},
         "splits": {},
     }
     for split_name, (start, end) in split_ranges.items():
@@ -98,8 +135,12 @@ def _build_branch_ablation(
             "baseline_all_branches": _ablation_summary(baseline_reports[split_name]),
             "scenarios": {},
         }
-        for scenario_name, enabled in scenarios.items():
-            scenario_config = replace(config, enabled_branches=enabled)
+        for scenario_name, (enabled, enabled_sides) in scenarios.items():
+            scenario_config = replace(
+                config,
+                enabled_branches=enabled,
+                enabled_branch_sides=enabled_sides,
+            )
             scenario_report = backtest_v51(part, scenario_config)
             split_result["scenarios"][scenario_name] = _ablation_summary(scenario_report)
         result["splits"][split_name] = split_result
