@@ -7,12 +7,14 @@ from research.optimization.v51_hybrid_regime import (
     _Position,
     _build_signal_context,
     _close_position,
+    _signal_side_enabled,
     _bid_ohlc_entry_fill,
     _bid_ohlc_exit_fill,
     _intrabar_exit,
     _wilder_rma,
     backtest_v51,
     evaluate_v51_signal,
+    V51Signal,
     prepare_v51_features,
 )
 
@@ -122,6 +124,28 @@ def test_branch_switch_rejects_empty_duplicate_or_unknown_branch_sets():
         V51Config(enabled_branches=("A-trend", "A-trend"))
     with pytest.raises(ValueError, match="V51_INVALID_ENABLED_BRANCHES"):
         V51Config(enabled_branches=("A-trend", "D-breakout"))
+
+
+def test_branch_side_switch_blocks_only_the_selected_setup_direction():
+    config = V51Config(
+        enabled_branch_sides=(
+            "A-trend:LONG", "A-trend:SHORT",
+            "B-squeeze:LONG", "B-squeeze:SHORT",
+            "C-range:LONG",
+        )
+    )
+    assert _signal_side_enabled(V51Signal(1, "C-range", 0.001, 1.0, 1.1), config)
+    assert not _signal_side_enabled(V51Signal(-1, "C-range", 0.001, 1.1, 1.0), config)
+    assert _signal_side_enabled(V51Signal(-1, "A-trend", 0.001, 1.1, 1.0), config)
+
+
+def test_branch_side_switch_rejects_empty_duplicate_or_unknown_pairs():
+    with pytest.raises(ValueError, match="V51_INVALID_ENABLED_BRANCH_SIDES"):
+        V51Config(enabled_branch_sides=())
+    with pytest.raises(ValueError, match="V51_INVALID_ENABLED_BRANCH_SIDES"):
+        V51Config(enabled_branch_sides=("C-range:LONG", "C-range:LONG"))
+    with pytest.raises(ValueError, match="V51_INVALID_ENABLED_BRANCH_SIDES"):
+        V51Config(enabled_branch_sides=("C-range:BUY",))
 
 
 def test_range_or_trend_does_not_signal_when_required_indicators_are_missing():
