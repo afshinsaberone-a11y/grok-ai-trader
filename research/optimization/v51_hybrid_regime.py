@@ -106,6 +106,7 @@ class _Position:
     risk_distance: float
     risk_fraction: float
     spread_pips: float
+    signal_context: dict[str, Any]
 
 
 def _wilder_rma(values: pd.Series, period: int) -> pd.Series:
@@ -490,7 +491,93 @@ def _close_position(
         "R": float(result_r),
         "risk_fraction": float(position.risk_fraction),
         "spread_pips_assumed": float(position.spread_pips),
+        "signal_context": dict(position.signal_context),
         "holding_bars": None,
+    }
+
+
+def _build_signal_context(
+    row: pd.Series,
+    *,
+    entry_timestamp: pd.Timestamp,
+    signal_bar_timestamp: pd.Timestamp,
+    signal_bar_utc: pd.Timestamp,
+    stable_regime: int,
+    signal: V51Signal,
+    config: V51Config,
+    wide_spread: bool,
+    risk_distance: float,
+    entry_price: float,
+) -> dict[str, Any]:
+    """Capture the exact shifted indicator context used for a research entry.
+
+    This is diagnostic metadata only. It does not feed back into signal,
+    sizing, stop, target, or exit decisions.
+    """
+    atr = _finite(row, "DECISION_ATR")
+    di_plus = _finite(row, "DECISION_DI_PLUS")
+    di_minus = _finite(row, "DECISION_DI_MINUS")
+    decision_close = _finite(row, "DECISION_CLOSE")
+    decision_sma = _finite(row, "DECISION_SMA200")
+    htf_close = _finite(row, "HTF_CLOSE_SHIFT2")
+    htf_sma = _finite(row, "HTF_SMA200_SHIFT2")
+    bb_upper = _finite(row, "DECISION_BB_UPPER")
+    bb_lower = _finite(row, "DECISION_BB_LOWER")
+    bb_mid = _finite(row, "DECISION_BB_MID")
+    older_atr_mean = _finite(row, "SQUEEZE_OLDER_ATR_MEAN")
+    squeeze_old_atr = _finite(row, "SQUEEZE_OLD_ATR")
+
+    def ratio(numerator: float | None, denominator: float | None) -> float | None:
+        if numerator is None or denominator is None or denominator == 0:
+            return None
+        value = numerator / denominator
+        return round(float(value), 6) if np.isfinite(value) else None
+
+    def rounded(value: float | None) -> float | None:
+        return round(float(value), 6) if value is not None else None
+
+    return {
+        "signal_bar_shift": 2,
+        "signal_bar_timestamp_server": signal_bar_timestamp.isoformat(),
+        "signal_bar_timestamp_utc": signal_bar_utc.isoformat(),
+        "entry_timestamp_utc": pd.Timestamp(row["utc_timestamp"]).isoformat(),
+        "entry_hour_server": int(entry_timestamp.hour),
+        "entry_weekday_server": int(entry_timestamp.dayofweek),
+        "stable_regime": int(stable_regime),
+        "decision_adx": rounded(_finite(row, "DECISION_ADX")),
+        "decision_adx_previous": rounded(_finite(row, "DECISION_ADX_PREV")),
+        "decision_di_plus": rounded(di_plus),
+        "decision_di_minus": rounded(di_minus),
+        "decision_di_gap": rounded(
+            (di_plus - di_minus) if di_plus is not None and di_minus is not None else None
+        ),
+        "decision_atr_pips": rounded(
+            atr / config.pip_size if atr is not None and config.pip_size > 0 else None
+        ),
+        "price_to_sma200_atr": ratio(
+            (decision_close - decision_sma)
+            if decision_close is not None and decision_sma is not None else None,
+            atr,
+        ),
+        "htf_price_to_sma200_atr": ratio(
+            (htf_close - htf_sma) if htf_close is not None and htf_sma is not None else None,
+            atr,
+        ),
+        "bb_width_atr": ratio(
+            (bb_upper - bb_lower) if bb_upper is not None and bb_lower is not None else None,
+            atr,
+        ),
+        "price_to_bb_mid_atr": ratio(
+            (decision_close - bb_mid) if decision_close is not None and bb_mid is not None else None,
+            atr,
+        ),
+        "squeeze_atr_expansion_ratio": ratio(atr, older_atr_mean),
+        "squeeze_prior_atr_ratio": ratio(squeeze_old_atr, older_atr_mean),
+        "spread_to_atr": ratio(config.spread_pips * config.pip_size, atr),
+        "planned_stop_distance_pips": rounded(risk_distance / config.pip_size),
+        "target_distance_R_from_fill": rounded(abs(signal.target - entry_price) / risk_distance)
+        if risk_distance > 0 else None,
+        "wide_spread_half_risk": bool(wide_spread),
     }
 
 
@@ -650,6 +737,18 @@ def backtest_v51(
                             risk_distance=risk_distance,
                             risk_fraction=risk_fraction,
                             spread_pips=cfg.spread_pips,
+                            signal_context=_build_signal_context(
+                                row,
+                                entry_timestamp=timestamp,
+                                signal_bar_timestamp=features.index[i - 2],
+                                signal_bar_utc=pd.Timestamp(features["utc_timestamp"].iloc[i - 2]),
+                                stable_regime=stable_regime,
+                                signal=signal,
+                                config=cfg,
+                                wide_spread=wide_spread,
+                                risk_distance=risk_distance,
+                                entry_price=entry_price,
+                            ),
                         )
                         trades_today += 1
                         if wide_spread and cfg.wide_spread_half_risk:
