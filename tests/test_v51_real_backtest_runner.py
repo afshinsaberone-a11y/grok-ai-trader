@@ -40,9 +40,17 @@ def test_v51_runner_reports_empty_validation_and_oos_instead_of_fabricating_data
     assert "OOS_2026" not in ablation["splits"]
     assert ablation["splits"]["VALIDATION_2025"]["status"] == "NO_DATA"
     scenarios = ablation["splits"]["IS_2022_2024"]["scenarios"]
-    assert set(scenarios) == {
+    assert {
         "only_A-trend", "only_B-squeeze", "only_C-range",
         "without_A-trend", "without_B-squeeze", "without_C-range",
-    }
+        "only_C-range_LONG", "without_A-trend_and_C-range_SHORT",
+    }.issubset(set(scenarios))
     assert scenarios["only_A-trend"]["status"] == "NO_CLOSED_TRADES"
+    side_scenarios = ablation["branch_side_scenarios"]
+    assert side_scenarios["only_C-range_LONG"] == ["C-range:LONG"]
+    assert "C-range:SHORT" not in side_scenarios["without_A-trend_and_C-range_SHORT"]
+    assert "A-trend:LONG" not in side_scenarios["without_A-trend_and_C-range_SHORT"]
+    baseline_breakdown = ablation["splits"]["IS_2022_2024"]["baseline_all_branches"]["closed_trades_by_branch_side"]
+    assert "C-range:LONG" in baseline_breakdown
+    assert "C-range:SHORT" in baseline_breakdown
     assert output.is_file()
