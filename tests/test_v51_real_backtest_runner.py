@@ -41,6 +41,21 @@ def test_v51_runner_reports_empty_validation_and_oos_instead_of_fabricating_data
     assert design_diagnostic["validation_and_oos_used"] is False
     assert design_diagnostic["mql5_parity_status"] == "NOT_IMPLEMENTED_RESEARCH_ONLY_VARIANT"
     assert design_diagnostic["production_ea_changed"] is False
+    directional = report["is_only_directional_diagnostics"]
+    assert directional["schema"] == "forexai.v51.is_only_directional_diagnostics.v1"
+    assert directional["scope"] == "IS_2022_2024_ONLY"
+    assert directional["excluded_branch_sides"] == ["A-trend:LONG", "C-range:SHORT"]
+    assert directional["enabled_branch_sides"] == [
+        "A-trend:SHORT", "B-squeeze:LONG", "B-squeeze:SHORT", "C-range:LONG",
+    ]
+    assert directional["full_engine_rerun"] is True
+    assert directional["post_hoc_trade_log_filtering"] is False
+    assert directional["validation_and_oos_used"] is False
+    assert directional["branch_set_changed"] is False
+    assert directional["other_strategy_parameters_changed"] is False
+    assert directional["mql5_parity_status"] == "NOT_IMPLEMENTED_RESEARCH_ONLY_VARIANT"
+    assert directional["production_ea_changed"] is False
+    assert directional["candidate"]["status"] == "NO_CLOSED_TRADES"
     assert design_diagnostic["candidate"]["status"] == "NO_CLOSED_TRADES"
     ablation = report["branch_ablation"]
     assert ablation["schema"] == "forexai.v51.branch_ablation.v1"

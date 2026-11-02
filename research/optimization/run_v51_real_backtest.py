@@ -191,6 +191,68 @@ def _build_is_only_design_diagnostics(
     }
 
 
+
+def _build_is_only_directional_diagnostics(
+    features: pd.DataFrame,
+    config: V51Config,
+    baseline_reports: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Test one predeclared side-ablation hypothesis with a full IS-only rerun.
+
+    The candidate disables A-trend LONG and C-range SHORT, the two weakest
+    directional groups in the IS baseline attribution. All other branches,
+    sides, strategy parameters, execution assumptions and simulator state
+    rules remain unchanged. Validation and OOS are never passed to this test.
+    """
+    utc = pd.to_datetime(features["utc_timestamp"], utc=True)
+    mask = (utc >= IS_START) & (utc < VALIDATION_START)
+    is_features = features.loc[mask]
+    if is_features.empty:
+        return {
+            "schema": "forexai.v51.is_only_directional_diagnostics.v1",
+            "status": "NO_DATA",
+            "scope": "IS_2022_2024_ONLY",
+            "validation_and_oos_used": False,
+        }
+
+    excluded_sides = ("A-trend:LONG", "C-range:SHORT")
+    all_sides = (
+        "A-trend:LONG", "A-trend:SHORT",
+        "B-squeeze:LONG", "B-squeeze:SHORT",
+        "C-range:LONG", "C-range:SHORT",
+    )
+    enabled_sides = tuple(side for side in all_sides if side not in excluded_sides)
+    candidate_config = replace(config, enabled_branch_sides=enabled_sides)
+    candidate_report = backtest_v51(is_features, candidate_config)
+    baseline = _ablation_summary(baseline_reports["IS_2022_2024"])
+
+    return {
+        "schema": "forexai.v51.is_only_directional_diagnostics.v1",
+        "status": "COMPLETED",
+        "hypothesis": (
+            "Disabling A-trend LONG and C-range SHORT may reduce the negative "
+            "IS contribution of those two directional groups. This is a single "
+            "side-ablation hypothesis, not parameter optimization."
+        ),
+        "scope": "IS_2022_2024_ONLY",
+        "selection_evidence": {
+            side: baseline["closed_trades_by_branch_side"][side]
+            for side in excluded_sides
+        },
+        "excluded_branch_sides": list(excluded_sides),
+        "enabled_branch_sides": list(enabled_sides),
+        "baseline": baseline,
+        "candidate": _ablation_summary(candidate_report),
+        "full_engine_rerun": True,
+        "post_hoc_trade_log_filtering": False,
+        "validation_and_oos_used": False,
+        "branch_set_changed": False,
+        "other_strategy_parameters_changed": False,
+        "mql5_parity_status": "NOT_IMPLEMENTED_RESEARCH_ONLY_VARIANT",
+        "production_ea_changed": False,
+    }
+
+
 def run(
     data_path: str | Path,
     *,
@@ -244,6 +306,9 @@ def run(
     is_only_design_diagnostics = _build_is_only_design_diagnostics(
         features, config, split_reports
     )
+    is_only_directional_diagnostics = _build_is_only_directional_diagnostics(
+        features, config, split_reports
+    )
 
     payload: dict[str, Any] = {
         "schema": "forexai.v51.real_backtest.v1",
@@ -287,6 +352,7 @@ def run(
         "splits": split_reports,
         "branch_ablation": branch_ablation,
         "is_only_design_diagnostics": is_only_design_diagnostics,
+        "is_only_directional_diagnostics": is_only_directional_diagnostics,
         "config": config.__dict__,
         "limitations": [
             "This runner does not optimize parameters or select a champion.",
