@@ -12,7 +12,7 @@ No downloads, synthetic market data, optimization, or trading authorization.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import numpy as np
@@ -106,7 +106,7 @@ class _Position:
     risk_distance: float
     risk_fraction: float
     spread_pips: float
-    signal_context: dict[str, Any]
+    signal_context: dict[str, Any] = field(default_factory=dict)
 
 
 def _wilder_rma(values: pd.Series, period: int) -> pd.Series:
