@@ -147,6 +147,50 @@ def _build_branch_ablation(
     return result
 
 
+def _build_is_only_design_diagnostics(
+    features: pd.DataFrame,
+    config: V51Config,
+    baseline_reports: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Run one predeclared quote-aware C-range RR hypothesis on IS only."""
+    utc = pd.to_datetime(features["utc_timestamp"], utc=True)
+    mask = (utc >= IS_START) & (utc < VALIDATION_START)
+    is_features = features.loc[mask]
+    if is_features.empty:
+        return {
+            "schema": "forexai.v51.is_only_design_diagnostics.v1",
+            "status": "NO_DATA",
+            "validation_and_oos_used": False,
+        }
+
+    candidate_config = replace(config, range_min_net_rr=1.0)
+    candidate_report = backtest_v51(is_features, candidate_config)
+    return {
+        "schema": "forexai.v51.is_only_design_diagnostics.v1",
+        "status": "COMPLETED",
+        "hypothesis": (
+            "Require C-range target/stop reward-risk >= 1.0 using modeled executable "
+            "entry, stop and target fills after the configured spread and adverse slippage."
+        ),
+        "scope": "IS_2022_2024_ONLY",
+        "minimum_net_reward_risk": 1.0,
+        "execution_assumptions": {
+            "spread_pips": config.spread_pips,
+            "slippage_pips_per_side": config.slippage_pips,
+            "commission_included": False,
+            "swap_included": False,
+        },
+        "baseline": _ablation_summary(baseline_reports["IS_2022_2024"]),
+        "candidate": _ablation_summary(candidate_report),
+        "full_engine_rerun": True,
+        "post_hoc_trade_log_filtering": False,
+        "validation_and_oos_used": False,
+        "mql5_parity_status": "NOT_IMPLEMENTED_RESEARCH_ONLY_VARIANT",
+        "production_ea_changed": False,
+        "other_strategy_parameters_changed": False,
+    }
+
+
 def run(
     data_path: str | Path,
     *,
@@ -197,6 +241,9 @@ def run(
         split_reports[name] = report
 
     branch_ablation = _build_branch_ablation(features, config, split_reports)
+    is_only_design_diagnostics = _build_is_only_design_diagnostics(
+        features, config, split_reports
+    )
 
     payload: dict[str, Any] = {
         "schema": "forexai.v51.real_backtest.v1",
@@ -239,6 +286,7 @@ def run(
         },
         "splits": split_reports,
         "branch_ablation": branch_ablation,
+        "is_only_design_diagnostics": is_only_design_diagnostics,
         "config": config.__dict__,
         "limitations": [
             "This runner does not optimize parameters or select a champion.",
