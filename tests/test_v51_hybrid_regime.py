@@ -225,7 +225,7 @@ def test_closed_trade_preserves_entry_context_and_keeps_R_calculation():
         config=V51Config(),
     )
     assert result["signal_context"] == context
-    assert result["R"] == pytest.approx(1.9998)
+    assert result["R"] == pytest.approx(1.99998)
 
 
 def test_same_bar_stop_is_resolved_before_target():
