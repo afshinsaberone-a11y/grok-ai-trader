@@ -5,6 +5,8 @@ import pytest
 from research.optimization.v51_hybrid_regime import (
     V51Config,
     _Position,
+    _build_signal_context,
+    _close_position,
     _bid_ohlc_entry_fill,
     _bid_ohlc_exit_fill,
     _intrabar_exit,
@@ -140,6 +142,90 @@ def test_range_or_trend_does_not_signal_when_required_indicators_are_missing():
         current_bid_open=1.1,
         spread_price=0.00005,
     ) is None
+
+
+def test_entry_context_captures_shifted_signal_diagnostics_without_changing_execution():
+    row = pd.Series({
+        "utc_timestamp": pd.Timestamp("2026-02-03T08:15:00Z"),
+        "DECISION_ATR": 0.001,
+        "DECISION_ADX": 27.5,
+        "DECISION_ADX_PREV": 26.0,
+        "DECISION_DI_PLUS": 25.0,
+        "DECISION_DI_MINUS": 12.0,
+        "DECISION_CLOSE": 1.1005,
+        "DECISION_SMA200": 1.1000,
+        "HTF_CLOSE_SHIFT2": 1.1020,
+        "HTF_SMA200_SHIFT2": 1.1000,
+        "DECISION_BB_UPPER": 1.1030,
+        "DECISION_BB_LOWER": 1.0970,
+        "DECISION_BB_MID": 1.1000,
+        "SQUEEZE_OLDER_ATR_MEAN": 0.0012,
+        "SQUEEZE_OLD_ATR": 0.0009,
+    })
+    signal = evaluate_v51_signal(
+        pd.Series({
+            "DECISION_ATR": 0.001,
+            "DECISION_CLOSE": 1.1005,
+            "DECISION_SMA200": 1.1000,
+            "DECISION_DI_PLUS": 25.0,
+            "DECISION_DI_MINUS": 12.0,
+            "HTF_CLOSE_SHIFT2": 1.1020,
+            "HTF_SMA200_SHIFT2": 1.1000,
+        }),
+        regime=1,
+        current_bid_open=1.1000,
+        spread_price=0.00005,
+        config=V51Config(),
+    )
+    assert signal is not None
+
+    context = _build_signal_context(
+        row,
+        entry_timestamp=pd.Timestamp("2026-02-03T08:30:00"),
+        signal_bar_timestamp=pd.Timestamp("2026-02-03T08:00:00"),
+        signal_bar_utc=pd.Timestamp("2026-02-03T08:00:00Z"),
+        stable_regime=1,
+        signal=signal,
+        config=V51Config(),
+        wide_spread=False,
+        risk_distance=0.0012,
+        entry_price=1.10012,
+    )
+
+    assert context["signal_bar_shift"] == 2
+    assert context["stable_regime"] == 1
+    assert context["decision_di_gap"] == pytest.approx(13.0)
+    assert context["price_to_sma200_atr"] == pytest.approx(0.5)
+    assert context["htf_price_to_sma200_atr"] == pytest.approx(2.0)
+    assert context["bb_width_atr"] == pytest.approx(6.0)
+    assert context["squeeze_atr_expansion_ratio"] == pytest.approx(0.833333)
+    assert context["wide_spread_half_risk"] is False
+
+
+def test_closed_trade_preserves_entry_context_and_keeps_R_calculation():
+    context = {"stable_regime": 1, "decision_adx": 28.0}
+    position = _Position(
+        side=1,
+        setup="A-trend",
+        entry_time=pd.Timestamp("2024-01-01T00:00:00Z"),
+        entry_index=0,
+        entry_price=100.0,
+        stop=99.0,
+        target=102.0,
+        risk_distance=1.0,
+        risk_fraction=0.005,
+        spread_pips=0.5,
+        signal_context=context,
+    )
+    result = _close_position(
+        position,
+        raw_exit=102.0,
+        timestamp=pd.Timestamp("2024-01-01T00:15:00Z"),
+        reason="TP",
+        config=V51Config(),
+    )
+    assert result["signal_context"] == context
+    assert result["R"] == pytest.approx(1.9998)
 
 
 def test_same_bar_stop_is_resolved_before_target():
