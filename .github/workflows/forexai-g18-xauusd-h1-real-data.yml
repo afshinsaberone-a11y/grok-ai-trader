@@ -1,18 +1,6 @@
 name: ForexAI G18 XAUUSD H1 Real Data Coverage Audit
 
 on:
-  push:
-    branches:
-      - "research/g18-xauusd-h1-regime-trend-20261103"
-    paths:
-      - "research/real_data/dukascopy_xauusd_ingest.py"
-      - "research/real_data/xauusd_h1_coverage_audit_g18.py"
-      - "research/optimization/xauusd_execution_contract_v1.py"
-      - "tests/test_dukascopy_xauusd_ingest.py"
-      - "tests/test_xauusd_execution_contract_v1.py"
-      - "tests/test_xauusd_h1_coverage_audit_g18.py"
-      - "docs/research/g18-xauusd-h1-data-coverage-protocol-20261103.md"
-      - ".github/workflows/forexai-g18-xauusd-h1-real-data.yml"
   pull_request:
     paths:
       - "research/real_data/dukascopy_xauusd_ingest.py"
@@ -21,6 +9,9 @@ on:
       - "tests/test_dukascopy_xauusd_ingest.py"
       - "tests/test_xauusd_execution_contract_v1.py"
       - "tests/test_xauusd_h1_coverage_audit_g18.py"
+      - "tests/test_mt5_xauusd_broker_cost_probe.py"
+      - "tools/mt5_xauusd_broker_cost_probe.py"
+      - "docs/research/mt5-xauusd-broker-cost-probe-runbook-20261103.md"
       - "docs/research/g18-xauusd-h1-data-coverage-protocol-20261103.md"
       - ".github/workflows/forexai-g18-xauusd-h1-real-data.yml"
 
@@ -48,14 +39,16 @@ jobs:
             research/optimization/xauusd_execution_contract_v1.py \
             tests/test_dukascopy_xauusd_ingest.py \
             tests/test_xauusd_execution_contract_v1.py \
-            tests/test_xauusd_h1_coverage_audit_g18.py
+            tests/test_xauusd_h1_coverage_audit_g18.py \
+            tools/mt5_xauusd_broker_cost_probe.py \
+            tests/test_mt5_xauusd_broker_cost_probe.py
       - name: Run XAUUSD source, quote execution, and coverage tests
         run: |
           pytest -q \
             tests/test_dukascopy_xauusd_ingest.py \
             tests/test_xauusd_execution_contract_v1.py \
-            tests/test_xauusd_h1_coverage_audit_g18.py
-
+            tests/test_xauusd_h1_coverage_audit_g18.py \
+            tests/test_mt5_xauusd_broker_cost_probe.py
   real-data-coverage:
     needs: unit-tests
     runs-on: ubuntu-latest
@@ -73,6 +66,9 @@ jobs:
             --start 2021-01-01 \
             --end 2025-01-01 \
             --timeframe H1 \
+            --timeout 60 \
+            --retries 8 \
+            --throttle-retries 12 \
             --output data/real/xauusd
       - name: Resolve exact source-backed dataset and manifest
         shell: bash
