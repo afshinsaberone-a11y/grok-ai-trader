@@ -155,11 +155,7 @@ def audit(data_path: str | Path, manifest_path: str | Path) -> dict:
         frame.at[idx - 1, "timestamp"].date() == frame.at[idx, "timestamp"].date()
         for idx in gap_positions
     ))
-    weekend_gaps = int(sum(
-        frame.at[idx, "timestamp"].weekday() < frame.at[idx - 1, "timestamp"].weekday()
-        or (frame.at[idx - 1, "timestamp"].weekday() == 4 and frame.at[idx, "timestamp"].weekday() == 0)
-        for idx in gap_positions
-    ))
+    long_closure_gaps = int((delta > pd.Timedelta(hours=12)).sum())
 
     if manifest.get("gap_audit", {}).get("gap_count") != int(gap_mask.sum()):
         raise ValueError("G18_GAP_COUNT_MANIFEST_MISMATCH")
@@ -184,7 +180,7 @@ def audit(data_path: str | Path, manifest_path: str | Path) -> dict:
         "coverage": {
             "gap_count_gt_1h": int(gap_mask.sum()),
             "same_utc_date_gap_count": daily_gaps,
-            "weekend_gap_count": weekend_gaps,
+            "long_closure_gap_count_gt_12h": long_closure_gaps,
             "max_gap_minutes": int(delta.max().total_seconds() // 60),
             "gaps_examples_first_100": gaps,
             "missing_bars_filled": 0,
