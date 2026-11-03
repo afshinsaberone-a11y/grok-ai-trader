@@ -46,8 +46,9 @@ def _signals(d: pd.DataFrame, family: str, p: dict[str, Any]) -> np.ndarray:
         rl = d.Low.where(prior).groupby(day).cummin().groupby(day).ffill().shift(1)
         buf = float(p["breakout_buffer_pips"]) * PIP_SIZE
         active = d.index.hour >= start
-        sig[active & (d.Close > rh + buf)] = 1
-        sig[active & (d.Close < rl - buf)] = -1
+        # Emit only on a fresh close-through of the retained pre-session range.
+        sig[active & (d.Close > rh + buf) & (d.Close.shift(1) <= rh + buf)] = 1
+        sig[active & (d.Close < rl - buf) & (d.Close.shift(1) >= rl - buf)] = -1
     elif family == "momentum_breakout":
         sig[(d.mom > p["threshold"]) & (d.Close > d.hh) & d.session] = 1
         sig[(d.mom < -p["threshold"]) & (d.Close < d.ll) & d.session] = -1
