@@ -5,6 +5,8 @@ on:
     paths:
       - "research/optimization/regime_zscore_reversion_g16.py"
       - "tests/test_regime_zscore_reversion_g16.py"
+      - "research/real_data/histdata_ingest.py"
+      - "tests/test_histdata_ingest.py"
       - "docs/research/g16-regime-zscore-reversion-v1-protocol-20261103.md"
       - ".github/workflows/forexai-g16-regime-zscore-reversion-m5.yml"
   workflow_dispatch:
@@ -31,7 +33,7 @@ jobs:
       - name: Compile G16
         run: python -m py_compile research/optimization/regime_zscore_reversion_g16.py tests/test_regime_zscore_reversion_g16.py
       - name: Run G16 and G15 regression tests
-        run: pytest -q tests/test_regime_zscore_reversion_g16.py tests/test_session_range_breakout_g15.py
+        run: pytest -q tests/test_regime_zscore_reversion_g16.py tests/test_histdata_ingest.py tests/test_session_range_breakout_g15.py
       - name: Download REAL EURUSD M5 through canonical HistData pipeline
         run: python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe M5 --output data/real --validate --manifest
       - name: Locate exact dataset and manifest

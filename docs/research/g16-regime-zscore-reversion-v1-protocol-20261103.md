@@ -14,7 +14,7 @@ G16 is a new research family. It does not modify V51, G10 Donchian, G15 Session 
 
 - Instrument/timeframe: EURUSD M5.
 - Source: HistData Generic ASCII M1 bars resampled to M5 by the repository's canonical real-data pipeline.
-- HistData M1 bar OHLC values are BID prices; ASK is not included in those bar files. The fixed spread assumption reconstructs ASK for execution checks.
+- HistData Generic ASCII M1 OHLC values are BID prices; ASK is not included in those bar files. HistData timestamps are fixed EST (UTC-5) without DST. The shared ingestion parser now uses fixed UTC-5, covered by summer and DST-transition regression tests; the fixed spread assumption reconstructs ASK for execution checks.
 - Required years: 2022, 2023, 2024, and 2025.
 - IS ranking: calendar years 2022–2024 only.
 - Validation: 2025, pass/fail only, only for the pre-qualified IS finalist set.
