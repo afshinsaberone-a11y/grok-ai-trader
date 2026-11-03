@@ -113,3 +113,33 @@ Predeclared OOS confirmation criteria:
 The baseline OOS from the existing real-data report was 130 trades, -0.002242R expectancy, PF 0.995972, and 5.7655% maximum drawdown. Its metrics had been inspected before the candidate OOS run; therefore only the locked candidate's OOS performance is new evidence. This is a one-time fixed-candidate evaluation and cannot be used for tuning or selection of follow-on variants.
 
 Regardless of pass/fail, this remains a Python research-only configuration. It has not passed MQL5 side-gate parity, broker tick replay, commission/swap modeling, or forward Demo evidence. A passing OOS result is not by itself permission to trade.
+
+
+## 8. One-time OOS 2026 result — workflow run 41505378621
+
+The exact locked four-direction candidate was evaluated once on the held-out OOS date range 2026-01-01 through 2026-10-30. The full real-data workflow completed successfully, and the JSON report is in artifact `13172355461`.
+
+| OOS metric | Baseline | Locked candidate |
+|---|---:|---:|
+| Closed trades | 130 | 74 |
+| Expectancy | -0.002242R | +0.010653R |
+| Profit Factor | 0.995972 | 1.018677 |
+| Win rate | 44.615% | 43.243% |
+| Total R | -0.291419R | +0.788339R |
+| Final equity from $10,000 | $9,967.78 | $9,874.13 |
+| Maximum drawdown | 5.7655% | 4.0075% |
+
+All four predeclared screening criteria were mechanically satisfied: at least 50 trades, positive expectancy, PF > 1.0, and drawdown no greater than baseline. However, the candidate's compounded final equity is below both the initial $10,000 and baseline OOS final equity. Its profit factor/expectancy are only marginally above 1/zero, and the simulator labels `performance_status=NOT_ASSESSED`. This is not an economically convincing or deployable result.
+
+The difference between positive unweighted total R and lower compounded equity is possible in this simulator because equity is updated trade by trade using `equity *= 1 + R * risk_fraction`; `risk_fraction` is variable (0.5% or 0.25% under the wide-spread half-risk rule). The mean of R and compounded dollar return are therefore not equivalent. This should be more explicitly reported in future diagnostics, but no second OOS run or OOS-driven tuning is authorized here.
+
+Important limitations:
+- The OOS baseline was inspected before this candidate run; only the candidate evaluation was new. This was a fixed one-time test, not a pristine untouched research history.
+- 74 closed trades provide limited evidence; expectancy +0.010653R and PF 1.018677 are borderline.
+- Commission and swap are omitted, spread/slippage are assumptions, and fills are BID-OHLC approximations rather than broker ticks.
+- The candidate's Python side filter is not implemented or signal-parity validated in MQL5. Existing static MQL5 parity checks do not validate this new candidate.
+- The production EA was not changed; no Demo/Live permissions or orders were changed.
+
+## Final research decision
+
+The side-ablation candidate is retained as a documented research result only. Do not promote it, convert it into an executable EA, or open Demo/Live trading based on these results. The OOS result is closed to further candidate selection or tuning. Any future strategy iteration needs a new design rationale and genuinely future forward evidence; it must not adapt this candidate to the inspected OOS split.
