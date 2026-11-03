@@ -1,0 +1,80 @@
+name: ForexAI G15 Session Range Breakout M5
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/optimization/session_range_breakout_g15.py
+      - research/optimization/cost_aware_discovery_v15_2.py
+      - tests/test_session_range_breakout_g15.py
+      - tests/test_cost_aware_discovery_v15_2.py
+      - .github/workflows/forexai-g15-session-range-m5.yml
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Compile G15
+        run: |
+          python -m py_compile research/optimization/cost_aware_discovery_v15_2.py research/optimization/session_range_breakout_g15.py tests/test_session_range_breakout_g15.py tests/test_cost_aware_discovery_v15_2.py
+      - name: Run focused G15 tests
+        run: pytest -q tests/test_session_range_breakout_g15.py tests/test_cost_aware_discovery_v15_2.py
+      - name: Download REAL EURUSD M5 through canonical HistData pipeline
+        run: |
+          python -m research.real_data.histdata_ingest --symbol EURUSD --start 2022-01-01 --end 2026-01-01 --timeframe M5 --output data/real --validate --manifest
+      - name: Locate exact dataset and manifest
+        run: |
+          set -euo pipefail
+          DATA="data/real/normalized/EURUSD_M5_20220101_20251231.csv"
+          MANIFEST="data/real/normalized/EURUSD_M5_20220101_20251231.manifest.json"
+          test -s "$DATA"
+          test -s "$MANIFEST"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "MANIFEST=$MANIFEST" >> "$GITHUB_ENV"
+      - name: Run G15 IS-only discovery and 2025 validation
+        run: |
+          python -m research.optimization.session_range_breakout_g15 --data "$DATA" --manifest "$MANIFEST" --output artifacts/session-range-g15-m5.json
+      - name: Fail closed
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("artifacts/session-range-g15-m5.json").read_text(encoding="utf-8"))
+          assert p["schema_version"] == "forexai.g15.session_range_breakout.v1"
+          assert p["catalog"]["candidate_total"] == 135
+          assert p["real_data_required"] is True and p["synthetic_fallback"] is False
+          assert p["protocol"]["validation_used_for_ranking"] is False
+          assert p["oos_policy"]["loaded"] is False
+          assert p["oos_policy"]["oos_runner_invoked"] is False
+          assert p["oos_policy"]["oos_optimization_allowed"] is False
+          assert p["demo_authorized"] is False and p["live_authorized"] is False and p["orders_submitted"] is False
+          assert p["selection_frozen"] == (p["frozen_candidate"] is not None)
+          if p["frozen_candidate"] is not None:
+              assert len(p["frozen_candidate"]["config_sha256"]) == 64
+          print(json.dumps({
+              "candidate_total": p["catalog"]["candidate_total"],
+              "is_qualified": p["catalog"]["is_qualified_count"],
+              "validation_finalists": p["catalog"]["finalists_evaluated_on_validation"],
+              "fully_qualified": p["catalog"]["fully_qualified_count"],
+              "selection_frozen": p["selection_frozen"],
+              "oos_loaded": p["oos_policy"]["loaded"]
+          }, indent=2))
+          PY
+      - name: Upload G15 research artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-g15-session-range-m5
+          path: artifacts/session-range-g15-m5.json
+          if-no-files-found: error

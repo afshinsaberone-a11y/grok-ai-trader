@@ -136,6 +136,14 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
 
+      - name: Validate repaired research workflows
+        run: |
+          ./actionlint .github/workflows/execution-integrity-audit-v28-3-m15.yml
+          ./actionlint .github/workflows/execution-integrity-audit-v28-2-m15.yml
+          ./actionlint .github/workflows/cost-aware-v10.yml
+          ./actionlint .github/workflows/cost-aware-frequency-adaptive-momentum-discovery-v18-1.yml
+          ./actionlint .github/workflows/cost-aware-frequency-adaptive-momentum-discovery-v18-1-2.yml
+          ./actionlint .github/workflows/cost-aware-frequency-adaptive-momentum-discovery-v18-1-1.yml
       - name: Compile all G13 Python gates
         run: |
           python -m py_compile \

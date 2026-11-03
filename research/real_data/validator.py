@@ -58,7 +58,8 @@ def validate_ohlcv(
     if missing_cols:
         raise ValueError(f"Missing required columns: {missing_cols}")
 
-    timestamps = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+    # format="mixed" avoids pandas inference fallback for heterogeneous timestamp columns.
+    timestamps = pd.to_datetime(df["timestamp"], format="mixed", utc=True, errors="coerce")
     duplicates = int(timestamps.duplicated().sum())
     unsorted = int((timestamps.dropna().diff().dropna() < pd.Timedelta(0)).sum())
     required_for_quality = ["open", "high", "low", "close", "volume"]

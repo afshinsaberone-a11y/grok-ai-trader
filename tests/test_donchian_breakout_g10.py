@@ -34,3 +34,27 @@ def test_g10_zero_risk_exit_fails_closed():
     assert np.isfinite(peak)
     assert np.isfinite(maxdd)
     assert pos == 0
+
+
+def test_g10_backtest_generates_trade_after_prior_window_breakout():
+    import pandas as pd
+
+    from research.optimization.donchian_breakout_g10 import backtest
+
+    rows = []
+    for _ in range(40):
+        rows.append({
+            "Open": 1.1000,
+            "High": 1.1001,
+            "Low": 1.0999,
+            "Close": 1.1000,
+        })
+    # This fully closed bar breaks the highest high of the preceding window.
+    rows[20] = {"Open": 1.1000, "High": 1.1010, "Low": 1.0999, "Close": 1.1009}
+    # The next bar is the executable entry bar; the following bar reaches TP.
+    rows[21] = {"Open": 1.1010, "High": 1.1011, "Low": 1.1009, "Close": 1.1010}
+    rows[22] = {"Open": 1.1010, "High": 1.1020, "Low": 1.1009, "Close": 1.1018}
+    x = pd.DataFrame(rows, index=pd.date_range("2022-01-03", periods=40, freq="5min", tz="UTC"))
+    p = {"window": 20, "atr_mult": 1.0, "rr": 1.5, "buffer_price": 0.0, "side": "long"}
+    metrics = backtest(x, p, ExecutionConfig(spread_pips=0.5, slippage_pips=0.2))
+    assert metrics["trades"] >= 1

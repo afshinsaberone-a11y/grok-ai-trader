@@ -56,21 +56,26 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.11'}
       - name: Validate M5
-        env: {TF: ${{ inputs.timeframe }}}
+        env:
+          TF: ${{ inputs.timeframe }}
         run: test "$TF" = M5
       - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Download REAL M1 only
-        env: {START: ${{ inputs.start }}, END: ${{ inputs.end }}}
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
         run: |
           python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M1 --start "$START" --end "$END" --output data/real --validate --manifest
           test -d data/real/normalized
           find data/real/normalized -maxdepth 1 -type f -name 'EURUSD_M1_*.csv' -print
           test "$(find data/real/normalized -maxdepth 1 -type f -name 'EURUSD_M1_*.csv' | wc -l)" -ge 1
       - name: Build REAL M5 deterministically
-        env: {START: ${{ inputs.start }}, END: ${{ inputs.end }}}
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
         run: |
           python - <<'PY'
           import os,pandas as pd
@@ -96,7 +101,9 @@ jobs:
           print('REAL_M5_ROWS=',len(m)); print('INCOMPLETE_BUCKETS_DROPPED=',int((~complete).sum())); print('REAL_M5_GAPS_GT_5MIN=',gaps); print('REAL_M5_NO_SYNTHETIC_FILL=true')
           PY
       - name: Run v18.1
-        env: {SPREAD: ${{ inputs.spread_pips }}, SLIPPAGE: ${{ inputs.slippage_pips }}}
+        env:
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
         run: |
           python -m research.optimization.cost_aware_frequency_adaptive_momentum_v18_1 --data data/real/normalized/EURUSD_M5_20220101_20251231.csv --output artifacts/frequency_adaptive_momentum_v18_1.json --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE"
           python - <<'PY'

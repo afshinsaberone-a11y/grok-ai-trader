@@ -406,7 +406,7 @@ datetime SignalBarForEntryTime(const datetime entry_time)
   int shift = iBarShift(_Symbol, PERIOD_CURRENT, entry_time, false);
   if(shift < 0)
     return 0;
-  int signal_shift = shift + 1;
+  int signal_shift = shift + 2;
   if(iBars(_Symbol, PERIOD_CURRENT) <= signal_shift)
     return 0;
   return iTime(_Symbol, PERIOD_CURRENT, signal_shift);
@@ -874,7 +874,7 @@ bool SendBuy(double sl, double tp, const string cmt)
   if(!StopsValid(sl, tp, true)) return false;
   double vol = PositionSize(sl, true);
   if(vol <= 0) return false;
-  string trace_trade_id = BuildTraceTradeId(true, iTime(_Symbol, PERIOD_CURRENT, 1));
+  string trace_trade_id = BuildTraceTradeId(true, iTime(_Symbol, PERIOD_CURRENT, 2));
   if(!VerifyRuntimeAuthorization(trace_trade_id, true)) return false;
   if(!BeginRuntimeAuthorizationAttempt(trace_trade_id)) return false;
   bool submitted = trade.Buy(vol, _Symbol, ask, sl, tp, cmt);
@@ -928,7 +928,7 @@ bool SendSell(double sl, double tp, const string cmt)
   if(!StopsValid(sl, tp, false)) return false;
   double vol = PositionSize(sl, false);
   if(vol <= 0) return false;
-  string trace_trade_id = BuildTraceTradeId(false, iTime(_Symbol, PERIOD_CURRENT, 1));
+  string trace_trade_id = BuildTraceTradeId(false, iTime(_Symbol, PERIOD_CURRENT, 2));
   if(!VerifyRuntimeAuthorization(trace_trade_id, false)) return false;
   if(!BeginRuntimeAuthorizationAttempt(trace_trade_id)) return false;
   bool submitted = trade.Sell(vol, _Symbol, bid, sl, tp, cmt);
@@ -1157,6 +1157,8 @@ void OnTick()
   else if(rg == 2) TrySqueezeBreak();
   else if(rg == -1) TryRangeFade();
 }
+// V51 signal conditions read array [1] after CopyBuffer/CopyClose start_pos=1 with AS_SERIES,
+// which maps to chart shift 2. Trace trade IDs and recovery bind to that same source bar.
 // FOREXAI-EXECUTION-CONTRACT-V1
 // Signal uses closed bar data; EA enters on the next bar's live market price.
 // MaxHoldBars=30; actual execution is accepted only after retcode + order/deal tickets + full broker-confirmed volume verification.

@@ -40,12 +40,15 @@ def _signals(d: pd.DataFrame, family: str, p: dict[str, Any]) -> np.ndarray:
         day = d.index.floor("D")
         start = int(p["session_start_hour"])
         prior = d.index.hour < start
-        rh = d.High.where(prior).groupby(day).cummax().shift(1)
-        rl = d.Low.where(prior).groupby(day).cummin().shift(1)
+        # Forward-fill the pre-session range through the active session, then
+        # shift once so the current signal candle never enters its own threshold.
+        rh = d.High.where(prior).groupby(day).cummax().groupby(day).ffill().shift(1)
+        rl = d.Low.where(prior).groupby(day).cummin().groupby(day).ffill().shift(1)
         buf = float(p["breakout_buffer_pips"]) * PIP_SIZE
         active = d.index.hour >= start
-        sig[active & (d.Close > rh + buf)] = 1
-        sig[active & (d.Close < rl - buf)] = -1
+        # Emit only on a fresh close-through of the retained pre-session range.
+        sig[active & (d.Close > rh + buf) & (d.Close.shift(1) <= rh + buf)] = 1
+        sig[active & (d.Close < rl - buf) & (d.Close.shift(1) >= rl - buf)] = -1
     elif family == "momentum_breakout":
         sig[(d.mom > p["threshold"]) & (d.Close > d.hh) & d.session] = 1
         sig[(d.mom < -p["threshold"]) & (d.Close < d.ll) & d.session] = -1

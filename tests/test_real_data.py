@@ -64,12 +64,17 @@ def test_timezone_normalization():
 
 
 def test_invalid_timestamp():
+    import warnings
+
     df = fixture_m1().copy()
     df["timestamp"] = df["timestamp"].astype(object)
     df.loc[0, "timestamp"] = "not-a-timestamp"
-    report = validate_ohlcv(df)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        report = validate_ohlcv(df)
     assert report.status == "FAIL"
     assert report.nan_values == 1
+    assert not any("Could not infer format" in str(item.message) for item in caught)
 
 
 def test_missing_bars():
@@ -93,6 +98,60 @@ def test_weekend_gap_is_not_reported_as_missing_intraday_bars():
 def test_dukascopy_legacy_url_uses_zero_based_month():
     url = DukascopyM1Ingestor.legacy_url_for(pd.Timestamp("2026-02-14").date())
     assert url.endswith("/EURUSD/2026/01/14/BID_candles_min_1.bi5")
+
+
+def test_download_range_prefers_cached_bi5_without_network(tmp_path: Path, monkeypatch):
+    from datetime import date, timedelta
+
+    ingestor = DukascopyM1Ingestor(
+        tmp_path, workers=1, batch_size=1, batch_pause=0
+    )
+    day = date(2026, 1, 5)
+    cached_bi5 = tmp_path / "raw" / "EURUSD" / "m1" / f"{day:%Y-%m-%d}.bi5"
+    cached_bi5.parent.mkdir(parents=True, exist_ok=True)
+    cached_bi5.write_bytes(lzma.compress(
+        struct.pack(">IIIIIf", 60, 110000, 110200, 109900, 110300, 12.5)
+    ))
+
+    def unexpected_network_call(*args, **kwargs):
+        raise AssertionError("network must not be used when a cached BI5 file exists")
+
+    monkeypatch.setattr(ingestor, "_download", unexpected_network_call)
+    monkeypatch.setattr(ingestor, "_download_legacy", unexpected_network_call)
+
+    downloaded = ingestor.download_range(day, day + timedelta(days=1))
+
+    assert len(downloaded) == 1
+    assert downloaded[0].path == cached_bi5
+    assert downloaded[0].source == "Dukascopy datafeed BID candles (BI5)"
+
+
+def test_download_range_prefers_cached_json_over_cached_bi5(tmp_path: Path, monkeypatch):
+    from datetime import date, timedelta
+
+    ingestor = DukascopyM1Ingestor(
+        tmp_path, workers=1, batch_size=1, batch_pause=0
+    )
+    day = date(2026, 1, 5)
+    raw_dir = tmp_path / "raw" / "EURUSD" / "m1"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    cached_json = raw_dir / f"{day:%Y-%m-%d}.json"
+    cached_bi5 = raw_dir / f"{day:%Y-%m-%d}.bi5"
+    cached_json.write_text("{}", encoding="utf-8")
+    cached_bi5.write_bytes(lzma.compress(
+        struct.pack(">IIIIIf", 60, 110000, 110200, 109900, 110300, 12.5)
+    ))
+
+    def unexpected_legacy_call(*args, **kwargs):
+        raise AssertionError("cached JSON must take precedence over cached BI5")
+
+    monkeypatch.setattr(ingestor, "_download_legacy", unexpected_legacy_call)
+
+    downloaded = ingestor.download_range(day, day + timedelta(days=1))
+
+    assert len(downloaded) == 1
+    assert downloaded[0].path == cached_json
+    assert downloaded[0].source == "Dukascopy JETTA v1 BID candles (JSON)"
 
 
 def test_dukascopy_bi5_ohlc_field_order(tmp_path: Path):
@@ -149,6 +208,39 @@ def test_manifest_and_sha256(tmp_path: Path):
     assert manifest_with_data_hash["data_sha256"] == sha256_file(dataset)
 
 
+def test_download_range_continues_after_a_day_failure(tmp_path: Path, monkeypatch):
+    from datetime import date
+
+    ingestor = DukascopyM1Ingestor(
+        tmp_path, workers=1, batch_size=1, batch_pause=0
+    )
+    attempted = []
+
+    def fake_download(url, destination, *, day, force=False):
+        attempted.append(day)
+        if day == date(2026, 1, 5):
+            raise DukascopyIngestError("temporary source outage")
+        destination.write_text("{}", encoding="utf-8")
+        return True
+
+    def fake_legacy(destination, *, day, force=False):
+        raise DukascopyIngestError("legacy source unavailable")
+
+    monkeypatch.setattr(ingestor, "_download", fake_download)
+    monkeypatch.setattr(ingestor, "_download_legacy", fake_legacy)
+
+    with pytest.raises(DukascopyIngestError, match="2026-01-05"):
+        ingestor.download_range(date(2026, 1, 5), date(2026, 1, 8))
+
+    assert attempted == [
+        date(2026, 1, 5),
+        date(2026, 1, 6),
+        date(2026, 1, 7),
+    ]
+    assert (tmp_path / "raw" / "EURUSD" / "m1" / "2026-01-06.json").exists()
+    assert (tmp_path / "raw" / "EURUSD" / "m1" / "2026-01-07.json").exists()
+
+
 def test_missing_real_dataset_fails(tmp_path: Path):
     ingestor = DukascopyM1Ingestor(tmp_path)
     with pytest.raises(DukascopyIngestError, match="REAL_DATA_REQUIRED"):
@@ -182,3 +274,22 @@ def test_strategy_does_not_trade_before_atr_warmup():
     }, index=ts)
     result = GrokHybridStrategy().backtest_simple(data)
     assert result["trades"] == 0
+
+
+
+def test_resampled_manifest_source_tracks_actual_m1_provider():
+    from research.real_data.dukascopy_ingest import _resampled_source_label
+
+    assert _resampled_source_label(
+        "Dukascopy datafeed BID candles (BI5)", "M15"
+    ) == "Dukascopy datafeed BID candles (BI5) resampled to M15"
+    assert _resampled_source_label(
+        "Dukascopy real EURUSD M1 (JETTA JSON + legacy BI5 fallback)", "M5"
+    ) == "Dukascopy real EURUSD M1 (JETTA JSON + legacy BI5 fallback) resampled to M5"
+
+
+def test_resampled_manifest_rejects_empty_source_provenance():
+    from research.real_data.dukascopy_ingest import _resampled_source_label
+
+    with pytest.raises(DukascopyIngestError, match="source provenance is empty"):
+        _resampled_source_label("  ", "M15")
