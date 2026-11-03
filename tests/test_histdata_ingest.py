@@ -75,3 +75,25 @@ def test_conflicting_duplicate_source_timestamp_fails():
     ])
     with pytest.raises(HistDataIngestError, match="conflicting duplicate timestamps"):
         _dedupe_exact_source_timestamps(frame)
+
+
+
+def test_histdata_parse_csv_keeps_fixed_est_during_summer():
+    payload = b"20220701 070000;1.13000;1.13100;1.12900;1.13050;0\n"
+    df = _parse_csv(payload)
+    assert df.loc[0, "timestamp"] == pd.Timestamp("2022-07-01T12:00:00Z")
+
+
+def test_histdata_parse_csv_is_monotonic_across_us_dst_start():
+    payload = (
+        b"20220313 015900;1.13000;1.13100;1.12900;1.13050;0\n"
+        b"20220313 020000;1.13050;1.13200;1.13000;1.13150;0\n"
+        b"20220313 030000;1.13150;1.13250;1.13100;1.13200;0\n"
+    )
+    df = _parse_csv(payload)
+    assert list(df["timestamp"]) == [
+        pd.Timestamp("2022-03-13T06:59:00Z"),
+        pd.Timestamp("2022-03-13T07:00:00Z"),
+        pd.Timestamp("2022-03-13T08:00:00Z"),
+    ]
+    assert df["timestamp"].is_monotonic_increasing
