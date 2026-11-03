@@ -56,7 +56,8 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.11'}
       - name: Validate M5
-        env: {TF: ${{ inputs.timeframe }}}
+        env:
+          TF: ${{ inputs.timeframe }}
         run: test "$TF" = M5
       - name: Restore HistData cache
         uses: actions/cache@v4
@@ -70,7 +71,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Ingest REAL M5 through canonical pipeline
-        env: {START: ${{ inputs.start }}, END: ${{ inputs.end }}}
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
         run: |
           python -m research.real_data.histdata_ingest --symbol EURUSD --timeframe M5 --start "$START" --end "$END" --output data/real --validate --manifest
           DATASET="$(find data/real/normalized -maxdepth 1 -type f -name 'EURUSD_M5_*.csv' -print | sort | tail -n 1)"
@@ -85,7 +88,9 @@ jobs:
           print('REAL_M5_DATASET=',p); print('REAL_M5_ROWS=',len(d)); print('REAL_M5_NO_SYNTHETIC_FILL=true')
           PY
       - name: Run bounded v18.1.2
-        env: {SPREAD: ${{ inputs.spread_pips }}, SLIPPAGE: ${{ inputs.slippage_pips }}}
+        env:
+          SPREAD: ${{ inputs.spread_pips }}
+          SLIPPAGE: ${{ inputs.slippage_pips }}
         run: |
           python -m research.optimization.cost_aware_frequency_adaptive_momentum_v18_1_2 --data "$DATASET" --output artifacts/frequency_adaptive_momentum_v18_1_2.json --spread-pips "$SPREAD" --slippage-pips "$SLIPPAGE"
           python - <<'PY'

@@ -62,20 +62,20 @@ jobs:
           test -s "$DATA" || { echo "REAL_DATA_REQUIRED: missing $DATA"; exit 2; }
           case "$DATA" in *_M15_*.csv) ;; *) echo "TIMEFRAME_GUARD_FAILED: $DATA is not M15"; exit 3 ;; esac
           python - "$DATA" <<'PY'
-import sys
-import pandas as pd
-p=sys.argv[1]
-df=pd.read_csv(p)
-col='timestamp' if 'timestamp' in df.columns else 'time'
-t=pd.to_datetime(df[col],utc=True).sort_values()
-d=t.diff().dropna().dt.total_seconds()/60
-if d.empty:
-    raise SystemExit('TIMEFRAME_GUARD_FAILED: insufficient timestamps')
-median=float(d.median())
-print(f'M15 timeframe guard: median_delta_minutes={median}')
-if median != 15.0:
-    raise SystemExit(f'TIMEFRAME_GUARD_FAILED: expected 15 minutes, got {median}')
-PY
+          import sys
+          import pandas as pd
+          p=sys.argv[1]
+          df=pd.read_csv(p)
+          col='timestamp' if 'timestamp' in df.columns else 'time'
+          t=pd.to_datetime(df[col],utc=True).sort_values()
+          d=t.diff().dropna().dt.total_seconds()/60
+          if d.empty:
+              raise SystemExit('TIMEFRAME_GUARD_FAILED: insufficient timestamps')
+          median=float(d.median())
+          print(f'M15 timeframe guard: median_delta_minutes={median}')
+          if median != 15.0:
+              raise SystemExit(f'TIMEFRAME_GUARD_FAILED: expected 15 minutes, got {median}')
+          PY
           echo "DATA=$DATA" >> "$GITHUB_ENV"
 
       - name: Run v28.2 M15 execution integrity audit
