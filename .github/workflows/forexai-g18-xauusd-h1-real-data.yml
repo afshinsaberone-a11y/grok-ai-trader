@@ -126,8 +126,8 @@ jobs:
         with:
           name: forexai-g18-xauusd-h1-real-data-2021-2024
           path: |
-            \${{ env.DATA }}
-            \${{ env.MANIFEST }}
+            data/real/xauusd/normalized/XAUUSD_H1_BIDASK_20210101_20250101.csv
+            data/real/xauusd/normalized/XAUUSD_H1_BIDASK_20210101_20250101.manifest.json
             artifacts/g18-xauusd-h1-coverage-audit.json
           if-no-files-found: error
           compression-level: 1
