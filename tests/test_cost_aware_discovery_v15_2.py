@@ -3,7 +3,7 @@ import pandas as pd
 from research.optimization.cost_aware_discovery_v15_2 import _signals
 
 
-def test_session_range_breakout_keeps_pre_session_range_during_active_session():
+def test_session_range_breakout_keeps_pre_session_range_and_only_fires_on_crossing():
     index = pd.date_range("2022-01-03T06:50:00Z", periods=8, freq="5min")
     frame = pd.DataFrame(
         {
@@ -19,4 +19,4 @@ def test_session_range_breakout_keeps_pre_session_range_during_active_session():
     })
     assert signal[2] == 0
     assert signal[5] == 1
-    assert signal[6] == 1
+    assert signal[6] == 0
