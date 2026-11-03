@@ -152,3 +152,32 @@ def test_download_retries_http_503_with_backoff(monkeypatch: pytest.MonkeyPatch,
     )
     assert result == payload
     assert calls["count"] == 2
+
+
+
+def test_download_retries_transient_connection_resets(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    from urllib.error import URLError
+
+    day = date(2024, 1, 8)
+    payload = _bi5((60, 2_040_800, 2_040_900, 2_040_700, 2_041_000, 12.5))
+    calls = {"count": 0}
+
+    def fake_urlopen(request, timeout=30):
+        calls["count"] += 1
+        if calls["count"] <= 2:
+            raise URLError(ConnectionResetError("peer reset TLS connection"))
+        return io.BytesIO(payload)
+
+    monkeypatch.setattr(ingest_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ingest_module.time, "sleep", lambda _: None)
+    result = _download(
+        _source_url(day, "ASK", "H1"),
+        tmp_path / "connection-reset-cache.bi5",
+        timeout=1,
+        retries=3,
+        throttle_retries=2,
+    )
+
+    assert result == payload
+    assert calls["count"] == 3
+    assert (tmp_path / "connection-reset-cache.bi5").is_file()
