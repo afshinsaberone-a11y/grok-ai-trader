@@ -99,29 +99,38 @@ def _features(frame: pd.DataFrame, pullback_ema: int) -> pd.DataFrame:
     }, index=frame.index)
 
 
-def _signal(d: pd.DataFrame, signal_i: int, p: dict) -> int:
+def _signal_values(values: tuple[np.ndarray, ...], signal_i: int, p: dict) -> int:
     if signal_i < 1:
         return 0
-    row, prev = d.iloc[signal_i], d.iloc[signal_i - 1]
-    values = [row.ema_pullback, row.ema50, row.ema200, row.atr,
-              row.adx, row.pdi, row.mdi, row.rsi, prev.rsi, prev.ema50]
-    if not np.isfinite(values).all() or row.atr <= 0:
+    high, low, close, atr, ema_pullback, ema50, ema200, adx, pdi, mdi, rsi = values
+    i = signal_i
+    required = [ema_pullback[i], ema50[i], ema200[i], atr[i], adx[i],
+                pdi[i], mdi[i], rsi[i], rsi[i - 1], ema50[i - 1],
+                high[i], low[i], close[i]]
+    if not np.isfinite(required).all() or atr[i] <= 0:
         return 0
 
-    long_trend = row.ema50 > row.ema200 and row.ema50 > prev.ema50 and row.Close > row.ema200
-    short_trend = row.ema50 < row.ema200 and row.ema50 < prev.ema50 and row.Close < row.ema200
+    long_trend = ema50[i] > ema200[i] and ema50[i] > ema50[i - 1] and close[i] > ema200[i]
+    short_trend = ema50[i] < ema200[i] and ema50[i] < ema50[i - 1] and close[i] < ema200[i]
     threshold = float(p["rsi_trigger"])
-    strength_ok = row.adx >= float(p["adx_min"])
+    strength_ok = adx[i] >= float(p["adx_min"])
 
-    if (long_trend and strength_ok and row.pdi > row.mdi and
-            row.Low <= row.ema_pullback < row.Close and
-            prev.rsi <= threshold < row.rsi):
+    if (long_trend and strength_ok and pdi[i] > mdi[i] and
+            low[i] <= ema_pullback[i] < close[i] and
+            rsi[i - 1] <= threshold < rsi[i]):
         return 1
-    if (short_trend and strength_ok and row.mdi > row.pdi and
-            row.High >= row.ema_pullback > row.Close and
-            prev.rsi >= 100.0 - threshold > row.rsi):
+    if (short_trend and strength_ok and mdi[i] > pdi[i] and
+            high[i] >= ema_pullback[i] > close[i] and
+            rsi[i - 1] >= 100.0 - threshold > rsi[i]):
         return -1
     return 0
+
+
+def _signal(d: pd.DataFrame, signal_i: int, p: dict) -> int:
+    columns = ("High", "Low", "Close", "atr", "ema_pullback", "ema50",
+               "ema200", "adx", "pdi", "mdi", "rsi")
+    values = tuple(d[column].to_numpy(dtype=float) for column in columns)
+    return _signal_values(values, signal_i, p)
 
 
 def _stop_hit(side: int, high_bid: float, low_bid: float, stop: float, spread_pips: float) -> bool:
@@ -167,6 +176,10 @@ def backtest(frame: pd.DataFrame, p: dict, costs=BASE_COST, prepared: pd.DataFra
     d = prepared if prepared is not None else _features(frame, int(p["pullback_ema"]))
     op, hi, lo, cl = (d[c].to_numpy(float) for c in ("Open", "High", "Low", "Close"))
     atr = d["atr"].to_numpy(float)
+    signal_values = tuple(d[column].to_numpy(dtype=float) for column in (
+        "High", "Low", "Close", "atr", "ema_pullback", "ema50", "ema200",
+        "adx", "pdi", "mdi", "rsi",
+    ))
 
     equity = peak = INITIAL_EQUITY
     max_dd = 0.0
@@ -210,7 +223,7 @@ def backtest(frame: pd.DataFrame, p: dict, costs=BASE_COST, prepared: pd.DataFra
                 continue
             continue
 
-        direction = _signal(d, i - 1, p)
+        direction = _signal_values(signal_values, i - 1, p)
         if not direction or not np.isfinite(atr[i - 1]) or atr[i - 1] <= 0:
             continue
         side = direction
