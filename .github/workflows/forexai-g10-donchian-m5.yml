@@ -4,7 +4,9 @@ on:
   push:
     paths:
       - research/optimization/donchian_breakout_g10.py
+      - research/optimization/donchian_breakout_g10_v2.py
       - tests/test_donchian_breakout_g10.py
+      - tests/test_donchian_breakout_g10_v2.py
       - .github/workflows/forexai-g10-donchian-m5.yml
       - research/optimization/execution_contract_v1.py
 jobs:

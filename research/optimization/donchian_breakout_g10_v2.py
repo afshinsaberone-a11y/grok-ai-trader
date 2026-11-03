@@ -201,6 +201,13 @@ def run_discovery(data_path: str | Path, manifest_path: str | Path) -> dict[str,
             "is_score": _score_is(pre),
         })
 
+    total_is_trades = sum(
+        int(metrics["trades"])
+        for row in ranked
+        for metrics in row["is_metrics"].values()
+    )
+    if total_is_trades <= 0:
+        raise RuntimeError("G10_NO_IS_TRADES: breakout trigger/index or source data integrity failure")
     # Ranking and finalist truncation use IS only. Validation is not read until
     # after the ranked IS-qualified set is fixed.
     ranked.sort(key=lambda row: (-row["is_score"], row["candidate_id"]))

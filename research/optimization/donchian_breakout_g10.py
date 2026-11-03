@@ -77,7 +77,7 @@ def backtest(x, p, cfg):
     pos=0; entry=stop=target=0.0; age=0; rs=[]; equity=10000.0; peak=equity; maxdd=0.0
     for i in range(max(p["window"],14)+1,len(x)):
         if pos==0:
-            level=(prev_hi[i]+p["buffer_price"]) if side==1 else (prev_lo[i]-p["buffer_price"])
+            level=(prev_hi[i-1]+p["buffer_price"]) if side==1 else (prev_lo[i-1]-p["buffer_price"])
             trigger=(c[i-1]>level) if side==1 else (c[i-1]<level)
             if trigger and np.isfinite(atr[i-1]) and atr[i-1]>0:
                 entry=apply_entry_cost(o[i],side,cfg)
