@@ -144,6 +144,8 @@ def test_loader_accepts_only_hash_verified_2022_to_2024_real_data(tmp_path):
     ])
     frame, doc, data_hash, manifest_hash = _load(data, manifest)
     assert len(frame) == 3
+    assert isinstance(frame.index, pd.DatetimeIndex)
+    assert str(frame.index.tz) == "UTC"
     assert doc["quality_status"] == "PASS"
     assert len(data_hash) == len(manifest_hash) == 64
 
