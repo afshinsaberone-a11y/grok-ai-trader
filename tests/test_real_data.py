@@ -64,12 +64,17 @@ def test_timezone_normalization():
 
 
 def test_invalid_timestamp():
+    import warnings
+
     df = fixture_m1().copy()
     df["timestamp"] = df["timestamp"].astype(object)
     df.loc[0, "timestamp"] = "not-a-timestamp"
-    report = validate_ohlcv(df)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        report = validate_ohlcv(df)
     assert report.status == "FAIL"
     assert report.nan_values == 1
+    assert not any("Could not infer format" in str(item.message) for item in caught)
 
 
 def test_missing_bars():
