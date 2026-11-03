@@ -195,8 +195,8 @@ def _download(
     path: Path,
     *,
     timeout: int = 30,
-    retries: int = 3,
-    throttle_retries: int = 8,
+    retries: int = 8,
+    throttle_retries: int = 12,
 ) -> bytes:
     """Fetch/cache one source file, respecting 429/503 backoff and Retry-After."""
     if path.exists() and path.stat().st_size:
@@ -305,8 +305,8 @@ def ingest(
     *,
     timeframe: str = "H1",
     timeout: int = 30,
-    retries: int = 3,
-    throttle_retries: int = 8,
+    retries: int = 8,
+    throttle_retries: int = 12,
 ) -> dict[str, object]:
     """Download real data in [start,end), producing only an intake artifact."""
     timeframe = timeframe.upper()
@@ -427,8 +427,8 @@ def main() -> int:
     parser.add_argument("--timeframe", default="H1", choices=sorted(TIMEFRAMES))
     parser.add_argument("--output", default="data/real/xauusd")
     parser.add_argument("--timeout", type=int, default=30)
-    parser.add_argument("--retries", type=int, default=3)
-    parser.add_argument("--throttle-retries", type=int, default=8)
+    parser.add_argument("--retries", type=int, default=8)
+    parser.add_argument("--throttle-retries", type=int, default=12)
     args = parser.parse_args()
     result = ingest(
         date.fromisoformat(args.start), date.fromisoformat(args.end), args.output,
