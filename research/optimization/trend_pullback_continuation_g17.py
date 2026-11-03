@@ -359,6 +359,7 @@ def _load(data_path: str | Path, manifest_path: str | Path):
     if manifest.get("end") and pd.to_datetime(manifest["end"], utc=True) != ts.max():
         raise ValueError("G17_MANIFEST_END_MISMATCH")
 
+    raw["timestamp"] = ts
     frame = raw.rename(columns={
         "timestamp": "Timestamp", "open": "Open", "high": "High",
         "low": "Low", "close": "Close", "volume": "Volume",
