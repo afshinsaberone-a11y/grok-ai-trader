@@ -154,3 +154,33 @@ The simulator source does compound equity using `equity *= 1 + R * risk_fraction
 Commit-level reporting improvement: future `_ablation_summary` outputs now include a `risk_compounding` object reconstructed from each trade's recorded R and risk_fraction, including risk buckets, additive risk-weighted contribution, compounded return, reconstructed final equity, and a reconciliation status against the simulator's reported final equity. Unit tests cover a positive-total-R / negative-compounded-equity case and fail-closed handling of malformed risk data.
 
 This is a reporting/accounting correction only. It does not change signal selection, execution, risk sizing, simulator state, MQL5 logic, or historical OOS results. Do not rerun or retune candidates on the consumed OOS split to populate the missing old trace.
+
+
+## 10. Risk-weighted versus unweighted R — reconciliation result
+
+Workflow [41654409284](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41654409284) reran the exact same locked candidate and data solely to emit a report-only accounting audit. The dataset SHA-256 remained `243705ce8901d03cc7ed570ef8834154963cbc81a271b2b4a34c1684a98deff7`; no strategy, side gate, sizing rule, or parameter was changed.
+
+The audit reconstructed every closed trade's equity multiplier from the recorded chronological trade log and actual `risk_fraction`. For the candidate it matched the simulator's reported final equity to within $0.0023 (PASS).
+
+### Candidate risk buckets
+
+| Split | Risk fraction | Trades | Total R in bucket | Risk-weighted simple contribution |
+|---|---:|---:|---:|---:|
+| IS 2022–2024 | 0.25% | 49 | -1.945703R | -0.486426% |
+| IS 2022–2024 | 0.50% | 179 | -16.160246R | -8.080123% |
+| Validation 2025 | 0.25% | 10 | +6.679454R | +1.669864% |
+| Validation 2025 | 0.50% | 51 | -1.918970R | -0.959485% |
+| OOS 2026 | 0.25% | 37 | +6.332437R | +1.583109% |
+| OOS 2026 | 0.50% | 37 | -5.544098R | -2.772049% |
+
+The locked candidate's OOS unweighted `total_R` is +0.788339R, but `sum(R × risk_fraction)` is -1.188940% of starting equity and the chronological compounded return is -1.258722%. The main explanation is not a numerical bug: it is the difference between equal-weighted R aggregation and trade-by-trade risk-weighted exposure. The 0.50% risk bucket lost more than the positive contribution from the 0.25% bucket gained. The remaining difference between the risk-weighted simple contribution and compounded return is the geometric compounding effect.
+
+This does **not** prove that halving risk on all trades would create an edge. The 0.25% bucket was also negative in IS, its Validation sample had only 10 trades, and its positive OOS result is a consumed observation. The risk buckets are descriptive and confounded with the spread/ATR condition that triggers half-risk sizing. They cannot be used to retune the risk policy from OOS.
+
+### Research decision
+
+- The OOS screening metrics are not enough to promote the candidate.
+- Keep the 0.5% / 0.25% risk rule unchanged in the production EA; do not optimize it against this OOS.
+- Retain the reconciliation telemetry in future report generation.
+- Any further sizing hypothesis must be predeclared on a fresh research design and confirmed with genuinely future broker-cost data; do not reuse the consumed OOS.
+- Production MQL5 EA remains unchanged; no Demo/Live authorization or orders are permitted by this research result.
