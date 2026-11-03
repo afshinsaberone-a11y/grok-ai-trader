@@ -43,7 +43,9 @@ def write_fixture(tmp_path, *, years=(2021, 2022, 2023, 2024), bad_spread=False)
         "symbol": "XAUUSD", "timeframe": "H1",
         "source": "Dukascopy historical BID/ASK BI5 bars",
         "requested_start_utc": f"{min(years)}-01-01",
-        "requested_end_exclusive_utc": f"{max(years)+1}-01-01",
+        "requested_end_exclusive_utc": pd.Timestamp(
+            year=max(years)+1, month=1, day=1, tz="UTC"
+        ).isoformat(),
         "start_inclusive_utc": timestamps.min().isoformat(),
         "end_inclusive_observed_utc": timestamps.max().isoformat(),
         "rows": len(frame), "source_files": files,
