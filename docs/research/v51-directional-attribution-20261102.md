@@ -143,3 +143,14 @@ Important limitations:
 ## Final research decision
 
 The side-ablation candidate is retained as a documented research result only. Do not promote it, convert it into an executable EA, or open Demo/Live trading based on these results. The OOS result is closed to further candidate selection or tuning. Any future strategy iteration needs a new design rationale and genuinely future forward evidence; it must not adapt this candidate to the inspected OOS split.
+
+
+## 9. Risk-weighted equity reconciliation — reporting correction
+
+The OOS confirmation artifact retains detailed trade logs for the baseline split, but the locked-candidate summary omits its per-trade `risk_fraction` values and trade log. Therefore the precise cause of the candidate's positive unweighted total_R (+0.788339R) alongside lower final equity ($9,874.13) cannot be independently established from the published candidate summary alone.
+
+The simulator source does compound equity using `equity *= 1 + R * risk_fraction`, and the configured wide-spread rule may halve risk from 0.5% to 0.25%. That mechanism can mathematically produce a different sign for unweighted total_R and compounded dollar return, but the candidate's per-trade risk distribution was not included in the artifact. It would be incorrect to assert that variable risk is the verified explanation without that trace.
+
+Commit-level reporting improvement: future `_ablation_summary` outputs now include a `risk_compounding` object reconstructed from each trade's recorded R and risk_fraction, including risk buckets, additive risk-weighted contribution, compounded return, reconstructed final equity, and a reconciliation status against the simulator's reported final equity. Unit tests cover a positive-total-R / negative-compounded-equity case and fail-closed handling of malformed risk data.
+
+This is a reporting/accounting correction only. It does not change signal selection, execution, risk sizing, simulator state, MQL5 logic, or historical OOS results. Do not rerun or retune candidates on the consumed OOS split to populate the missing old trace.

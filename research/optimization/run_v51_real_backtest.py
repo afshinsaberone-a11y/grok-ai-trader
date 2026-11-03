@@ -32,6 +32,88 @@ def _json_default(value: Any) -> Any:
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
+
+def _risk_compounding_diagnostics(report: dict[str, Any]) -> dict[str, Any]:
+    """Reconstruct compounded equity from per-trade R and actual risk fractions.
+
+    This is an accounting reconciliation, not a performance selection metric.
+    It exposes when unweighted total_R and compounded dollar equity diverge.
+    """
+    trade_log = report.get("trade_log", [])
+    config = report.get("config", {})
+    initial_equity = config.get("initial_equity")
+    if initial_equity is None:
+        return {"status": "MISSING_INITIAL_EQUITY"}
+    initial = float(initial_equity)
+    if not trade_log:
+        return {
+            "status": "NO_CLOSED_TRADES",
+            "initial_equity": initial,
+            "trade_count": 0,
+        }
+
+    equity = initial
+    weighted_simple_return = 0.0
+    risk_fraction_sum = 0.0
+    risk_buckets: dict[str, dict[str, Any]] = {}
+    for trade in trade_log:
+        result_r = float(trade["R"])
+        risk_fraction = float(trade["risk_fraction"])
+        if not pd.notna(result_r) or not pd.notna(risk_fraction) or risk_fraction < 0:
+            return {"status": "INVALID_TRADE_RISK_DATA"}
+        trade_return = result_r * risk_fraction
+        factor = 1.0 + trade_return
+        if factor <= 0:
+            return {"status": "NON_POSITIVE_EQUITY_FACTOR"}
+        equity *= factor
+        weighted_simple_return += trade_return
+        risk_fraction_sum += risk_fraction
+
+        bucket = f"{risk_fraction * 100:.4f}%"
+        item = risk_buckets.setdefault(
+            bucket,
+            {"trades": 0, "total_R": 0.0, "risk_weighted_return_pct": 0.0},
+        )
+        item["trades"] += 1
+        item["total_R"] += result_r
+        item["risk_weighted_return_pct"] += trade_return * 100.0
+
+    reported_equity = report.get("final_equity")
+    error = (
+        abs(equity - float(reported_equity))
+        if reported_equity is not None
+        else None
+    )
+    reconciliation = (
+        "PASS" if error is not None and error <= 0.011
+        else "NOT_AVAILABLE" if error is None
+        else "MISMATCH"
+    )
+    for item in risk_buckets.values():
+        item["total_R"] = round(item["total_R"], 6)
+        item["risk_weighted_return_pct"] = round(item["risk_weighted_return_pct"], 6)
+
+    count = len(trade_log)
+    return {
+        "status": "COMPLETED",
+        "trade_count": count,
+        "initial_equity": round(initial, 2),
+        "reported_final_equity": (
+            round(float(reported_equity), 2) if reported_equity is not None else None
+        ),
+        "reconstructed_final_equity": round(equity, 2),
+        "reconciliation_absolute_error": round(error, 6) if error is not None else None,
+        "reconciliation_status": reconciliation,
+        "compounded_return_pct": round((equity / initial - 1.0) * 100.0, 6),
+        "sum_R_times_risk_fraction_pct": round(weighted_simple_return * 100.0, 6),
+        "mean_risk_fraction_pct": round(100.0 * risk_fraction_sum / count, 6),
+        "risk_fraction_buckets": risk_buckets,
+        "interpretation": (
+            "total_R and expectancy_R are unweighted R statistics; final_equity "
+            "is compounded trade-by-trade using each trade's risk_fraction."
+        ),
+    }
+
 def _ablation_summary(report: dict[str, Any]) -> dict[str, Any]:
     """Keep the comparison report compact while retaining per-branch trade counts."""
     fields = (
@@ -68,6 +150,7 @@ def _ablation_summary(report: dict[str, Any]) -> dict[str, Any]:
                 },
             }
     summary["closed_trades_by_branch_side"] = side_breakdown
+    summary["risk_compounding"] = _risk_compounding_diagnostics(report)
     return summary
 
 

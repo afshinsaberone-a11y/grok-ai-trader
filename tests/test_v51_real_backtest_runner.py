@@ -174,3 +174,63 @@ def test_v51_locked_directional_candidate_oos_is_one_time_and_fail_closed(tmp_pa
     assert confirmation["candidate"]["status"] == "NO_CLOSED_TRADES"
     assert confirmation["confirmation_passed"] is False
     assert output.is_file()
+
+
+
+def test_ablation_summary_reconciles_r_weighted_by_trade_risk_with_compounded_equity():
+    from research.optimization.run_v51_real_backtest import _ablation_summary
+
+    report = {
+        "status": "COMPLETED_RESEARCH_SIMULATION",
+        "trades": 2,
+        "total_R": 1.0,
+        "expectancy_R": 0.5,
+        "profit_factor": 10.0 / 9.0,
+        "final_equity": 9788.75,
+        "config": {"initial_equity": 10000.0},
+        "trade_log": [
+            {
+                "setup": "A-trend",
+                "side": "SHORT",
+                "R": 10.0,
+                "risk_fraction": 0.0025,
+                "exit_reason": "TP",
+            },
+            {
+                "setup": "C-range",
+                "side": "LONG",
+                "R": -9.0,
+                "risk_fraction": 0.005,
+                "exit_reason": "SL",
+            },
+        ],
+    }
+
+    summary = _ablation_summary(report)
+    diagnostics = summary["risk_compounding"]
+
+    assert summary["total_R"] == 1.0
+    assert diagnostics["status"] == "COMPLETED"
+    assert diagnostics["risk_fraction_buckets"]["0.2500%"]["trades"] == 1
+    assert diagnostics["risk_fraction_buckets"]["0.5000%"]["trades"] == 1
+    assert diagnostics["sum_R_times_risk_fraction_pct"] == -2.0
+    assert diagnostics["compounded_return_pct"] == -2.1125
+    assert diagnostics["reconstructed_final_equity"] == 9788.75
+    assert diagnostics["reconciliation_status"] == "PASS"
+
+
+def test_risk_compounding_diagnostics_fail_closed_without_trade_risk_data():
+    from research.optimization.run_v51_real_backtest import _risk_compounding_diagnostics
+
+    assert _risk_compounding_diagnostics({"trade_log": []}) == {
+        "status": "MISSING_INITIAL_EQUITY"
+    }
+    assert _risk_compounding_diagnostics(
+        {"config": {"initial_equity": 10000.0}, "trade_log": []}
+    )["status"] == "NO_CLOSED_TRADES"
+    assert _risk_compounding_diagnostics(
+        {
+            "config": {"initial_equity": 10000.0},
+            "trade_log": [{"R": 1.0, "risk_fraction": -0.1}],
+        }
+    )["status"] == "INVALID_TRADE_RISK_DATA"
