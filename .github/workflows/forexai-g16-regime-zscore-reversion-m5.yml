@@ -5,6 +5,7 @@ on:
     paths:
       - "research/optimization/regime_zscore_reversion_g16.py"
       - "tests/test_regime_zscore_reversion_g16.py"
+      - "docs/research/g16-regime-zscore-reversion-v1-protocol-20261103.md"
       - ".github/workflows/forexai-g16-regime-zscore-reversion-m5.yml"
   workflow_dispatch:
 
@@ -56,9 +57,15 @@ jobs:
           assert p["schema_version"] == "forexai.g16.regime_zscore_reversion.v1"
           assert p["catalog"]["candidate_total"] == 108
           assert p["real_data_required"] is True and p["synthetic_fallback"] is False
+          assert p["source_data"]["price_basis"] == "BID_OHLC"
           assert p["protocol"]["is_used_for_ranking"] is True
           assert p["protocol"]["validation_used_for_ranking"] is False
           assert p["protocol"]["catalog_locked"] is True
+          assert p["costs"]["baseline_round_trip_pips"] == 0.9
+          assert p["costs"]["moderate_stress_round_trip_pips"] == 1.35
+          assert p["costs"]["severe_diagnostic_round_trip_pips"] == 2.0
+          assert p["costs"]["spread_paid_once"] is True
+          assert p["costs"]["slippage_paid_each_side"] is True
           assert p["oos_policy"]["loaded"] is False
           assert p["oos_policy"]["oos_runner_invoked"] is False
           assert p["oos_policy"]["oos_optimization_allowed"] is False
@@ -73,6 +80,7 @@ jobs:
               "validation_finalists": p["catalog"]["validation_finalists_evaluated"],
               "fully_qualified": p["catalog"]["fully_qualified_count"],
               "decision": p["decision"],
+              "costs": p["costs"],
               "oos_loaded": p["oos_policy"]["loaded"]
           }, indent=2))
           PY
@@ -99,6 +107,7 @@ jobs:
               '- 2025 validation finalists: ' + p.catalog.validation_finalists_evaluated,
               '- Fully qualified after validation and stress: ' + p.catalog.fully_qualified_count,
               '- IS trades across all candidates: ' + p.catalog.total_is_trades_across_catalog,
+              '- Cost per round trip (base / moderate / severe): ' + p.costs.baseline_round_trip_pips + ' / ' + p.costs.moderate_stress_round_trip_pips + ' / ' + p.costs.severe_diagnostic_round_trip_pips + ' pips',
               '- OOS 2026 loaded: ' + p.oos_policy.loaded,
               '- Frozen config: ' + p.selection_frozen,
               '- Demo / Live / orders: ' + p.demo_authorized + ' / ' + p.live_authorized + ' / ' + p.orders_submitted,
