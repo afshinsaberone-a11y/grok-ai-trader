@@ -52,23 +52,24 @@ def test_g15_canonical_hash_is_independent_of_dict_insertion_order():
 
 
 def test_g15_backtest_checks_entry_bar_and_resolves_ambiguous_hit_sl_first():
-    index = pd.date_range("2022-01-03T06:30:00Z", periods=80, freq="5min")
+    index = pd.date_range("2022-01-03T05:30:00Z", periods=80, freq="5min")
     opens = [1.1000] * 80
     highs = [1.1001] * 80
     lows = [1.0999] * 80
     closes = [1.1000] * 80
 
+    # Keep at least 14 prior bars available for the ATR warm-up.
     # Pre-session high is established immediately before 07:00 UTC.
-    highs[5] = 1.1010
-    closes[5] = 1.1005
-    # This closed candle breaks the retained morning range.
-    highs[6] = 1.1013
-    closes[6] = 1.1012
+    highs[17] = 1.1010
+    closes[17] = 1.1005
+    # This fully closed candle breaks the retained morning range.
+    highs[18] = 1.1013
+    closes[18] = 1.1012
     # The next candle is the executable entry bar and touches both SL and TP.
-    opens[7] = 1.1000
-    highs[7] = 1.1013
-    lows[7] = 1.0990
-    closes[7] = 1.1000
+    opens[19] = 1.1000
+    highs[19] = 1.1013
+    lows[19] = 1.0990
+    closes[19] = 1.1000
 
     frame = pd.DataFrame(
         {"Open": opens, "High": highs, "Low": lows, "Close": closes},
