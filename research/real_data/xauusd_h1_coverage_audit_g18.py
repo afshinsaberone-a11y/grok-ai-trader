@@ -107,8 +107,8 @@ def audit(data_path: str | Path, manifest_path: str | Path) -> dict:
     timestamps = pd.to_datetime(frame["timestamp"], utc=True, errors="raise")
     if timestamps.isna().any() or timestamps.duplicated().any() or not timestamps.is_monotonic_increasing:
         raise ValueError("G18_TIMESTAMP_SEQUENCE_INVALID")
-    start = pd.Timestamp(manifest["requested_start_utc"], tz="UTC")
-    end = pd.Timestamp(manifest["requested_end_exclusive_utc"], tz="UTC")
+    start = pd.to_datetime(manifest["requested_start_utc"], utc=True, errors="raise")
+    end = pd.to_datetime(manifest["requested_end_exclusive_utc"], utc=True, errors="raise")
     if timestamps.min() < start or timestamps.max() >= end:
         raise ValueError("G18_REQUESTED_DATE_WINDOW_VIOLATION")
     if tuple(sorted(set(timestamps.dt.year.astype(int)))) != YEARS:
