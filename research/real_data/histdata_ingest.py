@@ -17,7 +17,6 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -29,7 +28,7 @@ LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://www.histdata.com"
 DOWNLOAD_PAGE = BASE_URL + "/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/eurusd/{year}"
 POST_URL = BASE_URL + "/get.php"
-HISTDATA_LOCAL_ZONE = ZoneInfo("America/New_York")
+HISTDATA_LOCAL_ZONE = timezone(timedelta(hours=-5), name="EST")
 
 
 class HistDataIngestError(RuntimeError):
