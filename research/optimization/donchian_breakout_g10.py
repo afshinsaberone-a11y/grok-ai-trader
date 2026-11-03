@@ -68,7 +68,7 @@ def _close_position(rs, equity, peak, maxdd, pos, entry, stop, target, raw, cfg)
 
 def backtest(x, p, cfg):
     if len(x)<max(p["window"],14)+2:
-        return {"trades":0,"win_rate_pct":0.0,"profit_factor":0.0,"expectancy_R":0.0,"total_R":0.0,"max_dd_pct":100.0}
+        return {"trades":0,"win_rate_pct":0.0,"profit_factor":0.0,"expectancy_R":0.0,"total_R":0.0,"max_dd_pct":100.0,"final_equity":10000.0,"net_return_pct":0.0}
     o,h,l,c=x.Open.to_numpy(float),x.High.to_numpy(float),x.Low.to_numpy(float),x.Close.to_numpy(float)
     atr=atr_series(x)
     prev_hi=pd.Series(h).rolling(p["window"]).max().shift(1).to_numpy()
@@ -115,7 +115,7 @@ def backtest(x, p, cfg):
             ex=apply_exit_cost(c[-1],pos,cfg); r=pos*(ex-entry)/risk_distance; rs.append(float(r)); equity*=1.0+r*cfg.risk_pct; peak=max(peak,equity); maxdd=max(maxdd,(peak-equity)/peak)
     arr=np.asarray(rs,float); wins=arr[arr>0]; losses=arr[arr<=0]; gross_loss=abs(losses.sum())
     pf=float(wins.sum()/gross_loss) if gross_loss>0 else (3.0 if wins.size else 0.0)
-    return {"trades":int(arr.size),"win_rate_pct":round(float((arr>0).mean()*100),3) if arr.size else 0.0,"profit_factor":round(pf,6),"expectancy_R":round(float(arr.mean()),6) if arr.size else 0.0,"total_R":round(float(arr.sum()),6) if arr.size else 0.0,"max_dd_pct":round(float(maxdd*100),6)}
+    return {"trades":int(arr.size),"win_rate_pct":round(float((arr>0).mean()*100),3) if arr.size else 0.0,"profit_factor":round(pf,6),"expectancy_R":round(float(arr.mean()),6) if arr.size else 0.0,"total_R":round(float(arr.sum()),6) if arr.size else 0.0,"max_dd_pct":round(float(maxdd*100),6),"final_equity":round(float(equity),2),"net_return_pct":round((float(equity)/10000.0-1.0)*100.0,6)}
 
 
 def strict_year(m):
