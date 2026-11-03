@@ -15,6 +15,10 @@ on:
       - "docs/research/g18-xauusd-h1-data-coverage-protocol-20261103.md"
       - ".github/workflows/forexai-g18-xauusd-h1-real-data.yml"
 
+concurrency:
+  group: forexai-g18-xauusd-h1-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   issues: write
