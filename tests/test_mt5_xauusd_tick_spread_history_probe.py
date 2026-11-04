@@ -3,8 +3,11 @@ import math
 import numpy as np
 import pytest
 
+from datetime import datetime, timezone
+
 from tools.mt5_xauusd_tick_spread_history_probe import (
     _extract_spreads_and_times,
+    summarize_spread_by_utc_time,
     summarize_spread_points,
 )
 
@@ -107,3 +110,32 @@ def test_tick_quotes_are_strictly_filtered_to_half_open_utc_segment():
     assert spreads.tolist() == pytest.approx([1.0, 3.0])
     assert timestamps.tolist() == [1000, 1500]
     assert outside == 2
+
+
+
+def test_spread_time_buckets_use_utc_and_represented_tick_weights():
+    times = [
+        int(datetime(2026, 1, 5, 0, 1, tzinfo=timezone.utc).timestamp() * 1000),
+        int(datetime(2026, 1, 5, 0, 2, tzinfo=timezone.utc).timestamp() * 1000),
+        int(datetime(2026, 1, 6, 1, 1, tzinfo=timezone.utc).timestamp() * 1000),
+    ]
+    result = summarize_spread_by_utc_time(
+        [10, 20, 30], times, [9.0, 1.0, 2.0]
+    )
+
+    hour_zero = next(row for row in result["by_utc_hour"] if row["utc_hour"] == 0)
+    assert hour_zero["sampled_quote_ticks"] == 2
+    assert hour_zero["spread_points"]["represented_tick_weight"] == pytest.approx(10.0)
+    assert hour_zero["spread_points"]["mean"] == pytest.approx(11.0)
+
+    monday_midnight = next(
+        row for row in result["by_utc_weekday_hour"]
+        if row["utc_weekday"] == 0 and row["utc_hour"] == 0
+    )
+    assert monday_midnight["spread_points"]["mean"] == pytest.approx(11.0)
+    assert result["weekday_numbering"].startswith("Monday=0")
+
+
+def test_spread_time_buckets_reject_mismatched_input_lengths():
+    with pytest.raises(ValueError, match="TIME_BUCKET_INPUT_LENGTH_MISMATCH"):
+        summarize_spread_by_utc_time([10, 20], [1], [1.0, 1.0])
