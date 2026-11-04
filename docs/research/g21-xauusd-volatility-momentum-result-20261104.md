@@ -4,13 +4,16 @@ Date: 2026-11-04
 Protocol: \`g21-xauusd-volatility-momentum-preregistration-20261104.md\`  
 Decision: **NO-GO — fixed hypothesis fails the pre-registered robustness gate**
 
-## Evidence
+## Evidence and CI reproduction
 
 - Frozen G18 Dukascopy XAUUSD H1 paired BID/ASK data: 23,650 rows, 2021–2024 only.
 - Data SHA-256: \`85d505a69a062552847f4aa39c31161c6c1206610dc83c3815cce0d77796cbcb\`.
 - Manifest SHA-256: \`1df7d7cf3d04fce8702859eda98de08b5ba103d8d4ef8e35d174a6121fb776aa\`.
 - Local implementation compiled and eight G21-specific tests passed.
-- The report was generated only after both frozen hashes and the exact year/row scope were validated.
+- Dedicated GitHub Actions run [41835085011](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41835085011) completed successfully; both \`unit-tests\` and \`research-screen\` jobs passed.
+- The research job downloaded the frozen G18 artifact by run ID, rechecked both hashes, exact row/year scope and no-synthetic/no-filled-bars flags, reran all three slippage scenarios, verified same-server-date/pre-rollover invariants, uploaded the full report and published the result to PR #346.
+- CI artifact ID: \`13324218239\`, name \`forexai-g21-xauusd-volatility-momentum-report\`; archive SHA-256: \`2b7d05e2b96305c490258081626d6f236884ffd36125141238ea6402da77e418\`.
+- I downloaded the CI artifact and independently compared all reported discovery and validation metrics with the local JSON: exact match across all three scenarios.
 
 ## Results
 
