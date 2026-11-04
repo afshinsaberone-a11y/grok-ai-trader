@@ -24,7 +24,8 @@ def bars_fixture() -> pd.DataFrame:
         "ask_close": [2000.8, 2001.3, 2006.3, 2003.8],
         "signal":    [1, 0, 0, 0],
         "ATR":       [2.0, 2.0, 2.0, 2.0],
-        "financing_usd_per_oz": [0.0, 0.02, 0.03, 0.0],
+        "financing_long_usd_per_oz": [0.0, 0.02, 0.03, 0.0],
+        "financing_short_usd_per_oz": [0.0, -0.01, -0.02, 0.0],
     })
 
 
@@ -52,6 +53,8 @@ def test_long_uses_ask_entry_bid_exit_and_charges_explicit_costs_once() -> None:
     assert trades[0]["exit_fill"] == pytest.approx(2007.80)
     assert trades[0]["financing_usd_per_oz"] == pytest.approx(0.05)
     assert trades[0]["net_R"] == pytest.approx(2.43333333)
+    assert trades[0]["financing_usd_per_oz"] == pytest.approx(0.05)
+    assert trades[0]["financing_schedule_side"] == "LONG"
     assert trades[0]["spread_double_charged"] is False
     assert metrics["spread_double_charged"] is False
 
@@ -73,7 +76,10 @@ def test_short_uses_bid_entry_and_ask_exit() -> None:
     assert trades[0]["entry_fill"] == pytest.approx(1999.95)
     assert trades[0]["exit_reason"] == "target"
     assert trades[0]["exit_fill"] == pytest.approx(1992.50)
-    assert trades[0]["net_R"] == pytest.approx(2.43333333)
+    assert trades[0]["financing_usd_per_oz"] == pytest.approx(-0.03)
+    assert trades[0]["financing_schedule_side"] == "SHORT"
+    # A verified broker credit lowers total trading costs for the short.
+    assert trades[0]["net_R"] == pytest.approx(2.46)
 
 
 def test_same_bar_stop_and_target_resolves_stop_first() -> None:
@@ -90,7 +96,7 @@ def test_same_bar_stop_and_target_resolves_stop_first() -> None:
 
 
 def test_missing_broker_financing_schedule_fails_closed() -> None:
-    bars = bars_fixture().drop(columns=["financing_usd_per_oz"])
+    bars = bars_fixture().drop(columns=["financing_long_usd_per_oz"])
 
     with pytest.raises(XAUUSDExecutionError, match="REQUIRED_COLUMNS_MISSING"):
         run_xauusd_backtest(bars, config())
