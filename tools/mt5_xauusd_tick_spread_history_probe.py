@@ -53,14 +53,58 @@ def _stats(values: list[float]) -> dict:
     }
 
 
+def _weighted_quantile(values: list[float], weights: list[float], probability: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(zip(values, weights), key=lambda item: item[0])
+    total_weight = sum(weight for _, weight in ordered)
+    if total_weight <= 0:
+        return None
+    threshold = probability * total_weight
+    cumulative = 0.0
+    for value, weight in ordered:
+        cumulative += weight
+        if cumulative >= threshold:
+            return value
+    return ordered[-1][0]
+
+
+def _weighted_stats(values: list[float], weights: list[float]) -> dict:
+    if not values:
+        return {
+            "count": 0,
+            "represented_tick_weight": 0.0,
+            "mean": None,
+            "median": None,
+            "p95": None,
+            "p99": None,
+            "min": None,
+            "max": None,
+        }
+    total_weight = sum(weights)
+    if total_weight <= 0:
+        raise ValueError("SAMPLE_WEIGHTS_INVALID")
+    return {
+        "count": len(values),
+        "represented_tick_weight": round(total_weight, 6),
+        "mean": round(sum(v * w for v, w in zip(values, weights)) / total_weight, 10),
+        "median": round(_weighted_quantile(values, weights, 0.50), 10),
+        "p95": round(_weighted_quantile(values, weights, 0.95), 10),
+        "p99": round(_weighted_quantile(values, weights, 0.99), 10),
+        "min": round(min(values), 10),
+        "max": round(max(values), 10),
+    }
+
+
 def summarize_spread_points(
     spread_points,
     *,
     point: float,
     tick_size: float,
     tick_value: float,
+    weights=None,
 ) -> dict:
-    """Summarize sampled spreads in points, quote-price units, and account currency/lot."""
+    """Summarize spread samples, optionally weighting each sample by represented ticks."""
     if not math.isfinite(float(point)) or point <= 0:
         raise ValueError("POINT_INVALID")
     if not math.isfinite(float(tick_size)) or tick_size <= 0:
@@ -68,56 +112,100 @@ def summarize_spread_points(
     if not math.isfinite(float(tick_value)) or tick_value < 0:
         raise ValueError("TICK_VALUE_INVALID")
 
+    raw_values = list(spread_points)
+    raw_weights = [1.0] * len(raw_values) if weights is None else list(weights)
+    if len(raw_weights) != len(raw_values):
+        raise ValueError("SAMPLE_WEIGHTS_LENGTH_MISMATCH")
+
     clean = []
-    for value in spread_points:
+    clean_weights = []
+    for value, weight in zip(raw_values, raw_weights):
         try:
             number = float(value)
+            sample_weight = float(weight)
         except (TypeError, ValueError):
             continue
-        if math.isfinite(number) and number >= 0:
+        if (
+            math.isfinite(number)
+            and number >= 0
+            and math.isfinite(sample_weight)
+            and sample_weight > 0
+        ):
             clean.append(number)
+            clean_weights.append(sample_weight)
 
     spread_prices = [value * point for value in clean]
     costs_per_lot = [
         (price / tick_size) * tick_value for price in spread_prices
     ]
+    stats = (
+        _stats(clean)
+        if weights is None
+        else _weighted_stats(clean, clean_weights)
+    )
+    price_stats = (
+        _stats(spread_prices)
+        if weights is None
+        else _weighted_stats(spread_prices, clean_weights)
+    )
+    cost_stats = (
+        _stats(costs_per_lot)
+        if weights is None
+        else _weighted_stats(costs_per_lot, clean_weights)
+    )
     return {
-        "spread_points": _stats(clean),
-        "spread_price_per_oz_quote_currency": _stats(spread_prices),
-        "spread_cost_per_standard_lot_account_currency": _stats(costs_per_lot),
+        "spread_points": stats,
+        "spread_price_per_oz_quote_currency": price_stats,
+        "spread_cost_per_standard_lot_account_currency": cost_stats,
+        "statistical_weighting": (
+            "unweighted_sample"
+            if weights is None
+            else "represented_quote_tick_count"
+        ),
     }
 
 
-def _extract_spreads_and_times(ticks, point: float):
-    """Return valid quote spreads in points and their UTC timestamps."""
+def _extract_spreads_and_times(
+    ticks,
+    point: float,
+    *,
+    start_ms: int,
+    end_ms: int,
+):
+    """Return valid BID/ASK spreads whose quote timestamps are inside [start_ms, end_ms)."""
     import numpy as np
 
     if ticks is None or len(ticks) == 0:
-        return np.asarray([], dtype=float), []
+        return np.asarray([], dtype=float), np.asarray([], dtype="int64"), 0
 
     names = getattr(getattr(ticks, "dtype", None), "names", None) or ()
     if "bid" not in names or "ask" not in names:
         raise RuntimeError("MT5_TICK_FIELDS_MISSING_BID_ASK")
+    if "time_msc" in names:
+        timestamps_ms = np.asarray(ticks["time_msc"], dtype="int64")
+    elif "time" in names:
+        timestamps_ms = np.asarray(ticks["time"], dtype="int64") * 1000
+    else:
+        raise RuntimeError("MT5_TICK_TIMESTAMP_FIELDS_MISSING")
 
     bids = np.asarray(ticks["bid"], dtype=float)
     asks = np.asarray(ticks["ask"], dtype=float)
-    valid = (
+    valid_quote = (
         np.isfinite(bids)
         & np.isfinite(asks)
         & (bids > 0)
         & (asks >= bids)
     )
+    valid_time = (
+        (timestamps_ms > 0)
+        & (timestamps_ms >= int(start_ms))
+        & (timestamps_ms < int(end_ms))
+    )
+    outside_segment_quotes = int((valid_quote & ~valid_time).sum())
+    valid = valid_quote & valid_time
     spreads = (asks[valid] - bids[valid]) / point
-
-    valid_times = []
-    if "time_msc" in names:
-        raw_times = np.asarray(ticks["time_msc"], dtype="int64")[valid]
-        valid_times = [int(value) for value in raw_times if value > 0]
-    elif "time" in names:
-        raw_times = np.asarray(ticks["time"], dtype="int64")[valid]
-        valid_times = [int(value) * 1000 for value in raw_times if value > 0]
-
-    return spreads, valid_times
+    valid_times = timestamps_ms[valid]
+    return spreads, valid_times, outside_segment_quotes
 
 
 def collect(mt5, symbol: str, days: int) -> dict:
@@ -148,8 +236,11 @@ def collect(mt5, symbol: str, days: int) -> dict:
         start_utc = end_utc - timedelta(days=days)
         cursor = start_utc
         sampled_spreads = []
+        sampled_weights = []
+        top_sampled_spreads = []
         total_ticks = 0
         total_valid_quotes = 0
+        total_out_of_segment_quotes = 0
         chunks_with_ticks = 0
         chunks_with_valid_quotes = 0
         errors = []
@@ -188,34 +279,72 @@ def collect(mt5, symbol: str, days: int) -> dict:
                 total_ticks += tick_count
                 if tick_count:
                     chunks_with_ticks += 1
-                    spreads, times_ms = _extract_spreads_and_times(ticks, point)
+                    # MT5 tick timestamps are integer milliseconds. Round the
+                    # requested bounds upward so a tick just before a fractional-
+                    # millisecond start cannot leak into the half-open interval.
+                    segment_start_ms = math.ceil(cursor.timestamp() * 1000)
+                    segment_end_ms = math.ceil(segment_end.timestamp() * 1000)
+                    spreads, times_ms, outside_count = _extract_spreads_and_times(
+                        ticks,
+                        point,
+                        start_ms=segment_start_ms,
+                        end_ms=segment_end_ms,
+                    )
+                    total_out_of_segment_quotes += outside_count
                     valid_count = int(len(spreads))
                     segment["valid_two_sided_quote_ticks"] = valid_count
+                    segment["valid_two_sided_quotes_outside_segment_filtered"] = outside_count
                     total_valid_quotes += valid_count
                     if valid_count:
                         chunks_with_valid_quotes += 1
                         take = min(valid_count, MAX_SAMPLE_PER_SEGMENT)
                         if take == valid_count:
-                            sample = spreads
+                            indices = np.arange(valid_count, dtype="int64")
                         else:
                             indices = np.linspace(
                                 0, valid_count - 1, num=take, dtype="int64"
                             )
-                            sample = spreads[indices]
+                        sample = spreads[indices]
+                        sample_times = times_ms[indices]
+                        segment_weight = valid_count / float(take)
+                        sample_weights = [segment_weight] * take
                         sampled_spreads.extend(float(value) for value in sample)
+                        sampled_weights.extend(sample_weights)
                         segment["sampled_quote_ticks"] = int(len(sample))
+                        segment["represented_tick_weight"] = round(valid_count, 6)
+                        segment["sampled_spread_points"] = _weighted_stats(
+                            [float(value) for value in sample],
+                            sample_weights,
+                        )
                         segment["status"] = "QUOTE_SAMPLE_CAPTURED"
-                        if times_ms:
-                            chunk_first = min(times_ms)
-                            chunk_last = max(times_ms)
-                            first_tick_ms = (
-                                chunk_first if first_tick_ms is None
-                                else min(first_tick_ms, chunk_first)
-                            )
-                            last_tick_ms = (
-                                chunk_last if last_tick_ms is None
-                                else max(last_tick_ms, chunk_last)
-                            )
+
+                        chunk_first = int(times_ms.min())
+                        chunk_last = int(times_ms.max())
+                        first_tick_ms = (
+                            chunk_first if first_tick_ms is None
+                            else min(first_tick_ms, chunk_first)
+                        )
+                        last_tick_ms = (
+                            chunk_last if last_tick_ms is None
+                            else max(last_tick_ms, chunk_last)
+                        )
+
+                        top_sampled_spreads.extend(
+                            {
+                                "timestamp_utc": datetime.fromtimestamp(
+                                    int(sample_times[index]) / 1000,
+                                    timezone.utc,
+                                ).isoformat(),
+                                "spread_points": round(float(sample[index]), 6),
+                                "segment_start_utc": cursor.isoformat(),
+                            }
+                            for index in range(len(sample))
+                        )
+                        top_sampled_spreads = sorted(
+                            top_sampled_spreads,
+                            key=lambda item: item["spread_points"],
+                            reverse=True,
+                        )[:20]
                     else:
                         segment["status"] = "NO_VALID_TWO_SIDED_QUOTES"
             segments.append(segment)
@@ -226,6 +355,7 @@ def collect(mt5, symbol: str, days: int) -> dict:
             point=point,
             tick_size=tick_size,
             tick_value=tick_value,
+            weights=sampled_weights,
         )
         if sampled_spreads and errors:
             status = "PARTIAL_TICK_SPREAD_HISTORY"
@@ -263,7 +393,9 @@ def collect(mt5, symbol: str, days: int) -> dict:
                 "segments_with_valid_two_sided_quotes": chunks_with_valid_quotes,
                 "ticks_returned": total_ticks,
                 "valid_two_sided_quote_ticks": total_valid_quotes,
+                "valid_two_sided_quotes_outside_segments_filtered": total_out_of_segment_quotes,
                 "sampled_quote_ticks": len(sampled_spreads),
+                "represented_tick_weight": round(sum(sampled_weights), 6),
                 "sample_fraction_of_valid_ticks": (
                     round(len(sampled_spreads) / total_valid_quotes, 8)
                     if total_valid_quotes else 0.0
@@ -282,14 +414,19 @@ def collect(mt5, symbol: str, days: int) -> dict:
             "sampling": {
                 "method": "deterministic evenly spaced tick-index sample within each seven-day segment",
                 "max_sampled_ticks_per_segment": MAX_SAMPLE_PER_SEGMENT,
-                "quantiles_describe_sample_not_every_returned_tick": True,
+                "global_distribution_weighting": "each sampled quote is weighted by valid in-range quote ticks in its segment divided by sampled quote ticks in that segment",
+                "equal_segment_weighting": False,
+                "quantiles_describe_weighted_sample_not_every_returned_tick": True,
                 "time_weighted_spread_estimate": False,
             },
             "spread_distribution": distribution,
+            "top_20_sampled_spread_events": top_sampled_spreads,
             "limitations": [
                 "Coverage depends on tick history supplied by the connected broker terminal.",
                 "A missing segment is reported; no quote ticks or spreads are synthesized.",
-                "Statistics are deterministic samples of quote events, not time-weighted spread estimates.",
+                "Ticks outside the exact UTC half-open segment interval are excluded before sampling.",
+                "Global statistics use segment tick-count weights to avoid giving low-volume and partial weeks the same weight as high-volume full weeks.",
+                "Statistics are weighted samples of quote events, not time-weighted spread estimates.",
                 "The spread history is not combined with Dukascopy prices and does not establish historical slippage.",
                 "Current tick value and contract settings are used only for the account-currency-per-lot conversion.",
             ],

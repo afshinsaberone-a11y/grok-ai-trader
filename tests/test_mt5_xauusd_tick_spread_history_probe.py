@@ -1,8 +1,12 @@
 import math
 
+import numpy as np
 import pytest
 
-from tools.mt5_xauusd_tick_spread_history_probe import summarize_spread_points
+from tools.mt5_xauusd_tick_spread_history_probe import (
+    _extract_spreads_and_times,
+    summarize_spread_points,
+)
 
 
 def test_spread_distribution_converts_points_to_price_and_lot_cost():
@@ -56,3 +60,50 @@ def test_invalid_symbol_units_fail_closed(field, value, message):
     units[field] = value
     with pytest.raises(ValueError, match=message):
         summarize_spread_points([8], **units)
+
+
+def test_weighted_spread_distribution_represents_segment_tick_volume():
+    result = summarize_spread_points(
+        [10, 20],
+        point=0.01,
+        tick_size=0.01,
+        tick_value=1.0,
+        weights=[9.0, 1.0],
+    )
+
+    stats = result["spread_points"]
+    assert stats["count"] == 2
+    assert stats["represented_tick_weight"] == pytest.approx(10.0)
+    assert stats["mean"] == pytest.approx(11.0)
+    assert stats["median"] == pytest.approx(10.0)
+    assert stats["p95"] == pytest.approx(20.0)
+    assert stats["p99"] == pytest.approx(20.0)
+    assert result["statistical_weighting"] == "represented_quote_tick_count"
+
+
+def test_weight_length_mismatch_fails_closed():
+    with pytest.raises(ValueError, match="SAMPLE_WEIGHTS_LENGTH_MISMATCH"):
+        summarize_spread_points(
+            [8, 10], point=0.01, tick_size=0.01, tick_value=1.0, weights=[1.0]
+        )
+
+
+def test_tick_quotes_are_strictly_filtered_to_half_open_utc_segment():
+    ticks = np.array(
+        [
+            (100.0, 101.0, 999),   # before start
+            (100.0, 101.0, 1000),  # inclusive start
+            (100.0, 103.0, 1500),  # inside
+            (100.0, 99.0, 1750),   # crossed quote inside
+            (100.0, 105.0, 2000),  # exclusive end
+        ],
+        dtype=[("bid", "f8"), ("ask", "f8"), ("time_msc", "i8")],
+    )
+
+    spreads, timestamps, outside = _extract_spreads_and_times(
+        ticks, 1.0, start_ms=1000, end_ms=2000
+    )
+
+    assert spreads.tolist() == pytest.approx([1.0, 3.0])
+    assert timestamps.tolist() == [1000, 1500]
+    assert outside == 2

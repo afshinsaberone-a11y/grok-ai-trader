@@ -31,8 +31,10 @@ Use the exact symbol name if the broker has a suffix.
 - The tool calls `MetaTrader5.copy_ticks_range` with `COPY_TICKS_INFO`, so the sample is based on BID/ASK quote updates rather than trade-only ticks.
 - The requested history interval is divided into seven-day segments.
 - Each segment retains at most 12,000 deterministic, evenly spaced tick-index observations. This bounds memory and makes repeated runs with the same broker data reproducible.
-- The report records returned ticks, valid two-sided quotes, sampled quote count, segment coverage, query errors, and first/last valid tick timestamps.
-- Spread percentiles describe the sampled quote events. They are **not time-weighted estimates**, and sample event frequency can overrepresent high-activity periods.
+- Each weekly segment is filtered to its exact UTC half-open interval [start, end). Any broker-returned quote outside that interval is counted and excluded before sampling.
+- The report records raw returned ticks, in-range valid two-sided quotes, out-of-segment quotes filtered, sampled quote count, per-segment spread statistics, query errors, and first/last valid in-range tick timestamps.
+- The global sample gives each sampled quote a weight equal to in-range valid quote ticks in its segment divided by sampled quote ticks in that segment. This prevents low-volume or partial segments from receiving the same total statistical weight as high-volume full segments.
+- Weighted spread percentiles describe a weighted sample of quote events, not every event and not a **time-weighted** spread series. The report also retains the 20 largest sampled spread events with timestamps for investigation.
 - Missing history is reported as missing. The tool does not fill gaps, interpolate spreads, or invent quote observations.
 
 ## Unit conversion
