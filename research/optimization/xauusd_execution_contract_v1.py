@@ -20,7 +20,8 @@ PRICE_COLUMNS = (
     "bid_open", "bid_high", "bid_low", "bid_close",
     "ask_open", "ask_high", "ask_low", "ask_close",
 )
-REQUIRED_COLUMNS = {"timestamp", *PRICE_COLUMNS, "signal", "ATR", "financing_usd_per_oz"}
+FINANCING_COLUMNS = ("financing_long_usd_per_oz", "financing_short_usd_per_oz")
+REQUIRED_COLUMNS = {"timestamp", *PRICE_COLUMNS, "signal", "ATR", *FINANCING_COLUMNS}
 
 
 class XAUUSDExecutionError(RuntimeError):
@@ -96,11 +97,16 @@ def _canonical_frame(bars: pd.DataFrame) -> pd.DataFrame:
         raise XAUUSDExecutionError("XAUUSD_SIGNAL_WITHOUT_VALID_ATR")
     frame["ATR"] = atr
 
-    finance = pd.to_numeric(frame["financing_usd_per_oz"], errors="coerce")
-    if finance.isna().any() or not np.isfinite(finance.to_numpy()).all():
-        raise XAUUSDExecutionError("XAUUSD_FINANCING_SCHEDULE_MISSING_OR_INVALID")
-    # Positive means a charge per ounce at this timestamp; negative means broker credit.
-    frame["financing_usd_per_oz"] = finance
+    # Each directional schedule is a charge/credit per ounce for carrying
+    # that side through this bar timestamp. Positive means a debit; negative
+    # means a broker credit. Long and short terms must never be conflated.
+    for column in FINANCING_COLUMNS:
+        finance = pd.to_numeric(frame[column], errors="coerce")
+        if finance.isna().any() or not np.isfinite(finance.to_numpy()).all():
+            raise XAUUSDExecutionError(
+                f"XAUUSD_FINANCING_SCHEDULE_MISSING_OR_INVALID:{column}"
+            )
+        frame[column] = finance
     for column in PRICE_COLUMNS:
         frame[column] = prices[column]
     return frame.reset_index(drop=True)
@@ -131,10 +137,12 @@ def run_xauusd_backtest(
     stop gap is filled at the worse opening quote. At end-of-data any still-open
     position is liquidated on the last close and flagged explicitly.
 
-    financing_usd_per_oz is the broker-sourced charge/credit for carrying a
-    position through that bar timestamp; use zero only when verified for that
-    timestamp. With H1 bars the intrabar exit order is unknowable, so the
-    financing charge on an exit bar is included conservatively.
+    financing_long_usd_per_oz and financing_short_usd_per_oz are separate
+    broker-sourced charge/credit schedules for carrying each side through
+    that bar timestamp; positive means a debit and negative means a credit.
+    Use zero only when verified for that side and timestamp. With H1 bars the
+    intrabar exit order is unknowable, so the selected side's financing on an
+    exit bar is included conservatively.
     """
     config.validate()
     frame = _canonical_frame(bars)
@@ -182,6 +190,7 @@ def run_xauusd_backtest(
             "price_R_after_quote_and_slippage_before_commission_financing": round(gross_r, 8),
             "commission_usd_per_oz": round(commission, 8),
             "financing_usd_per_oz": round(financing_accum, 8),
+            "financing_schedule_side": "LONG" if position == 1 else "SHORT",
             "net_R": round(net_r, 8),
             "spread_double_charged": False,
         })
@@ -212,7 +221,12 @@ def run_xauusd_backtest(
             target = entry_fill + position * float(config.reward_risk) * risk_distance
             financing_accum = 0.0
 
-        financing_accum += float(frame.at[i, "financing_usd_per_oz"])
+        financing_column = (
+            "financing_long_usd_per_oz"
+            if position == 1
+            else "financing_short_usd_per_oz"
+        )
+        financing_accum += float(frame.at[i, financing_column])
 
         # Correct executable exit side for each position.
         if position == 1:
@@ -312,7 +326,10 @@ def run_xauusd_backtest(
         "adverse_slippage_per_side_usd_per_oz": slippage,
         "commission_round_turn_usd_per_oz": commission,
         "financing_schedule_required": True,
-        "financing_column": "financing_usd_per_oz",
+        "financing_columns": {
+            "LONG": "financing_long_usd_per_oz",
+            "SHORT": "financing_short_usd_per_oz",
+        },
         "same_bar_stop_first": True,
         "stop_gap_uses_worse_open": True,
         "target_gap_fill": "target (conservative)",
