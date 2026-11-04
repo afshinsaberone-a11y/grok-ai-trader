@@ -165,6 +165,72 @@ def summarize_spread_points(
     }
 
 
+
+def summarize_spread_by_utc_time(spread_points, timestamps_ms, weights) -> dict:
+    """Summarize weighted sampled spreads by UTC hour and weekday/hour."""
+    raw_values = list(spread_points)
+    raw_times = list(timestamps_ms)
+    raw_weights = list(weights)
+    if not (len(raw_values) == len(raw_times) == len(raw_weights)):
+        raise ValueError("TIME_BUCKET_INPUT_LENGTH_MISMATCH")
+
+    hourly = {hour: ([], []) for hour in range(24)}
+    weekday_hourly = {
+        (weekday, hour): ([], [])
+        for weekday in range(7)
+        for hour in range(24)
+    }
+    for value, timestamp_ms, weight in zip(raw_values, raw_times, raw_weights):
+        try:
+            spread = float(value)
+            timestamp = int(timestamp_ms)
+            sample_weight = float(weight)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if (
+            not math.isfinite(spread)
+            or spread < 0
+            or timestamp <= 0
+            or not math.isfinite(sample_weight)
+            or sample_weight <= 0
+        ):
+            continue
+        moment = datetime.fromtimestamp(timestamp / 1000, timezone.utc)
+        hour_values, hour_weights = hourly[moment.hour]
+        hour_values.append(spread)
+        hour_weights.append(sample_weight)
+        key = (moment.weekday(), moment.hour)
+        weekday_values, weekday_weights = weekday_hourly[key]
+        weekday_values.append(spread)
+        weekday_weights.append(sample_weight)
+
+    by_hour = [
+        {
+            "utc_hour": hour,
+            "sampled_quote_ticks": len(hourly[hour][0]),
+            "spread_points": _weighted_stats(*hourly[hour]),
+        }
+        for hour in range(24)
+        if hourly[hour][0]
+    ]
+    by_weekday_hour = [
+        {
+            "utc_weekday": weekday,
+            "utc_hour": hour,
+            "sampled_quote_ticks": len(weekday_hourly[(weekday, hour)][0]),
+            "spread_points": _weighted_stats(*weekday_hourly[(weekday, hour)]),
+        }
+        for weekday in range(7)
+        for hour in range(24)
+        if weekday_hourly[(weekday, hour)][0]
+    ]
+    return {
+        "by_utc_hour": by_hour,
+        "by_utc_weekday_hour": by_weekday_hour,
+        "weekday_numbering": "Monday=0, Tuesday=1, ..., Sunday=6",
+        "statistical_weighting": "represented_quote_tick_count",
+    }
+
 def _extract_spreads_and_times(
     ticks,
     point: float,
@@ -237,6 +303,7 @@ def collect(mt5, symbol: str, days: int) -> dict:
         cursor = start_utc
         sampled_spreads = []
         sampled_weights = []
+        sampled_times_ms = []
         top_sampled_spreads = []
         total_ticks = 0
         total_valid_quotes = 0
@@ -310,6 +377,7 @@ def collect(mt5, symbol: str, days: int) -> dict:
                         sample_weights = [segment_weight] * take
                         sampled_spreads.extend(float(value) for value in sample)
                         sampled_weights.extend(sample_weights)
+                        sampled_times_ms.extend(int(value) for value in sample_times)
                         segment["sampled_quote_ticks"] = int(len(sample))
                         segment["represented_tick_weight"] = round(valid_count, 6)
                         segment["sampled_spread_points"] = _weighted_stats(
@@ -356,6 +424,9 @@ def collect(mt5, symbol: str, days: int) -> dict:
             tick_size=tick_size,
             tick_value=tick_value,
             weights=sampled_weights,
+        )
+        time_distribution = summarize_spread_by_utc_time(
+            sampled_spreads, sampled_times_ms, sampled_weights
         )
         if sampled_spreads and errors:
             status = "PARTIAL_TICK_SPREAD_HISTORY"
@@ -418,8 +489,13 @@ def collect(mt5, symbol: str, days: int) -> dict:
                 "equal_segment_weighting": False,
                 "quantiles_describe_weighted_sample_not_every_returned_tick": True,
                 "time_weighted_spread_estimate": False,
+                "utc_hour_and_weekday_hour_buckets": "weighted by represented valid quote tick count within each source segment",
             },
             "spread_distribution": distribution,
+            "spread_distribution_by_utc_hour": time_distribution["by_utc_hour"],
+            "spread_distribution_by_utc_weekday_hour": time_distribution["by_utc_weekday_hour"],
+            "time_bucket_statistical_weighting": time_distribution["statistical_weighting"],
+            "utc_weekday_numbering": time_distribution["weekday_numbering"],
             "top_20_sampled_spread_events": top_sampled_spreads,
             "limitations": [
                 "Coverage depends on tick history supplied by the connected broker terminal.",
@@ -427,6 +503,7 @@ def collect(mt5, symbol: str, days: int) -> dict:
                 "Ticks outside the exact UTC half-open segment interval are excluded before sampling.",
                 "Global statistics use segment tick-count weights to avoid giving low-volume and partial weeks the same weight as high-volume full weeks.",
                 "Statistics are weighted samples of quote events, not time-weighted spread estimates.",
+                "UTC hour and weekday-hour buckets are weighted sampled quote-event estimates; they are not continuous-time or every-tick measurements.",
                 "The spread history is not combined with Dukascopy prices and does not establish historical slippage.",
                 "Current tick value and contract settings are used only for the account-currency-per-lot conversion.",
             ],
