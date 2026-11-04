@@ -1,6 +1,6 @@
 """Fail-closed real Dukascopy XAUUSD BID/ASK intake.
 
-Supports daily M1 or monthly H1 source files. XAUUSD BI5 prices use a 1,000
+Supports daily M1/M5 or monthly H1 source files. XAUUSD BI5 prices use a 1,000
 point scale (not the EURUSD decoder's 100,000 scale). Provider filler candles
 (flat range with zero volume) are dropped; timestamps, side pairing, source
 hashes, and coverage gaps are recorded. No synthetic market data is created.
@@ -30,7 +30,7 @@ GOLD_PRICE_MAX = 20000.0
 BASE_URL = "https://datafeed.dukascopy.com/datafeed"
 RECORD = struct.Struct(">IIIIIf")
 COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
-TIMEFRAMES = {"M1", "H1"}
+TIMEFRAMES = {"M1", "M5", "H1"}
 
 
 class XAUUSDIngestError(RuntimeError):
@@ -47,6 +47,8 @@ def _source_url(period_start: date, side: str, timeframe: str) -> str:
         raise ValueError("XAUUSD_SIDE_INVALID")
     if timeframe == "M1":
         suffix = f"{period_start.day:02d}/{side}_candles_min_1.bi5"
+    elif timeframe == "M5":
+        suffix = f"{period_start.day:02d}/{side}_candles_min_5.bi5"
     elif timeframe == "H1":
         suffix = f"{side}_candles_hour_1.bi5"
     else:
@@ -58,7 +60,7 @@ def _source_url(period_start: date, side: str, timeframe: str) -> str:
 
 
 def _period_seconds(period_start: date, timeframe: str) -> int:
-    if timeframe.upper() == "M1":
+    if timeframe.upper() in {"M1", "M5"}:
         return 86400
     if timeframe.upper() == "H1":
         return calendar.monthrange(period_start.year, period_start.month)[1] * 86400
@@ -94,12 +96,17 @@ def decode_bi5(
 
     start = datetime.combine(period_start, datetime.min.time(), tzinfo=timezone.utc)
     max_seconds = _period_seconds(period_start, timeframe)
+    bar_seconds = {"M1": 60, "M5": 300, "H1": 3600}[timeframe]
     rows: list[tuple[object, float, float, float, float, float]] = []
     for offset in range(0, len(raw), RECORD.size):
         seconds, open_i, close_i, low_i, high_i, volume = RECORD.unpack_from(raw, offset)
         if not 0 <= int(seconds) < max_seconds:
             raise XAUUSDIngestError(
                 f"XAUUSD_TIMESTAMP_OUT_OF_PERIOD:{period_start}:{side}:{seconds}"
+            )
+        if int(seconds) % bar_seconds:
+            raise XAUUSDIngestError(
+                f"XAUUSD_TIMESTAMP_NOT_ALIGNED_TO_{timeframe}:{period_start}:{side}:{seconds}"
             )
         if not pd.notna(volume) or float(volume) < 0:
             raise XAUUSDIngestError(f"XAUUSD_INVALID_VOLUME:{period_start}:{side}:{offset}")
@@ -252,7 +259,7 @@ def _download(
 
 def _period_starts(start: date, end: date, timeframe: str) -> list[date]:
     timeframe = timeframe.upper()
-    if timeframe == "M1":
+    if timeframe in {"M1", "M5"}:
         days, current = [], start
         while current < end:
             if current.weekday() < 5:
@@ -277,7 +284,7 @@ def _gap_audit(data: pd.DataFrame, timeframe: str) -> dict[str, object]:
     if len(data) < 2:
         return {"gap_count": 0, "same_utc_date_gap_count": 0, "examples": []}
     ts = pd.to_datetime(data["timestamp"], utc=True).reset_index(drop=True)
-    expected = pd.Timedelta(minutes=1 if timeframe == "M1" else 60)
+    expected = pd.Timedelta(minutes={"M1": 1, "M5": 5, "H1": 60}[timeframe])
     gaps: list[dict[str, object]] = []
     same_day = 0
     for i in range(1, len(ts)):
