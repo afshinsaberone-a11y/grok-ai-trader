@@ -69,3 +69,16 @@ PR آرشیو #348 روی شاخهٔ مستقل باز و Draft است:
 [PR #348](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/348)
 
 در زمان به‌روزرسانی این addendum، تست‌های عمومی و Agent Runtime برای commit آرشیو در حال اجرا بودند؛ نتیجهٔ نهایی آن‌ها جداگانه باید از PR #348 و Actions بررسی شود.
+
+## نتیجهٔ نهایی پایلوت G22 پس از snapshot
+
+- [G22 M5 source-pilot run #41836225185](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41836225185): **FAILURE**.
+- job \`unit-tests\`: SUCCESS.
+- job \`source-pilot\`: FAILURE، در step دریافت M5.
+- Job ID شکست: \`126595914997\`.
+- پیام خطا: \`REAL_DATA_REQUIRED: requested range has no paired active XAUUSD bars\`.
+- هیچ artifact از پایلوت M5 تولید نشد؛ CSV/Manifest/HASH M5 برای بازه ثبت نشده است.
+- [جریان smoke جداگانه #41836225266](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41836225266) SUCCESS شد؛ Artifact ID \`13326730934\` و digest \`949a5727942574f37adb806da90c7664595bf2a00594e47685d82260462ccac1\`. این smoke، آزمون پایلوت ماهانهٔ M5 نیست و شکست M5 را خنثی نمی‌کند.
+- G18 coverage rerun #41836224950 هنگام آخرین بررسی هنوز \`IN_PROGRESS\` بود؛ job دریافت H1 شروع شده بود. این اجرای جداگانه نباید با پایلوت M5 اشتباه گرفته شود.
+
+جزئیات در \`reports/G22-M5-pilot-failure-addendum.md\` آمده است.

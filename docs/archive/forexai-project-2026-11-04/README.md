@@ -49,3 +49,11 @@ NO-GOها نیز بخشی از سابقهٔ مهندسی‌اند و نباید 
 - V51: hybrid-regime engine، runner، تست‌ها و diagnostics/attribution.
 
 برای SHAهای منبع و مسیرهای کپی‌شده، به [SOURCE_SNAPSHOT_INDEX.md](SOURCE_SNAPSHOT_INDEX.md) مراجعه کنید.
+
+## نحوهٔ نگهداری تست‌های تاریخی
+
+نسخه‌های تست در \`test_snapshots/\` با پسوند \`.py.snapshot\` ذخیره می‌شوند. این تغییر نام فقط برای جلوگیری از آن است که pytest تست‌های آرشیوشده را هنگام اجرای suite اصلی پروژه دوباره جمع‌آوری کند. محتوای هر تست تغییری نکرده و Git blob SHA آن در نمایهٔ snapshot ثبت شده است.
+
+## وضعیت پایلوت M5 پس از snapshot اولیه
+
+پس از ثبت وضعیت اولیهٔ G22 به‌عنوان IN_PROGRESS، Workflow اختصاصی M5 با خطای \`REAL_DATA_REQUIRED: requested range has no paired active XAUUSD bars\` پایان یافت. جزئیات در [G22-M5-pilot-failure-addendum.md](reports/G22-M5-pilot-failure-addendum.md) و وضعیت machine-readable در \`reports/G22-M5-pilot-post-run-final-status.json\` ثبت شده است. وضعیت قبلی در \`G22-M5-pilot-status.json\` به‌عنوان snapshot تاریخی حفظ شده است.

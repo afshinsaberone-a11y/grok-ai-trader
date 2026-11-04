@@ -103,3 +103,15 @@ ForexAI یک بستر پژوهش و اجرای ربات معاملاتی MT5/MQL
 - PR #340؛ Open / Draft / Unmerged در snapshot.
 - Source، runner، regression tests و دو diagnostics/attribution report کپی شده‌اند.
 - V51 مبتنی بر EURUSD M15 و گزارش‌های دادهٔ واقعی Dukascopy است؛ آرشیو snapshot آن فایل‌ها را نگه می‌دارد، اما وضعیت آن را به‌عنوان strategy approval یا مجوز عملیاتی تفسیر نمی‌کند.
+
+## نتیجهٔ نهایی G22 پس از snapshot اولیه
+
+در snapshot اولیه، Workflow M5 هنوز در حال اجرا بود. اجرای نهایی اختصاصی #41836225185 بعداً با FAILURE پایان یافت:
+- Unit tests اختصاصی: PASS.
+- مرحلهٔ دریافت روزانهٔ BID/ASK M5: FAILURE.
+- خطای نهایی: \`REAL_DATA_REQUIRED: requested range has no paired active XAUUSD bars\`.
+- بنابراین در بازهٔ آزمایشی 2024-01-08 تا 2024-02-01 هیچ مجموعهٔ paired active M5 به مرحلهٔ audit نرسید و artifact نهایی M5 ایجاد نشد.
+- Workflow smoke جداگانهٔ #41836225266 موفق بود، اما آن smoke جایگزین اثبات پایلوت کامل M5 نیست.
+- علت دقیق خالی بودن منبع هنوز از log مشخص نیست؛ log نشان می‌دهد هیچ paired active bar حاصل نشد، اما مشخص نمی‌کند مسیر endpoint اشتباه است یا فایل‌ها در آن بازه موجود نبوده‌اند.
+
+در نتیجه G22 فعلاً \`SOURCE_PILOT_FAILED_NO_PAIRED_ACTIVE_BARS\` است؛ پوشش M5 تأیید نشده و هیچ بک‌تست یا استراتژی M5 اجرا نشده است.

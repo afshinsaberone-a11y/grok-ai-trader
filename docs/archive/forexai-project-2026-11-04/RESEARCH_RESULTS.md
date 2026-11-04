@@ -106,3 +106,7 @@ Validation سال 2025 اجرا نشد؛ هیچ candidate در IS qualify نشد
 
 ### V51
 گزارش‌های directional attribution و IS diagnostics به‌همراه engine، runner و تست‌ها در این archive snapshot شده‌اند. PR #340 همچنان Draft است؛ این archive به‌تنهایی هیچ ادعای نهایی دربارهٔ performance یا مجوز معاملهٔ V51 ندارد.
+
+## به‌روزرسانی G22 پس از پایان Workflow
+
+پایلوت اختصاصی XAUUSD M5 در run #41836225185 با FAILURE تمام شد؛ خطا \`REAL_DATA_REQUIRED: requested range has no paired active XAUUSD bars\` بود. تست‌های واحد M5 موفق بودند، اما دریافت منبع روزانه برای بازهٔ خواسته‌شده هیچ دادهٔ paired active برنگرداند. علت ریشه‌ای هنوز از log به‌تنهایی معلوم نیست. نتیجه، PASS داده نیست و هیچ استراتژی M5 آزمایش نشده است.
