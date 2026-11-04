@@ -230,6 +230,7 @@ def summarize_spread_by_utc_time(spread_points, timestamps_ms, weights) -> dict:
         "statistical_weighting": "represented_quote_tick_count",
     }
 
+
 def _extract_spreads_and_times(
     ticks,
     point: float,
