@@ -279,8 +279,11 @@ def collect(mt5, symbol: str, days: int) -> dict:
                 total_ticks += tick_count
                 if tick_count:
                     chunks_with_ticks += 1
-                    segment_start_ms = int(cursor.timestamp() * 1000)
-                    segment_end_ms = int(segment_end.timestamp() * 1000)
+                    # MT5 tick timestamps are integer milliseconds. Round the
+                    # requested bounds upward so a tick just before a fractional-
+                    # millisecond start cannot leak into the half-open interval.
+                    segment_start_ms = math.ceil(cursor.timestamp() * 1000)
+                    segment_end_ms = math.ceil(segment_end.timestamp() * 1000)
                     spreads, times_ms, outside_count = _extract_spreads_and_times(
                         ticks,
                         point,
