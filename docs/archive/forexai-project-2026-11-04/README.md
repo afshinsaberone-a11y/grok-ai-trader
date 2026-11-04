@@ -57,3 +57,12 @@ NO-GOها نیز بخشی از سابقهٔ مهندسی‌اند و نباید 
 ## وضعیت پایلوت M5 پس از snapshot اولیه
 
 پس از ثبت وضعیت اولیهٔ G22 به‌عنوان IN_PROGRESS، Workflow اختصاصی M5 با خطای \`REAL_DATA_REQUIRED: requested range has no paired active XAUUSD bars\` پایان یافت. جزئیات در [G22-M5-pilot-failure-addendum.md](reports/G22-M5-pilot-failure-addendum.md) و وضعیت machine-readable در \`reports/G22-M5-pilot-post-run-final-status.json\` ثبت شده است. وضعیت قبلی در \`G22-M5-pilot-status.json\` به‌عنوان snapshot تاریخی حفظ شده است.
+
+
+## اعتبارسنجی PR آرشیو
+
+در commit فعلی آرشیو:
+- Python tests: SUCCESS در run #41842439859.
+- Agent Runtime: SUCCESS در run #41842439343.
+- \`real-data-smoke\` در workflow تست عمومی SKIPPED بوده است؛ آن را PASS حساب نکنید.
+- PR #348 همچنان Draft و unmerged است؛ main تغییر نکرده است.

@@ -82,3 +82,11 @@ PR آرشیو #348 روی شاخهٔ مستقل باز و Draft است:
 - G18 coverage rerun #41836224950 هنگام آخرین بررسی هنوز \`IN_PROGRESS\` بود؛ job دریافت H1 شروع شده بود. این اجرای جداگانه نباید با پایلوت M5 اشتباه گرفته شود.
 
 جزئیات در \`reports/G22-M5-pilot-failure-addendum.md\` آمده است.
+
+## اعتبارسنجی خود PR آرشیو #348
+
+پس از انتقال تست‌های آرشیوشده به \`test_snapshots/*.py.snapshot\` و حذف آن‌ها از الگوی pytest discovery:
+- [Archive Python tests run #41842439859](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41842439859): SUCCESS؛ jobهای \`python-tests\` و \`control-plane-inventory-powershell-parse\` موفق شدند؛ \`real-data-smoke\` در این workflow SKIPPED بود.
+- [Archive Agent Runtime run #41842439343](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41842439343): SUCCESS.
+- اجرای قبلی #41841749334 شکست collection داشت چون pytest فایل‌های test_*.py آرشیو را جمع‌آوری می‌کرد. اصلاح با پسوند snapshot انجام شد و اجرای جدید PASS شد.
+- [G18 H1 coverage rerun #41836224950](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41836224950) در آخرین بررسی هنوز IN_PROGRESS بود؛ این اجرای داده‌ای جدا از G22 است.
