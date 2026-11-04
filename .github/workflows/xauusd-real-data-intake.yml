@@ -1,0 +1,76 @@
+name: XAUUSD Real Data Intake
+
+on:
+  pull_request:
+    paths:
+      - "research/real_data/dukascopy_xauusd_ingest.py"
+      - "research/optimization/xauusd_execution_contract_v1.py"
+      - "tests/test_dukascopy_xauusd_ingest.py"
+      - "tests/test_xauusd_execution_contract_v1.py"
+      - ".github/workflows/xauusd-real-data-intake.yml"
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "UTC start date inclusive (keep this run to a small smoke-test window)"
+        required: true
+        default: "2024-01-08"
+        type: string
+      end:
+        description: "UTC end date exclusive"
+        required: true
+        default: "2024-01-10"
+        type: string
+      timeframe:
+        description: "Dukascopy source timeframe (H1 reduces requests; M1 is for later resampling/research)"
+        required: true
+        default: "H1"
+        type: choice
+        options:
+          - H1
+          - M1
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: python -m pip install pandas pytest
+      - name: Test XAUUSD scale and BID/ASK pairing
+        run: python -m pytest -q tests/test_dukascopy_xauusd_ingest.py tests/test_xauusd_execution_contract_v1.py
+
+  real-data-intake-smoke:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install intake dependencies
+        run: python -m pip install pandas
+      - name: Download and validate real Dukascopy XAUUSD BID/ASK bars
+        env:
+          START: ${{ inputs.start || '2024-01-08' }}
+          END: ${{ inputs.end || '2024-01-10' }}
+          TIMEFRAME: ${{ inputs.timeframe || 'H1' }}
+        run: |
+          python -m research.real_data.dukascopy_xauusd_ingest --start "$START" --end "$END" --timeframe "$TIMEFRAME" --output data/real/xauusd
+      - name: Upload source-backed dataset and manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd-real-data-intake-${{ inputs.start }}-${{ inputs.end }}-${{ inputs.timeframe }}
+          path: |
+            data/real/xauusd/normalized/*.csv
+            data/real/xauusd/normalized/*.manifest.json
+          if-no-files-found: error
