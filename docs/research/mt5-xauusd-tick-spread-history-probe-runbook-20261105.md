@@ -33,6 +33,7 @@ Use the exact symbol name if the broker has a suffix.
 - Each segment retains at most 12,000 deterministic, evenly spaced tick-index observations. This bounds memory and makes repeated runs with the same broker data reproducible.
 - Each weekly segment is filtered to its exact UTC half-open interval [start, end). Any broker-returned quote outside that interval is counted and excluded before sampling.
 - The report records raw returned ticks, in-range valid two-sided quotes, out-of-segment quotes filtered, sampled quote count, per-segment spread statistics, query errors, and first/last valid in-range tick timestamps.
+- Global sampled quote-event spread statistics are additionally grouped by UTC hour and UTC weekday/hour, with the same represented-tick weighting. Use these buckets to test whether wide spreads cluster around recurring UTC windows; they are still sampled-event estimates, not continuous-time estimates.
 - The global sample gives each sampled quote a weight equal to in-range valid quote ticks in its segment divided by sampled quote ticks in that segment. This prevents low-volume or partial segments from receiving the same total statistical weight as high-volume full segments.
 - Weighted spread percentiles describe a weighted sample of quote events, not every event and not a **time-weighted** spread series. The report also retains the 20 largest sampled spread events with timestamps for investigation.
 - Missing history is reported as missing. The tool does not fill gaps, interpolate spreads, or invent quote observations.
