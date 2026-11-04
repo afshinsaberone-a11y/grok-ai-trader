@@ -64,76 +64,9 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        include:
-          - shard: "2021-Q1"
-            year: "2021"
-            start: "2021-01-01"
-            end: "2021-04-01"
-          - shard: "2021-Q2"
-            year: "2021"
-            start: "2021-04-01"
-            end: "2021-07-01"
-          - shard: "2021-Q3"
-            year: "2021"
-            start: "2021-07-01"
-            end: "2021-10-01"
-          - shard: "2021-Q4"
-            year: "2021"
-            start: "2021-10-01"
-            end: "2022-01-01"
-          - shard: "2022-Q1"
-            year: "2022"
-            start: "2022-01-01"
-            end: "2022-04-01"
-          - shard: "2022-Q2"
-            year: "2022"
-            start: "2022-04-01"
-            end: "2022-07-01"
-          - shard: "2022-Q3"
-            year: "2022"
-            start: "2022-07-01"
-            end: "2022-10-01"
-          - shard: "2022-Q4"
-            year: "2022"
-            start: "2022-10-01"
-            end: "2023-01-01"
-          - shard: "2023-Q1"
-            year: "2023"
-            start: "2023-01-01"
-            end: "2023-04-01"
-          - shard: "2023-Q2"
-            year: "2023"
-            start: "2023-04-01"
-            end: "2023-07-01"
-          - shard: "2023-Q3"
-            year: "2023"
-            start: "2023-07-01"
-            end: "2023-10-01"
-          - shard: "2023-Q4"
-            year: "2023"
-            start: "2023-10-01"
-            end: "2024-01-01"
-          - shard: "2024-Q1"
-            year: "2024"
-            start: "2024-01-01"
-            end: "2024-04-01"
-          - shard: "2024-Q2"
-            year: "2024"
-            start: "2024-04-01"
-            end: "2024-07-01"
-          - shard: "2024-Q3"
-            year: "2024"
-            start: "2024-07-01"
-            end: "2024-10-01"
-          - shard: "2024-Q4"
-            year: "2024"
-            start: "2024-10-01"
-            end: "2025-01-01"
+        shard: ${{ fromJSON(inputs.shard == 'all' && '["2021-Q1","2021-Q2","2021-Q3","2021-Q4","2022-Q1","2022-Q2","2022-Q3","2022-Q4","2023-Q1","2023-Q2","2023-Q3","2023-Q4","2024-Q1","2024-Q2","2024-Q3","2024-Q4"]' || format('["{0}"]', inputs.shard || 'all')) }}
     env:
       AUDIT_SHARD: ${{ matrix.shard }}
-      AUDIT_YEAR: ${{ matrix.year }}
-      AUDIT_START: ${{ matrix.start }}
-      AUDIT_END: ${{ matrix.end }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -141,6 +74,32 @@ jobs:
           python-version: "3.12"
       - name: Install source intake dependencies
         run: python -m pip install --upgrade pip numpy pandas
+      - name: Resolve requested quarter UTC interval
+        run: |
+          case "$AUDIT_SHARD" in
+            "2021-Q1") year=2021; start=2021-01-01; end=2021-04-01 ;;
+            "2021-Q2") year=2021; start=2021-04-01; end=2021-07-01 ;;
+            "2021-Q3") year=2021; start=2021-07-01; end=2021-10-01 ;;
+            "2021-Q4") year=2021; start=2021-10-01; end=2022-01-01 ;;
+            "2022-Q1") year=2022; start=2022-01-01; end=2022-04-01 ;;
+            "2022-Q2") year=2022; start=2022-04-01; end=2022-07-01 ;;
+            "2022-Q3") year=2022; start=2022-07-01; end=2022-10-01 ;;
+            "2022-Q4") year=2022; start=2022-10-01; end=2023-01-01 ;;
+            "2023-Q1") year=2023; start=2023-01-01; end=2023-04-01 ;;
+            "2023-Q2") year=2023; start=2023-04-01; end=2023-07-01 ;;
+            "2023-Q3") year=2023; start=2023-07-01; end=2023-10-01 ;;
+            "2023-Q4") year=2023; start=2023-10-01; end=2024-01-01 ;;
+            "2024-Q1") year=2024; start=2024-01-01; end=2024-04-01 ;;
+            "2024-Q2") year=2024; start=2024-04-01; end=2024-07-01 ;;
+            "2024-Q3") year=2024; start=2024-07-01; end=2024-10-01 ;;
+            "2024-Q4") year=2024; start=2024-10-01; end=2025-01-01 ;;
+            *) echo "UNKNOWN_G22_SHARD:$AUDIT_SHARD"; exit 2 ;;
+          esac
+          {
+            echo "AUDIT_YEAR=$year"
+            echo "AUDIT_START=$start"
+            echo "AUDIT_END=$end"
+          } >> "$GITHUB_ENV"
       - name: Download real paired daily XAUUSD M1 BID and ASK for this quarter
         run: |
           python -m research.real_data.dukascopy_xauusd_ingest \
