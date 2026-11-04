@@ -27,5 +27,16 @@
   "strategy_research_authorized": false,
   "demo_authorized": false,
   "live_authorized": false,
-  "orders_submitted": false
+  "orders_submitted": false,
+  "local_focused_self_test": {
+    "status": "PASS",
+    "executed_locally": true,
+    "checks": [
+      "complete five-minute bucket aggregation",
+      "OHLC and volume aggregation semantics",
+      "incomplete-bucket exclusion without fills",
+      "negative spread rejection"
+    ],
+    "scope": "focused assertions against resample_m1_to_m5; not a full pytest run and not live source-data verification"
+  }
 }
