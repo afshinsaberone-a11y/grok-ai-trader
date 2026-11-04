@@ -58,7 +58,8 @@ A successful assembly means all requested quarterly source shards were retrieved
 ## Execution policy
 
 - Pull-request CI runs only compile and ingestion/resampling regression tests; it does not download historical source data.
-- The multi-year source audit is manual-only via `workflow_dispatch`; GitHub exposes that trigger after this workflow file is present on the repository default branch.
+- Historical source downloads are excluded from ordinary pull-request checks. The one-time bootstrap audit is explicitly scoped to the dedicated branch `integration/g22-xauusd-m5-main-20261105`; this branch-push trigger is not enabled for other branches.
+- After the workflow is on the repository default branch, use `workflow_dispatch` to run the full period or retry a selected quarter.
 - Full-period run: select `all`. Recovery run: select the failed quarter shard. Annual assembly is produced only by an `all` run in which all 16 quarterly jobs pass.
 - Dukascopy quotes are not WM Markets account execution history. Broker-specific commission, spread, slippage and financing/swap evidence must be sourced separately before any strategy backtest.
 - No strategy signal, parameter optimization, MT5 execution, EA promotion, Demo/Live permission or order submission is part of this audit.
