@@ -10,8 +10,11 @@ on:
       - "tests/test_xauusd_execution_contract_v1.py"
       - "tests/test_xauusd_h1_coverage_audit_g18.py"
       - "tests/test_mt5_xauusd_broker_cost_probe.py"
+      - "tests/test_mt5_xauusd_tick_spread_history_probe.py"
       - "tools/mt5_xauusd_broker_cost_probe.py"
+      - "tools/mt5_xauusd_tick_spread_history_probe.py"
       - "docs/research/mt5-xauusd-broker-cost-probe-runbook-20261103.md"
+      - "docs/research/mt5-xauusd-tick-spread-history-probe-runbook-20261105.md"
       - "docs/research/g18-xauusd-h1-data-coverage-protocol-20261103.md"
       - ".github/workflows/forexai-g18-xauusd-h1-real-data.yml"
   workflow_dispatch:
@@ -46,14 +49,17 @@ jobs:
             tests/test_xauusd_execution_contract_v1.py \
             tests/test_xauusd_h1_coverage_audit_g18.py \
             tools/mt5_xauusd_broker_cost_probe.py \
-            tests/test_mt5_xauusd_broker_cost_probe.py
+            tools/mt5_xauusd_tick_spread_history_probe.py \
+            tests/test_mt5_xauusd_broker_cost_probe.py \
+            tests/test_mt5_xauusd_tick_spread_history_probe.py
       - name: Run XAUUSD source, quote execution, and coverage tests
         run: |
           pytest -q \
             tests/test_dukascopy_xauusd_ingest.py \
             tests/test_xauusd_execution_contract_v1.py \
             tests/test_xauusd_h1_coverage_audit_g18.py \
-            tests/test_mt5_xauusd_broker_cost_probe.py
+            tests/test_mt5_xauusd_broker_cost_probe.py \
+            tests/test_mt5_xauusd_tick_spread_history_probe.py
   real-data-coverage:
     if: github.event_name == 'workflow_dispatch'
     needs: unit-tests
