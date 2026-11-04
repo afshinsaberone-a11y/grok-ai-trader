@@ -1,0 +1,552 @@
+name: ForexAI G22 XAUUSD M5 Full-History Coverage Audit
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/forexai-g22-xauusd-m5-full-history-coverage.yml"
+      - "docs/research/g22-xauusd-m5-full-history-coverage-20261104.md"
+  workflow_dispatch:
+    inputs:
+      shard:
+        description: "Run all 16 quarterly shards, or retry one shard only"
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - 2021-Q1
+          - 2021-Q2
+          - 2021-Q3
+          - 2021-Q4
+          - 2022-Q1
+          - 2022-Q2
+          - 2022-Q3
+          - 2022-Q4
+          - 2023-Q1
+          - 2023-Q2
+          - 2023-Q3
+          - 2023-Q4
+          - 2024-Q1
+          - 2024-Q2
+          - 2024-Q3
+          - 2024-Q4
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forexai-g22-full-history-${{ github.ref }}-${{ inputs.shard || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip numpy pandas pytest
+      - name: Compile XAUUSD M1 intake and M5 audit tests
+        run: python -m py_compile research/real_data/dukascopy_xauusd_ingest.py tests/test_dukascopy_xauusd_ingest.py
+      - name: Run G22 source and strict M1-to-M5 regression tests
+        run: python -m pytest -q tests/test_dukascopy_xauusd_ingest.py
+
+  full-history-shards:
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - shard: "2021-Q1"
+            year: "2021"
+            start: "2021-01-01"
+            end: "2021-04-01"
+          - shard: "2021-Q2"
+            year: "2021"
+            start: "2021-04-01"
+            end: "2021-07-01"
+          - shard: "2021-Q3"
+            year: "2021"
+            start: "2021-07-01"
+            end: "2021-10-01"
+          - shard: "2021-Q4"
+            year: "2021"
+            start: "2021-10-01"
+            end: "2022-01-01"
+          - shard: "2022-Q1"
+            year: "2022"
+            start: "2022-01-01"
+            end: "2022-04-01"
+          - shard: "2022-Q2"
+            year: "2022"
+            start: "2022-04-01"
+            end: "2022-07-01"
+          - shard: "2022-Q3"
+            year: "2022"
+            start: "2022-07-01"
+            end: "2022-10-01"
+          - shard: "2022-Q4"
+            year: "2022"
+            start: "2022-10-01"
+            end: "2023-01-01"
+          - shard: "2023-Q1"
+            year: "2023"
+            start: "2023-01-01"
+            end: "2023-04-01"
+          - shard: "2023-Q2"
+            year: "2023"
+            start: "2023-04-01"
+            end: "2023-07-01"
+          - shard: "2023-Q3"
+            year: "2023"
+            start: "2023-07-01"
+            end: "2023-10-01"
+          - shard: "2023-Q4"
+            year: "2023"
+            start: "2023-10-01"
+            end: "2024-01-01"
+          - shard: "2024-Q1"
+            year: "2024"
+            start: "2024-01-01"
+            end: "2024-04-01"
+          - shard: "2024-Q2"
+            year: "2024"
+            start: "2024-04-01"
+            end: "2024-07-01"
+          - shard: "2024-Q3"
+            year: "2024"
+            start: "2024-07-01"
+            end: "2024-10-01"
+          - shard: "2024-Q4"
+            year: "2024"
+            start: "2024-10-01"
+            end: "2025-01-01"
+    env:
+      AUDIT_SHARD: ${{ matrix.shard }}
+      AUDIT_YEAR: ${{ matrix.year }}
+      AUDIT_START: ${{ matrix.start }}
+      AUDIT_END: ${{ matrix.end }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install source intake dependencies
+        run: python -m pip install --upgrade pip numpy pandas
+      - name: Download real paired daily XAUUSD M1 BID and ASK for this quarter
+        run: |
+          python -m research.real_data.dukascopy_xauusd_ingest \
+            --start "$AUDIT_START" \
+            --end "$AUDIT_END" \
+            --timeframe M1 \
+            --timeout 60 \
+            --retries 8 \
+            --throttle-retries 12 \
+            --output "data/real/xauusd-m1-full-history-$AUDIT_SHARD"
+      - name: Build M5, persist it, then independently reconcile every bar to M1
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          import pandas as pd
+
+          from research.real_data.dukascopy_xauusd_ingest import (
+              _gap_audit,
+              resample_m1_to_m5,
+          )
+
+          shard = os.environ["AUDIT_SHARD"]
+          year = os.environ["AUDIT_YEAR"]
+          start = os.environ["AUDIT_START"]
+          end = os.environ["AUDIT_END"]
+          dates = f"{start.replace('-', '')}_{end.replace('-', '')}"
+
+          m1_path = Path(
+              f"data/real/xauusd-m1-full-history-{shard}/normalized/"
+              f"XAUUSD_M1_BIDASK_{dates}.csv"
+          )
+          m1_manifest_path = m1_path.with_suffix(".manifest.json")
+          assert m1_path.is_file() and m1_path.stat().st_size > 0
+          assert m1_manifest_path.is_file()
+
+          digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+          m1_hash = digest(m1_path)
+          m1_manifest_hash = digest(m1_manifest_path)
+          m1_manifest = json.loads(m1_manifest_path.read_text(encoding="utf-8"))
+          assert m1_manifest["schema"] == "forexai.real_data.xauusd_bidask_m1.v1"
+          assert m1_manifest["data_sha256"] == m1_hash
+          assert m1_manifest["synthetic_data"] is False
+          assert m1_manifest["backtest_run"] is False
+          assert m1_manifest["requested_start_utc"] == start
+          assert m1_manifest["requested_end_exclusive_utc"] == end
+
+          m1 = pd.read_csv(m1_path)
+          m1["timestamp"] = pd.to_datetime(m1["timestamp"], utc=True, errors="raise")
+          assert len(m1) == m1_manifest["rows"] >= 45000, f"M1_QUARTER_COVERAGE_TOO_LOW:{shard}"
+          assert m1["timestamp"].is_monotonic_increasing
+          assert not m1["timestamp"].duplicated().any()
+          assert (m1["timestamp"] >= pd.Timestamp(start, tz="UTC")).all()
+          assert (m1["timestamp"] < pd.Timestamp(end, tz="UTC")).all()
+          assert (m1["timestamp"].dt.second == 0).all()
+          sunday_m1_rows = int(m1["timestamp"].dt.dayofweek.eq(6).sum())
+          assert sunday_m1_rows > 0, f"XAUUSD_SUNDAY_SESSION_MISSING:{shard}"
+          for point in ("open", "high", "low", "close"):
+              assert (m1[f"ask_{point}"] >= m1[f"bid_{point}"]).all()
+          assert (m1["spread_open"] >= 0).all()
+          assert (m1["spread_close"] >= 0).all()
+          assert (m1["bid_volume"] >= 0).all()
+          assert (m1["ask_volume"] >= 0).all()
+
+          paired_days = sum(
+              1 for item in m1_manifest["period_audit"]
+              if item.get("status") == "PAIRED"
+          )
+          assert paired_days >= 45, f"PAIRED_SOURCE_DAYS_TOO_LOW:{shard}:{paired_days}"
+          assert len(m1_manifest["source_files"]) >= paired_days * 2
+
+          m5, aggregation = resample_m1_to_m5(m1)
+          assert len(m5) == aggregation["complete_five_minute_buckets"]
+          assert len(m5) >= 9000, f"M5_QUARTER_COVERAGE_TOO_LOW:{shard}"
+          assert m5["timestamp"].is_monotonic_increasing
+          assert not m5["timestamp"].duplicated().any()
+          assert (m5["timestamp"].dt.minute % 5 == 0).all()
+          assert (m5["timestamp"].dt.second == 0).all()
+          assert aggregation["filled_bars"] == 0
+          assert aggregation["synthetic_data"] is False
+
+          m5_root = Path(f"data/real/xauusd-m5-full-history-{shard}/normalized")
+          m5_root.mkdir(parents=True, exist_ok=True)
+          m5_path = m5_root / f"XAUUSD_M5_BIDASK_{dates}.csv"
+          m5.to_csv(m5_path, index=False, float_format="%.5f",
+                    date_format="%Y-%m-%dT%H:%M:%SZ")
+          # Re-read the persisted bytes before the independent source comparison.
+          m5 = pd.read_csv(m5_path)
+          m5["timestamp"] = pd.to_datetime(m5["timestamp"], utc=True, errors="raise")
+          m5_hash = digest(m5_path)
+
+          m1_indexed = m1.set_index("timestamp", drop=False)
+          compared = 0
+          max_abs_delta = 0.0
+          for row in m5.itertuples(index=False):
+              ts = pd.Timestamp(row.timestamp)
+              expected_ts = pd.date_range(ts, periods=5, freq="min", tz="UTC")
+              assert expected_ts.isin(m1_indexed.index).all()
+              source = m1_indexed.loc[expected_ts]
+              expected = {
+                  "bid_open": source["bid_open"].iloc[0],
+                  "bid_high": source["bid_high"].max(),
+                  "bid_low": source["bid_low"].min(),
+                  "bid_close": source["bid_close"].iloc[-1],
+                  "bid_volume": source["bid_volume"].sum(),
+                  "ask_open": source["ask_open"].iloc[0],
+                  "ask_high": source["ask_high"].max(),
+                  "ask_low": source["ask_low"].min(),
+                  "ask_close": source["ask_close"].iloc[-1],
+                  "ask_volume": source["ask_volume"].sum(),
+              }
+              for column, value in expected.items():
+                  delta = abs(float(getattr(row, column)) - float(value))
+                  max_abs_delta = max(max_abs_delta, delta)
+                  assert delta <= 1.1e-5, f"M5_RECONCILIATION_FAILED:{shard}:{ts}:{column}"
+              assert abs(float(row.ask_open) - float(row.bid_open)
+                         - float(row.spread_open)) <= 1.1e-5
+              assert abs(float(row.ask_close) - float(row.bid_close)
+                         - float(row.spread_close)) <= 1.1e-5
+              compared += 1
+          assert compared == len(m5)
+
+          m1_gaps = _gap_audit(m1, "M1")
+          m5_gaps = _gap_audit(m5, "M5")
+          period_status_counts = {}
+          for item in m1_manifest["period_audit"]:
+              status = item.get("status", "UNKNOWN")
+              period_status_counts[status] = period_status_counts.get(status, 0) + 1
+
+          m5_manifest = {
+              "schema": "forexai.real_data.xauusd_bidask_m5.v1",
+              "status": "FULL_HISTORY_QUARTER_SHARD_PASS_GAP_REVIEW_REQUIRED",
+              "symbol": "XAUUSD",
+              "timeframe": "M5",
+              "source_timeframe": "M1",
+              "year": year,
+              "quarter_shard": shard,
+              "requested_start_utc": start,
+              "requested_end_exclusive_utc": end,
+              "first_utc": m5["timestamp"].min().isoformat(),
+              "last_utc": m5["timestamp"].max().isoformat(),
+              "m1_rows": len(m1),
+              "m5_rows": len(m5),
+              "paired_source_days": paired_days,
+              "period_status_counts": period_status_counts,
+              "sunday_m1_rows": sunday_m1_rows,
+              "source_m1_data_sha256": m1_hash,
+              "source_m1_manifest_sha256": m1_manifest_hash,
+              "data_sha256": m5_hash,
+              "aggregation_audit": aggregation,
+              "m1_gap_audit": m1_gaps,
+              "m5_gap_audit": m5_gaps,
+              "synthetic_data": False,
+              "filled_bars": 0,
+              "backtest_run": False,
+          }
+          m5_manifest_path = m5_path.with_suffix(".manifest.json")
+          m5_manifest_path.write_text(
+              json.dumps(m5_manifest, indent=2, sort_keys=True), encoding="utf-8"
+          )
+          m5_manifest_hash = digest(m5_manifest_path)
+
+          report = {
+              "schema": "forexai.g22.xauusd_m5_full_history_quarter.v1",
+              "status": "REAL_M1_M5_QUARTER_SHARD_PASS_NOT_FULL_PERIOD",
+              "symbol": "XAUUSD",
+              "timeframe": "M5",
+              "year": year,
+              "shard": shard,
+              "requested_start_utc": start,
+              "requested_end_exclusive_utc": end,
+              "m1_rows": len(m1),
+              "m5_rows": len(m5),
+              "paired_source_days": paired_days,
+              "period_status_counts": period_status_counts,
+              "sunday_m1_rows": sunday_m1_rows,
+              "m1_gap_count": m1_gaps["gap_count"],
+              "m1_same_day_gap_count": m1_gaps["same_utc_date_gap_count"],
+              "m5_gap_count": m5_gaps["gap_count"],
+              "incomplete_five_minute_buckets_excluded": aggregation["incomplete_five_minute_buckets"],
+              "m1_rows_excluded_with_incomplete_buckets": aggregation["m1_rows_excluded_with_incomplete_buckets"],
+              "m5_bars_independently_reconciled": compared,
+              "max_abs_reconciliation_delta": max_abs_delta,
+              "source_m1_data_sha256": m1_hash,
+              "source_m1_manifest_sha256": m1_manifest_hash,
+              "m5_data_sha256": m5_hash,
+              "m5_manifest_sha256": m5_manifest_hash,
+              "synthetic_data": False,
+              "filled_bars": 0,
+              "backtest_run": False,
+              "strategy_research_authorized": False,
+              "demo_authorized": False,
+              "live_authorized": False,
+              "orders_submitted": False,
+          }
+          report_root = Path("artifacts")
+          report_root.mkdir(exist_ok=True)
+          report_path = report_root / f"g22-xauusd-m5-full-history-{shard}.json"
+          report_path.write_text(
+              json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+          )
+          print(json.dumps(report, indent=2))
+          PY
+      - name: Upload quarterly M1, M5, manifests and audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-g22-xauusd-m5-full-history-${{ matrix.shard }}
+          path: |
+            data/real/xauusd-m1-full-history-${{ matrix.shard }}/normalized/
+            data/real/xauusd-m5-full-history-${{ matrix.shard }}/normalized/
+            artifacts/g22-xauusd-m5-full-history-${{ matrix.shard }}.json
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 90
+
+  assemble-full-period:
+    if: github.event_name == 'workflow_dispatch' && inputs.shard == 'all' && needs.full-history-shards.result == 'success'
+    needs: [validate, full-history-shards]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Download all 16 verified quarterly artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: forexai-g22-xauusd-m5-full-history-*
+          path: full-history-shards
+          merge-multiple: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Assemble annual M1 and M5 datasets and preserve all gaps
+        run: |
+          python - <<'PY'
+          import csv
+          import hashlib
+          import json
+          from datetime import datetime
+          from pathlib import Path
+
+          root = Path("full-history-shards")
+          report_paths = sorted(root.rglob("g22-xauusd-m5-full-history-*.json"))
+          expected_shards = [
+              f"{year}-Q{quarter}"
+              for year in range(2021, 2025)
+              for quarter in range(1, 5)
+          ]
+          reports = {}
+          bases = {}
+          for report_path in report_paths:
+              report = json.loads(report_path.read_text(encoding="utf-8"))
+              shard = report["shard"]
+              assert shard not in reports, f"DUPLICATE_SHARD:{shard}"
+              assert report["status"] == "REAL_M1_M5_QUARTER_SHARD_PASS_NOT_FULL_PERIOD"
+              assert report["backtest_run"] is False
+              assert report["strategy_research_authorized"] is False
+              assert report["demo_authorized"] is False
+              assert report["live_authorized"] is False
+              assert report["orders_submitted"] is False
+              reports[shard] = report
+              bases[shard] = report_path.parent.parent
+          assert sorted(reports) == expected_shards, (
+              f"QUARTER_SHARD_SET_INCOMPLETE:{sorted(reports)}"
+          )
+
+          def sha(path):
+              h = hashlib.sha256()
+              with path.open("rb") as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def parse_ts(value):
+              return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+          annual_root = Path("full-history-annual")
+          annual_root.mkdir(exist_ok=True)
+          annual_records = {}
+          for year in range(2021, 2025):
+              year_shards = [
+                  reports[f"{year}-Q{quarter}"]
+                  for quarter in range(1, 5)
+              ]
+              for timeframe, interval in (("M1", 1), ("M5", 5)):
+                  target = annual_root / f"XAUUSD_{timeframe}_BIDASK_{year}0101_{year + 1}0101.csv"
+                  row_count = 0
+                  first_ts = None
+                  last_ts = None
+                  gap_count = 0
+                  same_day_gaps = 0
+                  max_gap = 0
+                  examples = []
+                  previous = None
+                  header = None
+                  with target.open("w", encoding="utf-8", newline="") as out:
+                      writer = None
+                      for report in year_shards:
+                          shard = report["shard"]
+                          start = report["requested_start_utc"]
+                          end = report["requested_end_exclusive_utc"]
+                          dates = f"{start.replace('-', '')}_{end.replace('-', '')}"
+                          source = next(
+                              bases[shard].rglob(f"XAUUSD_{timeframe}_BIDASK_{dates}.csv"),
+                              None,
+                          )
+                          assert source is not None, f"SHARD_DATA_MISSING:{shard}:{timeframe}"
+                          manifest = source.with_suffix(".manifest.json")
+                          if timeframe == "M1":
+                              assert sha(source) == report["source_m1_data_sha256"]
+                              assert sha(manifest) == report["source_m1_manifest_sha256"]
+                          else:
+                              assert sha(source) == report["m5_data_sha256"]
+                              assert sha(manifest) == report["m5_manifest_sha256"]
+                          with source.open("r", encoding="utf-8", newline="") as inp:
+                              reader = csv.reader(inp)
+                              current_header = next(reader)
+                              if header is None:
+                                  header = current_header
+                                  writer = csv.writer(out)
+                                  writer.writerow(header)
+                              else:
+                                  assert current_header == header, f"CSV_HEADER_MISMATCH:{shard}:{timeframe}"
+                              for row in reader:
+                                  stamp = parse_ts(row[0])
+                                  if previous is not None:
+                                      if stamp <= previous:
+                                          raise AssertionError(f"NON_MONOTONIC_OR_DUPLICATE:{year}:{timeframe}:{stamp}")
+                                      elapsed = (stamp - previous).total_seconds() / 60
+                                      if elapsed != interval:
+                                          gap_count += 1
+                                          max_gap = max(max_gap, int(elapsed))
+                                          if stamp.date() == previous.date():
+                                              same_day_gaps += 1
+                                          if len(examples) < 25:
+                                              examples.append({
+                                                  "previous_utc": previous.isoformat(),
+                                                  "next_utc": stamp.isoformat(),
+                                                  "elapsed_minutes": int(elapsed),
+                                                  "same_utc_date": stamp.date() == previous.date(),
+                                              })
+                                  if first_ts is None:
+                                      first_ts = stamp
+                                  previous = stamp
+                                  last_ts = stamp
+                                  writer.writerow(row)
+                                  row_count += 1
+                  assert row_count > 0
+                  file_hash = sha(target)
+                  annual_records[f"{year}-{timeframe}"] = {
+                      "year": year,
+                      "timeframe": timeframe,
+                      "rows": row_count,
+                      "first_utc": first_ts.isoformat(),
+                      "last_utc": last_ts.isoformat(),
+                      "data_sha256": file_hash,
+                      "gap_count": gap_count,
+                      "same_utc_date_gap_count": same_day_gaps,
+                      "max_gap_minutes": max_gap,
+                      "gap_examples": examples,
+                      "quarter_shards": [r["shard"] for r in year_shards],
+                      "synthetic_data": False,
+                      "filled_bars": 0,
+                      "backtest_run": False,
+                  }
+                  manifest_path = target.with_suffix(".manifest.json")
+                  manifest_path.write_text(
+                      json.dumps({
+                          "schema": f"forexai.real_data.xauusd_bidask_{timeframe.lower()}_annual.v1",
+                          "status": "FULL_YEAR_DATASET_ASSEMBLED_GAP_REVIEW_REQUIRED",
+                          **annual_records[f"{year}-{timeframe}"],
+                          "start_inclusive_utc": f"{year}-01-01T00:00:00+00:00",
+                          "end_exclusive_utc": f"{year + 1}-01-01T00:00:00+00:00",
+                      }, indent=2, sort_keys=True),
+                      encoding="utf-8",
+                  )
+                  annual_records[f"{year}-{timeframe}"]["manifest_sha256"] = sha(manifest_path)
+
+          summary = {
+              "schema": "forexai.g22.xauusd_m5_full_history_assembly.v1",
+              "status": "REAL_M1_M5_FULL_PERIOD_ASSEMBLY_PASS_GAP_REVIEW_REQUIRED",
+              "period_start_utc": "2021-01-01T00:00:00+00:00",
+              "period_end_exclusive_utc": "2025-01-01T00:00:00+00:00",
+              "years": [2021, 2022, 2023, 2024],
+              "quarter_shards": expected_shards,
+              "annual_datasets": annual_records,
+              "synthetic_data": False,
+              "filled_bars": 0,
+              "backtest_run": False,
+              "strategy_research_authorized": False,
+              "demo_authorized": False,
+              "live_authorized": False,
+              "orders_submitted": False,
+              "interpretation": "All requested quarter shards downloaded, hash-checked and assembled. All timestamp gaps remain explicit; this does not claim a gap-free market series or authorize strategy research.",
+          }
+          (annual_root / "g22-xauusd-m5-full-history-summary.json").write_text(
+              json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+          )
+          print(json.dumps(summary, indent=2))
+          PY
+      - name: Upload annual M1/M5 datasets and full-period summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-g22-xauusd-m5-full-history-2021-2024
+          path: full-history-annual/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 90
