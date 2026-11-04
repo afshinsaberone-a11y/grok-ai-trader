@@ -65,3 +65,12 @@
 - PR #347 head \`2bab51ced36fb2647843f8192ad4702eed0ed5df\`.
 - اجرای جدید #41879419215 باید کامل شود؛ فقط در صورت PASS بودن آن، M1 و M5 dataset و Manifest و hashها باید آرشیو شوند.
 - تا قبل از تأیید source pilot هیچ backtest یا strategy optimization انجام نشود.
+
+
+## گام بعدی فوری G22 v2
+
+- 17 تست اختصاصی G22 v2 موفق شده‌اند؛ 550 تست عمومی Python نیز موفق شده‌اند (یک warning).
+- فقط job \`source-pilot\` در run #41879419215 باقی مانده و در آخرین بررسی queued بود.
+- پس از اتمام، Artifact باید شامل M1 اصلی، M1 manifest، M5 مشتق، M5 manifest و گزارش audit باشد.
+- اگر source-pilot failure داد، قبل از retry فقط لاگ دقیق و URL/HTTP status فایل‌های M1 بررسی شود؛ هیچ data fill یا synthetic fallback مجاز نیست.
+- اگر PASS شد، hash و counts را ثبت کن؛ سپس multi-year coverage audit جداگانه تعریف کن. strategy backtest هنوز مجاز نیست.

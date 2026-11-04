@@ -18,7 +18,7 @@
   "total_intake_tests": 17,
   "workflow_run": 41879419215,
   "workflow_url": "https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41879419215",
-  "workflow_state": "queued",
+  "workflow_state": "source_pilot_queued",
   "source_m1_rows": null,
   "derived_m5_rows": null,
   "data_sha256": null,
@@ -38,5 +38,22 @@
       "negative spread rejection"
     ],
     "scope": "focused assertions against resample_m1_to_m5; not a full pytest run and not live source-data verification"
-  }
+  },
+  "dedicated_unit_tests": {
+    "run_id": 41879419215,
+    "job_id": 126747757256,
+    "conclusion": "success",
+    "tests_passed": 17,
+    "elapsed_seconds": 0.29
+  },
+  "project_python_tests": {
+    "run_id": 41879419430,
+    "job_id": 126747756801,
+    "conclusion": "success",
+    "tests_passed": 550,
+    "warnings": 1,
+    "real_data_smoke": "skipped",
+    "workflow_run_status_at_snapshot": "in_progress"
+  },
+  "source_pilot_job_id": 126747892351
 }

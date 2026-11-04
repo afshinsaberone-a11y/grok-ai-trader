@@ -74,3 +74,9 @@ NO-GOها نیز بخشی از سابقهٔ مهندسی‌اند و نباید 
 - G22 v1 با دریافت مستقیم M5 شکست خورد. G22 v2 اکنون از M1 واقعی استفاده می‌کند و فقط پنج کندل متوالی کامل را به M5 تبدیل می‌کند.
 - workflow جدید G22 در run #41879419215 هنگام به‌روزرسانی این addendum queued بود؛ هیچ PASS جدیدی برای M5 ادعا نشده است.
 - فایل‌های v2 جدا از snapshot مستقیم M5 قبلی در \`source/g22-v2/\`، \`test_snapshots/g22-v2/\`، \`workflows/g22-v2/\` و \`protocols/G22-M5-from-M1-v2.md\` ثبت شده‌اند.
+
+## نتیجهٔ تست‌های G22 v2
+
+- G22 dedicated unit tests: 17 passed in 0.29s در run #41879419215.
+- Python suite عمومی همان commit: 550 passed و یک warning در job #41879419430؛ real-data-smoke در آن workflow skipped بود.
+- دریافت زندهٔ M1 و ساخت فایل M5 هنوز queued بود و data PASS اعلام نشده است.

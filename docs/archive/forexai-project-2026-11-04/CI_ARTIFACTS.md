@@ -106,3 +106,10 @@ PR آرشیو #348 روی شاخهٔ مستقل باز و Draft است:
 - [Dedicated M5 source-pilot run #41879419215](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41879419215): در زمان ثبت این addendum queued بود.
 - روش جدید از M1 BI5 روزانه استفاده می‌کند؛ M5 فقط با پنج کندل M1 متوالی ساخته می‌شود.
 - هیچ Artifact جدید M5 تا زمان نتیجهٔ قطعی این workflow ثبت نشده است.
+
+
+## نتیجهٔ جدید G22 v2 روی head 2bab51c
+
+- [G22 dedicated run #41879419215](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41879419215): job \`unit-tests\` = SUCCESS؛ **17 passed in 0.29s**؛ job \`source-pilot\` هنوز QUEUED بود.
+- [General Python tests run #41879419430](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41879419430): job \`python-tests\` = SUCCESS؛ **550 passed, 1 warning**؛ \`real-data-smoke\` = SKIPPED؛ کل workflow در آخرین بررسی هنوز \`IN_PROGRESS\` بود.
+- هیچ Artifact پایلوت M5 از v2 تا زمانی که job \`source-pilot\` کامل نشود ثبت نشده است.

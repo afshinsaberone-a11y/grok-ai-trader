@@ -46,3 +46,11 @@
 - رد spread منفی بعد از aggregation: PASS.
 
 این یک self-test متمرکز روی منطق تابع است، نه اجرای کامل pytest و نه تأیید منبع واقعی M1. Workflow واقعی #41879419215 در زمان این ثبت همچنان queued بود.
+
+
+## وضعیت CI جدید G22 v2
+
+- Workflow اختصاصی: [#41879419215](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41879419215).
+- job \`unit-tests\`: SUCCESS؛ دقیقاً **17 passed in 0.29s**.
+- job \`source-pilot\`: در زمان این ثبت هنوز queued بود؛ بنابراین دادهٔ واقعی M1 دریافت و M5 خروجی هنوز تأیید نشده‌اند.
+- suite عمومی پروژه روی همان commit: run #41879419430، job \`python-tests\` موفق با **550 passed, 1 warning**؛ job \`real-data-smoke\` در آن workflow SKIPPED بود.

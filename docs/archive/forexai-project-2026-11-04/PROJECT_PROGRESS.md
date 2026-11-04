@@ -131,3 +131,9 @@ ForexAI یک بستر پژوهش و اجرای ربات معاملاتی MT5/MQL
 - شش تست جدید برای aggregation و fail-closed behavior اضافه شده‌اند.
 - current head در addendum: \`2bab51ced36fb2647843f8192ad4702eed0ed5df\`.
 - workflow جدید #41879419215 در زمان ثبت این addendum queued بود؛ نتیجهٔ آن باید قبل از اعلام PASS بررسی شود.
+
+### G22 v2 — نتیجهٔ تست‌های کد
+- Workflow اختصاصی #41879419215: واحدها 17/17 PASS در 0.29 ثانیه.
+- Source-pilot job هنوز queued است؛ نتیجهٔ منبع واقعی M1 و M5 معلوم نیست.
+- Suite عمومی #41879419430: 550 passed و یک warning؛ real-data-smoke در همان workflow skipped بود.
+- نتیجهٔ تست کد، مجوز استفاده از دادهٔ M5 یا سودآوری استراتژی نیست.
