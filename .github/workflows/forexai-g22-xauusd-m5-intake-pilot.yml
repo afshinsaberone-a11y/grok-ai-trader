@@ -7,6 +7,7 @@ on:
       - "tests/test_dukascopy_xauusd_ingest.py"
       - "docs/research/g22-xauusd-m5-intake-pilot-20261104.md"
       - ".github/workflows/forexai-g22-xauusd-m5-intake-pilot.yml"
+  workflow_dispatch:
 
 concurrency:
   group: forexai-g22-xauusd-m5-pilot-${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -36,6 +37,7 @@ jobs:
         run: python -m pytest -q tests/test_dukascopy_xauusd_ingest.py
 
   source-pilot:
+    if: github.event_name == 'workflow_dispatch'
     needs: unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 90

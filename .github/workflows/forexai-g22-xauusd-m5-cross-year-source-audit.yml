@@ -7,6 +7,7 @@ on:
       - "research/real_data/dukascopy_xauusd_ingest.py"
       - "tests/test_dukascopy_xauusd_ingest.py"
       - "docs/research/g22-xauusd-m5-cross-year-source-audit-20261104.md"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -33,6 +34,7 @@ jobs:
         run: python -m pytest -q tests/test_dukascopy_xauusd_ingest.py
 
   cross-year-samples:
+    if: github.event_name == 'workflow_dispatch'
     needs: unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 90

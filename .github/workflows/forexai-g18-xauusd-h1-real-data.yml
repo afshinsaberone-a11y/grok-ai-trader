@@ -14,6 +14,7 @@ on:
       - "docs/research/mt5-xauusd-broker-cost-probe-runbook-20261103.md"
       - "docs/research/g18-xauusd-h1-data-coverage-protocol-20261103.md"
       - ".github/workflows/forexai-g18-xauusd-h1-real-data.yml"
+  workflow_dispatch:
 
 concurrency:
   group: forexai-g18-xauusd-h1-${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -54,6 +55,7 @@ jobs:
             tests/test_xauusd_h1_coverage_audit_g18.py \
             tests/test_mt5_xauusd_broker_cost_probe.py
   real-data-coverage:
+    if: github.event_name == 'workflow_dispatch'
     needs: unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 90
