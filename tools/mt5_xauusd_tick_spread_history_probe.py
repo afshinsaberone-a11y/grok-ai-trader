@@ -165,7 +165,6 @@ def summarize_spread_points(
     }
 
 
-
 def summarize_spread_by_utc_time(spread_points, timestamps_ms, weights) -> dict:
     """Summarize weighted sampled spreads by UTC hour and weekday/hour."""
     raw_values = list(spread_points)
