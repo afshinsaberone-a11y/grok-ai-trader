@@ -1,9 +1,8 @@
+from datetime import datetime, timezone
 import math
 
 import numpy as np
 import pytest
-
-from datetime import datetime, timezone
 
 from tools.mt5_xauusd_tick_spread_history_probe import (
     _extract_spreads_and_times,
@@ -110,7 +109,6 @@ def test_tick_quotes_are_strictly_filtered_to_half_open_utc_segment():
     assert spreads.tolist() == pytest.approx([1.0, 3.0])
     assert timestamps.tolist() == [1000, 1500]
     assert outside == 2
-
 
 
 def test_spread_time_buckets_use_utc_and_represented_tick_weights():
