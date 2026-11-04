@@ -39,9 +39,13 @@ The observed H1 spread statistics are bar-open/bar-close quote differences in US
 The existing XAUUSD execution contract uses actual BID/ASK entry and exit sides and explicitly requires:
 - per-side slippage in USD per ounce;
 - round-turn commission in USD per ounce; and
-- a broker-sourced per-bar financing/overnight schedule.
+- broker-sourced per-bar financing/overnight schedules, separately for LONG and SHORT positions. The two directions must remain distinct because a broker may debit one side and credit the other.
 
-This intake does **not** infer commission, financing, contract size, or swap from market bars. The strategy backtest remains blocked until the target demo account's actual commission and financing rules, including rollover timing and any triple-swap day, are verified and represented in the execution inputs. Unit-test financing values are fixtures only.
+The execution input contract requires both `financing_long_usd_per_oz` and `financing_short_usd_per_oz` on every bar. Each value is a charge/credit per ounce for that side at the bar timestamp: positive means a debit; negative means a broker credit. A missing or unverified value must not be replaced with zero.
+
+This intake does **not** infer commission, financing, contract size, or swap from market bars. The strategy backtest remains blocked until the target demo account's actual commission and financing rules, including direction, rollover timing, historical schedule coverage and any triple-swap day, are verified and represented in the execution inputs. Unit-test financing values are fixtures only.
+
+Historical MT5 tick-spread observations are separate broker-cost evidence. Their event-sampled percentiles are not time-weighted, do not establish slippage, and cover only the actual terminal history returned. Do not add a separate spread charge to BID/ASK prices that already represent the intended execution quotes; do not assume another provider's BID/ASK spread equals the target broker's spread.
 
 ## Output and stopping conditions
 
