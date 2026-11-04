@@ -121,6 +121,8 @@ def _extract_spreads_and_times(ticks, point: float):
 
 
 def collect(mt5, symbol: str, days: int) -> dict:
+    import numpy as np
+
     if not mt5.initialize():
         raise RuntimeError(f"MT5_INITIALIZE_FAILED:{mt5.last_error()}")
     try:
