@@ -53,7 +53,6 @@ def test_long_uses_ask_entry_bid_exit_and_charges_explicit_costs_once() -> None:
     assert trades[0]["exit_fill"] == pytest.approx(2007.80)
     assert trades[0]["financing_usd_per_oz"] == pytest.approx(0.05)
     assert trades[0]["net_R"] == pytest.approx(2.43333333)
-    assert trades[0]["financing_usd_per_oz"] == pytest.approx(0.05)
     assert trades[0]["financing_schedule_side"] == "LONG"
     assert trades[0]["spread_double_charged"] is False
     assert metrics["spread_double_charged"] is False
