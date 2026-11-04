@@ -14,16 +14,19 @@ This follow-up samples one month in each of 2021, 2022, 2023 and 2024. It is a c
 
 | Sample | Start | End |
 |---|---|---|
-| 2021 | 2021-01-04 | 2021-02-01 |
-| 2022 | 2022-01-03 | 2022-02-01 |
-| 2023 | 2023-01-03 | 2023-02-01 |
-| 2024 | 2024-07-01 | 2024-08-01 |
+| 2021 | 2021-01-03 | 2021-01-31 |
+| 2022 | 2022-01-09 | 2022-02-06 |
+| 2023 | 2023-01-08 | 2023-02-05 |
+| 2024 | 2024-06-30 | 2024-07-28 |
 
-Windows are fixed before execution. No strategy or candidate selection is run.
+Windows are fixed before execution and begin on Sunday UTC so that the weekly XAUUSD reopening can be observed. Dukascopy publishes XAU/USD trading from Sunday evening (21:00 GMT in summer / 22:00 GMT in winter); gold also has a daily trading break. See [Dukascopy trading hours](https://www.dukascopy.com/swiss/english/forex/forex-trading-accounts/link/?mob=1). The importer must request Sunday daily M1 source files and skip Saturday only. Each sample must contain at least one actual Sunday M1 row; a Sunday file with no paired data fails the sample.
+
+No strategy or candidate selection is run.
 
 ## Acceptance per sample
 
-- At least 5,000 paired real M1 rows and at least 10 paired source weekdays.
+- At least 5,000 paired real M1 rows and at least 10 paired source dates.
+- At least one paired Sunday-session M1 row in every sample.
 - At least 1,000 complete M5 bars.
 - BID and ASK source timestamps are paired by the importer; timestamps are unique, increasing and UTC minute-aligned.
 - Every emitted M5 row is independently reconstructed from exactly five consecutive M1 timestamps.

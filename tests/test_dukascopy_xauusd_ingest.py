@@ -285,3 +285,11 @@ def test_m1_to_m5_fails_when_no_complete_bucket_exists() -> None:
     m1 = _m1_frame(count=4)
     with pytest.raises(XAUUSDIngestError, match="NO_COMPLETE_FIVE_MINUTE_BUCKETS"):
         resample_m1_to_m5(m1)
+
+
+def test_m1_period_starts_include_sunday_open_and_skip_saturday() -> None:
+    from research.real_data.dukascopy_xauusd_ingest import _period_starts
+
+    days = _period_starts(date(2024, 6, 29), date(2024, 7, 2), "M1")
+
+    assert days == [date(2024, 6, 30), date(2024, 7, 1)]

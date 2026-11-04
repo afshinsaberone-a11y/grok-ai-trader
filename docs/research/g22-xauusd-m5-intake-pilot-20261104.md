@@ -22,7 +22,7 @@ The revised pilot therefore uses the already-supported Dukascopy daily M1 BI5 pa
 
 ## M1 source intake
 
-Expected source files, per UTC weekday and side:
+Expected source files, per UTC trading date and side. Sunday dates are included to capture the weekly XAU/USD reopening; Saturdays are skipped. Dukascopy lists the XAU/USD opening at 21:00 GMT in summer and 22:00 GMT in winter, with a daily gold trading break ([official trading hours](https://www.dukascopy.com/swiss/english/forex/forex-trading-accounts/link/?mob=1)):
 
 - \`.../XAUUSD/{year}/{zero_based_month}/{day:02d}/BID_candles_min_1.bi5\`
 - \`.../XAUUSD/{year}/{zero_based_month}/{day:02d}/ASK_candles_min_1.bi5\`
@@ -61,6 +61,8 @@ The M5 manifest records the exact M1 source data hash, M1 manifest hash, input r
 - Strictly increasing unique UTC timestamps on a five-minute grid.
 - Non-crossed BID/ASK quotes and reconciled open/close spread.
 - Zero synthetic data and zero filled bars.
+
+This January 2024 pilot began on Monday 2024-01-08 and its original downloader requested weekdays only; it therefore did not include Sunday reopening sessions. It remains valid evidence for weekday BID/ASK intake and strict M1→M5 aggregation, but it is not a complete weekly-session sample. The Sunday-aware importer and Sunday-start cross-year samples are the corrective follow-up.
 
 This pilot verifies only one month of intake and deterministic resampling. It does **not** establish multi-year M5 coverage or validate a trading strategy.
 

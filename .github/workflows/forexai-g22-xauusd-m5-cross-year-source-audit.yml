@@ -42,17 +42,17 @@ jobs:
       matrix:
         include:
           - year: "2021"
-            start: "2021-01-04"
-            end: "2021-02-01"
+            start: "2021-01-03"
+            end: "2021-01-31"
           - year: "2022"
-            start: "2022-01-03"
-            end: "2022-02-01"
+            start: "2022-01-09"
+            end: "2022-02-06"
           - year: "2023"
-            start: "2023-01-03"
-            end: "2023-02-01"
+            start: "2023-01-08"
+            end: "2023-02-05"
           - year: "2024"
-            start: "2024-07-01"
-            end: "2024-08-01"
+            start: "2024-06-30"
+            end: "2024-07-28"
     env:
       SAMPLE_YEAR: ${{ matrix.year }}
       SAMPLE_START: ${{ matrix.start }}
@@ -118,6 +118,8 @@ jobs:
           assert m1["timestamp"].is_monotonic_increasing
           assert not m1["timestamp"].duplicated().any()
           assert (m1["timestamp"].dt.second == 0).all()
+          sunday_m1_rows = int(m1["timestamp"].dt.dayofweek.eq(6).sum())
+          assert sunday_m1_rows > 0, f"XAUUSD_SUNDAY_SESSION_MISSING:{year}"
           for point in ("open", "high", "low", "close"):
               assert (m1[f"ask_{point}"] >= m1[f"bid_{point}"]).all()
           assert (m1["spread_open"] >= 0).all()
@@ -142,9 +144,16 @@ jobs:
           assert aggregation["synthetic_data"] is False
           assert aggregation["complete_five_minute_buckets"] == len(m5)
 
-          # Independent audit of the saved M5 values against the exact five
-          # consecutive source M1 rows; this is intentionally separate from
-          # the aggregation result produced above.
+          # Persist the output first, then audit the values read back from disk
+          # against the exact five consecutive source M1 rows.
+          m5_root = Path(f"data/real/xauusd-m5-coverage-{year}/normalized")
+          m5_root.mkdir(parents=True, exist_ok=True)
+          m5_path = m5_root / f"XAUUSD_M5_BIDASK_{dates}.csv"
+          m5.to_csv(m5_path, index=False, float_format="%.5f", date_format="%Y-%m-%dT%H:%M:%SZ")
+          m5 = pd.read_csv(m5_path)
+          m5["timestamp"] = pd.to_datetime(m5["timestamp"], utc=True, errors="raise")
+          m5_hash = hashlib.sha256(m5_path.read_bytes()).hexdigest()
+
           m1_indexed = m1.set_index("timestamp", drop=False)
           compared = 0
           for row in m5.itertuples(index=False):
@@ -177,11 +186,6 @@ jobs:
               compared += 1
           assert compared == len(m5)
 
-          m5_root = Path(f"data/real/xauusd-m5-coverage-{year}/normalized")
-          m5_root.mkdir(parents=True, exist_ok=True)
-          m5_path = m5_root / f"XAUUSD_M5_BIDASK_{dates}.csv"
-          m5.to_csv(m5_path, index=False, float_format="%.5f", date_format="%Y-%m-%dT%H:%M:%SZ")
-          m5_hash = hashlib.sha256(m5_path.read_bytes()).hexdigest()
           m5_gap_audit = _gap_audit(m5, "M5")
           m1_gap_audit = _gap_audit(m1, "M1")
 
@@ -199,6 +203,7 @@ jobs:
               "m1_rows": len(m1),
               "m5_rows": len(m5),
               "paired_source_days": paired_days,
+              "sunday_m1_rows": sunday_m1_rows,
               "source_m1_data_sha256": m1_hash,
               "source_m1_manifest_sha256": m1_manifest_hash,
               "data_sha256": m5_hash,
@@ -227,6 +232,7 @@ jobs:
               "m1_rows": len(m1),
               "m5_rows": len(m5),
               "paired_source_days": paired_days,
+              "sunday_m1_rows": sunday_m1_rows,
               "m1_gap_count": m1_gap_audit["gap_count"],
               "m1_same_day_gap_count": m1_gap_audit["same_utc_date_gap_count"],
               "m5_gap_count": m5_gap_audit["gap_count"],
