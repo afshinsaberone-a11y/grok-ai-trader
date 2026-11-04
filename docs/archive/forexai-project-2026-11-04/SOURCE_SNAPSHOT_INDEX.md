@@ -127,3 +127,21 @@
 | \`reports/v51-directional-attribution.md\` | \`f7d5a73e18c36a3010c01008fd3a184f17556603\` |
 | \`reports/v51-is-diagnostics.md\` | \`238be7b5662cc9d55a604b843bbbdc98afb85632\` |
 | \`protocols/GRK_REGIME_SWITCH_V51.md\` | \`f6873124eefabd2bd6fc2f448698cd5d8707da61\` |
+
+
+## G22 v2 — دریافت M1 و تجمیع سخت‌گیرانه به M5
+
+- Branch: \`research/g22-xauusd-m5-intake-pilot-20261104\`
+- Commit: \`2bab51ced36fb2647843f8192ad4702eed0ed5df\`
+- روش: دریافت روزانهٔ BID/ASK M1 و ساخت M5 فقط از پنج کندل متوالی کامل؛ bucket ناقص حذف می‌شود.
+
+| مسیر در آرشیو | Git blob SHA |
+|---|---|
+| \`source/g22-v2/dukascopy_xauusd_ingest_m1_to_m5.py\` | \`abbf3fe26b4aaad5c439ee2a96f453986d668397\` |
+| \`test_snapshots/g22-v2/test_dukascopy_xauusd_ingest_m1_to_m5.py.snapshot\` | \`1b53a9b3d8c660f311858a191a8f0cda4d65e1fb\` |
+| \`workflows/g22-v2/forexai-g22-xauusd-m5-intake-pilot.yml\` | \`5606f417d446caeca6057077ee3aeae155b67256\` |
+| \`protocols/G22-M5-from-M1-v2.md\` | \`7b3d21a4f8e785d335394c3658ba7592a915ca13\` |
+| \`reports/G22-v2-m1-to-m5-status.md\` | \`8c36f4b6200bbdb3648b760e820c79674d4659ca\` |
+| \`reports/G22-v2-m1-to-m5-status.json\` | \`42e93cabe62f91aeffb8137b5644363ced9adb4b\` |
+
+نسخهٔ قبلی مستقیم M5 در مسیرهای \`source/g22/\` و \`workflows/g22/\` و گزارش failure مربوطه حفظ شده است تا دلیل تغییر مسیر از بین نرود.

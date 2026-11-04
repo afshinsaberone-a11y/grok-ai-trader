@@ -66,3 +66,11 @@ NO-GOها نیز بخشی از سابقهٔ مهندسی‌اند و نباید 
 - Agent Runtime: SUCCESS در run #41842439343.
 - \`real-data-smoke\` در workflow تست عمومی SKIPPED بوده است؛ آن را PASS حساب نکنید.
 - PR #348 همچنان Draft و unmerged است؛ main تغییر نکرده است.
+
+
+## اجرای مجدد G18 و G22 v2
+
+- G18 H1 rerun #41836224950 با SUCCESS تمام شد؛ Artifact جدید ID \`13332168420\` و digest \`032c27b577b6825515fa643c7a40faea26354a2558527f1b3b0065b96acd558e\`. SHAهای CSV و Manifest با نسخهٔ قبلی برابر ماندند. جزئیات در \`reports/G18-rerun-success.md\`.
+- G22 v1 با دریافت مستقیم M5 شکست خورد. G22 v2 اکنون از M1 واقعی استفاده می‌کند و فقط پنج کندل متوالی کامل را به M5 تبدیل می‌کند.
+- workflow جدید G22 در run #41879419215 هنگام به‌روزرسانی این addendum queued بود؛ هیچ PASS جدیدی برای M5 ادعا نشده است.
+- فایل‌های v2 جدا از snapshot مستقیم M5 قبلی در \`source/g22-v2/\`، \`test_snapshots/g22-v2/\`، \`workflows/g22-v2/\` و \`protocols/G22-M5-from-M1-v2.md\` ثبت شده‌اند.

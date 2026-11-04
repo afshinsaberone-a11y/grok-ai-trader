@@ -90,3 +90,19 @@ PR آرشیو #348 روی شاخهٔ مستقل باز و Draft است:
 - [Archive Agent Runtime run #41842439343](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41842439343): SUCCESS.
 - اجرای قبلی #41841749334 شکست collection داشت چون pytest فایل‌های test_*.py آرشیو را جمع‌آوری می‌کرد. اصلاح با پسوند snapshot انجام شد و اجرای جدید PASS شد.
 - [G18 H1 coverage rerun #41836224950](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41836224950) در آخرین بررسی هنوز IN_PROGRESS بود؛ این اجرای داده‌ای جدا از G22 است.
+
+
+## G18 H1 — اجرای مجدد نهایی
+
+- [Run #41836224950](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41836224950): SUCCESS؛ هر دو job مربوط به unit tests و real-data-coverage موفق شدند.
+- Artifact ID: \`13332168420\`.
+- Artifact name: \`forexai-g18-xauusd-h1-real-data-2021-2024\`.
+- ZIP SHA-256: \`032c27b577b6825515fa643c7a40faea26354a2558527f1b3b0065b96acd558e\`.
+- پس از دانلود، CSV و Manifest داخل ZIP مستقلاً hash شدند: CSV برابر \`85d505a69a062552847f4aa39c31161c6c1206610dc83c3815cce0d77796cbcb\` و Manifest برابر \`1df7d7cf3d04fce8702859eda98de08b5ba103d8d4ef8e35d174a6121fb776aa\`. هر دو با G18 اولیه برابرند.
+
+## G22 v2 — M1 source / strict M5 resampling
+
+- PR #347 به commit \`2bab51ced36fb2647843f8192ad4702eed0ed5df\` به‌روزرسانی شده است.
+- [Dedicated M5 source-pilot run #41879419215](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41879419215): در زمان ثبت این addendum queued بود.
+- روش جدید از M1 BI5 روزانه استفاده می‌کند؛ M5 فقط با پنج کندل M1 متوالی ساخته می‌شود.
+- هیچ Artifact جدید M5 تا زمان نتیجهٔ قطعی این workflow ثبت نشده است.

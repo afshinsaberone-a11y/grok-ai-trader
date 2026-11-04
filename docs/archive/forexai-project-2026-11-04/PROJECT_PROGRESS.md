@@ -115,3 +115,19 @@ ForexAI یک بستر پژوهش و اجرای ربات معاملاتی MT5/MQL
 - علت دقیق خالی بودن منبع هنوز از log مشخص نیست؛ log نشان می‌دهد هیچ paired active bar حاصل نشد، اما مشخص نمی‌کند مسیر endpoint اشتباه است یا فایل‌ها در آن بازه موجود نبوده‌اند.
 
 در نتیجه G22 فعلاً \`SOURCE_PILOT_FAILED_NO_PAIRED_ACTIVE_BARS\` است؛ پوشش M5 تأیید نشده و هیچ بک‌تست یا استراتژی M5 اجرا نشده است.
+
+## به‌روزرسانی پس از snapshot: G18 و G22 v2
+
+### G18 — اجرای مجدد تأیید شد
+- Run #41836224950 با SUCCESS پایان یافت.
+- Artifact ID: 13332168420؛ ZIP digest: \`032c27b577b6825515fa643c7a40faea26354a2558527f1b3b0065b96acd558e\`.
+- CSV data SHA همچنان \`85d505a69a062552847f4aa39c31161c6c1206610dc83c3815cce0d77796cbcb\` و Manifest SHA همچنان \`1df7d7cf3d04fce8702859eda98de08b5ba103d8d4ef8e35d174a6121fb776aa\` است.
+- 23,650 ردیف، پوشش 2021–2024، صفر دادهٔ مصنوعی و صفر کندل پرشده؛ گزارش کامل در \`reports/G18-rerun-success.md\`.
+
+### G22 v2 — مسیر M1 به M5
+- اولین روش، دریافت مستقیم فایل‌های M5، در run #41836225185 شکست خورد و هیچ paired active M5 bars تحویل نداد.
+- نسخهٔ دوم از فایل‌های واقعی M1 BID/ASK استفاده می‌کند و فقط bucketهای پنج‌دقیقه‌ای با پنج timestamp متوالی کامل را نگه می‌دارد.
+- هر bucket ناقص حذف می‌شود؛ هیچ minute یا M5 bar پر نمی‌شود.
+- شش تست جدید برای aggregation و fail-closed behavior اضافه شده‌اند.
+- current head در addendum: \`2bab51ced36fb2647843f8192ad4702eed0ed5df\`.
+- workflow جدید #41879419215 در زمان ثبت این addendum queued بود؛ نتیجهٔ آن باید قبل از اعلام PASS بررسی شود.
