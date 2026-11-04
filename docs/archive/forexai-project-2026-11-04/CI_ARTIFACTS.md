@@ -49,3 +49,23 @@ Artifactهای ancillary:
 ## نکتهٔ نگهداری
 
 GitHub Actions Artifactها expiry دارند. metadata و digest در این سند دائمی‌تر از artifact هستند، اما برای بازیابی فایل اصلی تا قبل از انقضا باید از Artifact ID و همان Run ID استفاده شود. این snapshot ادعای حفظ دائمی ZIPهای Actions را نمی‌کند.
+
+## EURUSD M5 و G13
+
+| مرحله | Run ID | نتیجه | Artifact ID | نام Artifact | SHA-256 ZIP |
+|---|---:|---|---:|---|---|
+| G16 | 41701335244 | SUCCESS — dedicated research job | 13262524549 | forexai-g16-regime-zscore-reversion-m5 | \`f62b40d914ae401e6ae7aed644c8ea40661df0b18a89a600e163aca7c1e26a6f\` |
+| G17 | 41704741665 | SUCCESS — dedicated research job | 13264418455 | forexai-g17-trend-pullback-continuation-m5 | \`1d5c793702c46759d48109ceea706553a4086bc05d03022557343516caf05ece\` |
+
+پیوندها:
+- [G16 Actions](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41701335244)
+- [G17 Actions](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41704741665)
+
+گزارش Post-OOS G13 در main با schema \`forexai.g13.post_oos_audit_m15.v1\` ذخیره شده و snapshot آن در \`reports/g13-post-oos-audit-m15.json\` قرار دارد. در این گزارش eligibility review PASS است، اما champion selection و EA generation مجاز نیست.
+
+## آرشیو مستندات
+
+PR آرشیو #348 روی شاخهٔ مستقل باز و Draft است:
+[PR #348](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/348)
+
+در زمان به‌روزرسانی این addendum، تست‌های عمومی و Agent Runtime برای commit آرشیو در حال اجرا بودند؛ نتیجهٔ نهایی آن‌ها جداگانه باید از PR #348 و Actions بررسی شود.

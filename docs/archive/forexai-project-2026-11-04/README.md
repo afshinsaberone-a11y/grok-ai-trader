@@ -39,3 +39,13 @@
 «AI proposes ideas. Statistics approves ideas. Only statistically validated systems reach Demo and Live trading.»
 
 NO-GOها نیز بخشی از سابقهٔ مهندسی‌اند و نباید حذف یا به PASS تبدیل شوند.
+
+## تکمیل دامنهٔ آرشیو
+
+در یک addendum پس از snapshot اولیه، سابقهٔ G13، G16، G17 و V51 نیز اضافه شده است:
+- G13: فایل Post-OOS audit، Evidence Ledger، اسناد Capital Authorization و MT5 parity، audit script و Workflow.
+- G16/G17: پروتکل، منبع استراتژی، تست‌ها، Workflow و نتیجهٔ عددی.
+- HistData importer و regression tests مورد استفادهٔ EURUSD.
+- V51: hybrid-regime engine، runner، تست‌ها و diagnostics/attribution.
+
+برای SHAهای منبع و مسیرهای کپی‌شده، به [SOURCE_SNAPSHOT_INDEX.md](SOURCE_SNAPSHOT_INDEX.md) مراجعه کنید.

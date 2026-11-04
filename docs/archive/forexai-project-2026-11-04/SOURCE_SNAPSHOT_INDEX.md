@@ -69,3 +69,61 @@
 ## تفسیر
 
 این snapshotها کپی تاریخ‌مند کد هستند و الزاماً با نسخهٔ جاری فایل‌ها در main برابر نیستند. برای بررسی، commit و blob SHA هر ورودی را با جدول تطبیق دهید.
+
+## G13 — Post-OOS و parity evidence
+
+- Base snapshot: main commit \`41883f30d32747d07d7b7772f8ee7c656a95e4a1\`
+
+| مسیر در آرشیو | Git blob SHA |
+|---|---|
+| \`reports/g13-post-oos-audit-m15.json\` | \`94fea5914b1bc4f9adfa6d60e8f8724fa25fe6dc\` |
+| \`reports/G13-evidence-ledger-m15.md\` | \`6baa35b41d486cb704df49d5260dca9a6326d4aa\` |
+| \`operations/G13-capital-authorization-prerequisites.md\` | \`96a8e81af8eb5c75589ece9752caa598b032ced4\` |
+| \`operations/G13-mt5-compile-parity.md\` | \`b5a29e1adc23e0ddd782c3b4ade42ed4e8707ca1\` |
+| \`source/g13/g13_post_oos_audit_m15.py\` | \`36db037750ca32ca826cb5d3e4428f592aa1666f\` |
+| \`source/g13/g13_mql5_parity.py\` | \`076925ae0b8aca4569ab495c470dc5091bdaf1d6\` |
+| \`tests/g13/test_g13_oos_m15.py\` | \`a2907ea05cbaaad4528fbe72ab8b13c404fcc7df\` |
+| \`workflows/g13/forexai-g13-post-oos-audit-m15.yml\` | \`b50842767964e2ed625c0048f04af1fa926c85dc\` |
+
+## G16 — EURUSD M5 mean reversion
+
+- Branch commit: \`6b1c253beb72de40b8a9bff59a437d320fc1f320\`
+
+| مسیر در آرشیو | Git blob SHA |
+|---|---|
+| \`protocols/G16-EURUSD-mean-reversion-protocol.md\` | \`10ac7c5b56ccdee2e4c1ae5177d7295fa3bdbdef\` |
+| \`source/g16/regime_zscore_reversion_g16.py\` | \`041e7e8987ab1c28adcc0131b0f40ba60a684af9\` |
+| \`tests/g16/test_regime_zscore_reversion_g16.py\` | \`aa4948c04dc09539fcc0195b415ebad030e5b742\` |
+| \`workflows/g16/forexai-g16-regime-zscore-reversion-m5.yml\` | \`3cafcc88b52bd80fbc50910fb65528ec7e0fdbce\` |
+| \`reports/G16-EURUSD-mean-reversion-result.md\` | \`a6b21dfff861db4d984fba36a8187f2381f2ce5c\` |
+| \`reports/G16-result-summary.json\` | \`71b44cbddc0fa3db6026e8a7e5a69c1f5fcc1eea\` |
+
+## G17 — EURUSD M5 trend pullback
+
+- Branch commit: \`91919849a74d22bedb6ad4e4440137fbcaea0a3d\`
+
+| مسیر در آرشیو | Git blob SHA |
+|---|---|
+| \`protocols/G17-EURUSD-trend-pullback-protocol.md\` | \`3f241c2384c3d4728937fa5945e7c4be8ebff2df\` |
+| \`source/g17/trend_pullback_continuation_g17.py\` | \`b3c9273320d78106d679a516364fb6cfef0286b3\` |
+| \`tests/g17/test_trend_pullback_continuation_g17.py\` | \`0dd0ff5eafb4aff8e05fc769b36566d0cb5d71b8\` |
+| \`workflows/g17/forexai-g17-trend-pullback-continuation-m5.yml\` | \`04b3fb1531cfad65be34a67e13f9c119454f4bb7\` |
+| \`reports/G17-EURUSD-trend-pullback-result.md\` | \`dbc1bb1f2d33eef226cd6de063b3d37901728834\` |
+| \`reports/G17-result-summary.json\` | \`fc4305543094549dffee07fce568d6993ee9f762\` |
+| \`source/shared/histdata_ingest.py\` | \`020d50187f8ece6eb30e0231b68f52914b1c6a99\` |
+| \`tests/shared/test_histdata_ingest.py\` | \`313e05111f339628e3b99e521757bf1f368c9433\` |
+
+## V51 — Hybrid-regime backtester
+
+- PR #340 branch commit: \`ddc24c830cdf40eb5b16fa3aebf8b637170745e1\`
+
+| مسیر در آرشیو | Git blob SHA |
+|---|---|
+| \`source/v51/v51_hybrid_regime.py\` | \`4ba93ef923fdb4561448d666d0a2f2a34e7dbe84\` |
+| \`source/v51/run_v51_real_backtest.py\` | \`b5f3c0f1d4f4b0d9c8c77a908f2add05482d23da\` |
+| \`tests/v51/test_v51_hybrid_regime.py\` | \`20e1df63ee46aa9e40656486658e06a3955d8ecc\` |
+| \`tests/v51/test_v51_real_backtest_runner.py\` | \`037bb87f101fddf604cbb266a02488c8243c5000\` |
+| \`tests/v51/test_v51_signal_trace_identity.py\` | \`ac269404d6ea41bc7ed9fad12a6c63921385cdb9\` |
+| \`reports/v51-directional-attribution.md\` | \`f7d5a73e18c36a3010c01008fd3a184f17556603\` |
+| \`reports/v51-is-diagnostics.md\` | \`238be7b5662cc9d55a604b843bbbdc98afb85632\` |
+| \`protocols/GRK_REGIME_SWITCH_V51.md\` | \`f6873124eefabd2bd6fc2f448698cd5d8707da61\` |

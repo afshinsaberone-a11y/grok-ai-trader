@@ -70,3 +70,36 @@ ForexAI یک بستر پژوهش و اجرای ربات معاملاتی MT5/MQL
 ## تاریخچهٔ مکالمه
 
 آرشیو گفت‌وگوی Grant Signer مربوط به 2026-10-21 در شاخهٔ \`docs/archive-forexai-chat-2026-10-21\` حفظ شده است. این شاخه snapshot پروژه در 2026-11-04 را به آن اضافه می‌کند، نه اینکه تاریخچهٔ مکالمه را جایگزین کند.
+
+## تکمیل سابقهٔ G13، G16/G17 و V51
+
+### G13 — Post-OOS audit
+فایل \`artifacts/g13/g13-post-oos-audit-m15.json\` در snapshot main دارای:
+- status: PASS
+- candidate_count: 16
+- promotion_review_eligible_count: 15
+- parameters_frozen=true؛ selection_performed=false؛ optimization_enabled=false
+- OOS status=EVALUATED، با selection و optimization غیرفعال.
+- champion_selection_allowed=false و ea_generation_allowed=false.
+
+این audit فقط eligibility intersection را گزارش می‌کند؛ نه انتخاب champion است، نه ساخت EA و نه صدور grant. گزارش دقیق در \`reports/G13-m15-status.md\` و JSON اصلی در \`reports/g13-post-oos-audit-m15.json\` کپی شده‌اند.
+
+### G16 — EURUSD M5 mean reversion
+- PR #341؛ workflow #41701335244 موفق.
+- 108 ترکیب؛ صفر IS-qualified؛ 367,120 معاملهٔ aggregate در کاتالوگ.
+- 284,789 ردیف HistData M1→M5، سال‌های 2022–2025؛ Data SHA \`7a880061a40aa64124bdc263d1bb83c1791efcc08e4146f8722101fdf61f030b\`.
+- validation 2025 اجرا نشد چون finalist واجد شرایط IS وجود نداشت؛ 2026+ held out.
+- Artifact ID 13262524549؛ digest در CI_ARTIFACTS.md.
+
+### G17 — EURUSD M5 trend pullback
+- PR #342؛ workflow #41704741665 موفق.
+- 64 ترکیب؛ صفر IS-qualified و صفر cost-resilient؛ 89,758 معاملهٔ aggregate.
+- 211,014 ردیف HistData M1→M5، سال‌های 2022–2024؛ 2025 به‌دلیل reuse قبلی به‌عنوان validation از sample حذف شد.
+- Data SHA \`cca01a322929e8f550a9e2959404ac38767199f665ed92af6e35f0abca3740d4\`.
+- Artifact ID 13264418455؛ digest در CI_ARTIFACTS.md.
+- بدون shortlist، validation، candidate freeze یا promotion.
+
+### V51 — Hybrid Regime Backtester
+- PR #340؛ Open / Draft / Unmerged در snapshot.
+- Source، runner، regression tests و دو diagnostics/attribution report کپی شده‌اند.
+- V51 مبتنی بر EURUSD M15 و گزارش‌های دادهٔ واقعی Dukascopy است؛ آرشیو snapshot آن فایل‌ها را نگه می‌دارد، اما وضعیت آن را به‌عنوان strategy approval یا مجوز عملیاتی تفسیر نمی‌کند.

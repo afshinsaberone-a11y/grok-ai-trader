@@ -66,3 +66,43 @@
 ## تصمیم مدیریتی
 
 هیچ‌یک از G19–G21 به Demo یا Live ارتقا پیدا نمی‌کند. روی همان نمونه‌های کشف G16–G21 نباید با تغییر پارامترها دوباره optimize کرد. مسیر بعدی، تکمیل ممیزی دادهٔ واقعی M5 است؛ سپس باید فرضیه‌ای تازه و معیارهایی که پیش از اجرا ثبت شده‌اند تعریف شوند.
+
+## تکمیل سابقهٔ EURUSD و G13
+
+### G13 Post-OOS
+گزارش فعلی Post-OOS audit دارای status=PASS، تعداد 16 candidate و 15 مورد eligible for promotion review است. بااین‌حال خود فایل تصریح می‌کند selection_performed=false، optimization_enabled=false، champion_selection_allowed=false و ea_generation_allowed=false. بنابراین این PASS فقط audit eligibility است.
+
+### G16 — Regime Z-Score Reversion
+| شاخص | خروجی |
+|---|---:|
+| Candidate catalogue | 108 |
+| IS-qualified | 0 |
+| Total IS trades across catalogue | 367,120 |
+| Validation finalists evaluated | 0 |
+| Data rows | 284,789 |
+| دوره | 2022–2025 |
+| تصمیم | NO-GO |
+
+Validation سال 2025 اجرا نشد؛ هیچ candidate در IS qualify نشد. 2026+ held out باقی ماند.
+
+### G17 — Trend Pullback Continuation
+| شاخص | خروجی |
+|---|---:|
+| Candidate catalogue | 64 |
+| IS-qualified | 0 |
+| Cost-resilient | 0 |
+| Shortlist | 0 |
+| Total IS trades across catalogue | 89,758 |
+| Data rows | 211,014 |
+| دورهٔ کشف | 2022–2024 |
+| تصمیم | NO-GO |
+
+2025 از این خانواده حذف شد چون در پژوهش‌های قبلی به‌عنوان validation بررسی شده بود. هیچ validation تازه، candidate freeze یا promotion انجام نشد.
+
+### محدودیت هزینه در G16/G17
+- HistData Generic ASCII M1 به M5 resample شد؛ BID OHLC مبناست و ASK با فرض spread بازسازی شد.
+- هزینهٔ round trip: baseline 0.90 pip، moderate 1.35 pips، severe diagnostic 2.00 pips.
+- commission و swap لحاظ نشده‌اند؛ نتایج exploratory هستند و broker-exact نیستند.
+
+### V51
+گزارش‌های directional attribution و IS diagnostics به‌همراه engine، runner و تست‌ها در این archive snapshot شده‌اند. PR #340 همچنان Draft است؛ این archive به‌تنهایی هیچ ادعای نهایی دربارهٔ performance یا مجوز معاملهٔ V51 ندارد.
