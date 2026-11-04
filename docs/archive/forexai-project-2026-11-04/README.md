@@ -1,0 +1,41 @@
+# آرشیو پروژه ForexAI — ۴ نوامبر ۲۰۲۶
+
+این پوشه آرشیو نسخه‌دار گزارش‌ها، تصمیم‌های پژوهشی، وضعیت اجرا، شواهد CI و نسخهٔ دقیق کد/تست/Workflow آزمایش‌های ForexAI است.
+
+- **تاریخ snapshot:** 2026-11-04
+- **مخزن:** [afshinsaberone-a11y/grok-ai-trader](https://github.com/afshinsaberone-a11y/grok-ai-trader)
+- **شاخهٔ آرشیو:** \`docs/archive-forexai-project-20261104\`
+- **مبنای شاخه:** \`main\` در commit \`41883f30d32747d07d7b7772f8ee7c656a95e4a1\`
+- **هدف:** حفظ تاریخچهٔ قابل‌بازیابی؛ نه تغییر وضعیت تولید، نه تأیید ربات برای معامله.
+
+## از کجا شروع کنیم؟
+
+1. [وضعیت و خط زمانی پروژه](PROJECT_PROGRESS.md)
+2. [نتایج آزمایش‌ها و تصمیم‌های G16 تا G22](RESEARCH_RESULTS.md)
+3. [وضعیت عملیاتی، هزینه‌های Demo و مجوزها](OPERATIONS_AND_AUTHORIZATION.md)
+4. [فهرست Workflowها و Artifactها با SHA-256](CI_ARTIFACTS.md)
+5. [فهرست نسخه‌های دقیق کد، تست‌ها و Workflowهای snapshotشده](SOURCE_SNAPSHOT_INDEX.md)
+6. [کارهای باز و مسیر بعدی](OPEN_WORK_AND_NEXT_STEPS.md)
+
+## ساختار آرشیو
+
+- \`protocols/\`: پروتکل‌های ثبت‌شدهٔ G18 تا G22، کپی‌شده از commitهای اصلی هر PR.
+- \`reports/\`: گزارش‌های نتیجه و خلاصه‌های قطعی G18 تا G21.
+- \`source/\`: نسخهٔ دقیق کد پژوهشی در زمان اجرای هر مرحله.
+- \`tests/\`: تست‌های همان commit.
+- \`workflows/\`: فایل‌های GitHub Actions همان commit.
+
+## محدوده و محدودیت آرشیو
+
+- کد، تست‌ها، Workflowها و پروتکل‌های G18 تا G22 در این شاخه snapshot شده‌اند؛ SHA فایل اصلی در [SOURCE_SNAPSHOT_INDEX.md](SOURCE_SNAPSHOT_INDEX.md) آمده است.
+- گزارش خلاصهٔ قابل‌خواندن برای هر مرحله در این پوشه نگهداری می‌شود.
+- گزارش‌های کامل معامله‌به‌معامله و دادهٔ خام 23,650 کندل H1 در Artifactهای اصلی GitHub Actions قرار دارند؛ شناسه، نام و digest آن‌ها در [CI_ARTIFACTS.md](CI_ARTIFACTS.md) ثبت شده است. CSV حجیم H1 در این commit دوباره کپی نشده است. Manifest و SHA-256 داده برای شناسایی قطعی ثبت شده‌اند.
+- Artifactهای Actions تابع زمان نگهداری GitHub هستند؛ این آرشیو شناسه و digest را حفظ می‌کند، اما ادعای دائمی‌بودن Artifactهای منقضی‌شونده را نمی‌کند.
+- هیچ کلید خصوصی، توکن، رمز، شناسهٔ حساب یا اطلاعات دسترسی در این آرشیو درج نشده است.
+- آرشیو گفت‌وگوی قبلی 2026-10-21 روی شاخهٔ جداگانهٔ \`docs/archive-forexai-chat-2026-10-21\` باقی است؛ این شاخه آن را حذف یا بازنویسی نمی‌کند.
+
+## اصل حاکم
+
+«AI proposes ideas. Statistics approves ideas. Only statistically validated systems reach Demo and Live trading.»
+
+NO-GOها نیز بخشی از سابقهٔ مهندسی‌اند و نباید حذف یا به PASS تبدیل شوند.

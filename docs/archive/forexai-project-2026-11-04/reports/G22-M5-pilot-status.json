@@ -1,0 +1,23 @@
+{
+  "schema": "forexai.g22.xauusd_m5_source_pilot_snapshot.v1",
+  "snapshot_date": "2026-11-04",
+  "status": "IN_PROGRESS_AT_ARCHIVE_SNAPSHOT",
+  "pr": 347,
+  "branch": "research/g22-xauusd-m5-intake-pilot-20261104",
+  "head_sha": "013a11de0d6c476d146f4c1ec01c3094947a36a1",
+  "dedicated_workflow_run": 41836225185,
+  "dedicated_workflow_url": "https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41836225185",
+  "unit_tests": "PASS",
+  "source_pilot": "IN_PROGRESS",
+  "m5_source_rows": null,
+  "data_sha256": null,
+  "manifest_sha256": null,
+  "intake_smoke_run": 41836225266,
+  "intake_smoke_conclusion": "success",
+  "runtime_run": 41836225442,
+  "runtime_conclusion": "success",
+  "synthetic_data": false,
+  "filled_bars": 0,
+  "backtest_run": false,
+  "strategy_research_authorized": false
+}
