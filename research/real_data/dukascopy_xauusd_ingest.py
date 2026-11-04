@@ -1,6 +1,6 @@
 """Fail-closed real Dukascopy XAUUSD BID/ASK intake.
 
-Supports daily M1/M5 or monthly H1 source files. XAUUSD BI5 prices use a 1,000
+Supports daily M1 or monthly H1 source files. XAUUSD BI5 prices use a 1,000
 point scale (not the EURUSD decoder's 100,000 scale). Provider filler candles
 (flat range with zero volume) are dropped; timestamps, side pairing, source
 hashes, and coverage gaps are recorded. No synthetic market data is created.
@@ -30,7 +30,7 @@ GOLD_PRICE_MAX = 20000.0
 BASE_URL = "https://datafeed.dukascopy.com/datafeed"
 RECORD = struct.Struct(">IIIIIf")
 COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
-TIMEFRAMES = {"M1", "M5", "H1"}
+TIMEFRAMES = {"M1", "H1"}
 
 
 class XAUUSDIngestError(RuntimeError):
@@ -47,8 +47,6 @@ def _source_url(period_start: date, side: str, timeframe: str) -> str:
         raise ValueError("XAUUSD_SIDE_INVALID")
     if timeframe == "M1":
         suffix = f"{period_start.day:02d}/{side}_candles_min_1.bi5"
-    elif timeframe == "M5":
-        suffix = f"{period_start.day:02d}/{side}_candles_min_5.bi5"
     elif timeframe == "H1":
         suffix = f"{side}_candles_hour_1.bi5"
     else:
@@ -60,7 +58,7 @@ def _source_url(period_start: date, side: str, timeframe: str) -> str:
 
 
 def _period_seconds(period_start: date, timeframe: str) -> int:
-    if timeframe.upper() in {"M1", "M5"}:
+    if timeframe.upper() == "M1":
         return 86400
     if timeframe.upper() == "H1":
         return calendar.monthrange(period_start.year, period_start.month)[1] * 86400
@@ -177,6 +175,87 @@ def merge_bid_ask(bid: pd.DataFrame, ask: pd.DataFrame) -> pd.DataFrame:
     return out.loc[active].reset_index(drop=True)
 
 
+
+def resample_m1_to_m5(m1: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int | bool]]:
+    """Aggregate only five complete, consecutive real M1 BID/ASK bars into M5.
+
+    Incomplete five-minute buckets are excluded, never padded or interpolated.
+    The returned OHLC uses first open, maximum high, minimum low and last close.
+    """
+    required = {
+        "timestamp",
+        "bid_open", "bid_high", "bid_low", "bid_close", "bid_volume",
+        "ask_open", "ask_high", "ask_low", "ask_close", "ask_volume",
+    }
+    missing = sorted(required - set(m1.columns))
+    if missing:
+        raise XAUUSDIngestError(f"XAUUSD_M1_TO_M5_COLUMNS_MISSING:{','.join(missing)}")
+    if m1.empty:
+        raise XAUUSDIngestError("XAUUSD_M1_TO_M5_EMPTY_INPUT")
+
+    work = m1.copy()
+    ts = pd.to_datetime(work["timestamp"], utc=True, errors="raise")
+    if ts.duplicated().any() or not ts.is_monotonic_increasing:
+        raise XAUUSDIngestError("XAUUSD_M1_TO_M5_TIMESTAMP_ORDER_INVALID")
+    if (ts.dt.second != 0).any() or (ts.dt.microsecond != 0).any():
+        raise XAUUSDIngestError("XAUUSD_M1_TO_M5_TIMESTAMP_NOT_MINUTE_ALIGNED")
+
+    work["timestamp"] = ts
+    work["_bucket"] = ts.dt.floor("5min")
+    rows: list[dict[str, object]] = []
+    incomplete_buckets = 0
+    excluded_m1_rows = 0
+
+    for bucket, group in work.groupby("_bucket", sort=True):
+        group_ts = pd.DatetimeIndex(group["timestamp"])
+        expected = pd.date_range(bucket, periods=5, freq="min", tz="UTC")
+        if len(group_ts) != 5 or not group_ts.equals(expected):
+            incomplete_buckets += 1
+            excluded_m1_rows += len(group)
+            continue
+
+        row: dict[str, object] = {"timestamp": bucket}
+        for side in ("bid", "ask"):
+            row[f"{side}_open"] = float(group[f"{side}_open"].iloc[0])
+            row[f"{side}_high"] = float(group[f"{side}_high"].max())
+            row[f"{side}_low"] = float(group[f"{side}_low"].min())
+            row[f"{side}_close"] = float(group[f"{side}_close"].iloc[-1])
+            row[f"{side}_volume"] = float(group[f"{side}_volume"].sum())
+
+        for point in ("open", "close"):
+            spread = float(row[f"ask_{point}"]) - float(row[f"bid_{point}"])
+            if spread < 0:
+                raise XAUUSDIngestError(f"XAUUSD_M1_TO_M5_NEGATIVE_{point.upper()}_SPREAD")
+            row[f"spread_{point}"] = spread
+        rows.append(row)
+
+    columns = [
+        "timestamp",
+        "bid_open", "bid_high", "bid_low", "bid_close", "bid_volume",
+        "ask_open", "ask_high", "ask_low", "ask_close", "ask_volume",
+        "spread_open", "spread_close",
+    ]
+    result = pd.DataFrame(rows, columns=columns)
+    if result.empty:
+        raise XAUUSDIngestError("XAUUSD_M1_TO_M5_NO_COMPLETE_FIVE_MINUTE_BUCKETS")
+    result["timestamp"] = pd.to_datetime(result["timestamp"], utc=True)
+    if result["timestamp"].duplicated().any() or not result["timestamp"].is_monotonic_increasing:
+        raise XAUUSDIngestError("XAUUSD_M1_TO_M5_OUTPUT_ORDER_INVALID")
+    if (result["timestamp"].dt.minute % 5 != 0).any():
+        raise XAUUSDIngestError("XAUUSD_M1_TO_M5_OUTPUT_NOT_FIVE_MINUTE_ALIGNED")
+
+    audit: dict[str, int | bool] = {
+        "input_m1_rows": int(len(work)),
+        "candidate_five_minute_buckets": int(work["_bucket"].nunique()),
+        "complete_five_minute_buckets": int(len(result)),
+        "incomplete_five_minute_buckets": int(incomplete_buckets),
+        "m1_rows_excluded_with_incomplete_buckets": int(excluded_m1_rows),
+        "m5_rows_emitted": int(len(result)),
+        "filled_bars": 0,
+        "synthetic_data": False,
+    }
+    return result, audit
+
 def _valid_payload(payload: bytes) -> bool:
     if not payload:
         return True
@@ -259,7 +338,7 @@ def _download(
 
 def _period_starts(start: date, end: date, timeframe: str) -> list[date]:
     timeframe = timeframe.upper()
-    if timeframe in {"M1", "M5"}:
+    if timeframe == "M1":
         days, current = [], start
         while current < end:
             if current.weekday() < 5:
@@ -284,7 +363,10 @@ def _gap_audit(data: pd.DataFrame, timeframe: str) -> dict[str, object]:
     if len(data) < 2:
         return {"gap_count": 0, "same_utc_date_gap_count": 0, "examples": []}
     ts = pd.to_datetime(data["timestamp"], utc=True).reset_index(drop=True)
-    expected = pd.Timedelta(minutes={"M1": 1, "M5": 5, "H1": 60}[timeframe])
+    expected_minutes = {"M1": 1, "M5": 5, "H1": 60}.get(timeframe)
+    if expected_minutes is None:
+        raise ValueError("XAUUSD_GAP_AUDIT_TIMEFRAME_INVALID")
+    expected = pd.Timedelta(minutes=expected_minutes)
     gaps: list[dict[str, object]] = []
     same_day = 0
     for i in range(1, len(ts)):

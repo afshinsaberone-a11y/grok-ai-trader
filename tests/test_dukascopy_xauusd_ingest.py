@@ -183,104 +183,105 @@ def test_download_retries_transient_connection_resets(monkeypatch: pytest.Monkey
     assert (tmp_path / "connection-reset-cache.bi5").is_file()
 
 
-def test_m5_daily_source_url_and_bar_timestamp_alignment() -> None:
-    from research.real_data.dukascopy_xauusd_ingest import _period_seconds, _period_starts
 
-    day = date(2024, 1, 8)
-    assert _source_url(day, "BID", "M5").endswith(
-        "/XAUUSD/2024/00/08/BID_candles_min_5.bi5"
-    )
-    assert _period_seconds(day, "M5") == 86400
-    assert _period_starts(day, date(2024, 1, 11), "M5") == [
-        date(2024, 1, 8), date(2024, 1, 9), date(2024, 1, 10)
-    ]
+def _m1_frame(start: str = "2024-01-08T00:00:00Z", count: int = 10) -> pd.DataFrame:
+    timestamps = pd.date_range(start, periods=count, freq="min", tz="UTC")
+    bid_open = [2040.0 + i * 0.1 for i in range(count)]
+    ask_open = [x + 0.2 for x in bid_open]
+    return pd.DataFrame({
+        "timestamp": timestamps,
+        "bid_open": bid_open,
+        "bid_high": [x + 0.3 for x in bid_open],
+        "bid_low": [x - 0.2 for x in bid_open],
+        "bid_close": [x + 0.1 for x in bid_open],
+        "bid_volume": [1.0] * count,
+        "ask_open": ask_open,
+        "ask_high": [x + 0.3 for x in ask_open],
+        "ask_low": [x - 0.2 for x in ask_open],
+        "ask_close": [x + 0.1 for x in ask_open],
+        "ask_volume": [2.0] * count,
+        "spread_open": [0.2] * count,
+        "spread_close": [0.2] * count,
+    })
 
-    payload = _bi5(
-        (0, 2_040_800, 2_040_900, 2_040_700, 2_041_000, 12.5),
-        (300, 2_040_900, 2_041_000, 2_040_800, 2_041_100, 13.5),
-    )
-    bars = decode_bi5(payload, day, side="BID", timeframe="M5")
-    assert bars["timestamp"].tolist() == [
+
+def test_m1_to_m5_resamples_only_complete_groups_and_preserves_bid_ask_ohlc() -> None:
+    from research.real_data.dukascopy_xauusd_ingest import resample_m1_to_m5
+
+    m1 = _m1_frame()
+    m5, audit = resample_m1_to_m5(m1)
+
+    assert len(m5) == 2
+    assert m5["timestamp"].tolist() == [
         pd.Timestamp("2024-01-08T00:00:00Z"),
         pd.Timestamp("2024-01-08T00:05:00Z"),
     ]
+    assert m5.loc[0, "bid_open"] == pytest.approx(2040.0)
+    assert m5.loc[0, "bid_high"] == pytest.approx(2040.7)
+    assert m5.loc[0, "bid_low"] == pytest.approx(2039.8)
+    assert m5.loc[0, "bid_close"] == pytest.approx(2040.5)
+    assert m5.loc[0, "ask_open"] == pytest.approx(2040.2)
+    assert m5.loc[0, "ask_close"] == pytest.approx(2040.7)
+    assert m5.loc[0, "spread_open"] == pytest.approx(0.2)
+    assert m5.loc[0, "spread_close"] == pytest.approx(0.2)
+    assert m5.loc[0, "bid_volume"] == pytest.approx(5.0)
+    assert m5.loc[0, "ask_volume"] == pytest.approx(10.0)
+    assert audit["input_m1_rows"] == 10
+    assert audit["complete_five_minute_buckets"] == 2
+    assert audit["incomplete_five_minute_buckets"] == 0
+    assert audit["filled_bars"] == 0
+    assert audit["synthetic_data"] is False
 
 
-def test_m5_decoder_rejects_non_five_minute_aligned_timestamp() -> None:
-    payload = _bi5((301, 2_040_800, 2_040_900, 2_040_700, 2_041_000, 12.5))
-    with pytest.raises(XAUUSDIngestError, match="NOT_ALIGNED_TO_M5"):
-        decode_bi5(payload, date(2024, 1, 8), side="BID", timeframe="M5")
+def test_m1_to_m5_drops_incomplete_bucket_without_filling_missing_minutes() -> None:
+    from research.real_data.dukascopy_xauusd_ingest import resample_m1_to_m5
+
+    m1 = _m1_frame(count=10).drop(index=2).reset_index(drop=True)
+    m5, audit = resample_m1_to_m5(m1)
+
+    assert len(m5) == 1
+    assert m5.loc[0, "timestamp"] == pd.Timestamp("2024-01-08T00:05:00Z")
+    assert audit["candidate_five_minute_buckets"] == 2
+    assert audit["complete_five_minute_buckets"] == 1
+    assert audit["incomplete_five_minute_buckets"] == 1
+    assert audit["m1_rows_excluded_with_incomplete_buckets"] == 4
+    assert audit["filled_bars"] == 0
 
 
-def test_m5_bid_ask_merge_pairs_quotes_and_computes_spread() -> None:
-    day = date(2024, 1, 8)
-    bid = decode_bi5(
-        _bi5(
-            (0, 2_040_800, 2_040_900, 2_040_700, 2_041_000, 12.5),
-            (300, 2_040_900, 2_041_000, 2_040_800, 2_041_100, 13.5),
-        ),
-        day, side="BID", timeframe="M5",
-    )
-    ask = decode_bi5(
-        _bi5(
-            (0, 2_041_000, 2_041_100, 2_040_900, 2_041_200, 11.5),
-            (300, 2_041_100, 2_041_200, 2_041_000, 2_041_300, 12.5),
-        ),
-        day, side="ASK", timeframe="M5",
-    )
-    merged = merge_bid_ask(bid, ask)
-    assert len(merged) == 2
-    assert merged.loc[0, "spread_open"] == pytest.approx(0.20)
-    assert merged.loc[1, "spread_close"] == pytest.approx(0.20)
+def test_m1_to_m5_rejects_duplicate_or_unsorted_timestamps() -> None:
+    from research.real_data.dukascopy_xauusd_ingest import resample_m1_to_m5
+
+    duplicate = _m1_frame()
+    duplicate.loc[1, "timestamp"] = duplicate.loc[0, "timestamp"]
+    with pytest.raises(XAUUSDIngestError, match="TIMESTAMP_ORDER_INVALID"):
+        resample_m1_to_m5(duplicate)
+
+    unsorted = _m1_frame().iloc[::-1].reset_index(drop=True)
+    with pytest.raises(XAUUSDIngestError, match="TIMESTAMP_ORDER_INVALID"):
+        resample_m1_to_m5(unsorted)
 
 
-def test_m5_gap_audit_uses_five_minute_expected_interval() -> None:
-    from research.real_data.dukascopy_xauusd_ingest import _gap_audit
+def test_m1_to_m5_rejects_non_minute_aligned_timestamps() -> None:
+    from research.real_data.dukascopy_xauusd_ingest import resample_m1_to_m5
 
-    frame = pd.DataFrame({
-        "timestamp": pd.to_datetime([
-            "2024-01-08T00:00:00Z",
-            "2024-01-08T00:05:00Z",
-            "2024-01-08T00:15:00Z",
-        ], utc=True)
-    })
-    result = _gap_audit(frame, "M5")
-    assert result["gap_count"] == 1
-    assert result["same_utc_date_gap_count"] == 1
-    assert result["examples"][0]["elapsed_minutes"] == 10
+    m1 = _m1_frame()
+    m1.loc[0, "timestamp"] += pd.Timedelta(seconds=1)
+    with pytest.raises(XAUUSDIngestError, match="NOT_MINUTE_ALIGNED"):
+        resample_m1_to_m5(m1)
 
 
-def test_m5_daily_ingestion_writes_real_source_manifest_and_no_fills(monkeypatch, tmp_path) -> None:
-    import json
+def test_m1_to_m5_rejects_negative_resampled_spread() -> None:
+    from research.real_data.dukascopy_xauusd_ingest import resample_m1_to_m5
 
-    day = date(2024, 1, 8)
-    bid_payload = _bi5(
-        (0, 2_040_800, 2_040_900, 2_040_700, 2_041_000, 12.5),
-        (300, 2_040_900, 2_041_000, 2_040_800, 2_041_100, 13.5),
-    )
-    ask_payload = _bi5(
-        (0, 2_041_000, 2_041_100, 2_040_900, 2_041_200, 11.5),
-        (300, 2_041_100, 2_041_200, 2_041_000, 2_041_300, 12.5),
-    )
+    m1 = _m1_frame()
+    m1.loc[4, "ask_close"] = m1.loc[4, "bid_close"] - 0.1
+    with pytest.raises(XAUUSDIngestError, match="NEGATIVE_CLOSE_SPREAD"):
+        resample_m1_to_m5(m1)
 
-    def fake_download(url, path, **kwargs):
-        payload = bid_payload if "/BID_" in url else ask_payload
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(payload)
-        return payload
 
-    monkeypatch.setattr(ingest_module, "_download", fake_download)
-    result = ingest_module.ingest(day, date(2024, 1, 9), tmp_path, timeframe="M5")
-    data = pd.read_csv(result["dataset"])
-    manifest = json.loads(open(result["manifest"], encoding="utf-8").read())
+def test_m1_to_m5_fails_when_no_complete_bucket_exists() -> None:
+    from research.real_data.dukascopy_xauusd_ingest import resample_m1_to_m5
 
-    assert result["timeframe"] == "M5"
-    assert result["rows"] == 2
-    assert len(data) == 2
-    assert manifest["schema"] == "forexai.real_data.xauusd_bidask_m5.v1"
-    assert manifest["source"] == "Dukascopy historical BID/ASK BI5 bars"
-    assert manifest["synthetic_data"] is False
-    assert manifest["backtest_run"] is False
-    assert len(manifest["source_files"]) == 2
-    assert manifest["gap_audit"]["gap_count"] == 0
-    assert manifest["provider_filler_bars"].startswith("flat zero-volume bars removed")
+    m1 = _m1_frame(count=4)
+    with pytest.raises(XAUUSDIngestError, match="NO_COMPLETE_FIVE_MINUTE_BUCKETS"):
+        resample_m1_to_m5(m1)
