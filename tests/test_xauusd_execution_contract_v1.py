@@ -115,3 +115,67 @@ def test_timestamp_duplicate_fails_closed() -> None:
 
     with pytest.raises(XAUUSDExecutionError, match="DUPLICATE_TIMESTAMPS"):
         run_xauusd_backtest(bars, config())
+
+def test_utc_hour_filter_suppresses_new_entry_at_blocked_bar_open() -> None:
+    bars = bars_fixture()
+    bars["timestamp"] = pd.to_datetime([
+        "2024-01-08T00:00:00Z",
+        "2024-01-08T01:00:00Z",
+        "2024-01-08T02:00:00Z",
+        "2024-01-08T03:00:00Z",
+    ], utc=True)
+    bars["signal"] = [1, 1, 0, 0]
+    filtered = XAUUSDExecutionConfig(
+        slippage_usd_per_oz_per_side=0.05,
+        commission_usd_per_oz_round_turn=0.10,
+        atr_stop_mult=1.5,
+        reward_risk=2.5,
+        risk_fraction=0.0025,
+        max_holding_bars=30,
+        blocked_entry_utc_hours=(1,),
+    )
+
+    metrics, trades = run_xauusd_backtest(bars, filtered)
+
+    assert metrics["blocked_entry_utc_hours"] == [1]
+    assert metrics["entry_signals_suppressed_by_utc_hour_filter"] == 1
+    assert metrics["entries"] == metrics["trades"] == 1
+    assert trades[0]["entry_time"] == "2024-01-08T02:00:00+00:00"
+
+
+def test_utc_hour_filter_does_not_block_exit_of_existing_position() -> None:
+    bars = bars_fixture()
+    bars["timestamp"] = pd.to_datetime([
+        "2024-01-07T23:00:00Z",
+        "2024-01-08T00:00:00Z",
+        "2024-01-08T01:00:00Z",
+        "2024-01-08T02:00:00Z",
+    ], utc=True)
+    bars["signal"] = [1, 0, 0, 0]
+    filtered = XAUUSDExecutionConfig(
+        slippage_usd_per_oz_per_side=0.05,
+        commission_usd_per_oz_round_turn=0.10,
+        atr_stop_mult=1.5,
+        reward_risk=2.5,
+        risk_fraction=0.0025,
+        max_holding_bars=30,
+        blocked_entry_utc_hours=(1,),
+    )
+
+    metrics, trades = run_xauusd_backtest(bars, filtered)
+
+    assert metrics["entries"] == metrics["trades"] == 1
+    assert metrics["entry_signals_suppressed_by_utc_hour_filter"] == 0
+    assert trades[0]["exit_reason"] == "target"
+    assert trades[0]["exit_time"] == "2024-01-08T01:00:00+00:00"
+
+
+def test_invalid_blocked_utc_hours_fail_closed() -> None:
+    bad = XAUUSDExecutionConfig(
+        slippage_usd_per_oz_per_side=0.05,
+        commission_usd_per_oz_round_turn=0.10,
+        blocked_entry_utc_hours=(1, 24),
+    )
+    with pytest.raises(XAUUSDExecutionError, match="BLOCKED_ENTRY_UTC_HOURS_INVALID"):
+        run_xauusd_backtest(bars_fixture(), bad)
+

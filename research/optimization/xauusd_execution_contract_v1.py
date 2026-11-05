@@ -37,6 +37,8 @@ class XAUUSDExecutionConfig:
     reward_risk: float = 2.5
     risk_fraction: float = 0.0025
     max_holding_bars: int = 30
+    # Optional UTC hours in which NEW entries are suppressed; exits remain active.
+    blocked_entry_utc_hours: tuple[int, ...] = ()
 
     def validate(self) -> None:
         nonnegative = (
@@ -53,6 +55,13 @@ class XAUUSDExecutionConfig:
             raise XAUUSDExecutionError("XAUUSD_RISK_FRACTION_INVALID")
         if not isinstance(self.max_holding_bars, int) or self.max_holding_bars < 1:
             raise XAUUSDExecutionError("XAUUSD_MAX_HOLD_INVALID")
+        hours = self.blocked_entry_utc_hours
+        if (
+            not isinstance(hours, tuple)
+            or any(type(hour) is not int or hour < 0 or hour > 23 for hour in hours)
+            or len(set(hours)) != len(hours)
+        ):
+            raise XAUUSDExecutionError("XAUUSD_BLOCKED_ENTRY_UTC_HOURS_INVALID")
 
 
 def _canonical_frame(bars: pd.DataFrame) -> pd.DataFrame:
@@ -159,6 +168,7 @@ def run_xauusd_backtest(
     trade_rows: list[dict[str, Any]] = []
     forced_eod_liquidation = False
     entry_count = 0
+    entry_signals_suppressed_by_utc_hour_filter = 0
 
     def close_position(
         *,
@@ -208,6 +218,12 @@ def run_xauusd_backtest(
             signal = int(frame.at[i - 1, "signal"])
             atr = frame.at[i - 1, "ATR"]
             if signal == 0 or not np.isfinite(atr) or atr <= 0:
+                continue
+            # Entry eligibility is based on the next bar's UTC open timestamp.
+            # This gate never runs while a position is open, so exits and financing
+            # continue to be processed during blocked hours.
+            if int(frame.at[i, "timestamp"].hour) in config.blocked_entry_utc_hours:
+                entry_signals_suppressed_by_utc_hour_filter += 1
                 continue
             position = signal
             entry_idx = i
@@ -334,6 +350,9 @@ def run_xauusd_backtest(
         "stop_gap_uses_worse_open": True,
         "target_gap_fill": "target (conservative)",
         "forced_end_of_data_liquidation": forced_eod_liquidation,
+        "blocked_entry_utc_hours": list(config.blocked_entry_utc_hours),
+        "entry_signals_suppressed_by_utc_hour_filter": entry_signals_suppressed_by_utc_hour_filter,
+        "entry_filter_timestamp_basis": "UTC bar-open timestamp; entry-only gate; stops, targets, opposite-signal exits, time stops, financing and end-of-data liquidation remain active",
         "risk_fraction": config.risk_fraction,
         "config": asdict(config),
         "promotion_status": "RESEARCH_ONLY",
