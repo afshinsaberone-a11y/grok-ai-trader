@@ -1,0 +1,119 @@
+{
+  "audit_name": "XAUUSD Order/Deal Timestamp and Quote-to-Fill Timing Audit",
+  "status": "QUOTE_FILL_TIMING_AUDIT_CAPTURED",
+  "symbol": "XAUUSD",
+  "matched_orders": 199,
+  "interpretation": "TIMESTAMP_REVIEW_REQUIRED",
+  "provenance": {
+    "source": "User-provided PowerShell terminal output",
+    "aggregate_only": true,
+    "raw_order_tickets_exported": false,
+    "raw_deal_tickets_exported": false,
+    "raw_prices_exported": false,
+    "no_orders_submitted": true,
+    "timestamp_audit_script": "Import source verified in the user's runtime; the full timestamp-audit script was not provided as a repository file in this exchange.",
+    "quote_reference_helper": "tools/mt5_xauusd_slippage_history_probe.py",
+    "quote_reference_helper_blob_sha": "ed8dc303fe7d1d6c2e242c46b08989c8bd595df7",
+    "quote_reference_method": "Latest valid two-sided tick at or before order setup; BUY uses ASK, SELL uses BID."
+  },
+  "counters": {
+    "market_orders_seen": 199,
+    "duplicate_order_records_ignored": 0,
+    "orders_missing_setup_timestamp": 0,
+    "orders_missing_quote_reference": 0,
+    "orders_without_compatible_fill_deal": 0,
+    "matched_orders": 199,
+    "deals_missing_execution_timestamp": 0,
+    "deals_before_order_setup": 0,
+    "deals_at_order_setup_millisecond": 2,
+    "deals_after_order_setup": 197,
+    "deals_before_order_done": 0,
+    "deals_at_or_after_order_done": 199,
+    "orders_with_vwap_equal_to_reference_price": 199,
+    "orders_with_vwap_different_from_reference_price": 0
+  },
+  "timing_ms": {
+    "setup_to_first_fill": {
+      "count": 199,
+      "min": 0,
+      "median": 1,
+      "p95": 2,
+      "max": 3,
+      "mean": 1.352
+    },
+    "setup_to_last_fill": {
+      "count": 199,
+      "min": 0,
+      "median": 1,
+      "p95": 2,
+      "max": 3,
+      "mean": 1.352
+    },
+    "reference_quote_to_first_fill": {
+      "count": 199,
+      "min": 3,
+      "median": 166,
+      "p95": 444.8,
+      "max": 779,
+      "mean": 188.171
+    },
+    "reference_quote_to_last_fill": {
+      "count": 199,
+      "min": 3,
+      "median": 166,
+      "p95": 444.8,
+      "max": 779,
+      "mean": 188.171
+    },
+    "order_done_to_last_fill": {
+      "count": 199,
+      "min": 0,
+      "median": 0,
+      "p95": 0,
+      "max": 0,
+      "mean": 0
+    },
+    "quote_age_at_order_setup": {
+      "count": 199,
+      "min": 1,
+      "median": 165,
+      "p95": 443.9,
+      "max": 777,
+      "mean": 186.819
+    }
+  },
+  "price_check": {
+    "orders_with_vwap_exactly_equal_to_reference": 199,
+    "orders_with_vwap_different_from_reference": 0,
+    "all_matched_vwaps_equal_reference": true,
+    "signed_deviation_points": {
+      "count": 199,
+      "min": 0,
+      "median": 0,
+      "p95": 0,
+      "max": 0,
+      "mean": 0
+    },
+    "adverse_deviation_points": {
+      "count": 199,
+      "min": 0,
+      "median": 0,
+      "p95": 0,
+      "max": 0,
+      "mean": 0
+    }
+  },
+  "derived_percentages": {
+    "deals_after_order_setup_percent": 98.995,
+    "deals_at_order_setup_millisecond_percent": 1.005,
+    "orders_with_exact_reference_vwap_percent": 100
+  },
+  "limitations": [
+    "This aggregate sample does not identify which, if any, matched order is the A002 stop-loss exit.",
+    "The audit does not export per-order tickets or raw prices, so it cannot be joined directly to A002 PositionID 2 / exit DealID 3 from the event ledger.",
+    "The exact zero deviation for all 199 orders should be independently checked against per-side counts, raw tick precision and an independently reproduced sample before using it as a broker slippage calibration.",
+    "Quote-to-fill timing is not a pure broker-latency measure; it includes quote age before server order setup as well as the server-side order-to-fill interval.",
+    "This sample does not establish the cause of the 1336-point A002 stop-loss adverse deviation."
+  ],
+  "output_path_reported": "artifacts/xauusd-quote-fill-timing-audit.json"
+}
