@@ -1,0 +1,102 @@
+from types import SimpleNamespace
+
+import pytest
+
+from tools import mt5_xauusd_quote_fill_timing_audit as timing_audit
+
+
+def test_millisecond_timestamp_is_preferred_and_seconds_are_fallback():
+    item = SimpleNamespace(time_setup_msc=1_700_000_000_123, time_setup=1_700_000_000)
+    assert timing_audit._ms(item, "time_setup_msc", "time_setup") == 1_700_000_000_123
+
+    fallback = SimpleNamespace(time_setup_msc=0, time_setup=1_700_000_000)
+    assert timing_audit._ms(fallback, "time_setup_msc", "time_setup") == 1_700_000_000_000
+
+    missing = SimpleNamespace(time_setup_msc=0, time_setup=0)
+    assert timing_audit._ms(missing, "time_setup_msc", "time_setup") is None
+
+
+def test_stats_report_latency_distribution_and_empty_values():
+    assert timing_audit._stats([])["count"] == 0
+    result = timing_audit._stats([10.0, 20.0, 30.0])
+    assert result["count"] == 3
+    assert result["median"] == pytest.approx(20.0)
+    assert result["mean"] == pytest.approx(20.0)
+
+
+def test_audit_compares_setup_done_and_deal_execution_timestamps(monkeypatch):
+    order = SimpleNamespace(
+        symbol="XAUUSD",
+        type=0,
+        ticket=1001,
+        time_setup_msc=1_700_000_000_100,
+        time_setup=1_700_000_000,
+        time_done_msc=1_700_000_000_200,
+        time_done=1_700_000_000,
+        volume_initial=0.10,
+    )
+    deal = SimpleNamespace(
+        symbol="XAUUSD",
+        order=1001,
+        type=0,
+        volume=0.10,
+        price=2000.11,
+        time_msc=1_700_000_000_200,
+        time=1_700_000_000,
+    )
+
+    class FakeMT5:
+        ORDER_TYPE_BUY = 0
+        ORDER_TYPE_SELL = 1
+        DEAL_TYPE_BUY = 0
+        DEAL_TYPE_SELL = 1
+
+        def initialize(self):
+            return True
+
+        def terminal_info(self):
+            return SimpleNamespace(connected=True)
+
+        def account_info(self):
+            return SimpleNamespace(currency="USD")
+
+        def symbol_info(self, symbol):
+            return SimpleNamespace(point=0.01)
+
+        def history_orders_get(self, start, end, group):
+            return [order]
+
+        def history_deals_get(self, start, end, group):
+            return [deal]
+
+        def shutdown(self):
+            return None
+
+        def last_error(self):
+            return (0, "ok")
+
+    monkeypatch.setattr(
+        timing_audit,
+        "capture_pre_order_quotes",
+        lambda *args, **kwargs: {
+            "quotes_by_order_ticket": {
+                1001: {
+                    "bid": 2000.00,
+                    "ask": 2000.10,
+                    "timestamp_ms": 1_700_000_000_000,
+                    "age_ms": 100,
+                }
+            }
+        },
+    )
+
+    result = timing_audit.audit(FakeMT5(), "XAUUSD", 180, 3000)
+
+    assert result["matched_orders"] == 1
+    assert result["counters"]["deals_after_order_setup"] == 1
+    assert result["counters"]["deals_at_or_after_order_done"] == 1
+    assert result["timing_ms"]["setup_to_first_fill"]["mean"] == pytest.approx(100.0)
+    assert result["timing_ms"]["reference_quote_to_first_fill"]["mean"] == pytest.approx(200.0)
+    assert result["price_check"]["signed_deviation_points"]["mean"] == pytest.approx(1.0)
+    assert result["interpretation"] == "TIMING_DIAGNOSTICS_AVAILABLE"
+    assert result["no_orders_submitted"] is True
