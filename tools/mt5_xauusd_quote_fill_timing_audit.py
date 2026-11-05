@@ -88,6 +88,16 @@ def _quote_at_fill_time(
     Only ticks strictly after order setup and at/before the last fill are queried.
     The setup quote remains the fallback when no intervening quote update exists.
     """
+    if fill_ms < setup_ms:
+        return {
+            "quote": None,
+            "query_error": False,
+            "query_empty": False,
+            "post_setup_tick_records_seen": 0,
+            "post_setup_valid_tick_count": 0,
+            "post_setup_executable_price_change_count": 0,
+        }
+
     start_dt = datetime.fromtimestamp(setup_ms / 1000.0, timezone.utc)
     end_dt = datetime.fromtimestamp((fill_ms + 999) / 1000.0, timezone.utc)
     ticks = mt5.copy_ticks_range(
@@ -98,6 +108,7 @@ def _quote_at_fill_time(
             "quote": None,
             "query_error": True,
             "query_empty": False,
+            "post_setup_tick_records_seen": 0,
             "post_setup_valid_tick_count": 0,
             "post_setup_executable_price_change_count": 0,
         }
@@ -112,6 +123,7 @@ def _quote_at_fill_time(
         ticks["time"] * 1000 if "time" in names else []
     )
     best = None
+    post_setup_tick_records_seen = 0
     post_setup_valid_tick_count = 0
     post_setup_price_changes = 0
     previous_side_price = float(
@@ -122,6 +134,7 @@ def _quote_at_fill_time(
         tick_ms = int(timestamp_values[index])
         if tick_ms <= setup_ms or tick_ms > fill_ms:
             continue
+        post_setup_tick_records_seen += 1
         bid = _num(ticks["bid"][index])
         ask = _num(ticks["ask"][index])
         if (
@@ -144,12 +157,19 @@ def _quote_at_fill_time(
                 "age_ms": fill_ms - tick_ms,
             }
 
-    selected = best if best is not None else {
-        "bid": float(setup_quote["bid"]),
-        "ask": float(setup_quote["ask"]),
-        "timestamp_ms": int(setup_quote["timestamp_ms"]),
-        "age_ms": fill_ms - int(setup_quote["timestamp_ms"]),
-    }
+    if best is not None:
+        selected = best
+    elif post_setup_tick_records_seen == 0:
+        selected = {
+            "bid": float(setup_quote["bid"]),
+            "ask": float(setup_quote["ask"]),
+            "timestamp_ms": int(setup_quote["timestamp_ms"]),
+            "age_ms": fill_ms - int(setup_quote["timestamp_ms"]),
+        }
+    else:
+        # A newer tick record exists but has no usable two-sided quote.
+        # Do not silently fall back to an older quote in that case.
+        selected = None
     if selected["age_ms"] < 0 or selected["age_ms"] > max_quote_age_ms:
         selected = None
 
@@ -157,6 +177,7 @@ def _quote_at_fill_time(
         "quote": selected,
         "query_error": False,
         "query_empty": len(ticks) == 0,
+        "post_setup_tick_records_seen": post_setup_tick_records_seen,
         "post_setup_valid_tick_count": post_setup_valid_tick_count,
         "post_setup_executable_price_change_count": post_setup_price_changes,
     }
