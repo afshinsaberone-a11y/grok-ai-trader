@@ -13,7 +13,12 @@ import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from tools.mt5_xauusd_slippage_history_probe import capture_pre_order_quotes
+try:
+    # Package import for pytest / module execution from the repository root.
+    from .mt5_xauusd_slippage_history_probe import capture_pre_order_quotes
+except ImportError:
+    # Direct script execution: Python places the tools/ directory on sys.path.
+    from mt5_xauusd_slippage_history_probe import capture_pre_order_quotes
 
 
 def _num(value):
