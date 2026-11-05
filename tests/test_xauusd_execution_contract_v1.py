@@ -243,10 +243,10 @@ def test_daily_flat_guard_uses_earlier_bar_when_cutoff_bar_is_missing() -> None:
     bars = bars_fixture()
     bars = bars.iloc[[0, 1, 2, 3]].copy()
     bars["timestamp"] = pd.to_datetime([
+        "2024-01-08T09:55:00Z",
         "2024-01-08T10:00:00Z",
         "2024-01-08T10:05:00Z",
-        "2024-01-08T10:10:00Z",
-        "2024-01-08T10:20:00Z",
+        "2024-01-08T10:15:00Z",
     ], utc=True)
     bars.loc[2, ["bid_high", "bid_low", "bid_close"]] = [2002.5, 1999.5, 2001.5]
     bars.loc[2, ["ask_high", "ask_low", "ask_close"]] = [2002.8, 1999.8, 2001.8]
@@ -259,10 +259,10 @@ def test_daily_flat_guard_uses_earlier_bar_when_cutoff_bar_is_missing() -> None:
 
     metrics, trades = run_xauusd_backtest(bars, guarded)
 
-    # 10:10 is the latest available complete bar ending before 10:15.
+    # 10:10 is absent, so the 10:05 bar is used and exits early at 10:10.
     assert metrics["forced_session_liquidations"] == 1
     assert trades[0]["exit_reason"] == "forced_daily_flat_before_rollover"
-    assert trades[0]["exit_time"] == "2024-01-08T10:15:00+00:00"
+    assert trades[0]["exit_time"] == "2024-01-08T10:10:00+00:00"
 
 
 def test_daily_flat_guard_rejects_invalid_utc_cutoff() -> None:
