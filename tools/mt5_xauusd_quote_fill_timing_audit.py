@@ -170,7 +170,9 @@ def _quote_at_fill_time(
         # A newer tick record exists but has no usable two-sided quote.
         # Do not silently fall back to an older quote in that case.
         selected = None
-    if selected["age_ms"] < 0 or selected["age_ms"] > max_quote_age_ms:
+    if selected is not None and (
+        selected["age_ms"] < 0 or selected["age_ms"] > max_quote_age_ms
+    ):
         selected = None
 
     return {
