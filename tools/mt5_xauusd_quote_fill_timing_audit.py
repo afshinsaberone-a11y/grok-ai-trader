@@ -83,19 +83,28 @@ def _quote_at_fill_time(
     executable_side: str,
     max_quote_age_ms: int,
 ) -> dict:
-    """Cross-check the latest valid executable quote at or before the fill time.
+    """Cross-check the latest valid executable quote strictly before the fill.
 
-    Only ticks strictly after order setup and at/before the last fill are queried.
-    The setup quote remains the fallback when no intervening quote update exists.
+    A quote tick stamped in the same millisecond as a Deal is ambiguous because
+    millisecond timestamps cannot establish which event happened first. Such
+    ticks are counted but never used as the pre-fill execution reference.
     """
+    empty_counts = {
+        "post_setup_tick_records_seen": 0,
+        "post_setup_valid_tick_count": 0,
+        "post_setup_executable_price_change_count": 0,
+        "fill_millisecond_tick_records_seen": 0,
+        "fill_millisecond_valid_tick_count": 0,
+        "fill_millisecond_executable_price_change_count": 0,
+    }
     if fill_ms < setup_ms:
         return {
             "quote": None,
+            "quote_source": "UNAVAILABLE",
             "query_error": False,
             "query_empty": False,
-            "post_setup_tick_records_seen": 0,
-            "post_setup_valid_tick_count": 0,
-            "post_setup_executable_price_change_count": 0,
+            "fill_millisecond_ordering_ambiguous": False,
+            **empty_counts,
         }
 
     start_dt = datetime.fromtimestamp(setup_ms / 1000.0, timezone.utc)
@@ -106,11 +115,11 @@ def _quote_at_fill_time(
     if ticks is None:
         return {
             "quote": None,
+            "quote_source": "UNAVAILABLE",
             "query_error": True,
             "query_empty": False,
-            "post_setup_tick_records_seen": 0,
-            "post_setup_valid_tick_count": 0,
-            "post_setup_executable_price_change_count": 0,
+            "fill_millisecond_ordering_ambiguous": False,
+            **empty_counts,
         }
 
     names = getattr(getattr(ticks, "dtype", None), "names", None) or ()
@@ -126,6 +135,9 @@ def _quote_at_fill_time(
     post_setup_tick_records_seen = 0
     post_setup_valid_tick_count = 0
     post_setup_price_changes = 0
+    fill_millisecond_tick_records_seen = 0
+    fill_millisecond_valid_tick_count = 0
+    fill_millisecond_price_changes = 0
     previous_side_price = float(
         setup_quote["ask"] if executable_side == "ASK" else setup_quote["bid"]
     )
@@ -134,14 +146,35 @@ def _quote_at_fill_time(
         tick_ms = int(timestamp_values[index])
         if tick_ms <= setup_ms or tick_ms > fill_ms:
             continue
-        post_setup_tick_records_seen += 1
+
         bid = _num(ticks["bid"][index])
         ask = _num(ticks["ask"][index])
-        if (
-            tick_ms <= 0 or bid is None or ask is None
-            or bid <= 0 or ask < bid
-        ):
+        valid_quote = (
+            tick_ms > 0
+            and bid is not None
+            and ask is not None
+            and bid > 0
+            and ask >= bid
+        )
+
+        if tick_ms == fill_ms:
+            fill_millisecond_tick_records_seen += 1
+            if valid_quote:
+                fill_millisecond_valid_tick_count += 1
+                side_price = ask if executable_side == "ASK" else bid
+                if not math.isclose(
+                    side_price, previous_side_price, rel_tol=0.0, abs_tol=1e-12
+                ):
+                    fill_millisecond_price_changes += 1
+            # Never use same-ms quote as a causal pre-fill benchmark.
             continue
+
+        # Strictly before fill_ms: a newer invalid record prevents silent
+        # fallback to an older price if no valid strict pre-fill quote exists.
+        post_setup_tick_records_seen += 1
+        if not valid_quote:
+            continue
+
         post_setup_valid_tick_count += 1
         side_price = ask if executable_side == "ASK" else bid
         if not math.isclose(
@@ -159,31 +192,42 @@ def _quote_at_fill_time(
 
     if best is not None:
         selected = best
+        quote_source = "STRICT_PRE_FILL_TICK"
     elif post_setup_tick_records_seen == 0:
+        # A same-ms tick cannot supersede the last quote known strictly before
+        # the Deal; the setup quote remains the latest causally prior quote.
         selected = {
             "bid": float(setup_quote["bid"]),
             "ask": float(setup_quote["ask"]),
             "timestamp_ms": int(setup_quote["timestamp_ms"]),
             "age_ms": fill_ms - int(setup_quote["timestamp_ms"]),
         }
+        quote_source = "SETUP_QUOTE_FALLBACK"
     else:
-        # A newer tick record exists but has no usable two-sided quote.
-        # Do not silently fall back to an older quote in that case.
         selected = None
+        quote_source = "UNAVAILABLE"
+
     if selected is not None and (
         selected["age_ms"] < 0 or selected["age_ms"] > max_quote_age_ms
     ):
         selected = None
+        quote_source = "UNAVAILABLE"
 
     return {
         "quote": selected,
+        "quote_source": quote_source,
         "query_error": False,
         "query_empty": len(ticks) == 0,
+        "fill_millisecond_ordering_ambiguous": (
+            fill_millisecond_tick_records_seen > 0
+        ),
         "post_setup_tick_records_seen": post_setup_tick_records_seen,
         "post_setup_valid_tick_count": post_setup_valid_tick_count,
         "post_setup_executable_price_change_count": post_setup_price_changes,
+        "fill_millisecond_tick_records_seen": fill_millisecond_tick_records_seen,
+        "fill_millisecond_valid_tick_count": fill_millisecond_valid_tick_count,
+        "fill_millisecond_executable_price_change_count": fill_millisecond_price_changes,
     }
-
 
 def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
     if not mt5.initialize():
