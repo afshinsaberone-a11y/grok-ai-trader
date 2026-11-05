@@ -74,6 +74,94 @@ def _stats(values: list[float]) -> dict:
     }
 
 
+def _quote_at_fill_time(
+    mt5,
+    symbol: str,
+    setup_ms: int,
+    fill_ms: int,
+    setup_quote: dict,
+    executable_side: str,
+    max_quote_age_ms: int,
+) -> dict:
+    """Cross-check the latest valid executable quote at or before the fill time.
+
+    Only ticks strictly after order setup and at/before the last fill are queried.
+    The setup quote remains the fallback when no intervening quote update exists.
+    """
+    start_dt = datetime.fromtimestamp(setup_ms / 1000.0, timezone.utc)
+    end_dt = datetime.fromtimestamp((fill_ms + 999) / 1000.0, timezone.utc)
+    ticks = mt5.copy_ticks_range(
+        symbol, start_dt, end_dt, mt5.COPY_TICKS_INFO
+    )
+    if ticks is None:
+        return {
+            "quote": None,
+            "query_error": True,
+            "query_empty": False,
+            "post_setup_valid_tick_count": 0,
+            "post_setup_executable_price_change_count": 0,
+        }
+
+    names = getattr(getattr(ticks, "dtype", None), "names", None) or ()
+    if len(ticks) and ("bid" not in names or "ask" not in names):
+        raise RuntimeError("MT5_EXECUTION_TICK_FIELDS_MISSING_BID_ASK")
+    if len(ticks) and "time_msc" not in names and "time" not in names:
+        raise RuntimeError("MT5_EXECUTION_TICK_TIMESTAMP_FIELDS_MISSING")
+
+    timestamp_values = ticks["time_msc"] if "time_msc" in names else (
+        ticks["time"] * 1000 if "time" in names else []
+    )
+    best = None
+    post_setup_valid_tick_count = 0
+    post_setup_price_changes = 0
+    previous_side_price = float(
+        setup_quote["ask"] if executable_side == "ASK" else setup_quote["bid"]
+    )
+
+    for index in range(len(ticks)):
+        tick_ms = int(timestamp_values[index])
+        if tick_ms <= setup_ms or tick_ms > fill_ms:
+            continue
+        bid = _num(ticks["bid"][index])
+        ask = _num(ticks["ask"][index])
+        if (
+            tick_ms <= 0 or bid is None or ask is None
+            or bid <= 0 or ask < bid
+        ):
+            continue
+        post_setup_valid_tick_count += 1
+        side_price = ask if executable_side == "ASK" else bid
+        if not math.isclose(
+            side_price, previous_side_price, rel_tol=0.0, abs_tol=1e-12
+        ):
+            post_setup_price_changes += 1
+        previous_side_price = side_price
+        if best is None or tick_ms >= best["timestamp_ms"]:
+            best = {
+                "bid": bid,
+                "ask": ask,
+                "timestamp_ms": tick_ms,
+                "age_ms": fill_ms - tick_ms,
+            }
+
+    selected = best if best is not None else {
+        "bid": float(setup_quote["bid"]),
+        "ask": float(setup_quote["ask"]),
+        "timestamp_ms": int(setup_quote["timestamp_ms"]),
+        "age_ms": fill_ms - int(setup_quote["timestamp_ms"]),
+    }
+    if selected["age_ms"] < 0 or selected["age_ms"] > max_quote_age_ms:
+        selected = None
+
+    return {
+        "quote": selected,
+        "query_error": False,
+        "query_empty": len(ticks) == 0,
+        "post_setup_valid_tick_count": post_setup_valid_tick_count,
+        "post_setup_executable_price_change_count": post_setup_price_changes,
+    }
+
+
 def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
     if not mt5.initialize():
         raise RuntimeError(f"MT5_INITIALIZE_FAILED:{mt5.last_error()}")
@@ -129,6 +217,12 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
             "deals_at_or_after_order_done": 0,
             "orders_with_vwap_equal_to_reference_price": 0,
             "orders_with_vwap_different_from_reference_price": 0,
+            "execution_quote_tick_query_errors": 0,
+            "orders_missing_execution_quote_reference": 0,
+            "orders_with_post_setup_quote_tick": 0,
+            "orders_with_post_setup_executable_price_change": 0,
+            "orders_with_vwap_equal_to_execution_quote": 0,
+            "orders_with_vwap_different_from_execution_quote": 0,
         }
         seen = set()
         setup_to_first_fill_ms = []
@@ -141,6 +235,13 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
         quote_age_ms = []
         exact_match_orders = 0
         different_match_orders = 0
+        execution_quote_age_ms = []
+        post_setup_tick_counts = []
+        setup_to_execution_quote_move_points = []
+        execution_quote_signed_points = []
+        execution_quote_adverse_points = []
+        execution_quote_exact_match_orders = 0
+        execution_quote_different_orders = 0
 
         for order in orders:
             if getattr(order, "symbol", None) != symbol:
@@ -225,6 +326,64 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
             signed_points.append(signed / float(info.point))
             adverse_points.append(max(0.0, signed) / float(info.point))
 
+            executable_side = "ASK" if order_type == int(mt5.ORDER_TYPE_BUY) else "BID"
+            execution_crosscheck = _quote_at_fill_time(
+                mt5,
+                symbol,
+                setup_ms,
+                last_fill_ms,
+                quote,
+                executable_side,
+                max_quote_age_ms,
+            )
+            if execution_crosscheck["query_error"]:
+                counters["execution_quote_tick_query_errors"] += 1
+                counters["orders_missing_execution_quote_reference"] += 1
+            else:
+                post_setup_count = execution_crosscheck["post_setup_valid_tick_count"]
+                post_setup_tick_counts.append(float(post_setup_count))
+                if post_setup_count > 0:
+                    counters["orders_with_post_setup_quote_tick"] += 1
+                if execution_crosscheck["post_setup_executable_price_change_count"] > 0:
+                    counters["orders_with_post_setup_executable_price_change"] += 1
+
+                execution_quote = execution_crosscheck["quote"]
+                if execution_quote is None:
+                    counters["orders_missing_execution_quote_reference"] += 1
+                else:
+                    execution_quote_age_ms.append(float(execution_quote["age_ms"]))
+                    execution_reference = float(
+                        execution_quote["ask"] if order_type == int(mt5.ORDER_TYPE_BUY)
+                        else execution_quote["bid"]
+                    )
+                    execution_signed = (
+                        fill_vwap - execution_reference
+                        if order_type == int(mt5.ORDER_TYPE_BUY)
+                        else execution_reference - fill_vwap
+                    )
+                    setup_side_move = (
+                        execution_reference - reference
+                        if order_type == int(mt5.ORDER_TYPE_BUY)
+                        else reference - execution_reference
+                    )
+                    setup_to_execution_quote_move_points.append(
+                        setup_side_move / float(info.point)
+                    )
+                    execution_quote_signed_points.append(
+                        execution_signed / float(info.point)
+                    )
+                    execution_quote_adverse_points.append(
+                        max(0.0, execution_signed) / float(info.point)
+                    )
+                    if math.isclose(
+                        fill_vwap, execution_reference, rel_tol=0.0, abs_tol=1e-9
+                    ):
+                        execution_quote_exact_match_orders += 1
+                        counters["orders_with_vwap_equal_to_execution_quote"] += 1
+                    else:
+                        execution_quote_different_orders += 1
+                        counters["orders_with_vwap_different_from_execution_quote"] += 1
+
             if math.isclose(fill_vwap, reference, rel_tol=0.0, abs_tol=1e-9):
                 exact_match_orders += 1
                 counters["orders_with_vwap_equal_to_reference_price"] += 1
@@ -252,22 +411,46 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
                 "quote_age_at_order_setup": _stats(quote_age_ms),
             },
             "price_check": {
-                "orders_with_vwap_exactly_equal_to_reference": exact_match_orders,
-                "orders_with_vwap_different_from_reference": different_match_orders,
-                "all_matched_vwaps_equal_reference": (
+                "orders_with_vwap_exactly_equal_to_setup_reference": exact_match_orders,
+                "orders_with_vwap_different_from_setup_reference": different_match_orders,
+                "all_matched_vwaps_equal_setup_reference": (
                     matched > 0 and exact_match_orders == matched
                 ),
                 "signed_deviation_points": _stats(signed_points),
                 "adverse_deviation_points": _stats(adverse_points),
             },
+            "execution_quote_check": {
+                "method": (
+                    "latest valid executable-side quote strictly after setup and at/before last fill; "
+                    "falls back to the valid setup quote only when no intervening quote update is returned"
+                ),
+                "orders_with_vwap_equal_to_execution_quote": execution_quote_exact_match_orders,
+                "orders_with_vwap_different_from_execution_quote": execution_quote_different_orders,
+                "all_matched_vwaps_equal_execution_quote": (
+                    matched > 0
+                    and counters["orders_missing_execution_quote_reference"] == 0
+                    and execution_quote_exact_match_orders == matched
+                ),
+                "execution_quote_signed_deviation_points": _stats(execution_quote_signed_points),
+                "execution_quote_adverse_deviation_points": _stats(execution_quote_adverse_points),
+                "setup_to_execution_quote_adverse_move_points": _stats(setup_to_execution_quote_move_points),
+                "execution_quote_age_at_last_fill_ms": _stats(execution_quote_age_ms),
+                "post_setup_valid_quote_ticks_per_order": _stats(post_setup_tick_counts),
+            },
             "interpretation": (
-                "TIMESTAMP_REVIEW_REQUIRED"
+                "TIMESTAMP_ORDER_INCONSISTENCY"
                 if matched and (
                     counters["deals_before_order_setup"] > 0
                     or counters["deals_missing_execution_timestamp"] > 0
-                    or exact_match_orders == matched
                 )
-                else "TIMING_DIAGNOSTICS_AVAILABLE"
+                else "EXECUTION_QUOTE_CROSSCHECK_INCOMPLETE"
+                if matched and (
+                    counters["execution_quote_tick_query_errors"] > 0
+                    or counters["orders_missing_execution_quote_reference"] > 0
+                )
+                else "ZERO_DEVIATION_VS_LAST_RECORDED_EXECUTION_QUOTE"
+                if matched and execution_quote_exact_match_orders == matched
+                else "EXECUTION_QUOTE_CROSSCHECK_AVAILABLE"
             ),
             "privacy": {
                 "raw_order_tickets_exported": False,
@@ -323,6 +506,7 @@ def main(argv=None) -> int:
         "counters": report["counters"],
         "timing_ms": report["timing_ms"],
         "price_check": report["price_check"],
+        "execution_quote_check": report["execution_quote_check"],
         "no_orders_submitted": report["no_orders_submitted"],
         "output": str(output),
     }, indent=2))
