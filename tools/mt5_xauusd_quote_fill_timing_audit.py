@@ -122,7 +122,7 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
             "deals_after_order_setup": 0,
             "deals_before_order_done": 0,
             "deals_at_or_after_order_done": 0,
-            "fills_exactly_equal_to_reference_price": 0,
+            "deals_exactly_equal_to_reference_price": 0,
             "fills_different_from_reference_price": 0,
         }
         seen = set()
@@ -222,7 +222,7 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
 
             if math.isclose(fill_vwap, reference, rel_tol=0.0, abs_tol=1e-9):
                 exact_match_orders += 1
-                counters["fills_exactly_equal_to_reference_price"] += len(compatible)
+                counters["deals_exactly_equal_to_reference_price"] += len(compatible)
             else:
                 different_match_orders += 1
                 counters["fills_different_from_reference_price"] += len(compatible)
