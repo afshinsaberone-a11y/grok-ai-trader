@@ -19,3 +19,8 @@ python research/project_repair_loop.py --root . --fix --max-loops 8
 
 لوپ فقط قرارداد ایمنی را بررسی و پچ می‌کند؛ سود زنده را تضمین نمی‌کند.
 Grid و مارتینگل ممنوع است.
+
+
+## XAUUSD execution research — 2026-11-05
+- [Order/Deal timestamp and quote-to-fill timing audit](docs/research/xauusd-order-deal-timestamp-audit-20261105.md)
+- [Machine-readable aggregate audit output](artifacts/xauusd-quote-fill-timing-audit.json)
