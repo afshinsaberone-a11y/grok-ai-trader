@@ -147,23 +147,27 @@ def _force_flat_bar_indices(
     frame: pd.DataFrame,
     close_time_utc: str | None,
     bar_interval_minutes: int,
-) -> set[int]:
-    """Return each UTC day's last bar that closes no later than the cutoff.
+) -> tuple[set[int], set[int]]:
+    """Return daily liquidation bars and same-day entry-block indices.
 
     If the nominal final bar is absent, the latest earlier complete bar is
-    selected. This deliberately closes early rather than carrying a position
-    across an unobserved session boundary.
+    selected. New entries remain blocked from the configured cutoff through
+    the end of that UTC date, preventing immediate re-entry after liquidation.
     """
     if close_time_utc is None:
-        return set()
+        return set(), set()
 
     hour, minute = (int(part) for part in close_time_utc.split(":"))
     interval = pd.Timedelta(minutes=bar_interval_minutes)
-    indices: set[int] = set()
+    liquidation_indices: set[int] = set()
+    entry_block_indices: set[int] = set()
     timestamps = frame["timestamp"]
 
     for day, day_rows in frame.groupby(timestamps.dt.strftime("%Y-%m-%d"), sort=False):
         cutoff = pd.Timestamp(f"{day}T{hour:02d}:{minute:02d}:00Z")
+        after_cutoff = day_rows.loc[day_rows["timestamp"] >= cutoff]
+        entry_block_indices.update(int(index) for index in after_cutoff.index)
+
         before_cutoff = day_rows.loc[day_rows["timestamp"] < cutoff]
         if before_cutoff.empty:
             continue
@@ -174,8 +178,8 @@ def _force_flat_bar_indices(
             raise XAUUSDExecutionError(
                 f"XAUUSD_NO_BAR_BEFORE_FORCE_FLAT_CUTOFF:{day}"
             )
-        indices.add(int(complete.index[-1]))
-    return indices
+        liquidation_indices.add(int(complete.index[-1]))
+    return liquidation_indices, entry_block_indices
 
 
 def _net_r(
@@ -228,7 +232,8 @@ def run_xauusd_backtest(
     entry_count = 0
     entry_signals_suppressed_by_utc_hour_filter = 0
     entry_signals_suppressed_by_force_flat_bar = 0
-    force_flat_indices = _force_flat_bar_indices(
+    entry_signals_suppressed_after_flat_cutoff = 0
+    force_flat_indices, post_cutoff_entry_block_indices = _force_flat_bar_indices(
         frame,
         config.force_flat_utc_time,
         config.force_flat_bar_interval_minutes,
@@ -290,6 +295,9 @@ def run_xauusd_backtest(
                 continue
             if i in force_flat_indices:
                 entry_signals_suppressed_by_force_flat_bar += 1
+                continue
+            if i in post_cutoff_entry_block_indices:
+                entry_signals_suppressed_after_flat_cutoff += 1
                 continue
             # Entry eligibility is based on the next bar's UTC open timestamp.
             # This gate never runs while a position is open, so exits and financing
@@ -443,6 +451,7 @@ def run_xauusd_backtest(
         ),
         "forced_session_liquidations": forced_session_liquidations,
         "entry_signals_suppressed_by_force_flat_bar": entry_signals_suppressed_by_force_flat_bar,
+        "entry_signals_suppressed_after_flat_cutoff": entry_signals_suppressed_after_flat_cutoff,
         "blocked_entry_utc_hours": list(config.blocked_entry_utc_hours),
         "entry_signals_suppressed_by_utc_hour_filter": entry_signals_suppressed_by_utc_hour_filter,
         "financing_note": (
