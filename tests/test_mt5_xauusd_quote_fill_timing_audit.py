@@ -146,3 +146,38 @@ def test_execution_quote_falls_back_to_fresh_setup_quote_when_no_new_ticks():
     assert result["query_empty"] is True
     assert result["quote"]["ask"] == pytest.approx(2000.10)
     assert result["quote"]["age_ms"] == pytest.approx(102)
+
+
+def test_execution_quote_does_not_fall_back_after_unusable_newer_tick():
+    import numpy as np
+
+    class InvalidNewerTick:
+        COPY_TICKS_INFO = 1
+
+        def copy_ticks_range(self, symbol, start, end, flags):
+            return np.array(
+                [(1_700_000_000_102, 0.0, 2000.20)],
+                dtype=[("time_msc", "i8"), ("bid", "f8"), ("ask", "f8")],
+            )
+
+    setup_ms = 1_700_000_000_100
+    result = timing_audit._quote_at_fill_time(
+        InvalidNewerTick(),
+        "XAUUSD",
+        setup_ms,
+        setup_ms + 2,
+        {
+            "bid": 2000.00,
+            "ask": 2000.10,
+            "timestamp_ms": setup_ms - 100,
+            "age_ms": 100,
+        },
+        "ASK",
+        3000,
+    )
+
+    assert result["query_error"] is False
+    assert result["post_setup_tick_records_seen"] == 1
+    assert result["post_setup_valid_tick_count"] == 0
+    assert result["quote"] is None
+
