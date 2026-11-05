@@ -179,3 +179,97 @@ def test_invalid_blocked_utc_hours_fail_closed() -> None:
     with pytest.raises(XAUUSDExecutionError, match="BLOCKED_ENTRY_UTC_HOURS_INVALID"):
         run_xauusd_backtest(bars_fixture(), bad)
 
+
+
+def test_daily_flat_guard_closes_open_position_before_utc_cutoff() -> None:
+    bars = bars_fixture()
+    bars["timestamp"] = pd.to_datetime([
+        "2024-01-08T10:00:00Z",
+        "2024-01-08T10:05:00Z",
+        "2024-01-08T10:10:00Z",
+        "2024-01-08T10:15:00Z",
+    ], utc=True)
+    # Keep the cutoff bar inside the trade's stop/target range.
+    bars.loc[2, ["bid_high", "bid_low", "bid_close"]] = [2002.5, 1999.5, 2001.5]
+    bars.loc[2, ["ask_high", "ask_low", "ask_close"]] = [2002.8, 1999.8, 2001.8]
+    guarded = XAUUSDExecutionConfig(
+        slippage_usd_per_oz_per_side=0.05,
+        commission_usd_per_oz_round_turn=0.10,
+        atr_stop_mult=1.5,
+        reward_risk=2.5,
+        risk_fraction=0.0025,
+        max_holding_bars=30,
+        force_flat_utc_time="10:15",
+        force_flat_bar_interval_minutes=5,
+    )
+
+    metrics, trades = run_xauusd_backtest(bars, guarded)
+
+    assert metrics["daily_force_flat_guard_enabled"] is True
+    assert metrics["daily_force_flat_utc_time"] == "10:15"
+    assert metrics["forced_session_liquidations"] == 1
+    assert metrics["forced_end_of_data_liquidation"] is False
+    assert metrics["entries"] == metrics["trades"] == 1
+    assert trades[0]["exit_reason"] == "forced_daily_flat_before_rollover"
+    assert trades[0]["exit_price_field"] == "bid_close"
+    assert trades[0]["exit_time"] == "2024-01-08T10:15:00+00:00"
+    assert trades[0]["exit_fill"] == pytest.approx(2001.45)
+
+
+def test_daily_flat_guard_suppresses_entry_on_flatten_bar() -> None:
+    bars = bars_fixture()
+    bars["timestamp"] = pd.to_datetime([
+        "2024-01-08T10:00:00Z",
+        "2024-01-08T10:05:00Z",
+        "2024-01-08T10:10:00Z",
+        "2024-01-08T10:15:00Z",
+    ], utc=True)
+    bars["signal"] = [0, 1, 0, 0]
+    guarded = XAUUSDExecutionConfig(
+        slippage_usd_per_oz_per_side=0.05,
+        commission_usd_per_oz_round_turn=0.10,
+        force_flat_utc_time="10:15",
+        force_flat_bar_interval_minutes=5,
+    )
+
+    metrics, trades = run_xauusd_backtest(bars, guarded)
+
+    assert metrics["entries"] == metrics["trades"] == 0
+    assert metrics["entry_signals_suppressed_by_force_flat_bar"] == 1
+    assert trades == []
+
+
+def test_daily_flat_guard_uses_earlier_bar_when_cutoff_bar_is_missing() -> None:
+    bars = bars_fixture()
+    bars = bars.iloc[[0, 1, 2, 3]].copy()
+    bars["timestamp"] = pd.to_datetime([
+        "2024-01-08T10:00:00Z",
+        "2024-01-08T10:05:00Z",
+        "2024-01-08T10:10:00Z",
+        "2024-01-08T10:20:00Z",
+    ], utc=True)
+    bars.loc[2, ["bid_high", "bid_low", "bid_close"]] = [2002.5, 1999.5, 2001.5]
+    bars.loc[2, ["ask_high", "ask_low", "ask_close"]] = [2002.8, 1999.8, 2001.8]
+    guarded = XAUUSDExecutionConfig(
+        slippage_usd_per_oz_per_side=0.05,
+        commission_usd_per_oz_round_turn=0.10,
+        force_flat_utc_time="10:15",
+        force_flat_bar_interval_minutes=5,
+    )
+
+    metrics, trades = run_xauusd_backtest(bars, guarded)
+
+    # 10:10 is the latest available complete bar ending before 10:15.
+    assert metrics["forced_session_liquidations"] == 1
+    assert trades[0]["exit_reason"] == "forced_daily_flat_before_rollover"
+    assert trades[0]["exit_time"] == "2024-01-08T10:15:00+00:00"
+
+
+def test_daily_flat_guard_rejects_invalid_utc_cutoff() -> None:
+    bad = XAUUSDExecutionConfig(
+        slippage_usd_per_oz_per_side=0.05,
+        commission_usd_per_oz_round_turn=0.10,
+        force_flat_utc_time="24:00",
+    )
+    with pytest.raises(XAUUSDExecutionError, match="FORCE_FLAT_UTC_TIME_INVALID"):
+        run_xauusd_backtest(bars_fixture(), bad)
