@@ -45,11 +45,14 @@ def test_audit_compares_setup_done_and_deal_execution_timestamps(monkeypatch):
         time=1_700_000_000,
     )
 
+    import numpy as np
+
     class FakeMT5:
         ORDER_TYPE_BUY = 0
         ORDER_TYPE_SELL = 1
         DEAL_TYPE_BUY = 0
         DEAL_TYPE_SELL = 1
+        COPY_TICKS_INFO = 1
 
         def initialize(self):
             return True
@@ -68,6 +71,12 @@ def test_audit_compares_setup_done_and_deal_execution_timestamps(monkeypatch):
 
         def history_deals_get(self, start, end, group):
             return [deal]
+
+        def copy_ticks_range(self, symbol, start, end, flags):
+            return np.array(
+                [(1_700_000_000_200, 2000.00, 2000.11)],
+                dtype=[("time_msc", "i8"), ("bid", "f8"), ("ask", "f8")],
+            )
 
         def shutdown(self):
             return None
@@ -98,5 +107,42 @@ def test_audit_compares_setup_done_and_deal_execution_timestamps(monkeypatch):
     assert result["timing_ms"]["setup_to_first_fill"]["mean"] == pytest.approx(100.0)
     assert result["timing_ms"]["reference_quote_to_first_fill"]["mean"] == pytest.approx(200.0)
     assert result["price_check"]["signed_deviation_points"]["mean"] == pytest.approx(1.0)
-    assert result["interpretation"] == "TIMING_DIAGNOSTICS_AVAILABLE"
+    assert result["execution_quote_check"]["orders_with_vwap_equal_to_execution_quote"] == 1
+    assert result["execution_quote_check"]["execution_quote_signed_deviation_points"]["mean"] == pytest.approx(0.0)
+    assert result["execution_quote_check"]["setup_to_execution_quote_adverse_move_points"]["mean"] == pytest.approx(1.0)
+    assert result["interpretation"] == "ZERO_DEVIATION_VS_LAST_RECORDED_EXECUTION_QUOTE"
     assert result["no_orders_submitted"] is True
+
+
+def test_execution_quote_falls_back_to_fresh_setup_quote_when_no_new_ticks():
+    import numpy as np
+
+    class EmptyTicks:
+        COPY_TICKS_INFO = 1
+
+        def copy_ticks_range(self, symbol, start, end, flags):
+            return np.array(
+                [],
+                dtype=[("time_msc", "i8"), ("bid", "f8"), ("ask", "f8")],
+            )
+
+    setup_ms = 1_700_000_000_100
+    result = timing_audit._quote_at_fill_time(
+        EmptyTicks(),
+        "XAUUSD",
+        setup_ms,
+        setup_ms + 2,
+        {
+            "bid": 2000.00,
+            "ask": 2000.10,
+            "timestamp_ms": setup_ms - 100,
+            "age_ms": 100,
+        },
+        "ASK",
+        3000,
+    )
+
+    assert result["query_error"] is False
+    assert result["query_empty"] is True
+    assert result["quote"]["ask"] == pytest.approx(2000.10)
+    assert result["quote"]["age_ms"] == pytest.approx(102)
