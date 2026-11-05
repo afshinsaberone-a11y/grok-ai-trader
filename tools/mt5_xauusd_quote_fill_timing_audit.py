@@ -290,6 +290,10 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
             "orders_with_post_setup_executable_price_change": 0,
             "orders_with_vwap_equal_to_execution_quote": 0,
             "orders_with_vwap_different_from_execution_quote": 0,
+            "orders_with_strict_pre_fill_execution_tick": 0,
+            "orders_using_setup_quote_fallback": 0,
+            "orders_with_tick_at_fill_millisecond": 0,
+            "orders_with_same_millisecond_tick_price_change": 0,
         }
         seen = set()
         setup_to_first_fill_ms = []
@@ -309,6 +313,9 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
         execution_quote_adverse_points = []
         execution_quote_exact_match_orders = 0
         execution_quote_different_orders = 0
+        strict_pre_fill_tick_orders = 0
+        setup_quote_fallback_orders = 0
+        same_millisecond_tie_orders = 0
 
         for order in orders:
             if getattr(order, "symbol", None) != symbol:
@@ -407,6 +414,11 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
                 counters["execution_quote_tick_query_errors"] += 1
                 counters["orders_missing_execution_quote_reference"] += 1
             else:
+                if execution_crosscheck["fill_millisecond_ordering_ambiguous"]:
+                    same_millisecond_tie_orders += 1
+                    counters["orders_with_tick_at_fill_millisecond"] += 1
+                if execution_crosscheck["fill_millisecond_executable_price_change_count"] > 0:
+                    counters["orders_with_same_millisecond_tick_price_change"] += 1
                 post_setup_count = execution_crosscheck["post_setup_valid_tick_count"]
                 post_setup_tick_counts.append(float(post_setup_count))
                 if post_setup_count > 0:
@@ -418,6 +430,12 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
                 if execution_quote is None:
                     counters["orders_missing_execution_quote_reference"] += 1
                 else:
+                    if execution_crosscheck["quote_source"] == "STRICT_PRE_FILL_TICK":
+                        strict_pre_fill_tick_orders += 1
+                        counters["orders_with_strict_pre_fill_execution_tick"] += 1
+                    else:
+                        setup_quote_fallback_orders += 1
+                        counters["orders_using_setup_quote_fallback"] += 1
                     execution_quote_age_ms.append(float(execution_quote["age_ms"]))
                     execution_reference = float(
                         execution_quote["ask"] if order_type == int(mt5.ORDER_TYPE_BUY)
@@ -488,9 +506,13 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
             },
             "execution_quote_check": {
                 "method": (
-                    "latest valid executable-side quote strictly after setup and at/before last fill; "
-                    "falls back to the valid setup quote only when no intervening quote update is returned"
+                    "latest valid executable-side quote strictly after setup and strictly before last-fill millisecond; "
+                    "same-millisecond ticks are excluded because event ordering is ambiguous; "
+                    "setup quote is fallback only when no strictly pre-fill tick record exists"
                 ),
+                "orders_with_strict_pre_fill_execution_tick": strict_pre_fill_tick_orders,
+                "orders_using_setup_quote_fallback": setup_quote_fallback_orders,
+                "orders_with_same_millisecond_tick_tie": same_millisecond_tie_orders,
                 "orders_with_vwap_equal_to_execution_quote": execution_quote_exact_match_orders,
                 "orders_with_vwap_different_from_execution_quote": execution_quote_different_orders,
                 "all_matched_vwaps_equal_execution_quote": (
@@ -515,7 +537,9 @@ def audit(mt5, symbol: str, days: int, max_quote_age_ms: int) -> dict:
                     counters["execution_quote_tick_query_errors"] > 0
                     or counters["orders_missing_execution_quote_reference"] > 0
                 )
-                else "ZERO_DEVIATION_VS_LAST_RECORDED_EXECUTION_QUOTE"
+                else "EXECUTION_QUOTE_CROSSCHECK_AVAILABLE_WITH_SAME_MS_TIES"
+                if matched and same_millisecond_tie_orders > 0
+                else "ZERO_DEVIATION_VS_STRICT_PRE_FILL_EXECUTION_QUOTE"
                 if matched and execution_quote_exact_match_orders == matched
                 else "EXECUTION_QUOTE_CROSSCHECK_AVAILABLE"
             ),
