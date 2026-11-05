@@ -74,7 +74,7 @@ def test_audit_compares_setup_done_and_deal_execution_timestamps(monkeypatch):
 
         def copy_ticks_range(self, symbol, start, end, flags):
             return np.array(
-                [(1_700_000_000_200, 2000.00, 2000.11)],
+                [(1_700_000_000_199, 2000.00, 2000.11)],
                 dtype=[("time_msc", "i8"), ("bid", "f8"), ("ask", "f8")],
             )
 
@@ -108,9 +108,11 @@ def test_audit_compares_setup_done_and_deal_execution_timestamps(monkeypatch):
     assert result["timing_ms"]["reference_quote_to_first_fill"]["mean"] == pytest.approx(200.0)
     assert result["price_check"]["signed_deviation_points"]["mean"] == pytest.approx(1.0)
     assert result["execution_quote_check"]["orders_with_vwap_equal_to_execution_quote"] == 1
+    assert result["execution_quote_check"]["orders_with_strict_pre_fill_execution_tick"] == 1
+    assert result["execution_quote_check"]["orders_with_same_millisecond_tick_tie"] == 0
     assert result["execution_quote_check"]["execution_quote_signed_deviation_points"]["mean"] == pytest.approx(0.0)
     assert result["execution_quote_check"]["setup_to_execution_quote_adverse_move_points"]["mean"] == pytest.approx(1.0)
-    assert result["interpretation"] == "ZERO_DEVIATION_VS_LAST_RECORDED_EXECUTION_QUOTE"
+    assert result["interpretation"] == "ZERO_DEVIATION_VS_STRICT_PRE_FILL_EXECUTION_QUOTE"
     assert result["no_orders_submitted"] is True
 
 
@@ -156,7 +158,7 @@ def test_execution_quote_does_not_fall_back_after_unusable_newer_tick():
 
         def copy_ticks_range(self, symbol, start, end, flags):
             return np.array(
-                [(1_700_000_000_102, 0.0, 2000.20)],
+                [(1_700_000_000_101, 0.0, 2000.20)],
                 dtype=[("time_msc", "i8"), ("bid", "f8"), ("ask", "f8")],
             )
 
@@ -180,4 +182,39 @@ def test_execution_quote_does_not_fall_back_after_unusable_newer_tick():
     assert result["post_setup_tick_records_seen"] == 1
     assert result["post_setup_valid_tick_count"] == 0
     assert result["quote"] is None
+
+
+def test_same_millisecond_tick_is_ambiguous_and_not_used_as_pre_fill_quote():
+    import numpy as np
+
+    class SameMillisecondTick:
+        COPY_TICKS_INFO = 1
+
+        def copy_ticks_range(self, symbol, start, end, flags):
+            return np.array(
+                [(1_700_000_000_102, 2000.00, 2000.20)],
+                dtype=[("time_msc", "i8"), ("bid", "f8"), ("ask", "f8")],
+            )
+
+    setup_ms = 1_700_000_000_100
+    result = timing_audit._quote_at_fill_time(
+        SameMillisecondTick(),
+        "XAUUSD",
+        setup_ms,
+        setup_ms + 2,
+        {
+            "bid": 2000.00,
+            "ask": 2000.10,
+            "timestamp_ms": setup_ms - 100,
+            "age_ms": 100,
+        },
+        "ASK",
+        3000,
+    )
+
+    assert result["fill_millisecond_ordering_ambiguous"] is True
+    assert result["fill_millisecond_tick_records_seen"] == 1
+    assert result["fill_millisecond_valid_tick_count"] == 1
+    assert result["quote_source"] == "SETUP_QUOTE_FALLBACK"
+    assert result["quote"]["ask"] == pytest.approx(2000.10)
 
