@@ -284,7 +284,7 @@ def _download(
     retries: int = 8,
     throttle_retries: int = 12,
 ) -> bytes:
-    """Fetch/cache one source file, respecting 429/503 backoff and Retry-After."""
+    """Fetch/cache one source file, retrying transient network and server failures."""
     if path.exists() and path.stat().st_size:
         cached = path.read_bytes()
         if _valid_payload(cached):
@@ -319,6 +319,18 @@ def _download(
                         f"REAL_DATA_REQUIRED: rate limited after {throttles - 1} retries: {url}"
                     ) from exc
                 delay = min(30.0, 5.0 * (2 ** min(throttles - 1, 3)))
+                retry_after = _retry_after_seconds(exc)
+                if retry_after is not None:
+                    delay = max(delay, retry_after)
+                time.sleep(delay * random.uniform(0.8, 1.2))
+                continue
+            if exc.code in {500, 502, 504}:
+                errors += 1
+                if errors > retries:
+                    raise XAUUSDIngestError(
+                        f"REAL_DATA_REQUIRED: transient HTTP {exc.code} after {errors - 1} retries: {url}"
+                    ) from exc
+                delay = min(30.0, 2.0 ** (errors - 1))
                 retry_after = _retry_after_seconds(exc)
                 if retry_after is not None:
                     delay = max(delay, retry_after)
