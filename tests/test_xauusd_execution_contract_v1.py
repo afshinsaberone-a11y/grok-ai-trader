@@ -273,3 +273,28 @@ def test_daily_flat_guard_rejects_invalid_utc_cutoff() -> None:
     )
     with pytest.raises(XAUUSDExecutionError, match="FORCE_FLAT_UTC_TIME_INVALID"):
         run_xauusd_backtest(bars_fixture(), bad)
+
+
+def test_daily_flat_guard_blocks_reentry_after_cutoff_until_next_utc_day() -> None:
+    bars = bars_fixture()
+    bars["timestamp"] = pd.to_datetime([
+        "2024-01-08T10:00:00Z",
+        "2024-01-08T10:05:00Z",
+        "2024-01-08T10:10:00Z",
+        "2024-01-08T10:15:00Z",
+    ], utc=True)
+    # A fresh signal on the last pre-cutoff bar must not open at 10:15.
+    bars["signal"] = [0, 0, 1, 0]
+    guarded = XAUUSDExecutionConfig(
+        slippage_usd_per_oz_per_side=0.05,
+        commission_usd_per_oz_round_turn=0.10,
+        force_flat_utc_time="10:15",
+        force_flat_bar_interval_minutes=5,
+    )
+
+    metrics, trades = run_xauusd_backtest(bars, guarded)
+
+    assert metrics["entries"] == metrics["trades"] == 0
+    assert metrics["entry_signals_suppressed_after_flat_cutoff"] == 1
+    assert metrics["forced_session_liquidations"] == 0
+    assert trades == []
