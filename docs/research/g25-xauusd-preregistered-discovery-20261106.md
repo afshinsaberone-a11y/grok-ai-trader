@@ -5,7 +5,7 @@ Purpose: use the Gold BID/ASK execution contract to run a small, auditable strat
 
 ## Trigger and inputs
 
-After a successful G24 workflow run on main, G25 automatically:
+After the G24 workflow run completes on main, G25 automatically attempts the research stage. It only proceeds when all four 2025 artifacts exist and their raw M1, M1 manifest, M5, M5 manifest hashes and M1→M5 reconciliation audits pass. A G24 failure confined to 2026 acquisition does not block 2025 research; a missing or invalid 2025 shard fails closed:
 
 1. Downloads the immutable G22 annual M5 artifact (run 41911516706, artifact 13450801092).
 2. Downloads the successful G24 2025-2026 annual assembly artifact from the exact triggering run.
