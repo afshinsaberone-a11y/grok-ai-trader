@@ -45,7 +45,7 @@ jobs:
 
       - name: Run frozen train and untouched 2024 holdout
         run: |
-          python research/optimization/g23_xauusd_m5_asia_failed_break.py \
+          python -m research.optimization.g23_xauusd_m5_asia_failed_break \
             --data-root data/g22-full-history \
             --output artifacts/g23
 
