@@ -37,7 +37,7 @@ A review of the G22 2021-2024 M5 timestamps found within-session gaps before the
 - The previous contiguous segment is simulated independently and any open position is liquidated at its last observed close before the gap.
 - The following segment starts with no open position. No position may cross an unknown intraday price path.
 - When one or more intraday gaps exist, callers must explicitly pass `indicator_warmup_bars_after_gap`. It must equal the strategy's maximum rolling indicator lookback/warm-up length. Signals are suppressed for that many bars after every gap, preventing pre-gap indicator observations from leaking into post-gap decisions.
-- Omitting the warm-up value when a gap exists fails closed. A negative, boolean, or non-integer value is rejected.
+- Omitting the warm-up value when a gap exists fails closed. Zero, negative, boolean, or non-integer values are rejected; the warm-up length must be at least one bar.
 - Any trade still open at a gap boundary is closed at the last observed close only as an explicit research assumption. Its `exit_reason` is `pre_gap_last_observed_close_assumption` and `gap_exit_assumption=true`; the output counts these trades separately and sets `backtest_qualification_status=GAP_EXIT_ASSUMPTIONS_PRESENT_REVIEW_REQUIRED`. Such results are not promotion evidence until those trades are separately reviewed or excluded.
 - The output reports gap counts, post-gap signal rows suppressed, segments executed, segments with open positions at gap boundaries, and assumed pre-gap exits.
 
