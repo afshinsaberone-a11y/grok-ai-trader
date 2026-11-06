@@ -182,6 +182,27 @@ def _force_flat_bar_indices(
     return liquidation_indices, entry_block_indices
 
 
+def _data_gap_indices(
+    frame: pd.DataFrame,
+    bar_interval_minutes: int,
+) -> tuple[set[int], set[int]]:
+    """Find bars immediately before and after a discontinuity in the M5 series.
+
+    Positions are flattened at the last observed bar close before any gap
+    longer than the expected bar interval. New entries are blocked both on
+    that last pre-gap bar and on the first bar after the gap.
+    """
+    expected = pd.Timedelta(minutes=bar_interval_minutes)
+    deltas = frame["timestamp"].diff()
+    gap_after = {
+        int(index - 1)
+        for index in deltas.index[deltas > expected]
+    }
+    entry_block = set(gap_after)
+    entry_block.update(index + 1 for index in gap_after)
+    return gap_after, entry_block
+
+
 def _net_r(
     side: int,
     entry_fill: float,
@@ -229,13 +250,19 @@ def run_xauusd_backtest(
     trade_rows: list[dict[str, Any]] = []
     forced_eod_liquidation = False
     forced_session_liquidations = 0
+    data_gap_forced_liquidations = 0
     entry_count = 0
     entry_signals_suppressed_by_utc_hour_filter = 0
     entry_signals_suppressed_by_force_flat_bar = 0
     entry_signals_suppressed_after_flat_cutoff = 0
+    entry_signals_suppressed_by_data_gap = 0
     force_flat_indices, post_cutoff_entry_block_indices = _force_flat_bar_indices(
         frame,
         config.force_flat_utc_time,
+        config.force_flat_bar_interval_minutes,
+    )
+    data_gap_exit_indices, data_gap_entry_block_indices = _data_gap_indices(
+        frame,
         config.force_flat_bar_interval_minutes,
     )
 
@@ -299,6 +326,9 @@ def run_xauusd_backtest(
             if i in post_cutoff_entry_block_indices:
                 entry_signals_suppressed_after_flat_cutoff += 1
                 continue
+            if i in data_gap_entry_block_indices:
+                entry_signals_suppressed_by_data_gap += 1
+                continue
             # Entry eligibility is based on the next bar's UTC open timestamp.
             # This gate never runs while a position is open, so exits and financing
             # continue to be processed during blocked hours.
@@ -357,6 +387,19 @@ def run_xauusd_backtest(
             close_position(exit_idx=i, raw_exit=stop, reason="stop", exit_price_field="stop")
         elif hit_tp:
             close_position(exit_idx=i, raw_exit=target, reason="target", exit_price_field="target_limit")
+        elif i in data_gap_exit_indices:
+            exit_field = "bid_close" if position == 1 else "ask_close"
+            close_position(
+                exit_idx=i,
+                raw_exit=float(frame.at[i, exit_field]),
+                reason="forced_data_gap_flatten",
+                exit_price_field=exit_field,
+                exit_time_override=(
+                    frame.at[i, "timestamp"]
+                    + pd.Timedelta(minutes=config.force_flat_bar_interval_minutes)
+                ),
+            )
+            data_gap_forced_liquidations += 1
         elif i in force_flat_indices:
             exit_field = "bid_close" if position == 1 else "ask_close"
             close_position(
@@ -450,6 +493,11 @@ def run_xauusd_backtest(
             if config.force_flat_utc_time is not None else None
         ),
         "forced_session_liquidations": forced_session_liquidations,
+        "data_gap_flatten_enabled": True,
+        "data_gap_bar_interval_minutes": config.force_flat_bar_interval_minutes,
+        "data_gap_count_detected": len(data_gap_exit_indices),
+        "data_gap_forced_liquidations": data_gap_forced_liquidations,
+        "entry_signals_suppressed_by_data_gap": entry_signals_suppressed_by_data_gap,
         "entry_signals_suppressed_by_force_flat_bar": entry_signals_suppressed_by_force_flat_bar,
         "entry_signals_suppressed_after_flat_cutoff": entry_signals_suppressed_after_flat_cutoff,
         "blocked_entry_utc_hours": list(config.blocked_entry_utc_hours),
@@ -460,7 +508,7 @@ def run_xauusd_backtest(
             if config.force_flat_utc_time is not None else
             "Use broker-sourced directional financing schedules for any position held across rollover."
         ),
-        "entry_filter_timestamp_basis": "UTC bar-open timestamp; entry-only gate; stops, targets, opposite-signal exits, time stops, financing and end-of-data liquidation remain active",
+        "entry_filter_timestamp_basis": "UTC bar-open timestamp; entries are suppressed on bars immediately before and after data gaps; open positions are closed at the last observed executable close before a gap; stops, targets, financing and other exits remain active",
         "risk_fraction": config.risk_fraction,
         "config": asdict(config),
         "promotion_status": "RESEARCH_ONLY",
