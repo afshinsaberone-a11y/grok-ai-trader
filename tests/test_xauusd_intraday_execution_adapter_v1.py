@@ -123,13 +123,18 @@ def test_intraday_gap_requires_explicit_indicator_warmup() -> None:
         XAUUSDIntradayAdapterError,
         match="GAP_INDICATOR_WARMUP_REQUIRED",
     ):
-        run_xauusd_intraday(gap_bars_fixture(), config())
+        run_xauusd_intraday(
+            gap_bars_fixture(), config(),
+            flatten_by_utc="10:40", earliest_rollover_utc="10:59",
+        )
 
 
 def test_intraday_gap_splits_positions_and_suppresses_post_gap_warmup() -> None:
     metrics, trades = run_xauusd_intraday(
         gap_bars_fixture(),
         config(),
+        flatten_by_utc="10:40",
+        earliest_rollover_utc="10:59",
         indicator_warmup_bars_after_gap=1,
     )
 
@@ -143,7 +148,7 @@ def test_intraday_gap_splits_positions_and_suppresses_post_gap_warmup() -> None:
     )
     assert metrics["post_gap_signal_rows_suppressed"] == 1
     assert metrics["gap_handling_policy"] == (
-        "SPLIT_FLATTEN_AND_REQUIRE_EXPLICIT_INDICATOR_WARMUP"
+        "SPLIT_FLATTEN_REQUIRE_WARMUP_AND_AUDIT_CUTOFF_COVERAGE"
     )
     assert metrics["positions_carry_through_intraday_data_gaps"] is False
     assert metrics["entries"] == metrics["trades"] == 2
@@ -168,3 +173,36 @@ def test_intraday_gap_warmup_must_be_a_nonnegative_integer() -> None:
                 config(),
                 indicator_warmup_bars_after_gap=invalid,
             )
+
+
+def test_gap_after_cutoff_does_not_hide_pre_cutoff_session_truncation() -> None:
+    bars = gap_bars_fixture().iloc[:2].copy()
+    bars["timestamp"] = pd.to_datetime([
+        "2025-01-06T10:00:00Z",
+        "2025-01-06T10:05:00Z",
+    ], utc=True)
+    # The next observation is after the cutoff and must not hide the missing
+    # interval between the last eligible M5 close and the requested cutoff.
+    late_row = bars.iloc[-1].copy()
+    late_row["timestamp"] = pd.Timestamp("2025-01-06T11:00:00Z")
+    late_row["signal"] = 0
+    bars = pd.concat([bars, late_row.to_frame().T], ignore_index=True)
+    bars["timestamp"] = pd.to_datetime(bars["timestamp"], utc=True)
+
+    metrics, trades = run_xauusd_intraday(
+        bars,
+        config(),
+        flatten_by_utc="10:15",
+        earliest_rollover_utc="10:59",
+    )
+
+    assert metrics["utc_sessions_truncated_before_cutoff"] == 1
+    assert metrics["cutoff_truncated_gap_exit_segments_with_open_position"] == 1
+    assert metrics["gap_exit_assumption_trades"] == 1
+    assert metrics["backtest_qualification_status"] == (
+        "GAP_EXIT_ASSUMPTIONS_PRESENT_REVIEW_REQUIRED"
+    )
+    assert metrics["entries"] == metrics["trades"] == 1
+    assert trades[0]["exit_reason"] == "pre_gap_last_observed_close_assumption"
+    assert trades[0]["gap_exit_assumption"] is True
+    assert trades[0]["exit_time"] == "2025-01-06T10:05:00+00:00"
