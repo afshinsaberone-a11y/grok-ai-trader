@@ -82,3 +82,49 @@ Afshin Saber (افشین صابر) is the accountable ForexAI project owner, per
 ## 7. Definition of “provisioned”
 
 A role is provisioned only when a named accountable owner and key custodian are verified, the service runs in the required trust boundary, its public key is confirmed from its real private key without exposing that private key, real source data and signatures validate, positive and negative tests pass, and the operational runbook/revocation path exists. A key-shaped environment variable or green host preflight alone is never sufficient.
+
+
+## 8. Proposed Capital Firewall deployment decision — 2026-10-20
+
+This section is an append-only deployment decision record. It does not mark a host or authority as provisioned.
+
+| Item | Decision / status |
+|---|---|
+| Accountable project owner | Afshin Saber (افشین صابر), user-designated for project coordination; this is not independent custody |
+| Logical target hostname | `CAPITAL-FIREWALL-01` (proposed only; do not use until the new host is provisioned and its live hostname verified) |
+| Physical/cloud location | A new dedicated minimal Linux VM in a separately administered cloud project/account/tenant; vendor, subscription/project ID, region and billing owner are not yet verified |
+| Host operational administrator | **NOT APPOINTED / NOT VERIFIED** |
+| Grant private-key custodian | **NOT APPOINTED / NOT VERIFIED**; must not be inferred from repository ownership or the Provider host's Administrator account |
+| Independent reviewer / revocation owner | **NOT APPOINTED / NOT VERIFIED** |
+| Provider host excluded | The live Provider host observed in the operator diagnostic is `WIN-P7MA35DRF6Q` |
+| MT5 runner excluded | Use the exact OS hostname observed on the live `FOREXAI-WINDOWS-MT5` runner during provisioning; do not treat the GitHub runner label as proof of the machine hostname |
+| Grant issuer code | Existing `tools/capital_firewall_grant_issuer_v1.py` two-phase CLI and `tools/capital_firewall_host_preflight_v1.py` read-only preflight; do not rewrite or launch as a long-running service |
+| Production state | **NOT PROVISIONED**; no Grant key, Grant registry or Grant has been created by this decision |
+
+### Required provisioning boundary
+
+- The new VM must be in an account/project and administrative boundary that does not reuse the Provider host's or MT5 runner's administrator, hypervisor tenancy, secrets boundary or operational identity. A different folder, process, Windows service, or DNS hostname on either existing machine is insufficient.
+- Expose no inbound application endpoint. Allow administrator access only through the provider's controlled management plane/MFA and restrict outbound access to the required GitHub API and the approved secret manager. This is an operator configuration requirement, not yet verified.
+- Do not install MT5, the self-hosted MT5 runner, or `ForexAIProviderSvc` on this host.
+- The Grant private key must be generated or mounted only inside this new boundary through its approved secret manager / protected key store. Never copy the Provider's Admission/Promotion key files, and never place the Grant private key in this repository, Actions artifacts, Dropbox, the MT5 runner, or chat. Only verified public anchors may be distributed.
+- The issuer is a two-phase, explicit operator CLI: `PREPARE_CAPITAL_FIREWALL_EVIDENCE` only verifies and caches current exact-SHA G13 evidence; `ISSUE_ONE_SIGNAL_DEMO_GRANT` is the separate, one-shot grant action. Do not configure it as an always-on service.
+- Initialize a new durable replay registry only after the new host, host identity, service/operator ACLs, backup/audit retention, key custodian and manual trust-boundary review are accepted. Initialization is a one-time state mutation; never use the Provider's missing registry path or initialize it on the Provider host.
+- Configure the six distinct public trust anchors only from owner-verified key sources. The current Promotion public-key mismatch and Promotion private-key custody issue must be resolved by its actual key owner before any production Grant workflow.
+- Keep the Grant host out of production issuance until the read-only preflight reports the expected local checks and a human trust-boundary review separately confirms administration/tenant/secret-manager independence. Even then, source authorities and a fresh valid signal/risk reservation/operator approval must be operational before a Grant can issue.
+
+### Acceptance checklist
+
+- [ ] Create the dedicated host and record real provider/cloud account/project, region and actual hostname.
+- [ ] Record host admin, Grant key custodian, independent reviewer, rotation/revocation owner and incident contact; require named operational custodians rather than placeholder identities.
+- [ ] Verify the host's account/tenant, OS administrator, virtualization and secret manager are independent from the Provider and MT5 runner.
+- [ ] Deploy a pinned reviewed repository revision and supported Python/cryptography dependencies; do not place production private keys in the checkout.
+- [ ] Generate/mount the Grant Ed25519 key through the approved protected key mechanism, store passphrase in the approved vault, and verify derived public key matches the Grant anchor without logging any key material.
+- [ ] Provision and independently verify the actual Promotion, Signal, Risk+Reservation and Operator Approval public trust anchors; ensure all six trust anchors are distinct.
+- [ ] Resolve Promotion custody and its current trust-anchor mismatch through owner-approved rotation.
+- [ ] Obtain and verify real source attestations; confirm Risk+Reservation completed an atomic durable reservation and human approval is scoped to `ONE_SIGNAL_DEMO_ONLY`.
+- [ ] Initialize the Grant registry once under change control; verify it read-only and document backup, recovery and replay-incident procedures.
+- [ ] Run the host preflight with the actual expected hostname and two verified forbidden hostnames, inspect Windows/OS/secret-store permissions as applicable, and record the manual independence review.
+- [ ] Re-run the exact-SHA G13 evidence chain before prepare; test negative cases with test-only fixtures separately from production.
+- [ ] Keep Kill Switch `DENY`, Demo unauthorized and Live disabled until a separate, fresh, explicit one-signal Demo authorization and execution review passes.
+
+Current result: the proposed location and logical name are recorded, but actual host provisioning and operational custodians remain unresolved. No key, registry, source packet, Grant or trade authorization is created by this document.
