@@ -387,19 +387,6 @@ def run_xauusd_backtest(
             close_position(exit_idx=i, raw_exit=stop, reason="stop", exit_price_field="stop")
         elif hit_tp:
             close_position(exit_idx=i, raw_exit=target, reason="target", exit_price_field="target_limit")
-        elif i in data_gap_exit_indices:
-            exit_field = "bid_close" if position == 1 else "ask_close"
-            close_position(
-                exit_idx=i,
-                raw_exit=float(frame.at[i, exit_field]),
-                reason="forced_data_gap_flatten",
-                exit_price_field=exit_field,
-                exit_time_override=(
-                    frame.at[i, "timestamp"]
-                    + pd.Timedelta(minutes=config.force_flat_bar_interval_minutes)
-                ),
-            )
-            data_gap_forced_liquidations += 1
         elif i in force_flat_indices:
             exit_field = "bid_close" if position == 1 else "ask_close"
             close_position(
@@ -413,6 +400,19 @@ def run_xauusd_backtest(
                 ),
             )
             forced_session_liquidations += 1
+        elif i in data_gap_exit_indices:
+            exit_field = "bid_close" if position == 1 else "ask_close"
+            close_position(
+                exit_idx=i,
+                raw_exit=float(frame.at[i, exit_field]),
+                reason="forced_data_gap_flatten",
+                exit_price_field=exit_field,
+                exit_time_override=(
+                    frame.at[i, "timestamp"]
+                    + pd.Timedelta(minutes=config.force_flat_bar_interval_minutes)
+                ),
+            )
+            data_gap_forced_liquidations += 1
         elif int(frame.at[i, "signal"]) == -int(position):
             if i + 1 < len(frame):
                 next_field = "bid_open" if position == 1 else "ask_open"
