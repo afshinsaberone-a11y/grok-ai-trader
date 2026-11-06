@@ -276,7 +276,7 @@ def test_watchdog_retries_only_empty_step_runner_startup_timeouts_and_bounds_par
 
 def test_watchdog_main_push_is_scoped_to_g13_sources_not_unrelated_xauusd_changes():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    trigger = workflow.split("\\non:", 1)[1].split("\\npermissions:", 1)[0]
+    trigger = workflow.split("\non:", 1)[1].split("\npermissions:", 1)[0]
 
     assert "push:" in trigger
     assert "branches: [main]" in trigger
