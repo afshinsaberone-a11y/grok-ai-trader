@@ -313,6 +313,16 @@ def load_validation(root: str | Path) -> tuple[pd.DataFrame, dict[str, Any]]:
             if not path.is_file() or sha256_file(path) != expected_hashes[label]:
                 raise ValueError(f"XAUUSD_VALIDATION_SHARD_HASH_MISMATCH:{shard}:{label}")
 
+        m1_manifest = json.loads(paths["m1_manifest"].read_text(encoding="utf-8"))
+        if (
+            m1_manifest.get("symbol") != "XAUUSD"
+            or m1_manifest.get("timeframe") != "M1"
+            or m1_manifest.get("synthetic_data") is not False
+            or m1_manifest.get("backtest_run") is not False
+            or m1_manifest.get("data_sha256") != expected_hashes["m1"]
+        ):
+            raise ValueError(f"XAUUSD_VALIDATION_M1_MANIFEST_REJECTED:{shard}")
+
         manifest = json.loads(paths["m5_manifest"].read_text(encoding="utf-8"))
         if (
             manifest.get("status") != "REAL_M5_SHARD_PASS_GAPS_PRESERVED"
@@ -324,6 +334,9 @@ def load_validation(root: str | Path) -> tuple[pd.DataFrame, dict[str, Any]]:
             or manifest.get("synthetic_data") is not False
             or manifest.get("filled_bars") != 0
             or manifest.get("backtest_run") is not False
+            or manifest.get("data_sha256") != expected_hashes["m5"]
+            or manifest.get("source_m1_data_sha256") != expected_hashes["m1"]
+            or manifest.get("source_m1_manifest_sha256") != expected_hashes["m1_manifest"]
         ):
             raise ValueError(f"XAUUSD_VALIDATION_SHARD_MANIFEST_REJECTED:{shard}")
 
@@ -344,6 +357,11 @@ def load_validation(root: str | Path) -> tuple[pd.DataFrame, dict[str, Any]]:
             or not frame["timestamp"].is_monotonic_increasing
         ):
             raise ValueError(f"XAUUSD_VALIDATION_SHARD_DATA_INVARIANT_FAILED:{shard}")
+        if (
+            frame["timestamp"].dt.minute.mod(5).ne(0).any()
+            or frame["timestamp"].dt.second.ne(0).any()
+        ):
+            raise ValueError(f"XAUUSD_VALIDATION_SHARD_M5_ALIGNMENT_FAILED:{shard}")
         if not (
             (frame["timestamp"] >= _period_timestamp(start))
             & (frame["timestamp"] < _period_timestamp(end))
@@ -373,13 +391,34 @@ def load_validation(root: str | Path) -> tuple[pd.DataFrame, dict[str, Any]]:
         ).all()
     ):
         raise ValueError("XAUUSD_VALIDATION_2025_ASSEMBLY_INVARIANT_FAILED")
+    required = {"timestamp", *REQUIRED_PRICE_COLUMNS, "spread_open", "spread_close"}
+    missing = required.difference(combined.columns)
+    if missing:
+        raise ValueError(f"XAUUSD_VALIDATION_2025_COLUMNS_MISSING:{sorted(missing)}")
+    for side in ("bid", "ask"):
+        op, hi, lo, cl = (combined[f"{side}_{name}"] for name in ("open", "high", "low", "close"))
+        if ((hi < np.maximum(op, cl)) | (lo > np.minimum(op, cl)) | (hi < lo)).any():
+            raise ValueError(f"XAUUSD_VALIDATION_2025_{side.upper()}_OHLC_INVALID")
+    if (combined["ask_open"] < combined["bid_open"]).any() or (combined["ask_close"] < combined["bid_close"]).any():
+        raise ValueError("XAUUSD_VALIDATION_2025_CROSSED_QUOTES")
+    if (combined[["spread_open", "spread_close"]] < 0).any().any():
+        raise ValueError("XAUUSD_VALIDATION_2025_NEGATIVE_SPREAD")
+    if not np.allclose(combined["ask_open"] - combined["bid_open"], combined["spread_open"], atol=1.1e-5, rtol=0):
+        raise ValueError("XAUUSD_VALIDATION_2025_OPEN_SPREAD_MISMATCH")
+    if not np.allclose(combined["ask_close"] - combined["bid_close"], combined["spread_close"], atol=1.1e-5, rtol=0):
+        raise ValueError("XAUUSD_VALIDATION_2025_CLOSE_SPREAD_MISMATCH")
+    annual_csv_bytes = combined.to_csv(
+        index=False,
+        float_format="%.5f",
+        date_format="%Y-%m-%dT%H:%M:%SZ",
+    ).encode("utf-8")
     audit = {
         "source_mode": "four_immutable_G24_2025_shards_only",
         "source_shards": audits,
         "rows": int(len(combined)),
         "first_utc": combined["timestamp"].min().isoformat(),
         "last_utc": combined["timestamp"].max().isoformat(),
-        "data_sha256": "sha256_not_materialized_annual_file_shards_individually_verified",
+        "assembled_annual_csv_sha256": hashlib.sha256(annual_csv_bytes).hexdigest(),
         "2026_shards_downloaded": False,
     }
     return combined, audit
