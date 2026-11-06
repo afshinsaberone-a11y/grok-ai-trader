@@ -112,7 +112,8 @@ def run_xauusd_intraday(
     skipped_short_days = 0
     skipped_short_segments = 0
     intraday_gap_count = 0
-    gap_split_forced_liquidations = 0
+    gap_split_segments_with_open_position = 0
+    gap_exit_assumption_trade_count = 0
     post_gap_signal_rows_suppressed = 0
     suppressed_entries = 0
     total_entries = 0
@@ -169,11 +170,12 @@ def run_xauusd_intraday(
             suppressed_entries += int(
                 metrics.get("entry_signals_suppressed_by_utc_hour_filter", 0)
             )
+            pre_gap_segment = segment_number < len(boundaries) - 1
             if (
-                segment_number < len(boundaries) - 1
+                pre_gap_segment
                 and metrics.get("forced_end_of_data_liquidation") is True
             ):
-                gap_split_forced_liquidations += 1
+                gap_split_segments_with_open_position += 1
 
             for trade in segment_trades:
                 entry_date = pd.Timestamp(trade["entry_time"]).date().isoformat()
@@ -182,9 +184,20 @@ def run_xauusd_intraday(
                     raise XAUUSDIntradayAdapterError("OVERNIGHT_POSITION_DETECTED")
                 if float(trade["financing_usd_per_oz"]) != 0.0:
                     raise XAUUSDIntradayAdapterError("UNEXPECTED_FINANCING_CHARGE")
+                trade_row = dict(trade)
+                gap_exit_assumption = (
+                    pre_gap_segment
+                    and trade_row.get("exit_reason") == "end_of_data_liquidation"
+                )
+                if gap_exit_assumption:
+                    # This is a conservative research boundary assumption,
+                    # not evidence of an executable broker fill.
+                    trade_row["exit_reason"] = "pre_gap_last_observed_close_assumption"
+                    gap_exit_assumption_trade_count += 1
+                trade_row["gap_exit_assumption"] = bool(gap_exit_assumption)
                 session_trade_number += 1
                 trades.append({
-                    **trade,
+                    **trade_row,
                     "utc_session_date": session_date,
                     "utc_segment_number": segment_number,
                     "session_trade_number": session_trade_number,
@@ -221,7 +234,13 @@ def run_xauusd_intraday(
         "utc_segments_executed": segments_executed,
         "utc_segments_skipped_under_two_bars": skipped_short_segments,
         "intraday_data_gaps_detected": intraday_gap_count,
-        "gap_split_forced_liquidations": gap_split_forced_liquidations,
+        "gap_split_segments_with_open_position": gap_split_segments_with_open_position,
+        "gap_exit_assumption_trades": gap_exit_assumption_trade_count,
+        "backtest_qualification_status": (
+            "GAP_EXIT_ASSUMPTIONS_PRESENT_REVIEW_REQUIRED"
+            if gap_exit_assumption_trade_count
+            else "NO_GAP_EXIT_ASSUMPTIONS"
+        ),
         "post_gap_signal_rows_suppressed": post_gap_signal_rows_suppressed,
         "indicator_warmup_bars_after_gap": indicator_warmup_bars_after_gap,
         "gap_handling_policy": "SPLIT_FLATTEN_AND_REQUIRE_EXPLICIT_INDICATOR_WARMUP",
