@@ -1,0 +1,47 @@
+name: ForexAI Capital Firewall GitHub Environment Audit v1
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_reviewer:
+        description: "GitHub login of the independently appointed reviewer (not the repository owner or the person starting this audit)"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: capital-firewall-environment-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Require the trusted default branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "CAPITAL_FIREWALL_ENVIRONMENT_AUDIT=BLOCKED reason=MAIN_BRANCH_ONLY"
+            exit 2
+          fi
+
+      - name: Checkout audited main source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Run read-only deployment environment audit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          EXPECTED_REVIEWER: ${{ inputs.expected_reviewer }}
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_capital_firewall_github_environment_v1.py
+          python3 -m tools.audit_capital_firewall_github_environment_v1

@@ -83,6 +83,11 @@ jobs:
       - name: Test G13 robustness exact-return cache
         run: python -m pytest -q tests/test_g13_robustness_cache_v1.py
 
+      - name: Test Capital Firewall GitHub environment audit contract
+        run: |
+          python -m py_compile tools/audit_capital_firewall_github_environment_v1.py
+          python -m pytest -q tests/test_audit_capital_firewall_github_environment_v1.py
+
       - name: Test Capital Firewall Grant issuer and host preflight contracts
         run: |
           python -m py_compile tools/capital_firewall_grant_issuer_v1.py tools/capital_firewall_host_preflight_v1.py
@@ -135,6 +140,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
+          ./actionlint .github/workflows/capital-firewall-environment-audit.yml
 
       - name: Compile all G13 Python gates
         run: |
