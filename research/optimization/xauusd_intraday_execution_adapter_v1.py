@@ -79,7 +79,7 @@ def run_xauusd_intraday(
         raise XAUUSDIntradayAdapterError(
             f"REQUIRED_COLUMNS_MISSING:{sorted(missing)}"
         )
-    frame = bars.copy()
+    frame = bars.copy().reset_index(drop=True)
     frame["timestamp"] = pd.to_datetime(
         frame["timestamp"], utc=True, errors="coerce"
     )
