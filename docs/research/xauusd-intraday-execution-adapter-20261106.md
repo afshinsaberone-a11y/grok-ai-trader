@@ -29,3 +29,17 @@ This adapter does not estimate broker slippage, recover historical swap schedule
 ## Use
 
 A strategy module must first supply a frame containing UTC `timestamp`, real BID/ASK OHLC, `signal` in {-1,0,1}, and positive ATR on signal bars. Then call `run_xauusd_intraday(bars, config)`. Evaluate train and validation periods separately; never mix the 2026 holdout into candidate selection.
+
+## Intraday data-gap isolation (2026-11-06)
+
+A review of the G22 2021-2024 M5 timestamps found within-session gaps before the 20:50 UTC flatten cutoff. The adapter now treats every interval longer than five minutes as an execution boundary:
+
+- The previous contiguous segment is simulated independently and any open position is liquidated at its last observed close before the gap.
+- The following segment starts with no open position. No position may cross an unknown intraday price path.
+- When one or more intraday gaps exist, callers must explicitly pass `indicator_warmup_bars_after_gap`. It must equal the strategy's maximum rolling indicator lookback/warm-up length. Signals are suppressed for that many bars after every gap, preventing pre-gap indicator observations from leaking into post-gap decisions.
+- Omitting the warm-up value when a gap exists fails closed. A negative, boolean, or non-integer value is rejected.
+- The output reports gap counts, post-gap signal rows suppressed, segments executed, and forced liquidations before gaps.
+
+The rule does not fill bars, estimate missing prices, or claim that a close at the last known bar is a real broker fill. It is an explicit gap-isolation assumption for research. The strategy's feature builder must still use only past observations and reset its rolling state consistently with the declared warm-up length.
+
+The G22 annual archive was independently checked during this review: its archive SHA-256 matches the recorded artifact digest; all eight annual M1/M5 CSV hashes and row counts match their manifests; no synthetic or filled bars are declared. G22 still labels the series `GAP_REVIEW_REQUIRED`; this adapter change improves execution isolation but does not, by itself, grant research, Demo, or Live authorization.
