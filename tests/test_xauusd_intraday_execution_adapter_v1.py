@@ -87,3 +87,78 @@ def test_adapter_requires_real_bid_ask_signal_columns() -> None:
     bars = bars_fixture().drop(columns=['ask_open'])
     with pytest.raises(XAUUSDIntradayAdapterError, match='REQUIRED_COLUMNS_MISSING'):
         run_xauusd_intraday(bars, config())
+
+
+def gap_bars_fixture() -> pd.DataFrame:
+    timestamps = pd.to_datetime([
+        "2025-01-06T10:00:00Z",
+        "2025-01-06T10:05:00Z",
+        "2025-01-06T10:10:00Z",
+        "2025-01-06T10:20:00Z",
+        "2025-01-06T10:25:00Z",
+        "2025-01-06T10:30:00Z",
+        "2025-01-06T10:35:00Z",
+    ], utc=True)
+    rows = []
+    signals = [1, 0, 0, 1, 1, 0, 0]
+    for timestamp, signal in zip(timestamps, signals):
+        rows.append({
+            "timestamp": timestamp,
+            "bid_open": 2000.0,
+            "bid_high": 2000.4,
+            "bid_low": 1999.6,
+            "bid_close": 2000.1,
+            "ask_open": 2000.3,
+            "ask_high": 2000.7,
+            "ask_low": 1999.9,
+            "ask_close": 2000.4,
+            "signal": signal,
+            "ATR": 2.0,
+        })
+    return pd.DataFrame(rows)
+
+
+def test_intraday_gap_requires_explicit_indicator_warmup() -> None:
+    with pytest.raises(
+        XAUUSDIntradayAdapterError,
+        match="GAP_INDICATOR_WARMUP_REQUIRED",
+    ):
+        run_xauusd_intraday(gap_bars_fixture(), config())
+
+
+def test_intraday_gap_splits_positions_and_suppresses_post_gap_warmup() -> None:
+    metrics, trades = run_xauusd_intraday(
+        gap_bars_fixture(),
+        config(),
+        indicator_warmup_bars_after_gap=1,
+    )
+
+    assert metrics["utc_sessions_executed"] == 1
+    assert metrics["utc_segments_executed"] == 2
+    assert metrics["intraday_data_gaps_detected"] == 1
+    assert metrics["gap_split_forced_liquidations"] == 1
+    assert metrics["post_gap_signal_rows_suppressed"] == 1
+    assert metrics["gap_handling_policy"] == (
+        "SPLIT_FLATTEN_AND_REQUIRE_EXPLICIT_INDICATOR_WARMUP"
+    )
+    assert metrics["positions_carry_through_intraday_data_gaps"] is False
+    assert metrics["entries"] == metrics["trades"] == 2
+    assert metrics["entries_equal_exits"] is True
+    assert trades[0]["exit_time"] == "2025-01-06T10:10:00+00:00"
+    assert trades[0]["exit_reason"] == "end_of_data_liquidation"
+    assert trades[1]["entry_time"] == "2025-01-06T10:30:00+00:00"
+    assert trades[1]["utc_segment_number"] == 2
+    assert all(t["entry_time"][:10] == t["exit_time"][:10] for t in trades)
+
+
+def test_intraday_gap_warmup_must_be_a_nonnegative_integer() -> None:
+    for invalid in (-1, True, 1.5):
+        with pytest.raises(
+            XAUUSDIntradayAdapterError,
+            match="GAP_INDICATOR_WARMUP_INVALID",
+        ):
+            run_xauusd_intraday(
+                bars_fixture(),
+                config(),
+                indicator_warmup_bars_after_gap=invalid,
+            )
