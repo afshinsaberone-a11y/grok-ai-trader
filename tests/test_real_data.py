@@ -189,6 +189,34 @@ def test_common_symbol_arguments_are_explicit():
     with pytest.raises(TypeError):
         resample_ohlcv(fixture_m1(), "5min")
 
+
+def test_real_dataset_loader_rejects_sidecar_manifest_symbol_mismatch(tmp_path: Path):
+    import json
+    from research.real_data.research_pipeline import load_real_dataset
+
+    dataset = tmp_path / "EURUSD_M1_fixture.csv"
+    fixture_m1().to_csv(dataset, index=False)
+    manifest = {
+        "symbol": "XAUUSD",
+        "timeframe": "M1",
+        "quality_status": "PASS",
+        "data_sha256": sha256_file(dataset),
+    }
+    dataset.with_suffix(".manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="DATASET_MANIFEST_SYMBOL_MISMATCH"):
+        load_real_dataset(dataset, symbol="EURUSD", timeframe="M1")
+
+
+def test_strategy_rejects_xauusd_on_eurusd_signal_engine():
+    ts = pd.date_range("2026-01-05T07:00:00Z", periods=3, freq="min")
+    data = pd.DataFrame(
+        {"Open": [2300.0] * 3, "High": [2301.0] * 3,
+         "Low": [2299.0] * 3, "Close": [2300.0] * 3},
+        index=ts,
+    )
+    with pytest.raises(ValueError, match="STRATEGY_SYMBOL_UNSUPPORTED"):
+        GrokHybridStrategy().backtest_simple(data, symbol="XAUUSD")
+
 def test_strategy_requires_explicit_real_dataset(tmp_path: Path):
     with pytest.raises((FileNotFoundError, ValueError), match="REAL_DATA_REQUIRED"):
         fetch_data(tmp_path / "does-not-exist.csv", symbol="EURUSD")
