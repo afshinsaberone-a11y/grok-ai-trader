@@ -31,7 +31,7 @@ def _deduplicate_identical_ohlcv(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 def canonicalize_ohlcv(
     df: pd.DataFrame,
     *,
-    symbol: str = "EURUSD",
+    symbol: str,
     source: str = "Dukascopy",
 ) -> pd.DataFrame:
     if not isinstance(df, pd.DataFrame):
@@ -55,12 +55,18 @@ def canonicalize_ohlcv(
     return out
 
 
-def resample_ohlcv(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+def resample_ohlcv(
+    df: pd.DataFrame,
+    timeframe: str,
+    *,
+    symbol: str,
+    source: str = "Dukascopy",
+) -> pd.DataFrame:
     if timeframe not in {"5min", "15min"}:
         raise ValueError("Only 5min and 15min resampling are supported")
-    source = canonicalize_ohlcv(df)
+    canonical = canonicalize_ohlcv(df, symbol=symbol, source=source)
     expected = 5 if timeframe == "5min" else 15
-    indexed = source.set_index("timestamp")
+    indexed = canonical.set_index("timestamp")
     grouped = indexed.resample(timeframe, label="left", closed="left")
     valid = grouped["close"].count().eq(expected)
     result = pd.DataFrame({
@@ -73,4 +79,10 @@ def resample_ohlcv(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     }).loc[valid].dropna(subset=PRICE_COLUMNS)
     result.index.name = "timestamp"
     result = result.reset_index()
-    return result[CANONICAL_COLUMNS]
+    result = result[CANONICAL_COLUMNS]
+    result.attrs.update({
+        "symbol": symbol,
+        "source": source,
+        "timezone": "UTC",
+    })
+    return result
