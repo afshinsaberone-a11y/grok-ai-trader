@@ -1,0 +1,100 @@
+name: ForexAI G25 XAUUSD Preregistered M5 Discovery
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/forexai-g25-xauusd-preregistered-discovery.yml"
+      - "research/optimization/xauusd_intraday_preregistered_discovery_v1.py"
+      - "tests/test_xauusd_intraday_preregistered_discovery_v1.py"
+      - "docs/research/g25-xauusd-preregistered-discovery-20261106.md"
+  workflow_run:
+    workflows:
+      - "ForexAI G24 XAUUSD Fresh OOS M5 Coverage 2025-2026"
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: forexai-g25-xauusd-preregistered-discovery
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install numpy pandas pytest
+      - name: Test XAUUSD execution and discovery contracts
+        run: >-
+          python -m pytest -q
+          tests/test_xauusd_intraday_preregistered_discovery_v1.py
+          tests/test_xauusd_intraday_execution_adapter_v1.py
+          tests/test_xauusd_execution_contract_v1.py
+          tests/test_xauusd_fresh_oos_m5.py
+
+  discover:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event == 'push' ||
+       github.event.workflow_run.event == 'workflow_dispatch')
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install research dependencies
+        run: python -m pip install numpy pandas
+      - name: Download immutable G22 2021-2024 source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: forexai-g22-xauusd-m5-full-history-2021-2024
+          path: data/g22
+          repository: ${{ github.repository }}
+          run-id: 41911516706
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download only the four immutable G24 2025 shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: forexai-g24-xauusd-m5-fresh-oos-2025-*
+          path: data/g24-shards
+          merge-multiple: false
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run preregistered XAUUSD discovery and fresh 2025 validation
+        run: |
+          python -m research.optimization.xauusd_intraday_preregistered_discovery_v1 \
+            --train-root data/g22 \
+            --validation-root data/g24-shards \
+            --commission-usd-per-oz-round-turn 0.08 \
+            --slippage-usd-per-oz-per-side 0.10 \
+            --output artifacts/g25-xauusd-preregistered-discovery.json
+      - name: Upload G25 research evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-g25-xauusd-preregistered-discovery
+          path: artifacts/g25-xauusd-preregistered-discovery.json
+          if-no-files-found: error
+          retention-days: 90
