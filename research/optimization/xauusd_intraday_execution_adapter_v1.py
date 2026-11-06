@@ -97,12 +97,36 @@ def run_xauusd_intraday(
         raise XAUUSDIntradayAdapterError("M5_TIMESTAMP_ALIGNMENT_INVALID")
 
     # M5 timestamps are bar OPEN times. A 20:45 bar closes at 20:50 UTC.
+    raw_frame = frame.copy()
     bar_end_minutes = (
-        frame["timestamp"].dt.hour * 60
-        + frame["timestamp"].dt.minute
+        raw_frame["timestamp"].dt.hour * 60
+        + raw_frame["timestamp"].dt.minute
         + 5
     )
-    frame = frame.loc[bar_end_minutes <= cutoff_minutes].copy()
+    eligible_mask = bar_end_minutes <= cutoff_minutes
+
+    # Detect truncated sessions BEFORE discarding post-cutoff rows. Otherwise,
+    # a gap whose first returning bar is after cutoff disappears from the
+    # filtered frame and a forced exit can be mislabeled as normal day-end.
+    cutoff_truncated_sessions: set[str] = set()
+    for raw_date, raw_session in raw_frame.groupby(
+        raw_frame["timestamp"].dt.strftime("%Y-%m-%d"), sort=True
+    ):
+        session_mask = raw_session.index.isin(raw_frame.index[eligible_mask])
+        eligible_session = raw_session.loc[session_mask]
+        if eligible_session.empty:
+            continue
+        last_eligible_close = (
+            eligible_session["timestamp"].iloc[-1] + pd.Timedelta(minutes=5)
+        )
+        cutoff_timestamp = (
+            pd.Timestamp(f"{raw_date}T00:00:00Z")
+            + pd.Timedelta(minutes=cutoff_minutes)
+        )
+        if last_eligible_close < cutoff_timestamp:
+            cutoff_truncated_sessions.add(raw_date)
+
+    frame = raw_frame.loc[eligible_mask].copy()
     if frame.empty:
         raise XAUUSDIntradayAdapterError("NO_BARS_BEFORE_FLATTEN_CUTOFF")
 
@@ -113,6 +137,7 @@ def run_xauusd_intraday(
     skipped_short_segments = 0
     intraday_gap_count = 0
     gap_split_segments_with_open_position = 0
+    cutoff_truncated_gap_exit_segments_with_open_position = 0
     gap_exit_assumption_trade_count = 0
     post_gap_signal_rows_suppressed = 0
     suppressed_entries = 0
@@ -171,11 +196,23 @@ def run_xauusd_intraday(
                 metrics.get("entry_signals_suppressed_by_utc_hour_filter", 0)
             )
             pre_gap_segment = segment_number < len(boundaries) - 1
+            cutoff_truncated_final_segment = (
+                segment_number == len(boundaries) - 1
+                and session_date in cutoff_truncated_sessions
+            )
+            gap_boundary_segment = (
+                pre_gap_segment or cutoff_truncated_final_segment
+            )
             if (
                 pre_gap_segment
                 and metrics.get("forced_end_of_data_liquidation") is True
             ):
                 gap_split_segments_with_open_position += 1
+            if (
+                cutoff_truncated_final_segment
+                and metrics.get("forced_end_of_data_liquidation") is True
+            ):
+                cutoff_truncated_gap_exit_segments_with_open_position += 1
 
             for trade in segment_trades:
                 entry_date = pd.Timestamp(trade["entry_time"]).date().isoformat()
@@ -186,7 +223,7 @@ def run_xauusd_intraday(
                     raise XAUUSDIntradayAdapterError("UNEXPECTED_FINANCING_CHARGE")
                 trade_row = dict(trade)
                 gap_exit_assumption = (
-                    pre_gap_segment
+                    gap_boundary_segment
                     and trade_row.get("exit_reason") == "end_of_data_liquidation"
                 )
                 if gap_exit_assumption:
@@ -234,7 +271,9 @@ def run_xauusd_intraday(
         "utc_segments_executed": segments_executed,
         "utc_segments_skipped_under_two_bars": skipped_short_segments,
         "intraday_data_gaps_detected": intraday_gap_count,
+        "utc_sessions_truncated_before_cutoff": len(cutoff_truncated_sessions),
         "gap_split_segments_with_open_position": gap_split_segments_with_open_position,
+        "cutoff_truncated_gap_exit_segments_with_open_position": cutoff_truncated_gap_exit_segments_with_open_position,
         "gap_exit_assumption_trades": gap_exit_assumption_trade_count,
         "backtest_qualification_status": (
             "GAP_EXIT_ASSUMPTIONS_PRESENT_REVIEW_REQUIRED"
@@ -243,7 +282,7 @@ def run_xauusd_intraday(
         ),
         "post_gap_signal_rows_suppressed": post_gap_signal_rows_suppressed,
         "indicator_warmup_bars_after_gap": indicator_warmup_bars_after_gap,
-        "gap_handling_policy": "SPLIT_FLATTEN_AND_REQUIRE_EXPLICIT_INDICATOR_WARMUP",
+        "gap_handling_policy": "SPLIT_FLATTEN_REQUIRE_WARMUP_AND_AUDIT_CUTOFF_COVERAGE",
         "trades": len(trades),
         "entries": total_entries,
         "entries_equal_exits": total_entries == len(trades),
