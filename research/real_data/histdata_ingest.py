@@ -232,7 +232,7 @@ def ingest(start: date, end: date, output_dir: str | Path, *, timeframe: str = "
     manifest = build_manifest(df, dataset_id=dataset_id, symbol="EURUSD", timeframe="M1", source="HistData.com Generic ASCII M1", source_hash=source_hash, quality_status=m1_report.status, output_path=normalized / f"EURUSD_M1_{dataset_id}.manifest.json", dataset_path=m1_path)
     result: dict[str, object] = {"dataset": m1_path, "manifest": manifest, "quality": m1_report.to_dict(), "archives": [item.archive for item in archives], "duplicate_rows_removed": duplicate_rows_removed, "source_conflicts": conflict_path if not conflict_df.empty else None}
     if timeframe != "M1":
-        target = resample_ohlcv(df, "5min" if timeframe == "M5" else "15min")
+        target = resample_ohlcv(df, "5min" if timeframe == "M5" else "15min", symbol="EURUSD", source="HistData.com")
         report = validate_ohlcv(target, symbol="EURUSD", timeframe=timeframe)
         if report.status != "PASS":
             raise HistDataIngestError(f"REAL_DATA_REQUIRED: HistData {timeframe} validation failed: {report.to_dict()}")

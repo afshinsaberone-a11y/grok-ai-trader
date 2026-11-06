@@ -70,7 +70,11 @@ class GrokHybridStrategy:
         df.loc[short_cond, "signal"] = -1
         return df
 
-    def backtest_simple(self, df: pd.DataFrame, symbol="EURUSD") -> dict:
+    def backtest_simple(self, df: pd.DataFrame, *, symbol: str) -> dict:
+        if symbol != "EURUSD":
+            raise ValueError(
+                f"STRATEGY_SYMBOL_UNSUPPORTED:{symbol}:use an instrument-specific strategy and execution model"
+            )
         required = {"Open", "High", "Low", "Close"}
         missing = required.difference(df.columns)
         if missing:
@@ -142,19 +146,19 @@ class GrokHybridStrategy:
         return round(max(0, min(10, base)), 1)
 
 
-def fetch_data(dataset_path: str | Path) -> pd.DataFrame:
-    """Load an explicitly supplied REAL dataset; never download or synthesize."""
+def fetch_data(dataset_path: str | Path, *, symbol: str) -> pd.DataFrame:
+    """Load an explicitly supplied REAL dataset for the declared instrument."""
     from research.real_data.research_pipeline import load_real_dataset
 
-    return load_real_dataset(dataset_path)
+    return load_real_dataset(dataset_path, symbol=symbol)
 
 
-def run_loop(dataset_path: str | Path):
-    """Run the existing strategy on a real dataset only."""
-    df = fetch_data(dataset_path)
+def run_loop(dataset_path: str | Path, *, symbol: str):
+    """Run the EURUSD-only generic OHLC strategy on an explicitly named dataset."""
+    df = fetch_data(dataset_path, symbol=symbol)
     data = df.rename(columns={"timestamp": "Timestamp", "open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}).set_index("Timestamp")
     strategy = GrokHybridStrategy(risk_pct=0.005, atr_mult=1.5, rr=2.5)
-    result = strategy.backtest_simple(data, "EURUSD")
+    result = strategy.backtest_simple(data, symbol=symbol)
     print(result)
     return result
 
@@ -163,4 +167,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Grok strategy on a validated REAL dataset")
     parser.add_argument("--data", required=True, help="Path to a validated real dataset")
     args = parser.parse_args()
-    run_loop(args.data)
+    run_loop(args.data, symbol="EURUSD")

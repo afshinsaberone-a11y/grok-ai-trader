@@ -37,6 +37,7 @@ def test_entry_bar_is_evaluated_and_stop_is_anchored_to_actual_fill():
         {"atr_mult": 1.0, "rr": 2.0},
         provider,
         risk_fraction=0.005,
+        symbol="EURUSD",
     )
     assert metrics["trades"] == 1
     assert metrics["entries_equal_exits"] is True
@@ -60,10 +61,25 @@ def test_same_bar_sl_first_is_deterministic():
         out.loc[idx[0], "signal"] = 1
         return out
 
-    metrics, rs = run_canonical_backtest(df, {"atr_mult": 1.0, "rr": 2.0}, provider)
+    metrics, rs = run_canonical_backtest(df, {"atr_mult": 1.0, "rr": 2.0}, provider, symbol="EURUSD")
     assert metrics["trades"] == 1
     assert rs[0] < 0
 
+
+
+def test_xauusd_cannot_use_eurusd_pip_cost_kernel():
+    import pytest
+
+    idx = pd.date_range("2025-01-01", periods=2, freq="min", tz="UTC")
+    df = pd.DataFrame(
+        {"Open": [100.0, 100.0], "High": [100.1, 100.1],
+         "Low": [99.9, 99.9], "Close": [100.0, 100.0]},
+        index=idx,
+    )
+    with pytest.raises(ValueError, match="CANONICAL_KERNEL_SYMBOL_UNSUPPORTED"):
+        run_canonical_backtest(
+            df, {"atr_mult": 1.0, "rr": 2.0}, _provider, symbol="XAUUSD"
+        )
 
 def test_no_trade_without_a_valid_signal_or_atr():
     idx = pd.date_range("2025-01-01", periods=2, freq="min", tz="UTC")
@@ -76,6 +92,6 @@ def test_no_trade_without_a_valid_signal_or_atr():
         },
         index=idx,
     )
-    metrics, rs = run_canonical_backtest(df, {"atr_mult": 1.0, "rr": 2.0}, _provider)
+    metrics, rs = run_canonical_backtest(df, {"atr_mult": 1.0, "rr": 2.0}, _provider, symbol="EURUSD")
     assert metrics["trades"] == 0
     assert rs == []

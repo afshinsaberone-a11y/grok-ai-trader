@@ -29,7 +29,7 @@ def run_canonical_backtest(
     params: dict[str, float],
     signal_provider: SignalProvider,
     *,
-    symbol: str = "EURUSD",
+    symbol: str,
     risk_fraction: float = 0.005,
     trade_start: pd.Timestamp | None = None,
     config: ExecutionConfig | None = None,
@@ -40,6 +40,10 @@ def run_canonical_backtest(
     filled at bar i+1 raw open with adverse entry cost. SL/TP are anchored to
     that actual entry price. The entry bar itself is evaluated for SL/TP.
     """
+    if symbol != "EURUSD":
+        raise ValueError(
+            f"CANONICAL_KERNEL_SYMBOL_UNSUPPORTED:{symbol}:use the instrument-specific XAUUSD execution kernel"
+        )
     if set(params) != {"atr_mult", "rr"}:
         raise ValueError("CANONICAL_PARAMS_INVALID")
     if not all(np.isfinite(float(v)) and float(v) > 0 for v in params.values()):

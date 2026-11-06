@@ -136,7 +136,7 @@ jobs:
           src=Path(os.environ['DATASET'])
           d=pd.read_csv(src,parse_dates=['timestamp'])
           d['timestamp']=pd.to_datetime(d['timestamp'],utc=True)
-          m15=resample_ohlcv(d,'15min')
+          m15=resample_ohlcv(d,'15min',symbol='EURUSD',source='Dukascopy')
           report=validate_ohlcv(m15,symbol='EURUSD',timeframe='M15')
           if report.status != 'PASS':
               raise SystemExit(f'REAL_DATA_REQUIRED: M15 validation failed: {report.to_dict()}')

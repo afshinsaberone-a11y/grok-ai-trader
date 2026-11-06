@@ -44,16 +44,17 @@ def _is_weekend_crossing(previous: pd.Timestamp, current: pd.Timestamp) -> bool:
 def validate_ohlcv(
     df: pd.DataFrame,
     *,
-    symbol: str = "EURUSD",
+    symbol: str,
     timeframe: str = "M1",
     require_complete_bars: bool = False,
 ) -> QualityReport:
-    """Validate data without repairing it.
+    """Validate one-sided generic OHLC data without repairing it.
 
-    Missing intervals are reported, while expected weekend/market-closure gaps
-    are left visible rather than filled. Spread is explicitly nullable because
-    the Dukascopy BID M1 candle feed does not contain bid/ask spread.
+    This shared pipeline is deliberately EURUSD-only. XAUUSD must pass through
+    its paired BID/ASK intake and instrument-specific audit instead.
     """
+    if symbol == "XAUUSD":
+        raise ValueError("XAUUSD_REQUIRES_PAIRED_BID_ASK_VALIDATOR")
     missing_cols = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing_cols:
         raise ValueError(f"Missing required columns: {missing_cols}")
