@@ -46,3 +46,23 @@ A review of the G22 2021-2024 M5 timestamps found within-session gaps before the
 The rule does not fill bars, estimate missing prices, or claim that a close at the last known bar is a real broker fill. A session whose last eligible M5 bar ends before cutoff is conservatively treated as incomplete; a post-cutoff return cannot retroactively make the missing pre-cutoff interval complete. A forced close at the last known close may understate losses if the market moved adversely during the missing interval, so affected trades are explicitly flagged and cannot be treated as fully qualified performance. It is an explicit gap-isolation assumption for research. The strategy's feature builder must still use only past observations and reset its rolling state consistently with the declared warm-up length.
 
 The G22 annual archive was independently checked during this review: its archive SHA-256 matches the recorded artifact digest; all eight annual M1/M5 CSV hashes and row counts match their manifests; no synthetic or filled bars are declared. G22 still labels the series `GAP_REVIEW_REQUIRED`; this adapter change improves execution isolation but does not, by itself, grant research, Demo, or Live authorization.
+
+
+## G22 UTC cutoff coverage audit
+
+The verified G22 M5 annual files were measured using the adapter's 20:50 UTC cutoff. A bar is eligible only when its five-minute close is no later than the cutoff.
+
+| Year | Active UTC dates before cutoff | Dates with an internal eligible-M5 gap | Internal gap intervals | Dates whose last eligible bar ends before cutoff |
+|---|---:|---:|---:|---:|
+| 2021 | 258 | 9 | 9 | 7 |
+| 2022 | 258 | 8 | 9 | 9 |
+| 2023 | 257 | 34 | 49 | 9 |
+| 2024 | 259 | 11 | 15 | 9 |
+
+Definitions:
+- An internal gap is a consecutive eligible M5 timestamp interval greater than five minutes within one UTC date.
+- A cutoff-truncated date has at least one eligible bar, but its last eligible bar closes before 20:50 UTC.
+- Cutoff-truncated dates may represent scheduled early market closes/holidays as well as missing source observations. They are flagged conservatively and must not be described as source corruption without checking an authoritative session calendar.
+- Dates with no eligible bars are not included in the active-date counts.
+
+The counts are a coverage audit, not trading results. No missing bars were inserted and no historical price series was modified.
