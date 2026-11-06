@@ -42,7 +42,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $scripts = @(
             'tools\\diagnose_control_plane_storage_inventory_v1.ps1',
-            'tools\\diagnose_capital_firewall_laptop_v1.ps1'
+            'tools\\diagnose_capital_firewall_laptop_v1.ps1',
+            'tools\\bootstrap_provider_host_v1.ps1'
           )
           foreach ($script in $scripts) {
             $scriptPath = (Resolve-Path $script).Path
@@ -63,6 +64,100 @@ jobs:
           Write-Output 'CONTROL_PLANE_INVENTORY_POWERSHELL_PARSE=PASS'
           Write-Output 'CONTROL_PLANE_POWERSHELL_DIAGNOSTICS_PARSE=PASS'
 
+          # Execute only the hash helper AST, never the elevated bootstrap body.
+          $bootstrapPath = (Resolve-Path 'tools\bootstrap_provider_host_v1.ps1').Path
+          $tokens = $null
+          $parseErrors = $null
+          $bootstrapAst = [System.Management.Automation.Language.Parser]::ParseFile(
+            $bootstrapPath,
+            [ref]$tokens,
+            [ref]$parseErrors
+          )
+          if ($parseErrors.Count -gt 0) { throw 'BOOTSTRAP_HASH_HELPER_PARSE_FAILED' }
+          $hashFunctionAst = $bootstrapAst.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+              $node.Name -eq 'Get-CanonicalTextSha256'
+          }, $true)
+          if ($null -eq $hashFunctionAst) { throw 'BOOTSTRAP_HASH_HELPER_NOT_FOUND' }
+          Invoke-Expression $hashFunctionAst.Extent.Text
+          $runtimeLockHash = Get-CanonicalTextSha256 -Path (Resolve-Path 'requirements-provider.lock.txt').Path
+          $testLockHash = Get-CanonicalTextSha256 -Path (Resolve-Path 'requirements-provider-test.lock.txt').Path
+          if ($runtimeLockHash -ne '7df03080328bd565c1bb20dbdc4d9dfb90c39d86c4d1f8be35e46f452552af9a') {
+            throw 'BOOTSTRAP_RUNTIME_LOCK_CANONICAL_HASH_FAILED'
+          }
+          if ($testLockHash -ne 'f6fb8ead273fa7416c8bdecce16eb7c18ff554503525fb9e656e0059788e0394') {
+            throw 'BOOTSTRAP_TEST_LOCK_CANONICAL_HASH_FAILED'
+          }
+          Write-Output 'BOOTSTRAP_CANONICAL_LOCK_HASHES=PASS'
+
+
+  provider-lock-generation:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reviewed lock inputs
+        uses: actions/checkout@v4
+      - name: Checkout the exact Provider source pinned by bootstrap
+        uses: actions/checkout@v4
+        with:
+          ref: 41883f30d32747d07d7b7772f8ee7c656a95e4a1
+          path: provider-pinned-source
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Generate and verify hash locks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m venv .lock-tools
+          if ($LASTEXITCODE -ne 0) { throw "LOCK_TOOLS_VENV_FAILED" }
+          .\.lock-tools\Scripts\python.exe -m pip install --disable-pip-version-check "pip-tools==7.6.2"
+          if ($LASTEXITCODE -ne 0) { throw "PIP_TOOLS_INSTALL_FAILED" }
+          New-Item -ItemType Directory -Path generated-locks -ErrorAction Stop | Out-Null
+          # Seed pip-compile from committed lock files to retain reviewed transitive pins
+          # and hashes when the package index later adds newer dependency versions.
+          Copy-Item -LiteralPath requirements-provider.lock.txt -Destination generated-locks/requirements-provider.lock.txt -ErrorAction Stop
+          Copy-Item -LiteralPath requirements-provider-test.lock.txt -Destination generated-locks/requirements-provider-test.lock.txt -ErrorAction Stop
+          .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider.lock.txt requirements-provider.in
+          if ($LASTEXITCODE -ne 0) { throw "RUNTIME_LOCK_GENERATION_FAILED" }
+          .\.lock-tools\Scripts\python.exe -m piptools compile --generate-hashes --resolver=backtracking --no-emit-index-url --output-file=generated-locks/requirements-provider-test.lock.txt requirements-provider-test.in
+          if ($LASTEXITCODE -ne 0) { throw "TEST_LOCK_GENERATION_FAILED" }
+          $generatedRuntimeLock = [IO.File]::ReadAllText("generated-locks/requirements-provider.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
+          $committedRuntimeLock = [IO.File]::ReadAllText("requirements-provider.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
+          if ($generatedRuntimeLock -cne $committedRuntimeLock) { throw "RUNTIME_LOCK_DRIFT_FROM_INPUT" }
+          $generatedTestLock = [IO.File]::ReadAllText("generated-locks/requirements-provider-test.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
+          $committedTestLock = [IO.File]::ReadAllText("requirements-provider-test.lock.txt").Replace("`r`n", "`n").Replace("`r", "`n")
+          if ($generatedTestLock -cne $committedTestLock) { throw "TEST_LOCK_DRIFT_FROM_INPUT" }
+          Write-Output "PROVIDER_HASH_LOCK_REPRODUCIBILITY=PASS"
+          python -m venv .provider-runtime-lock-verify
+          if ($LASTEXITCODE -ne 0) { throw "RUNTIME_VERIFY_VENV_FAILED" }
+          .\.provider-runtime-lock-verify\Scripts\python.exe -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-provider.lock.txt
+          if ($LASTEXITCODE -ne 0) { throw "RUNTIME_LOCK_INSTALL_FAILED" }
+          .\.provider-runtime-lock-verify\Scripts\python.exe -c "import cryptography; print('PROVIDER_RUNTIME_LOCK=PASS', cryptography.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw "RUNTIME_LOCK_IMPORT_FAILED" }
+          python -m venv .provider-test-lock-verify
+          if ($LASTEXITCODE -ne 0) { throw "TEST_VERIFY_VENV_FAILED" }
+          .\.provider-test-lock-verify\Scripts\python.exe -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-provider-test.lock.txt
+          if ($LASTEXITCODE -ne 0) { throw "TEST_LOCK_INSTALL_FAILED" }
+          .\.provider-test-lock-verify\Scripts\python.exe -c "import cryptography, pytest; print('PROVIDER_TEST_LOCK=PASS', cryptography.__version__, pytest.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw "TEST_LOCK_IMPORT_FAILED" }
+          $testPython = (Resolve-Path '.provider-test-lock-verify\Scripts\python.exe').Path
+          $focusedTests = @(
+            'tests\test_control_plane_provider_host_preflight_v1.py',
+            'tests\test_control_plane_admission_provider_v1.py',
+            'tests\test_control_plane_provider_service_v1.py',
+            'tests\test_control_plane_service_v1.py'
+          )
+          Push-Location 'provider-pinned-source'
+          try {
+            & $testPython -m pytest -q -p no:cacheprovider $focusedTests
+            if ($LASTEXITCODE -ne 0) { throw "PINNED_SOURCE_PROVIDER_CONTRACT_TESTS_FAILED" }
+          }
+          finally {
+            Pop-Location
+          }
   real-data-smoke:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest

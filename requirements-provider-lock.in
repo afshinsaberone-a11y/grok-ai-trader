@@ -1,0 +1,3 @@
+# Minimal production Provider runtime dependency closure.
+# Keep test-only tools and research/backtesting dependencies in separate inputs.
+cryptography>=42,<52

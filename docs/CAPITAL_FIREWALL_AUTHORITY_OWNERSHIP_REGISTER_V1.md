@@ -82,3 +82,11 @@ Afshin Saber (افشین صابر) is the accountable ForexAI project owner, per
 ## 7. Definition of “provisioned”
 
 A role is provisioned only when a named accountable owner and key custodian are verified, the service runs in the required trust boundary, its public key is confirmed from its real private key without exposing that private key, real source data and signatures validate, positive and negative tests pass, and the operational runbook/revocation path exists. A key-shaped environment variable or green host preflight alone is never sufficient.
+
+## 8. Admission key alignment update — 2026-10-25
+
+The new Provider host's Admission keypair was verified with its passphrase locally; the derived Ed25519 public fingerprint matched the public manifest at a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea. The operator then confirmed the GitHub Repository Variable fingerprint and Provider Machine anchor fingerprint both match that new fingerprint. A subsequent Provider preflight reports `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY=FORMAT_PASS` and Process/Machine anchors match.
+
+This closes the Admission public-key mismatch for the new key configuration, but does not change the role-status findings above. Provider preflight remains `BLOCKED`: Promotion, Signal, Risk and Operator public anchors are not configured, the durable Provider issuance registry path is not configured, and there is no source-governed fresh one-signal Demo grant. The legacy Admission PEM is encrypted and its passphrase is forgotten; keep it preserved for audit/backup. The staged 2026-10-20 rotation key remains unapproved and must not be substituted.
+
+Continue to require a separately administered Promotion Attestor and Capital Firewall Grant signer, a real signal source, a risk service with durable atomic reservation, and a signed human `ONE_SIGNAL_DEMO_ONLY` approval. Do not initialize the production Provider registry until its path, runtime identity, ACL, backup/restore and audit-history reconciliation are explicitly approved. No service was started, no signed request or authorization record was created, and no orders were submitted. Keep Kill Switch DENY, Demo unauthorized, and Live disabled.

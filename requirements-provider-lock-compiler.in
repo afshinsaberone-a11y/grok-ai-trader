@@ -1,0 +1,5 @@
+# Ephemeral helper environment for generating reviewed hash-lock candidates.
+# Pin the exact version of setuptools built from its verified GitHub-signed source;
+# the candidate workflow replaces the PyPI wheel with that source-built wheel hash.
+pip-tools==7.6.1
+setuptools==80.9.0

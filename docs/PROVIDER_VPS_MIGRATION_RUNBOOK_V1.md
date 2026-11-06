@@ -1,8 +1,8 @@
 # ForexAI Provider VPS Migration Runbook v1
 
-**Status:** PRE-CUTOVER / BLOCKED — destination access has not yet been verified.  
+**Status:** DESTINATION ACCESS VERIFIED; CLEAN-HOST BOOTSTRAP PENDING; CUTOVER BLOCKED.  
 **Last reviewed:** 2026-10-25  
-**Repository baseline reviewed:** `610a958fb7eb8051e814834a6462bac823aaf503`
+**Old Provider source baseline:** `610a958fb7eb8051e814834a6462bac823aaf503`; **current-main evidence/bootstrap baseline:** `41883f30d32747d07d7b7772f8ee7c656a95e4a1`
 
 This runbook covers replacing the old MobinHost Windows Provider host with the proposed Netherlands VPS while retaining the G13 history and fail-closed security model. It is a checklist, not proof that a migration has occurred or permission to trade.
 
@@ -162,3 +162,406 @@ Its redacted report states that no authorization record was created and no order
 At the same time, the old Provider host report confirms the reviewed source SHA and a working Python 3.13.16 venv when invoked through its explicit path. The Provider remains blocked: its configured issuance-registry target is absent; `in`/`out` are empty; no source packet or registered Provider service exists; Signal, Risk, and Operator public anchors are absent; the Promotion file/environment fingerprints mismatch and the Promotion private-key file is present on the Provider host; the Admission signing passphrase is not available in the process environment. The Netherlands destination is not yet accessible, so no destination deployment or cutover has occurred.
 
 Preserve this section as a dated addendum. It does not supersede the 2026-10-24 evidence table above; it records the newer chain for the later SHA and keeps the prior history intact.
+
+
+## 9. Netherlands destination first access and clean-host bootstrap — 2026-10-25
+
+The destination was reached for the first time. The user-provided read-only inventory reports:
+
+- Hostname: `WIN-32DFDCJOHEF`; OS: Microsoft Windows Server 2022 Datacenter, build `20348`; interactive account: `WIN-32DFDCJOHEF\Administrator`.
+- `C:\ProgramData\ForexAI-Provider` does not exist. No `source`, `venv`, `keys`, `in`, `out`, or `state` directories exist.
+- No Python candidate or Git source checkout was found by that diagnostic; the diagnostic did not establish whether another Git executable exists outside its search.
+- `ForexAIProviderSvc` is not registered.
+- Every inspected Process/User/Machine scope is unconfigured for the Admission, Promotion, Signal, Risk, Operator public anchors; Provider issuance registry path; Admission signer passphrase; Promotion attestor passphrase; and Control Plane HMAC secret.
+
+This is a clean destination baseline, not an operational Provider. It is safe to prepare code/runtime, but no authority key, production state, service, or trading permission should be imported automatically.
+
+### Pinned first-stage bootstrap
+
+The new `tools/bootstrap_provider_host_v1.ps1` is designed for this clean Windows Server 2022+ x64 destination. It:
+
+1. Requires an elevated administrator and aborts if the Provider root already exists, to avoid overwriting unexpected state.
+2. Downloads Git for Windows `2.56.0(3)` and Python `3.13.17` only if their pinned executable path is absent; verifies official release SHA-256 and Authenticode before running installers.
+3. Clones the repository, checks out exact SHA `41883f30d32747d07d7b7772f8ee7c656a95e4a1` and verifies the checkout is clean.
+4. Creates a fresh virtual environment, installs `requirements.txt`, checks core dependency imports and runs focused Provider contract tests.
+5. Does **not** configure keys/secrets, create the Provider or Grant registry, create an input source packet, create Ledger/Envelope/MQL5 authorization files, install/register the Provider service, enable Demo/Live or place an order.
+
+Pinned installer provenance:
+- [Python 3.13.17 official release](https://www.python.org/downloads/release/python-31317/) — Windows x64 installer SHA-256: `5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190`.
+- [Git for Windows v2.56.0.windows.3 official release](https://github.com/git-for-windows/git/releases/tag/v2.56.0.windows.3) — x64 installer SHA-256: `dc6d3db061999136e139f31376c5582a9ed6f36a4ea12f15e54ad7fa2bfc0bf2`.
+
+The bootstrap script itself is in a review branch while CI checks its contract; use the exact pinned revision referenced in the associated PR/runbook, not a mutable unreviewed copy. Because the script is first-run and fail-closed, if it stops after creating the root, inspect partial state rather than deleting or rerunning over it blindly.
+
+### Fresh G13/Readiness snapshot at the exact bootstrap SHA
+
+The current-main SHA reviewed for this bootstrap is `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. The following Actions runs were reported successful on this exact SHA:
+
+| Gate | Run |
+|---|---:|
+| Validation M15 | [40176071204](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176071204) |
+| Robustness M15 | [40176072462](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176072462) |
+| OOS M15 Current | [40176214390](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176214390) |
+| Final Promotion M15 | [40176324110](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176324110) |
+| MT5 Compile + Signal Parity | [40176443408](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176443408) |
+| Runtime Safety Probe M15 v2 | [40176693755](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176693755) |
+| Controlled Demo Package Preflight | [40176790887](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176790887) |
+| Execution Safety Audit M15 | [40176809457](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176809457) |
+| Demo Readiness Gate M15 | [40176825695](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176825695) |
+
+The run-bound [Capital Firewall Authorization Preflight](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40176844505) failed on this same SHA. The MT5/Control Plane blockers remain `AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING`, and `TRADE_LEDGER_FILE_MISSING`. Readiness is not trading authorization: `demo_trading_allowed=false`, `live_trading_allowed=false`, and `orders_submitted=false`.
+
+### Cutover remains blocked
+
+The new host being reachable does not resolve the old host's missing issuance registry, Promotion trust-anchor mismatch/private-key custody issue, absent Signal/Risk/Operator authorities, missing Admission passphrase, or absent signed source packet. Do not migrate the Promotion private key to this Provider. Keep the old host/snapshot and the preserved local diagnostic until data and key custody have been reconciled. Install no Provider service, initialize no production registry and keep Demo unauthorized/Live disabled until independent source owners and the runtime identity/registry controls are verified.
+
+
+## 10. Clean-host bootstrap result — 2026-10-25
+
+The administrator supplied the following bootstrap report from destination host `WIN-32DFDCJOHEF` on 2026-10-25. The report has no wall-clock timestamp, so none is inferred here.
+
+- OS: Microsoft Windows Server 2022 Datacenter, build `20348`.
+- Git: `2.56.0.windows.3`; Python: `3.13.17`.
+- Pinned repository checkout: `41883f30d32747d07d7b7772f8ee7c656a95e4a1`.
+- Provider root: `C:\\ProgramData\\ForexAI-Provider`; source directory and virtual environment were created.
+- Git and Python installers passed Authenticode validation. Reported SHA-256 values matched the bootstrap's pins:
+  - Git: `dc6d3db061999136e139f31376c5582a9ed6f36a4ea12f15e54ad7fa2bfc0bf2`
+  - Python: `5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190`
+- Focused Provider contract tests: `PASS`; bootstrap process exit code: `0`.
+
+The same report explicitly says:
+
+| Gate | Observed result |
+|---|---|
+| `ForexAIProviderSvc` installed/registered | `false` |
+| Provider issuance registry created | `false` |
+| Public trust anchors configured | `false` |
+| Private keys or passphrases migrated | `false` |
+| Source packet created | `false` |
+| TradeLedger, authenticated envelope or MQL5 authorization record created | `false` |
+| Demo trading authorized | `false` |
+| Live trading allowed | `false` |
+| Orders submitted | `false` |
+
+The report's next gate is `OWNER_APPROVED_KEY_CUSTODY_SOURCE_AUTHORITIES_AND_REGISTRY_PLAN`. Exit code zero means only that this bootstrap stage completed; it is not a Provider preflight pass, production cutover, or trading authorization.
+
+### Required next steps
+
+1. Preserve the current clean-host source tree and venv. Do not rerun the one-shot bootstrap over the existing Provider root; inspect any partial state before any repair.
+2. Before configuring anchors, obtain an owner-approved register of each authority's owner, key ID, independently verified public-key fingerprint, source-of-truth/signing service, custody boundary, and rotation/revocation owner. Record metadata only, never private keys or passphrases.
+3. Obtain distinct real Admission, Promotion, Signal, Risk and Operator Approval public keys and prove their independent source signatures. Resolve the old Promotion-key mismatch/custody issue with its owner; do not move a Promotion private key into Provider.
+4. Reconcile issuance/admission/grant audit history and failed deliveries. Only after explicit approval of the absolute registry path, service identity, ACLs, backup/restore and recovery plan may the documented one-time registry initializer be considered. Never invent a registry or reset replay state.
+5. Only after the above owners approve, configure the trust anchors and secret delivery, run the explicit-venv read-only host preflight, install the persistent Provider service under the approved identity, and test start/stop, ACLs, replay rejection and failure handling without consuming production packets.
+6. Independently resolve the MT5-side blockers `AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING`, and `TRADE_LEDGER_FILE_MISSING` from authentic signed workflow artifacts. Do not create empty substitutes.
+7. Keep Kill Switch DENY, Demo unauthorized, Live disabled and order submission off until fresh upstream attestations and a separately approved one-signal Demo authorization pass all execution-boundary checks.
+
+This addendum updates the destination bootstrap status only. It does not replace earlier evidence or declare migration cutover complete.
+
+
+## 11. First destination Provider preflight — BLOCKED — 2026-10-25
+
+The administrator supplied a read-only preflight result from `WIN-32DFDCJOHEF` on 2026-10-25. Python and dependency checks passed (`Python 3.13.17`, `cryptography=OK`); the Provider host preflight itself returned exit code 2 and `status=BLOCKED`.
+
+Observed configuration (all values are status labels; no key material was included):
+
+| Check | Observed result |
+|---|---|
+| `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_SIGNAL_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_RISK_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY` | `NOT_CONFIGURED` |
+| `FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH` | `NOT_CONFIGURED` |
+| Registry absolute path / parent / target | `false / false / false` |
+| Registry SQLite probe | `NOT_RUN` |
+| Admission issuance authorized | `false` |
+| Demo authorized / Live allowed | `false / false` |
+| Signed request created / orders submitted | `false / false` |
+
+This result is consistent with an unconfigured clean host; it is not a Python or cryptography failure. The disposable SQLite probe was not run because no registry path was configured. Do not try to fix this by inventing or reusing key material, choosing an unapproved registry path, initializing an empty production registry, or fabricating source evidence.
+
+### Next gate — approvals before production configuration
+
+1. The project owner must approve a role/custody register naming the independent operational owner and key custodian for each authority, verified public-key fingerprint, source-of-truth/signing service, revocation/rotation owner, and recovery procedure. Account/project ownership is not itself independent signing authority.
+2. Obtain the five Provider trust anchors from their actual source authorities. Keys must be real raw Ed25519 public keys encoded canonically in base64, distinct, and tied to independently verified source services. Do not generate placeholder values for the preflight.
+3. Resolve Promotion key custody and the prior file/environment fingerprint mismatch with the Promotion owner. The Promotion private key must remain in the separately administered Promotion Attestor boundary; do not copy it into Provider.
+4. Reconcile issuance/audit history with Admission/Grant sources before selecting the Provider registry absolute path and authorizing one-time initialization. Obtain explicit approval of service identity, ACL, backup, restore, and recovery controls first.
+5. After those approvals, configure approved public anchors and registry path via the authorized administrative channel, run the read-only preflight again, and require a clean `PREFLIGHT_PASS_SOURCE_EVIDENCE_STILL_REQUIRED` result. This status still does not authorize issuance or trading.
+6. The six source-evidence requirements in the JSON report remain independent blockers: fresh promotion evidence bound to verified G13 runs/artifacts; live-signal attestation; risk decision plus actual reservation; operator approval scoped to `ONE_SIGNAL_DEMO_ONLY`; valid independently signed Capital Firewall grant; and explicit source-governed one-signal Demo permission.
+7. Separately resolve the MT5-side missing authenticated envelope, MQL5 authorization record and TradeLedger using authentic signed workflow evidence. Never create empty stand-ins.
+
+Until these controls pass, keep Kill Switch DENY, Provider service uninstalled/non-consuming, Demo unauthorized, Live disabled, and order submission off. This dated result extends the history and does not supersede or delete any earlier archive.
+
+
+## 12. Authority key provisioning utility — 2026-10-25
+
+Added the local utility `tools/create_control_plane_authority_key_v1.py`, its contract tests, and `docs/AUTHORITY_KEY_PROVISIONING_V1.md`. The tool generates one Ed25519 pair per run, encrypts the PKCS#8 private PEM using an interactively entered passphrase, restricts the new output directory, and emits a public-only manifest with canonical base64 public key and SHA-256 fingerprint. It refuses an output path inside the active checkout, non-absolute output paths, an existing target directory, and passphrases shorter than 16 characters. It has no option to print or pass a private key/passphrase in command-line arguments.
+
+Supported roles align with the current contract key IDs: Provider Admission, Promotion Attestor, Live Signal, Risk + Reservation, Operator Approval, and Capital Firewall Grant.
+
+**Important:** this commit adds key-generation code; it does not create or configure any production key. The tool must be run once per real authority host, not for all roles on the Provider VPS. Promotion, Signal, Risk, Operator, and Capital Firewall private keys must remain in their respective independent signing boundaries. The Grant public anchor belongs to the separately administered Capital Firewall/Promotion-Attestor boundary and is not a sixth Provider preflight variable.
+
+The Provider Admission pair must be generated/stored only on the Provider host and must be rolled out as a coordinated trust-anchor change with the MT5-side verifier. Do not merely change the Provider environment variable. Public keys may be copied only through approved configuration controls after the owner/custodian has verified the public fingerprint. No private key, passphrase, or broker credentials are stored in GitHub or chat.
+
+Run the contract tests and wait for CI before executing the utility on any host. If the user has no genuinely separate authority services/hosts and custodians, stop after the Admission key and provision the missing source boundaries rather than pretending keypairs create independent services. Keep Provider service uninstalled/non-consuming, registry uninitialized until history/ACL/backup reconciliation is approved, Kill Switch DENY, Demo false, Live false, and orders off.
+
+
+## 13. Provider Admission keypair generated locally — 2026-10-25
+
+The operator supplied a successful local key-generation result from the clean Provider host. The command returned `KEYPAIR_CREATED_LOCAL_ONLY` and exit code `0`. The generated role is `provider-admission` with key ID `forexai-demo-admission-provider-v1`. The reported public-key SHA-256 fingerprint is:
+
+`a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`
+
+Reported outputs:
+- Encrypted private key path: `C:\\ProgramData\\ForexAI-Provider\\keys\\admission-v1\\private-key.pem`
+- Public-only manifest path: `C:\\ProgramData\\ForexAI-Provider\\keys\\admission-v1\\public-key.json`
+- Manifest environment variable name: `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY`
+- The tool reported `private_key_encrypted=true`, `private_key_material_printed=false`, and `passphrase_printed=false`.
+
+This is operator-reported command output, not an independent inspection of the VPS filesystem. The utility's successful return indicates that its generation/self-check path completed, including its private-directory protection step, but the manifest and effective ACL should still receive a separate read-only inspection.
+
+**Not activated and not authorized:** do not put the new public key into Provider/Repository/runner configuration yet. Existing consumers verify signatures against the approved Admission trust anchor and key ID; this is a key-rotation event that must be coordinated with the MT5-side verifier and have an owner-approved rollback. The public fingerprint alone does not prove source-service independence or authorize requests.
+
+The rest of the earlier blocked state is unchanged unless independently verified: no Provider service or production registry was reported as created, no authentic signed source packet/Admission request was reported, and the MT5-side authenticated envelope, MQL5 authorization record, and TradeLedger blockers remain unresolved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off. Do not generate the other five roles on Provider; their private keys must be created and retained only in the actual independent authority boundaries.
+
+
+## 14. Admission key metadata PASS; ACL hardening follow-up — 2026-10-25
+
+The administrator supplied a read-only validation from `WIN-32DFDCJOHEF` after local Provider Admission key generation:
+
+- Manifest schema, role, key ID and environment variable matched the expected Provider Admission contract.
+- Decoded raw Ed25519 public key length was 32 bytes.
+- SHA-256 computed from the manifest's decoded public key matched the manifest fingerprint: `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`.
+- The private-key PEM header was `-----BEGIN ENCRYPTED PRIVATE KEY-----`.
+
+The directory ACL output contained these explicit principals: the interactive `WIN-32DFDCJOHEF\\Administrator` SID, `NT AUTHORITY\\SYSTEM`, `BUILTIN\\Administrators`, and `OWNER RIGHTS`. The presence of `BUILTIN\\Administrators` and `OWNER RIGHTS` means the actual directory DACL does **not** match the utility's stated intent to grant explicit directory access only to the current user SID and SYSTEM. The public-key fingerprint is a metadata PASS; ACL hardening is a separate follow-up and must not be reported as passed.
+
+A code fix was committed on the working branch to remove the two extra explicit ACEs during future key generation and fail closed if that cleanup cannot be completed; focused tests were added. The current already-created directory is **not** changed by that source-code patch. Verify the two expected files and remove the extra explicit ACEs from the existing directory and its files in place; do not delete/recreate the directory or regenerate the key. Inspect the effective ACLs of all three paths afterward. The public manifest and private key must remain in place.
+
+Recorded code changes:
+- ACL correction in `tools/create_control_plane_authority_key_v1.py`: commit `a3242cf189963985857b09cddf5fa0ab4904f4ee`.
+- Windows ACL contract tests in `tests/test_create_control_plane_authority_key_v1.py`: commit `361bbb512a9b1ae370d2707c7370b954884e8262`.
+- This patch set has not yet been verified by a fresh CI run; do not describe the latest change as CI-passed until then.
+
+No public trust anchor has been configured or activated, no Provider service or production registry has been reported as installed/initialized, and no new source evidence, authenticated envelope, MQL5 authorization record, or TradeLedger has been created by this step. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
+
+
+## 15. ACL repair command halted because Admission key directory was not found — 2026-10-25
+
+The operator supplied the result of a guarded ACL repair command. It stopped immediately with `BLOCKED: Admission key directory is missing.` for the expected path `C:\\ProgramData\\ForexAI-Provider\\keys\\admission-v1`. The command therefore did not inspect or change the ACL and did not delete, recreate, or regenerate key material.
+
+This differs from the preceding operator-reported metadata check, which had read the manifest and private-key header at the expected path. Cause is not established: possible explanations include a different host/session, a changed path, or the directory/files being moved or removed. Do not infer which occurred without a read-only inventory. Do not rerun the generator, create a replacement directory, or search the entire disk indiscriminately. First compare the current hostname, Provider root existence, keys-directory contents, and narrowly bounded occurrences of `public-key.json` under the Provider root; report names/paths only and never print private-key contents. If the files are missing on the same host, pause and investigate backup/audit history before any replacement or trust-anchor change.
+
+No trust anchor was activated by this failed repair. Keep the Provider non-operational, Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+
+## 16. Admission key ACL narrowed and verified by operator — 2026-10-25
+
+The operator reports that the ACL repair completed successfully for the existing directory `C:\\ProgramData\\ForexAI-Provider\\keys\\admission-v1` and the two files `private-key.pem` and `public-key.json`. Every `icacls` command reported zero failures. Final ACL inspection showed only the current account `WIN-32DFDCJOHEF\\Administrator` and `NT AUTHORITY\\SYSTEM` on the directory; both files showed the same two principals with inherited (`I`) ACEs. The previously present `BUILTIN\\Administrators` and `OWNER RIGHTS` ACEs no longer appeared.
+
+This is an operator-reported ACL result; the current hostname/session was not separately re-established in this message. The earlier key manifest fingerprint check had matched the generated public key fingerprint `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`, and the key was reported encrypted. Do not print or transfer the private key or passphrase.
+
+This completes only the local ACL hardening step. It does not activate the Admission public key, reconcile the MT5 verifier trust anchor, establish an admission issuer, install/initialize the Provider service or production registry, create missing signed source evidence/TradeLedger/authenticated envelope/MQL5 authorization record, or authorize trading. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off. Latest CI for the current PR head must be checked separately; do not infer a CI result from this host output.
+
+
+## 17. Admission key read-only validation passed — 2026-10-25
+
+The operator reran the read-only validation on host `WIN-32DFDCJOHEF`. Results: `provider-admission`, key ID `forexai-demo-admission-provider-v1`, public key length 32 bytes, `FingerprintMatches=True`, and `PrivateKeyEncrypted=True`. The recomputed fingerprint matches the manifest and expected value `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`.
+
+ACL inspection of the directory and both files succeeded with zero failed files. Only `WIN-32DFDCJOHEF\Administrator` and `NT AUTHORITY\SYSTEM` are listed; the file ACEs are inherited. No private-key contents or passphrase were printed or recorded.
+
+This validates the reported local file permissions and public-key metadata only. It does not activate or publish this key, verify the active MT5 trust anchor, initialize the admission issuer/service/registry, create source attestations, a signed admission, authenticated envelope, MQL5 authorization record, or TradeLedger, or authorize trading. A previous public-key value exists in historical repository material; do not rotate the consumer anchor without comparing the current effective value and preparing an owner-approved rotation/rollback plan. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+
+## 18. GitHub Admission consumer fingerprint confirmed on the historical anchor — 2026-10-25
+
+The operator locally computed the SHA-256 fingerprint of the current GitHub repository variable `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY` without sending the Base64 key. Reported output: `CurrentVariableFingerprint=0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc`, `MatchesNewAdmissionKey=False`, and `MatchesHistoricalArchivedValue=True`.
+
+This is consistent with the older Admission trust anchor previously reported on the legacy Provider host, whose Admission public-key file and Process/Machine anchor matched at fingerprint `0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc`. The new key generated on `WIN-32DFDCJOHEF` has fingerprint `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`. The mismatch is now confirmed; do not copy the new key into GitHub Variables or change a Provider anchor as an isolated step.
+
+Next decision: determine whether the legacy issuer's encrypted private key can be recovered and verified through its approved secret manager, without exposing the passphrase. If continuity cannot be restored, perform a documented, owner-approved coordinated rotation across the Admission signer and every verifier/consumer (including the MT5 Runner and Provider runtime), with a tested rollback path and keypair proof-of-possession before changing the repository variable. The separate historical staged Admission candidate with fingerprint `42ae424123acd85e3d0f0dcef2e2844d43a9378c7ec8acf6868bcfe28436174a` is not the newly generated key and is not implicitly approved. Do not guess between candidates.
+
+No provider signature, service, registry, MT5 authorization record, envelope, ledger, or trade permission was created. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
+
+
+## 19. New Provider host Admission anchor inventory is clean — 2026-10-25
+
+The operator ran the read-only check on `WIN-32DFDCJOHEF`. Host identity matched. `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY` was `NOT_SET` in Process, User, and Machine scopes. The only public manifest found under `C:\ProgramData\ForexAI-Provider\keys` was `admission-v1\public-key.json`, with role `provider-admission`, key ID `forexai-demo-admission-provider-v1`, fingerprint `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`, and `ManifestMatches=True`.
+
+This is a good fail-closed state on the new host: no stale Admission environment anchor was silently carried over, and the new key's public manifest is internally consistent. Do not set the new host variable in isolation. The GitHub repository variable used by the MT5-side verifier is still at the historical fingerprint `0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc`, which does not match the new key. The historical Provider host previously reported an encrypted Admission private-key file with the old fingerprint, but passphrase availability was not confirmed in environment scopes. Next safe decision is to verify whether the old private key can be unlocked via the approved secret manager and prove it derives the old trusted public fingerprint without printing key bytes or passphrase. If unavailable, use owner-approved coordinated rotation and rollback planning. Do not overwrite trust anchors or configure provider environment values before that decision.
+
+No provider service, production registry, signed source packet, admission request, authenticated envelope, MQL5 authorization record or TradeLedger was created. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+
+## 20. Legacy Admission key lookup used the new-host path; inspect the legacy layout first — 2026-10-25
+
+The operator attempted a guarded keypair check on the legacy Provider host for `C:\Users\Administrator` context, with host guard passing, but the script stopped because `C:\ProgramData\ForexAI-Provider\keys\admission-v1\private-key.pem` was absent. This does not establish that the legacy key is lost: that path is the new-host key generator's layout. The tracked legacy diagnostic `tools/diagnose_provider_host_deployment_v1.ps1` resolves `$keysDirectory = Join-Path $ProviderRoot 'keys'` and checks the legacy names `admission-provider-ed25519.pem`, `admission-provider-public-key.txt`, and comparison-only `admission-provider-public-key.rotation-20261020.txt` under that directory.
+
+Next action is a read-only check of those exact legacy paths and a bounded inventory of filenames directly under `C:\ProgramData\ForexAI-Provider\keys`; do not print file contents, recursively search all disks, regenerate the legacy key, or change anchors. If the legacy encrypted PEM exists, unlock it only through the approved key-custody process and compare its derived public-key fingerprint to the currently trusted historical fingerprint without displaying the passphrase or key bytes. If it is absent in the expected legacy layout too, preserve the host/snapshot and inspect backup/audit/custody history before deciding on coordinated rotation.
+
+No trust anchor was changed, no key was generated by this diagnostic, and no trade authorization resulted. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+
+## 21. Legacy Admission keypair candidate located; public fingerprint matches the active GitHub anchor — 2026-10-25
+
+The operator's bounded, read-only inventory on `WIN-P7MA35DRF6Q` found the expected legacy Admission encrypted PEM at `C:\\ProgramData\\ForexAI-Provider\\keys\\admission-provider-ed25519.pem` (302 bytes; modified 2026-10-13 20:54:01 local time). Its first line is `ENCRYPTED_PKCS8`. The adjacent public-key file `admission-provider-public-key.txt` has fingerprint `0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc`, which matches the current GitHub repository variable reported by the operator.
+
+A separate rotation candidate also exists: `admission-provider-ed25519.rotation-20261020.pem` and `admission-provider-public-key.rotation-20261020.txt`; the latter fingerprint is `42ae424123acd85e3d0f0dcef2e2844d43a9378c7ec8acf6868bcfe28436174a`. It does not match the current GitHub trust anchor and must remain comparison-only unless an authorized owner explicitly approves a coordinated rotation.
+
+The earlier blocked lookup was only a path mismatch: `keys\\admission-v1\\private-key.pem` is the new-host layout, not the legacy-host layout. No key was generated, moved, deleted, or activated by this inventory.
+
+Next gate: locally unlock the legacy encrypted PEM using the approved password manager/secret-custody process, derive its Ed25519 public key in memory, and compare its fingerprint to the historical active value. Print only PASS/FAIL and the derived public fingerprint; never print or transmit the passphrase, private PEM, or public Base64. If the passphrase is unavailable, stop and plan owner-approved coordinated rotation; do not substitute the 2026-10-20 candidate by guessing.
+
+No Provider service, issuance registry, signed request, authenticated envelope, MQL5 authorization record, TradeLedger, or trading permission was created. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
+
+
+## 21. Legacy Admission key inventory — 2026-10-25
+
+The operator's read-only inventory on `WIN-P7MA35DRF6Q` found the legacy Admission PEM at `C:\ProgramData\ForexAI-Provider\keys\admission-provider-ed25519.pem` (302 bytes; header classified as `ENCRYPTED_PKCS8`). The adjacent public-key text file fingerprint is `0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc`, matching the current GitHub repository variable reported earlier.
+
+A separate 2026-10-20 rotation candidate remains present. Its public-key fingerprint is `42ae424123acd85e3d0f0dcef2e2844d43a9378c7ec8acf6868bcfe28436174a`, which is not the current trusted fingerprint; it stays comparison-only absent owner-approved coordinated rotation. The earlier missing-file result checked `keys\admission-v1\private-key.pem`, a new-host path, not this legacy layout. No key was created, moved, deleted, or activated during the inventory.
+
+Next gate: use only the approved key-custody/password-manager process to unlock the legacy PEM locally and derive its Ed25519 public-key fingerprint in memory. Output only whether it matches the current trusted fingerprint, plus the derived fingerprint; never print a passphrase or private-key contents. If the passphrase is unavailable, stop and prepare owner-approved coordinated rotation instead of substituting the 2026-10-20 candidate. No trading authority was created; keep Kill Switch DENY, Demo unauthorized, Live disabled, orders off.
+
+
+## 22. Legacy Admission passphrase unavailable — coordinated rotation decision needed — 2026-10-25
+
+The operator reports that the legacy Admission private-key passphrase is forgotten. The encrypted PEM remains present on the legacy Provider host and its adjacent public-key file matches the currently trusted GitHub Repository Variable fingerprint, but no private/public proof-of-possession test has yet succeeded. A forgotten passphrase cannot be inferred from the public key or fingerprint. Do not run brute-force attempts, alter the encrypted PEM, or continue repeated guesses.
+
+Recovery options, in order:
+1. Check the operator's approved password manager, secure notes, or authorized organizational secret manager for the exact legacy Admission passphrase and any documented recovery record.
+2. If unavailable, preserve the old host and key files for audit/rollback, but treat the old private key as unavailable for signing.
+3. Prepare a documented, owner-approved coordinated Admission key rotation to the already generated new-host key (fingerprint a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea) only after confirming the new key's passphrase is recoverable from the operator's approved password manager and verifying that its public key is derived from that private key. If the new-key passphrase is also unavailable, create a separate approved recovery/rotation plan rather than activating an unusable key.
+
+A rotation must be coordinated across the Provider signer configuration and the GitHub Repository Variable consumed by the MT5/runner verifier; it requires a recorded approver, backup of current public configuration metadata, successful proof-of-possession using the new encrypted key, a planned rollback, and post-change verification. Never change only one side or copy private-key material into GitHub/chat. The 2026-10-20 staged candidate remains unapproved and must not be selected by guesswork.
+
+No trust anchor was changed and no trading authority was granted. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+## 23. New Admission encrypted key proof-of-possession check passed — 2026-10-25
+
+The operator successfully unlocked the new-host Admission private key using its known passphrase. The locally derived Ed25519 public fingerprint was a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea; the operator reported MATCHES_EXPECTED_FINGERPRINT=True, MATCHES_MANIFEST_PUBLIC_KEY=True, and MANIFEST_FINGERPRINT_MATCH=True, with overall KEY_VALIDATION=PASS. No private key, passphrase, or public Base64 value was included in the report.
+
+The old Admission PEM is present on the legacy Provider host, but its passphrase is forgotten. Its adjacent public key still matches the currently trusted GitHub fingerprint 0f528381b9081f2b22531d2ba4f9681d7164fbc6911612dd505d8f1a978242bc. The old PEM therefore remains preserved for audit/backup, but cannot currently be used for signing. The 2026-10-20 staged candidate remains a different, unapproved key.
+
+This validates the new keypair and establishes a viable candidate for coordinated rotation; it does NOT by itself approve or perform the trust-anchor cutover. Before changing the Repository Variable or persistent Provider configuration, ensure the authorized operator intends the rotation and keep a copy of the prior public-key metadata/fingerprint for audit. Do not move private-key material. The public key may be copied from the new manifest via approved configuration UI only. Coordinate the Provider environment variable FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY with the GitHub Repository Variable of the same name used by the verifier. Verify both resulting fingerprints against the new fingerprint after configuration. If any side fails, keep the Provider non-operational and issue no new admissions; rollback to the old key is unavailable unless the old passphrase is recovered.
+
+No Provider service/production registry, source evidence, signed Admission request, authenticated envelope, MQL5 authorization record or TradeLedger was created. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
+
+## 24. Admission public trust anchor aligned across GitHub and new Provider host — 2026-10-25
+
+The operator reports that the locally supplied GitHub Repository Variable value fingerprint matched the new Admission manifest: a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea. The script then set `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY` in the new Provider host Machine environment and current Process environment, and read the Machine value back; the reported Machine fingerprint matched the same expected value. The command reported `ConfigurationOnly=True`, `ServiceStarted=False`, and `TradingAuthorized=False`.
+
+This is operator-reported confirmation of the GitHub value and Provider Machine anchor fingerprints matching. No private key/passphrase was transmitted. Since Machine environment changes are inherited by newly started processes, verify the value from a fresh PowerShell/diagnostic session before any future use. Do not configure or start the Provider service yet: the Provider still lacks verified independent Promotion, Signal, Risk/Reservation and Operator source anchors/services, the Promotion trust/custody issue remains unresolved, and the production issuance registry is not initialized. Current MT5-side `AUTHENTICATED_ENVELOPE_FILE_MISSING`, `MQL5_AUTHORIZATION_RECORD_MISSING`, and `TRADE_LEDGER_FILE_MISSING` blockers are not solved by this key rotation.
+
+No Admission request, source packet, trade authorization or order was created or submitted. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
+
+## 25. Provider preflight after Admission anchor alignment — 2026-10-25
+
+The operator ran the Provider host preflight on `WIN-32DFDCJOHEF` after aligning the Admission trust anchor. The read-only header checks reported `HostMatches=True`, `ManifestMatchesExpected=True`, `MachineAnchorMatchesExpected=True`, and the process-visible Admission fingerprint matched the expected new fingerprint `a15b445370d65e79c2bd3251866c4403556600893a13cb544b25130ca8f4daea`. The Provider preflight reports `FOREXAI_CONTROL_PLANE_ADMISSION_PUBLIC_KEY=FORMAT_PASS`.
+
+Preflight remains `BLOCKED` / exit code 2. `FOREXAI_PROVIDER_OPERATOR_PUBLIC_KEY`, `FOREXAI_PROVIDER_PROMOTION_PUBLIC_KEY`, `FOREXAI_PROVIDER_RISK_PUBLIC_KEY`, and `FOREXAI_PROVIDER_SIGNAL_PUBLIC_KEY` are `NOT_CONFIGURED`. The Provider issuance registry is also `NOT_CONFIGURED`; no absolute approved target or parent directory was set, and the SQLite probe was not run. The output confirms `admission_issuance_authorized=false`, `demo_trading_authorized=false`, `live_trading_allowed=false`, `signed_request_created=false`, and `orders_submitted=false`.
+
+Remaining gates include independently signed fresh Promotion evidence tied to verified G13 runs/artifacts, a fresh real Signal attestation, a signed Risk decision with actual durable reservation, signed human `ONE_SIGNAL_DEMO_ONLY` approval, a valid independent Capital Firewall Grant, and explicit source-governed one-signal Demo permission. Do not manufacture keys/attestations, configure guessed anchors, or choose a production registry path without a designated source owner and documented history/ACL/backup/restore approval. The Promotion key-custody/trust mismatch on the legacy host remains an independently tracked issue.
+
+This output demonstrates the Admission-anchor change alone did not open issuance, Demo, Live, or order submission. Do not start the Provider service or initialize the registry until those prerequisites and the approved service identity are resolved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, and orders off.
+
+## 26. CI repair: Windows ACL simulation test fixed and full suite passing — 2026-10-25
+
+On branch ops/bootstrap-provider-host-v1-20261025, CI initially failed at roughly 33% of the Python suite. Verbose pytest identified tests/test_create_control_plane_authority_key_v1.py::test_windows_key_directory_acl_removes_default_admin_and_owner_rights. The test temporarily changed process-global os.name to nt on a Linux runner and its simulated whoami output used a literal backslash+n instead of a newline. That prevented correct SID parsing and also caused pytest's failure reporter to raise NotImplementedError: cannot instantiate 'WindowsPath' on your system, hiding the original assertion.
+
+Fixes committed:
+- 33a9bbadc9e5d0c4157ee1fb4466c55cb43efc6f: restore the original os.name in finally before assertions/failure reporting.
+- 2426a0e93fec6b9e6b794107ec6f3b7ab1dd6db2: correct both simulated whoami newline fixtures.
+- 03af1a45b73ac516b930821dffb740880f44d4ac temporarily enabled verbose pytest to expose the failing test; this diagnostic-only change was reverted by e0c99423d22125c496e1b0d21c6826f57abe983f, restoring pytest -q.
+
+Verified on commit e0c99423d22125c496e1b0d21c6826f57abe983f: pytest -q reported 730 passed, 1 warning in 6.49s. The tests workflow passed for both push and pull-request events, as did Windows PowerShell diagnostic parsing, G13 Workflow Static Validation, ForexAI Agent Runtime Check, and ForexAI Project Repair Loop v1. This resolves the Python CI blocker on the current branch. It does not authorize or provision any production authority.
+
+Operational gates are still BLOCKED on the new Provider host: Operator, Promotion, Risk/Reservation and Signal public anchors/independent services are absent; the approved Provider anti-replay registry target is not configured; Promotion key custody/trust separation on the old host needs owner-approved resolution; no fresh signed source packet / Admission request / authenticated envelope / MQL5 authorization record / TradeLedger exists; and no source-governed one-signal Demo grant has been issued. Do not start the Provider service, initialize the production registry, or enable trading while these remain unresolved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, orders off.
+
+## 27. Read-only G13 source artifact inventory for the current main SHA — 2026-10-25
+
+A read-only GitHub Actions API inspection confirmed that the current main branch still points to SHA 41883f30d32747d07d7b7772f8ee7c656a95e4a1. The eight Grant-evidence run categories listed in docs/CAPITAL_FIREWALL_GRANT_ISSUER_V1.md completed successfully on that exact SHA, and the associated artifact metadata returned by GitHub identifies each artifact as non-expired. The SHA-256 values below are GitHub's workflow-artifact ZIP digest fields, not a separately recomputed digest of the files inside each ZIP.
+
+| Evidence stage | Successful run ID | Artifact name | GitHub artifact ZIP SHA-256 |
+|---|---:|---|---|
+| Validation M15 | 40176071204 | g13-validation-m15 | 906acadd228844db5a7c872a40f1eb17a2db4e6396fa843c31a1e2d6018a3a26 |
+| Robustness M15 | 40176072462 | g13-robustness-m15 | 1b80e8de7c3f38a3a36601ab818e7503849a42090fe67e0d4782f8c30cf5dd38 |
+| Current OOS M15 | 40176214390 | g13-oos-m15-2026-current | c0fac4db76e7f1d3f676fb64416d4d222221063f58163299ab9dbc3e3c80c9ad |
+| Final Promotion M15 | 40176324110 | g13-promotion-manifest-m15 | e33388868379b9e8bd2136d8826e421ca307f4feebe5548c7ca451dbda355a53 |
+| MT5 Compile + Signal Parity | 40176443408 | g13-mt5-compile-parity-40176443408 | e2491b380b4846d9fa87257d12276a8537c491d7e456812c46ea6c93fc9adde8 |
+| Controlled Demo Package Preflight M15 | 40176790887 | g13-controlled-demo-package-preflight-m15 | e83982cf36f4bfc7f157f981c896f94e1f7cc0407062ae1a535eae802d64720b |
+| Execution Safety Audit M15 | 40176809457 | g13-execution-safety-audit-m15 | b6095f6f1e7f01a8d883d69beac3fdf82216f53c521b4495d9e894d558a566f0 |
+| Demo Readiness Gate M15 | 40176825695 | g13-demo-readiness-gate-m15 | 48328348653165a01579bdafa2be47d2f3921468763d5bdd0bef8ef8bff68e50 |
+
+The API reported each listed artifact with the same repository ID, main branch, head SHA 41883f30d32747d07d7b7772f8ee7c656a95e4a1, and an expiration date of 2027-01-23. Each corresponding run's required job conclusion was success.
+
+Scope limitation: this confirms run/job/artifact metadata only. It is not an independent Promotion attestation, not a Capital Firewall Grant, not proof of a fresh live signal or risk reservation, and not Demo permission. A separately administered Promotion Attestor must fetch and validate exact artifact contents/digests and bind them to the frozen candidate/configuration. A fresh Signal, actual Risk reservation, signed Operator Approval, independent Grant, and short-lived source-governed Admission are still missing. The current G13 Readiness artifact explicitly does not itself authorize Demo. Do not activate the Provider service or initialize the production issuance registry until ownership, key custody, audit/recovery, and runtime identity gates are approved. Keep Kill Switch DENY, Demo unauthorized, Live disabled, orders off.
+
+## 26. Full CI green after isolating simulated Windows OS behavior — 2026-10-25
+
+Investigation of failing run 40202381290 found that an older revision of tests/test_create_control_plane_authority_key_v1.py monkeypatched keygen.os.name directly. Since keygen.os referenced the process-global os module, the Windows simulation leaked a global platform change into pytest itself; when a test failed, pytest attempted to instantiate WindowsPath on the Linux runner and raised NotImplementedError, obscuring the original failure.
+
+Commit b68b54834545396e7b1ec7cd5bf38d2dcb2b805b fixes the test by replacing only keygen.os with a local SimpleNamespace for the Windows branch, rather than mutating the process-global os.name. On this head, GitHub Actions completed successfully:
+- Full tests run 40206023513: 730 passed, 1 warning in 6.05s; the Windows PowerShell parser job also passed. REAL-data smoke was skipped because it is only dispatched manually.
+- G13 Workflow Static Validation run 40206023449: success.
+- Agent Runtime Check run 40206023353: success.
+
+This removes a repository test-runner blocker, not the Provider authorization blockers. The Provider preflight remains BLOCKED because Promotion, Signal, Risk and Operator trust anchors/source systems are absent and the approved durable Provider issuance-registry path is not configured. Independent Capital Firewall Grant issuance and its owner/key-custody boundary remain unprovisioned. MT5 still needs authentic signed source-governed evidence to create the envelope, authorization record and TradeLedger; do not create placeholders. Do not start the Provider service or initialize the production registry until ownership, custody, runtime identity, path, ACL, backup/restore and issuance-history reconciliation are approved. Keep Kill Switch DENY, Demo unauthorized, Live disabled and orders off.
+
+## 27. Connected Dropbox evidence inventory did not find operational source authorities — 2026-10-25
+
+A read-only inventory of the connected Dropbox `/ForexAI` root found the project folder structure and multiple historical G13 artifact folders, but these evidence/control directories were empty when checked: `00_CONTROL/Runbooks`, `00_CONTROL/Protocols`, `00_CONTROL/Project_Manifest`, `09_EVIDENCE_LEDGER/Promotion_Decisions`, `11_GITHUB_ACTIONS/Run_Registry`, and `11_GITHUB_ACTIONS/Run_Reports`. Targeted Dropbox searches for Provider source authorities, Capital Firewall Grant signer, fresh source attestation, Risk reservation, TradeLedger and `ONE_SIGNAL_DEMO_ONLY` returned no matching files. The G13 artifacts found through search were historical (e.g. October 9) and cannot substitute for fresh run-bound evidence on current SHA.
+
+Scope limitation: this establishes only what was found in the connected Dropbox search and listed folders; it does not prove that no independent service exists in a different cloud account, secret manager or host. No Dropbox objects were changed. The missing service/source requirements remain `NOT_IDENTIFIED`/`NOT_PROVISIONED` until owners provide independently verifiable service/key-custody evidence. No data or authority was fabricated. Keep issuance and trading blocked.
+
+
+## 28. Elevated bootstrap workspace hardening — 2026-10-25
+
+A security review found that the original clean-host bootstrap downloaded hash-pinned installers beneath \$env:TEMP while requiring an elevated Administrator session. A user-writable temporary directory may be subject to junction/reparse-point planting, so the elevated download target was not an acceptable trust boundary.
+
+The bootstrap on the current PR branch now:
+- chooses an unpredictable, new directory under Windows CommonApplicationData rather than the invoking user's TEMP;
+- refuses to adopt an existing directory on collision and rejects a reparse-point workspace;
+- disables DACL inheritance, grants full control only to the current elevated SID and SYSTEM, removes explicit Administrators/Owner Rights ACEs, and reads back the DACL, failing unless the exact expected ACEs remain;
+- creates the installer subdirectory without -Force;
+- refuses an existing installer destination rather than deleting and overwriting it.
+
+The contract test tests/test_provider_host_bootstrap_contract.py asserts these properties. On the updated PR head, full Python tests and PowerShell parser checks passed; G13 static validation, Agent Runtime and the Project Repair Loop also passed. The real-data smoke path was skipped. This source-level contract and CI do not replace running the script on the actual target host in a reviewed maintenance window.
+
+Use only the updated, reviewed PR source if this bootstrap is eventually approved. Do not run an earlier copy still using %TEMP%. The bootstrap remains a software setup tool: it does not install the Provider service, establish independent authorities, initialize production registries, authorize Demo/Live, or submit orders.
+
+
+## 29. Elevated Provider target path validation — 2026-10-25
+
+A further source review checked the caller-controlled -ProviderRoot parameter. Because this script runs elevated, accepting an arbitrary or relative path would widen the write target beyond the intended deployment root.
+
+The current PR branch now requires an absolute Provider root whose parent is exactly the actual Windows CommonApplicationData directory, rejects a reparse-point ProgramData parent, normalizes the path before use, creates the target without -Force, and rechecks the created root for reparse-point attributes. A contract test covers the fail-closed guards.
+
+These are source and CI checks only; no new Provider service, trust anchor, key, or registry was configured. Execute only a reviewed version after CI and an independent review. If the target path already exists or validation fails, stop and inspect rather than deleting or adopting that state.
+
+
+## 30. Fixed reviewed source pin and signer-key ACL readback — 2026-10-25
+
+A follow-up static security review closed three gaps on PR #331:
+
+- The elevated bootstrap no longer accepts a caller-supplied `ExpectedCommit`; it is pinned in source to reviewed SHA `41883f30d32747d07d7b7772f8ee7c656a95e4a1`. This avoids allowing a caller to substitute code/dependencies whose tests run from an Administrator shell.
+- The authority key utility now verifies the post-change Windows DACL using a read-back query and fails closed unless inheritance is disabled and the only two ACEs are explicit Allow/FullControl entries for the current SID and SYSTEM. The contract tests reject an injected extra Administrators ACE.
+- Private key files request restrictive mode at exclusive creation time on POSIX, rather than writing first and tightening mode afterward.
+
+Verified on PR head `16923ef4991331ef940ac4637e6e557718f88fdd`: Python tests and PowerShell parser [PASS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40223256926); G13 static validation [PASS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40223256873); Agent Runtime [PASS](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/40223256934). The real-data smoke job was skipped.
+
+**Cutover remains blocked.** No real-host bootstrap or production key/service/registry setup was performed. Do not authorize Demo/Live or submit orders from these CI results. PR #331 remains unmerged and requires independent review; after any approved merge, rerun/rebind the complete G13 evidence chain to the exact resulting main SHA before any Promotion or Grant operation.
+
+
+## 31. Hash-locked Provider dependencies are companion inputs — 2026-10-26
+
+A clean-host bootstrap review found a release-blocking contradiction: the bootstrap pins application source to `41883f30d32747d07d7b7772f8ee7c656a95e4a1`, but that commit does not contain `requirements-provider.lock.txt` or `requirements-provider-test.lock.txt`. The previous script therefore stopped even on a clean host. The application source pin was deliberately **not changed**, because its G13 evidence is bound to that exact SHA.
+
+The PR now carries two reviewed, generated hash locks beside the bootstrap script. They were generated with Python 3.13 on a Windows runner using pip-tools 7.6.2 and successfully installed with `--require-hashes --only-binary=:all:`: runtime `cryptography==50.0.0`; focused test lock `cryptography==50.0.0`, `pytest==9.0.3`, plus their pinned transitive dependencies. The reproducibility job re-generates both locks from their pinned `.in` inputs and compares canonical LF text to the committed files, then installs the committed files.
+
+Expected canonical UTF-8/LF SHA-256 fingerprints:
+- `requirements-provider.lock.txt`: `7df03080328bd565c1bb20dbdc4d9dfb90c39d86c4d1f8be35e46f452552af9a`
+- `requirements-provider-test.lock.txt`: `f6fb8ead273fa7416c8bdecce16eb7c18ff554503525fb9e656e0059788e0394`
+
+The elevated bootstrap now copies both companion lockfiles into its fresh ACL-verified work directory and checks these canonical hashes there, before downloading installers or creating the Provider root. Only the protected copies are passed to pip. This also avoids a time-of-check/time-of-use substitution from the checkout directory.
+
+This change is still on unmerged PR #331 and requires independent review. Do not run it until the exact PR revision and both lockfiles have been reviewed together. The host bootstrap has not yet been executed on the real Provider. This resolves the missing-lock source contradiction in code/CI, not the Promotion trust-anchor mismatch, independent Signal/Risk/Operator authorities, Grant signer custody, Provider registry, or any Demo/Live authorization.

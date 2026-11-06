@@ -1,0 +1,3 @@
+# Provider runtime dependencies for Python 3.13 / Windows x64.
+# Keep aligned with the pinned source tree's supported cryptography range.
+cryptography==50.0.0
