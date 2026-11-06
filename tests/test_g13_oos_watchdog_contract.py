@@ -272,3 +272,22 @@ def test_watchdog_retries_only_empty_step_runner_startup_timeouts_and_bounds_par
     job_lines = lines[job_start + 1 : job_start + 16]
     timeout_lines = [line.strip() for line in job_lines if line.strip().startswith("timeout-minutes:")]
     assert timeout_lines == ["timeout-minutes: 60"]
+
+
+def test_watchdog_main_push_is_scoped_to_g13_sources_not_unrelated_xauusd_changes():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    trigger = workflow.split("\non:", 1)[1].split("\npermissions:", 1)[0]
+
+    assert "push:" in trigger
+    assert "branches: [main]" in trigger
+    assert "paths:" in trigger
+    assert '".github/workflows/forexai-g13-*.yml"' in trigger
+    assert '"!.github/workflows/forexai-g13-oos-watchdog-m15.yml"' in trigger
+    assert '"research/optimization/g13_*.py"' in trigger
+    assert '"research/optimization/rsi_divergence_discovery_g13.py"' in trigger
+    assert '"artifacts/g13/frozen/**"' in trigger
+    assert "workflow_dispatch:" in trigger
+    # The watchdog's own YAML change does not recursively start a full chain,
+    # and Gold-only paths do not match any positive G13 push filter.
+    assert "xauusd_" not in trigger.lower()
+    assert "test_g13_" not in trigger
