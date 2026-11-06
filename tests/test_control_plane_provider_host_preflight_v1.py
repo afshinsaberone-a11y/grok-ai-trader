@@ -4,11 +4,14 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
+import tools.control_plane_provider_host_preflight_v1 as preflight_module
 from tools.control_plane_provider_host_preflight_v1 import (
     KEY_ENVIRONMENTS,
     REGISTRY_ENVIRONMENT,
     inspect_environment,
 )
+from tests.trust_registry_bundle_test_support import build_test_bundle
+from tools.verify_provider_trust_registry_bundle_v1 import BUNDLE_PATH_ENV
 
 
 def _configured_environment(tmp_path: Path) -> dict[str, str]:
@@ -17,10 +20,18 @@ def _configured_environment(tmp_path: Path) -> dict[str, str]:
         for index, name in enumerate(KEY_ENVIRONMENTS)
     }
     environment[REGISTRY_ENVIRONMENT] = str(tmp_path / "issued-admissions.sqlite3")
+    bundle_environment, _bundle_path, _test_root_key = build_test_bundle(tmp_path / "trust-registry-bundle")
+    environment.update(bundle_environment)
     return environment
 
 
-def test_valid_configuration_passes_only_non_authorizing_preflight(tmp_path: Path):
+def test_valid_configuration_passes_only_non_authorizing_preflight(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(preflight_module, "inspect_source_manifest", lambda _env: {
+        "status": "PASS_SOURCE_SIGNER_ALLOWLIST_MATCH",
+        "production_approved": False,
+        "bootstrap_approved": False,
+        "trading_authorization_created": False,
+    })
     environment = _configured_environment(tmp_path)
     registry = Path(environment[REGISTRY_ENVIRONMENT])
     registry.touch()
@@ -36,6 +47,8 @@ def test_valid_configuration_passes_only_non_authorizing_preflight(tmp_path: Pat
     assert report["registry_check"]["target_file_exists"] is True
     assert report["registry_check"]["target_is_symlink"] is False
     assert report["registry_check"]["sqlite_probe"] == "PASS"
+    assert report["trust_registry_bundle_check"]["status"] == "PASS"
+    assert report["source_build_manifest_check"]["status"] == "PASS_SOURCE_SIGNER_ALLOWLIST_MATCH"
     assert report["admission_issuance_authorized"] is False
     assert report["signed_request_created"] is False
     assert report["orders_submitted"] is False
@@ -46,6 +59,57 @@ def test_valid_configuration_passes_only_non_authorizing_preflight(tmp_path: Pat
     assert registry.read_bytes() == b""
     assert list(tmp_path.glob(".forexai-provider-preflight-*")) == []
 
+
+
+def test_missing_source_build_manifest_blocks_preflight(tmp_path: Path):
+    environment = _configured_environment(tmp_path)
+    registry = Path(environment[REGISTRY_ENVIRONMENT])
+    registry.touch()
+
+    report = inspect_environment(environment)
+
+    assert report["trust_registry_bundle_check"]["status"] == "PASS"
+    assert report["source_build_manifest_check"]["status"] == "NOT_CONFIGURED"
+    assert report["status"] == "BLOCKED"
+    assert report["admission_issuance_authorized"] is False
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
+    assert report["orders_submitted"] is False
+
+
+def test_source_manifest_mismatch_blocks_preflight_even_with_valid_registry_and_bundle(tmp_path: Path, monkeypatch):
+    environment = _configured_environment(tmp_path)
+    registry = Path(environment[REGISTRY_ENVIRONMENT])
+    registry.touch()
+    monkeypatch.setattr(preflight_module, "inspect_source_manifest", lambda _env: {
+        "status": "BLOCKED",
+        "reason_code": "SOURCE_MANIFEST_DIGEST_PIN_MISMATCH",
+        "production_approved": False,
+        "bootstrap_approved": False,
+        "trading_authorization_created": False,
+    })
+
+    report = inspect_environment(environment)
+
+    assert report["trust_registry_bundle_check"]["status"] == "PASS"
+    assert report["registry_check"]["status"] == "PASS"
+    assert report["source_build_manifest_check"]["reason_code"] == "SOURCE_MANIFEST_DIGEST_PIN_MISMATCH"
+    assert report["status"] == "BLOCKED"
+    assert report["orders_submitted"] is False
+    assert report["live_trading_allowed"] is False
+def test_missing_signed_trust_registry_bundle_blocks_preflight(tmp_path: Path):
+    environment = _configured_environment(tmp_path)
+    environment.pop(BUNDLE_PATH_ENV)
+
+    report = inspect_environment(environment)
+
+    assert report["status"] == "BLOCKED"
+    assert report["trust_registry_bundle_check"]["status"] == "BLOCKED"
+    assert report["trust_registry_bundle_check"]["reason"] == "BUNDLE_PATH_NOT_CONFIGURED"
+    assert report["admission_issuance_authorized"] is False
+    assert report["demo_trading_authorized"] is False
+    assert report["live_trading_allowed"] is False
+    assert report["orders_submitted"] is False
 
 def test_missing_registry_file_blocks_even_when_parent_sqlite_probe_passes(tmp_path: Path):
     environment = _configured_environment(tmp_path)
@@ -172,6 +236,7 @@ def test_windows_provider_deployment_diagnostic_is_read_only_and_redacted():
         "AUTHORITATIVE_SOURCE_PACKET_NOT_PRESENT",
         "PERSISTENT_PASSPHRASE_SCOPE_CONFIGURED_REVIEW",
         "PROMOTION_ATTESTOR_PASSPHRASE_PRESENT_ON_PROVIDER_HOST_VERIFY_TRUST_BOUNDARY",
+        "SOURCE_BUILD_CONFIGURATION_NOT_IN_PROCESS",
         "$inputInventory.status -eq 'EMPTY'",
         "passphrase_values_printed = $false",
         "key_values_printed = $false",
@@ -223,6 +288,12 @@ def test_provider_host_diagnostic_does_not_expose_public_key_or_passphrase_value
         "FOREXAI_PROVIDER_SIGNING_KEY_PASSPHRASE",
         "FOREXAI_G13_ATTESTOR_KEY_PASSPHRASE",
         "FOREXAI_PROVIDER_ISSUANCE_REGISTRY_PATH",
+        "FOREXAI_TRUST_REGISTRY_BUNDLE_PATH",
+        "FOREXAI_TRUST_REGISTRY_ROOT_PUBLIC_KEY",
+        "FOREXAI_TRUST_REGISTRY_ROOT_FINGERPRINT",
+        "FOREXAI_TRUST_REGISTRY_EXPECTED_BUNDLE_SHA256",
+        "FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_PATH",
+        "FOREXAI_PROVIDER_SOURCE_BUILD_MANIFEST_SHA256",
     ):
         assert variable in script
 
@@ -230,6 +301,8 @@ def test_provider_host_diagnostic_does_not_expose_public_key_or_passphrase_value
         "public_environment_presence",
         "passphrase_environment_presence",
         "environment_presence = $registryPresence",
+        "trust_registry_environment_presence",
+        "source_build_environment_presence",
     ):
         assert field in script
 
