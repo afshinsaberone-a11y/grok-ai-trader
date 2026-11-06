@@ -70,7 +70,7 @@ def run_xauusd_intraday(
         raise XAUUSDIntradayAdapterError("FLATTEN_CUTOFF_NOT_BEFORE_ROLLOVER")
     if indicator_warmup_bars_after_gap is not None and (
         type(indicator_warmup_bars_after_gap) is not int
-        or indicator_warmup_bars_after_gap < 0
+        or indicator_warmup_bars_after_gap < 1
     ):
         raise XAUUSDIntradayAdapterError("GAP_INDICATOR_WARMUP_INVALID")
 
