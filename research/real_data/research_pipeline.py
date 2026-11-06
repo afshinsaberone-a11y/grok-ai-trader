@@ -23,7 +23,11 @@ class ResearchSplit:
     rows: int
 
 
-def load_real_dataset(path: str | Path, *, symbol: str = "EURUSD", timeframe: str = "M1") -> pd.DataFrame:
+def load_real_dataset(path: str | Path, *, symbol: str, timeframe: str = "M1") -> pd.DataFrame:
+    if symbol != "EURUSD":
+        raise ValueError(
+            f"SYMBOL_PIPELINE_UNSUPPORTED:{symbol}:use the instrument-specific BID/ASK intake and execution contract"
+        )
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"REAL_DATA_REQUIRED: dataset does not exist: {path}")
@@ -61,7 +65,7 @@ def describe_splits(df: pd.DataFrame) -> list[ResearchSplit]:
     return result
 
 
-def run_existing_backtester(df: pd.DataFrame, *, symbol: str = "EURUSD") -> dict:
+def run_existing_backtester(df: pd.DataFrame, *, symbol: str) -> dict:
     """Run the repository's existing Python strategy backtester on real data.
 
     No download, fallback, or synthetic data path is reachable from this function.
