@@ -74,11 +74,12 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 41911516706
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Download completed G24 fresh 2025-2026 annual artifact
+      - name: Download only the four immutable G24 2025 shards
         uses: actions/download-artifact@v4
         with:
-          name: forexai-g24-xauusd-m5-fresh-oos-2025-2026
-          path: data/g24
+          pattern: forexai-g24-xauusd-m5-fresh-oos-2025-*
+          path: data/g24-shards
+          merge-multiple: false
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -86,7 +87,7 @@ jobs:
         run: |
           python -m research.optimization.xauusd_intraday_preregistered_discovery_v1 \
             --train-root data/g22 \
-            --validation-root data/g24 \
+            --validation-root data/g24-shards \
             --commission-usd-per-oz-round-turn 0.08 \
             --slippage-usd-per-oz-per-side 0.10 \
             --output artifacts/g25-xauusd-preregistered-discovery.json
