@@ -34,6 +34,8 @@ def canonicalize_ohlcv(
     symbol: str,
     source: str = "Dukascopy",
 ) -> pd.DataFrame:
+    if symbol == "XAUUSD":
+        raise ValueError("XAUUSD_REQUIRES_PAIRED_BID_ASK_NORMALIZER")
     if not isinstance(df, pd.DataFrame):
         raise TypeError("df must be a pandas DataFrame")
     missing = [c for c in CANONICAL_COLUMNS if c not in df.columns]
@@ -62,6 +64,8 @@ def resample_ohlcv(
     symbol: str,
     source: str = "Dukascopy",
 ) -> pd.DataFrame:
+    if symbol == "XAUUSD":
+        raise ValueError("XAUUSD_REQUIRES_PAIRED_BID_ASK_RESAMPLER")
     if timeframe not in {"5min", "15min"}:
         raise ValueError("Only 5min and 15min resampling are supported")
     canonical = canonicalize_ohlcv(df, symbol=symbol, source=source)
