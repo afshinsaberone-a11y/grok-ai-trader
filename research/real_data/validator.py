@@ -44,7 +44,7 @@ def _is_weekend_crossing(previous: pd.Timestamp, current: pd.Timestamp) -> bool:
 def validate_ohlcv(
     df: pd.DataFrame,
     *,
-    symbol: str = "EURUSD",
+    symbol: str,
     timeframe: str = "M1",
     require_complete_bars: bool = False,
 ) -> QualityReport:
