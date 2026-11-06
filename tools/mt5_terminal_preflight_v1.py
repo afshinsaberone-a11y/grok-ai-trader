@@ -10,7 +10,7 @@ from tools.mt5_terminal_gateway_v1 import MT5GatewayError, MT5TerminalGateway
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbol", default="EURUSD")
+    parser.add_argument("--symbol", required=True)
     parser.add_argument("--path")
     args = parser.parse_args()
     from tools.mt5_terminal_gateway_v1 import MT5GatewayConfig
