@@ -1,6 +1,13 @@
 name: ForexAI G25 XAUUSD Preregistered M5 Discovery
 
 on:
+  workflow_dispatch:
+    inputs:
+      g24_run_id:
+        description: "G24 run containing the four verified 2025 shards"
+        required: true
+        default: "42201880647"
+        type: string
   pull_request:
     paths:
       - ".github/workflows/forexai-g25-xauusd-preregistered-discovery.yml"
@@ -25,6 +32,7 @@ jobs:
   validate:
     if: >-
       github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' &&
        (github.event.workflow_run.event == 'push' ||
         github.event.workflow_run.event == 'workflow_dispatch'))
@@ -49,8 +57,9 @@ jobs:
 
   discover:
     if: >-
-      github.event_name == 'workflow_run' &&
-      (github.event.workflow_run.event == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       (github.event.workflow_run.event == 'push' ||
        github.event.workflow_run.event == 'workflow_dispatch')
     needs: validate
     runs-on: ubuntu-latest
@@ -79,7 +88,7 @@ jobs:
           path: data/g24-shards
           merge-multiple: false
           repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ github.event.workflow_run.id || inputs.g24_run_id || '42201880647' }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run preregistered XAUUSD discovery and fresh 2025 validation
         run: |
