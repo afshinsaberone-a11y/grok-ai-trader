@@ -158,7 +158,7 @@ def test_intraday_gap_splits_positions_and_suppresses_post_gap_warmup() -> None:
 
 
 def test_intraday_gap_warmup_must_be_a_nonnegative_integer() -> None:
-    for invalid in (-1, True, 1.5):
+    for invalid in (0, -1, True, 1.5):
         with pytest.raises(
             XAUUSDIntradayAdapterError,
             match="GAP_INDICATOR_WARMUP_INVALID",
