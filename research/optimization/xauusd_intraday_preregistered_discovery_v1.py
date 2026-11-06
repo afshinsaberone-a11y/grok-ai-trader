@@ -249,16 +249,140 @@ def load_training(root: str | Path) -> tuple[pd.DataFrame, list[dict[str, Any]]]
 
 
 def load_validation(root: str | Path) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Load the fresh 2025 annual file or assemble it from only four G24 2025 shards."""
     root = Path(root)
     stem = "XAUUSD_M5_BIDASK_20250101_20260101"
-    return read_verified_dataset(
-        root / f"{stem}.csv",
-        root / f"{stem}.manifest.json",
-        start=VALIDATION_START,
-        end=VALIDATION_END,
-        expected_year=2025,
-        require_fresh_validation=True,
-    )
+    annual_csv = root / f"{stem}.csv"
+    annual_manifest = root / f"{stem}.manifest.json"
+    if annual_csv.is_file() and annual_manifest.is_file():
+        return read_verified_dataset(
+            annual_csv,
+            annual_manifest,
+            start=VALIDATION_START,
+            end=VALIDATION_END,
+            expected_year=2025,
+            require_fresh_validation=True,
+        )
+
+    expected_shards = {
+        "2025-Q1": ("2025-01-01", "2025-04-01"),
+        "2025-Q2": ("2025-04-01", "2025-07-01"),
+        "2025-Q3": ("2025-07-01", "2025-10-01"),
+        "2025-Q4": ("2025-10-01", "2026-01-01"),
+    }
+    report_paths = list(root.rglob("report.json"))
+    selected: dict[str, tuple[Path, dict[str, Any]]] = {}
+    for report_path in report_paths:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        shard = report.get("shard")
+        if shard in expected_shards:
+            if shard in selected:
+                raise ValueError(f"XAUUSD_VALIDATION_DUPLICATE_SHARD_REPORT:{shard}")
+            selected[shard] = (report_path, report)
+    if set(selected) != set(expected_shards):
+        missing = sorted(set(expected_shards).difference(selected))
+        raise FileNotFoundError(f"XAUUSD_VALIDATION_2025_SHARDS_MISSING:{missing}")
+
+    frames = []
+    audits = []
+    for shard, (start, end) in expected_shards.items():
+        report_path, report = selected[shard]
+        base = report_path.parent
+        if (
+            report.get("status") != "REAL_XAUUSD_M5_FRESH_OOS_SHARD_PASS"
+            or report.get("synthetic_data") is not False
+            or report.get("filled_bars") != 0
+            or report.get("backtest_run") is not False
+            or report.get("orders_submitted") is not False
+        ):
+            raise ValueError(f"XAUUSD_VALIDATION_SHARD_REPORT_REJECTED:{shard}")
+
+        paths = {
+            "m1": base / report["m1_path"],
+            "m1_manifest": base / report["m1_manifest_path"],
+            "m5": base / report["m5_path"],
+            "m5_manifest": base / report["m5_manifest_path"],
+        }
+        expected_hashes = {
+            "m1": report["m1_sha256"],
+            "m1_manifest": report["m1_manifest_sha256"],
+            "m5": report["m5_sha256"],
+            "m5_manifest": report["m5_manifest_sha256"],
+        }
+        for label, path in paths.items():
+            if not path.is_file() or sha256_file(path) != expected_hashes[label]:
+                raise ValueError(f"XAUUSD_VALIDATION_SHARD_HASH_MISMATCH:{shard}:{label}")
+
+        manifest = json.loads(paths["m5_manifest"].read_text(encoding="utf-8"))
+        if (
+            manifest.get("status") != "REAL_M5_SHARD_PASS_GAPS_PRESERVED"
+            or manifest.get("symbol") != "XAUUSD"
+            or manifest.get("timeframe") != "M5"
+            or manifest.get("shard") != shard
+            or manifest.get("requested_start_utc") != start
+            or manifest.get("requested_end_exclusive_utc") != end
+            or manifest.get("synthetic_data") is not False
+            or manifest.get("filled_bars") != 0
+            or manifest.get("backtest_run") is not False
+        ):
+            raise ValueError(f"XAUUSD_VALIDATION_SHARD_MANIFEST_REJECTED:{shard}")
+
+        reconciliation = report.get("reconciliation_audit", {})
+        if (
+            int(reconciliation.get("compared_bars", -1)) != int(report.get("m5_rows", -2))
+            or float(reconciliation.get("max_abs_delta", float("inf"))) > 1.1e-5
+            or float(reconciliation.get("tolerance", 0.0)) > 1.1e-5
+        ):
+            raise ValueError(f"XAUUSD_VALIDATION_SHARD_RECONCILIATION_REJECTED:{shard}")
+
+        frame = pd.read_csv(paths["m5"])
+        frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True, errors="raise")
+        if (
+            len(frame) != int(report["m5_rows"])
+            or len(frame) != int(manifest.get("rows", -1))
+            or frame["timestamp"].duplicated().any()
+            or not frame["timestamp"].is_monotonic_increasing
+        ):
+            raise ValueError(f"XAUUSD_VALIDATION_SHARD_DATA_INVARIANT_FAILED:{shard}")
+        if not (
+            (frame["timestamp"] >= _period_timestamp(start))
+            & (frame["timestamp"] < _period_timestamp(end))
+        ).all():
+            raise ValueError(f"XAUUSD_VALIDATION_SHARD_DATE_RANGE_FAILED:{shard}")
+        frames.append(frame)
+        audits.append({
+            "shard": shard,
+            "report_sha256": sha256_file(report_path),
+            "m1_sha256": expected_hashes["m1"],
+            "m1_manifest_sha256": expected_hashes["m1_manifest"],
+            "m5_sha256": expected_hashes["m5"],
+            "m5_manifest_sha256": expected_hashes["m5_manifest"],
+            "rows": int(len(frame)),
+            "reconciliation_audit": reconciliation,
+        })
+
+    combined = pd.concat(frames, ignore_index=True).sort_values("timestamp").reset_index(drop=True)
+    if (
+        combined.empty
+        or combined["timestamp"].duplicated().any()
+        or not combined["timestamp"].is_monotonic_increasing
+        or set(combined["timestamp"].dt.year.unique()) != {2025}
+        or not (
+            (combined["timestamp"] >= _period_timestamp(VALIDATION_START))
+            & (combined["timestamp"] < _period_timestamp(VALIDATION_END))
+        ).all()
+    ):
+        raise ValueError("XAUUSD_VALIDATION_2025_ASSEMBLY_INVARIANT_FAILED")
+    audit = {
+        "source_mode": "four_immutable_G24_2025_shards_only",
+        "source_shards": audits,
+        "rows": int(len(combined)),
+        "first_utc": combined["timestamp"].min().isoformat(),
+        "last_utc": combined["timestamp"].max().isoformat(),
+        "data_sha256": "sha256_not_materialized_annual_file_shards_individually_verified",
+        "2026_shards_downloaded": False,
+    }
+    return combined, audit
 
 
 def build_features(raw: pd.DataFrame) -> pd.DataFrame:
