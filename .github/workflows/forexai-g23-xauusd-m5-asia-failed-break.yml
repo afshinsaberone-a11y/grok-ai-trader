@@ -1,0 +1,61 @@
+name: ForexAI G23 XAUUSD M5 Asia Failed-Break Research
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/forexai-g23-xauusd-m5-asia-failed-break.yml"
+      - "docs/research/g23-xauusd-m5-asia-failed-break-prereg-20261106.md"
+      - "research/optimization/g23_xauusd_m5_asia_failed_break.py"
+      - "research/optimization/xauusd_execution_contract_v1.py"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  g23-preregistered-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact research revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install research dependencies
+        run: python -m pip install --upgrade pip numpy pandas
+
+      - name: Download immutable G22 annual real-data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: forexai-g22-xauusd-m5-full-history-2021-2024
+          repository: ${{ github.repository }}
+          run-id: 41911516706
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: data/g22-full-history
+
+      - name: Compile G23 runner and XAUUSD execution kernel
+        run: |
+          python -m py_compile \
+            research/optimization/g23_xauusd_m5_asia_failed_break.py \
+            research/optimization/xauusd_execution_contract_v1.py
+
+      - name: Run frozen train and untouched 2024 holdout
+        run: |
+          python -m research.optimization.g23_xauusd_m5_asia_failed_break \
+            --data-root data/g22-full-history \
+            --output artifacts/g23
+
+      - name: Upload metrics and trade ledgers
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-g23-xauusd-m5-asia-failed-break
+          path: |
+            artifacts/g23/g23-report.json
+            artifacts/g23/g23-trades.csv
+            artifacts/g23/g23-scenario-metrics.csv
+          if-no-files-found: error
+          retention-days: 90
