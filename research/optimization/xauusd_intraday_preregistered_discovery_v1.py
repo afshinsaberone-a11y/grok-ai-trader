@@ -591,6 +591,7 @@ def evaluate_year(
         reward_risk=float(candidate["reward_risk"]),
         risk_fraction=RISK_FRACTION,
         max_holding_bars=int(candidate["max_holding_bars"]),
+        blocked_entry_utc_hours=(20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6),
     )
     result, _trades = run_xauusd_intraday(
         frame.loc[mask].reset_index(drop=True),
@@ -759,6 +760,7 @@ def run_discovery(
             "position_limit": 1,
             "risk_fraction": RISK_FRACTION,
             "flatten_by_utc": FLATTEN_BY_UTC,
+            "blocked_entry_utc_hours": [20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6],
             "indicator_warmup_bars_after_intraday_gap": MAX_INDICATOR_WARMUP_AFTER_GAP,
             "gap_exit_assumption_trades_must_equal": 0,
         },
