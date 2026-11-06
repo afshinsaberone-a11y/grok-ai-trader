@@ -248,7 +248,7 @@ def ingest_current_year(start: date, end: date, output_dir: str | Path, *, timef
         output_path=normalized / f"EURUSD_M1_{dataset_id}.manifest.json",
     )
 
-    target = resample_ohlcv(df, "5min" if timeframe == "M5" else "15min")
+    target = resample_ohlcv(df, "5min" if timeframe == "M5" else "15min", symbol="EURUSD", source="HistData.com")
     report = validate_ohlcv(target, symbol="EURUSD", timeframe=timeframe)
     if report.status != "PASS":
         raise HistDataIngestError(
