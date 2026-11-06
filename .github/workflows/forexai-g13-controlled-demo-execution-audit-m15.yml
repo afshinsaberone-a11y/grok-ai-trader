@@ -12,7 +12,9 @@ on:
         description: "Demo symbol"
         required: true
         default: "EURUSD"
-        type: string
+        type: choice
+        options:
+          - EURUSD
       terminal_path:
         description: "MT5 terminal executable"
         required: false
