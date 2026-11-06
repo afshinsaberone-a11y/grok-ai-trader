@@ -36,7 +36,7 @@ def test_valid_ohlc():
 def test_invalid_ohlc():
     df = fixture_m1()
     df.loc[0, "high"] = df.loc[0, "low"] - 0.0001
-    report = validate_ohlcv(df)
+    report = validate_ohlcv(df, symbol="EURUSD")
     assert report.status == "FAIL"
     assert report.invalid_ohlc == 1
 
@@ -44,14 +44,14 @@ def test_invalid_ohlc():
 def test_duplicate_timestamps():
     df = fixture_m1()
     df.loc[1, "timestamp"] = df.loc[0, "timestamp"]
-    report = validate_ohlcv(df)
+    report = validate_ohlcv(df, symbol="EURUSD")
     assert report.status == "FAIL"
     assert report.duplicates == 1
 
 
 def test_unsorted_timestamps():
     df = fixture_m1().iloc[[1, 0] + list(range(2, 15))].reset_index(drop=True)
-    report = validate_ohlcv(df)
+    report = validate_ohlcv(df, symbol="EURUSD")
     assert report.status == "FAIL"
     assert report.unsorted_timestamps == 1
 
@@ -59,7 +59,7 @@ def test_unsorted_timestamps():
 def test_timezone_normalization():
     df = fixture_m1().copy()
     df["timestamp"] = df["timestamp"].dt.tz_convert("Europe/London")
-    canonical = canonicalize_ohlcv(df)
+    canonical = canonicalize_ohlcv(df, symbol="EURUSD")
     assert str(canonical["timestamp"].dt.tz) == "UTC"
 
 
@@ -67,14 +67,14 @@ def test_invalid_timestamp():
     df = fixture_m1().copy()
     df["timestamp"] = df["timestamp"].astype(object)
     df.loc[0, "timestamp"] = "not-a-timestamp"
-    report = validate_ohlcv(df)
+    report = validate_ohlcv(df, symbol="EURUSD")
     assert report.status == "FAIL"
     assert report.nan_values == 1
 
 
 def test_missing_bars():
     df = fixture_m1().drop(index=[5]).reset_index(drop=True)
-    report = validate_ohlcv(df)
+    report = validate_ohlcv(df, symbol="EURUSD")
     assert report.missing_bars == 1
 
 
@@ -85,7 +85,7 @@ def test_weekend_gap_is_not_reported_as_missing_intraday_bars():
     right = fixture_m1(5)
     left["timestamp"] = before
     right["timestamp"] = after
-    report = validate_ohlcv(pd.concat([left, right], ignore_index=True))
+    report = validate_ohlcv(pd.concat([left, right], ignore_index=True), symbol="EURUSD")
     assert report.missing_bars == 0
     assert report.status == "PASS"
 
@@ -112,7 +112,7 @@ def test_dukascopy_bi5_ohlc_field_order(tmp_path: Path):
 
 
 def test_m1_to_m5():
-    result = resample_ohlcv(fixture_m1(15), "5min")
+    result = resample_ohlcv(fixture_m1(15), "5min", symbol="EURUSD")
     assert len(result) == 3
     assert result.loc[0, "open"] == pytest.approx(1.1000)
     assert result.loc[0, "close"] == pytest.approx(1.10004)
@@ -121,7 +121,7 @@ def test_m1_to_m5():
 
 
 def test_m1_to_m15():
-    result = resample_ohlcv(fixture_m1(15), "15min")
+    result = resample_ohlcv(fixture_m1(15), "15min", symbol="EURUSD")
     assert len(result) == 1
     assert result.loc[0, "open"] == pytest.approx(1.1000)
     assert result.loc[0, "close"] == pytest.approx(1.10014)
@@ -166,9 +166,32 @@ def test_synthetic_fallback_rejected():
     assert "np.random" not in strategy_source
 
 
+
+def test_shared_ohlc_pipeline_rejects_xauusd():
+    from research.real_data.normalizer import canonicalize_ohlcv, resample_ohlcv
+    from research.real_data.research_pipeline import load_real_dataset
+
+    with pytest.raises(ValueError, match="XAUUSD_REQUIRES_PAIRED_BID_ASK_VALIDATOR"):
+        validate_ohlcv(fixture_m1(), symbol="XAUUSD")
+    with pytest.raises(ValueError, match="XAUUSD_REQUIRES_PAIRED_BID_ASK_NORMALIZER"):
+        canonicalize_ohlcv(fixture_m1(), symbol="XAUUSD")
+    with pytest.raises(ValueError, match="XAUUSD_REQUIRES_PAIRED_BID_ASK_RESAMPLER"):
+        resample_ohlcv(fixture_m1(), "5min", symbol="XAUUSD")
+    with pytest.raises(ValueError, match="SYMBOL_PIPELINE_UNSUPPORTED"):
+        load_real_dataset("not-read-because-symbol-is-invalid.csv", symbol="XAUUSD")
+
+
+def test_common_symbol_arguments_are_explicit():
+    with pytest.raises(TypeError):
+        validate_ohlcv(fixture_m1())
+    with pytest.raises(TypeError):
+        canonicalize_ohlcv(fixture_m1())
+    with pytest.raises(TypeError):
+        resample_ohlcv(fixture_m1(), "5min")
+
 def test_strategy_requires_explicit_real_dataset(tmp_path: Path):
     with pytest.raises((FileNotFoundError, ValueError), match="REAL_DATA_REQUIRED"):
-        fetch_data(tmp_path / "does-not-exist.csv")
+        fetch_data(tmp_path / "does-not-exist.csv", symbol="EURUSD")
 
 
 def test_strategy_does_not_trade_before_atr_warmup():
@@ -180,5 +203,5 @@ def test_strategy_does_not_trade_before_atr_warmup():
         "Low": [p - 0.0002 for p in prices],
         "Close": prices,
     }, index=ts)
-    result = GrokHybridStrategy().backtest_simple(data)
+    result = GrokHybridStrategy().backtest_simple(data, symbol="EURUSD")
     assert result["trades"] == 0
