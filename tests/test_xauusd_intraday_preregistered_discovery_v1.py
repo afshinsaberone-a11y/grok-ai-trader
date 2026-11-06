@@ -7,6 +7,7 @@ import pytest
 from research.optimization.xauusd_intraday_preregistered_discovery_v1 import (
     CANDIDATES,
     build_signals,
+    load_validation,
     read_verified_dataset,
     run_discovery,
     run_passes,
@@ -195,3 +196,99 @@ def test_train_and_validation_periods_reject_2024_or_2026_leakage():
             commission_usd_per_oz=0.08,
             slippage_usd_per_oz_per_side=0.10,
         )
+
+
+def _write_2025_quarter(root, shard, start, end, timestamp):
+    base = root / f"artifact-{shard}"
+    m1_dir = base / "m1-ingest" / "normalized"
+    m5_dir = base / "normalized"
+    m1_dir.mkdir(parents=True)
+    m5_dir.mkdir(parents=True)
+
+    m1_path = m1_dir / "XAUUSD_M1_source.csv"
+    m1_path.write_text("test source payload\n", encoding="utf-8")
+    m1_hash = hashlib.sha256(m1_path.read_bytes()).hexdigest()
+    m1_manifest_path = m1_dir / "XAUUSD_M1_source.manifest.json"
+    m1_manifest = {
+        "symbol": "XAUUSD",
+        "timeframe": "M1",
+        "synthetic_data": False,
+        "backtest_run": False,
+        "data_sha256": m1_hash,
+    }
+    m1_manifest_path.write_text(json.dumps(m1_manifest), encoding="utf-8")
+    m1_manifest_hash = hashlib.sha256(m1_manifest_path.read_bytes()).hexdigest()
+
+    m5_path = m5_dir / f"{shard}.csv"
+    _one_bar_frame(timestamp).to_csv(m5_path, index=False)
+    m5_hash = hashlib.sha256(m5_path.read_bytes()).hexdigest()
+    m5_manifest_path = m5_dir / f"{shard}.manifest.json"
+    m5_manifest = {
+        "status": "REAL_M5_SHARD_PASS_GAPS_PRESERVED",
+        "symbol": "XAUUSD",
+        "timeframe": "M5",
+        "shard": shard,
+        "requested_start_utc": start,
+        "requested_end_exclusive_utc": end,
+        "synthetic_data": False,
+        "filled_bars": 0,
+        "backtest_run": False,
+        "rows": 1,
+        "data_sha256": m5_hash,
+        "source_m1_data_sha256": m1_hash,
+        "source_m1_manifest_sha256": m1_manifest_hash,
+    }
+    m5_manifest_path.write_text(json.dumps(m5_manifest), encoding="utf-8")
+    m5_manifest_hash = hashlib.sha256(m5_manifest_path.read_bytes()).hexdigest()
+
+    report = {
+        "status": "REAL_XAUUSD_M5_FRESH_OOS_SHARD_PASS",
+        "shard": shard,
+        "m1_path": str(m1_path.relative_to(base)),
+        "m1_manifest_path": str(m1_manifest_path.relative_to(base)),
+        "m5_path": str(m5_path.relative_to(base)),
+        "m5_manifest_path": str(m5_manifest_path.relative_to(base)),
+        "m1_sha256": m1_hash,
+        "m1_manifest_sha256": m1_manifest_hash,
+        "m5_sha256": m5_hash,
+        "m5_manifest_sha256": m5_manifest_hash,
+        "m1_rows": 5,
+        "m5_rows": 1,
+        "synthetic_data": False,
+        "filled_bars": 0,
+        "backtest_run": False,
+        "orders_submitted": False,
+        "reconciliation_audit": {
+            "compared_bars": 1,
+            "max_abs_delta": 0.0,
+            "tolerance": 1.1e-5,
+        },
+    }
+    (base / "report.json").write_text(json.dumps(report), encoding="utf-8")
+
+
+def test_load_validation_verifies_and_assembles_only_four_2025_shards(tmp_path):
+    shards = (
+        ("2025-Q1", "2025-01-01", "2025-04-01", "2025-01-02T00:00:00Z"),
+        ("2025-Q2", "2025-04-01", "2025-07-01", "2025-04-02T00:00:00Z"),
+        ("2025-Q3", "2025-07-01", "2025-10-01", "2025-07-02T00:00:00Z"),
+        ("2025-Q4", "2025-10-01", "2026-01-01", "2025-10-02T00:00:00Z"),
+    )
+    for shard, start, end, timestamp in shards:
+        _write_2025_quarter(tmp_path, shard, start, end, timestamp)
+
+    frame, audit = load_validation(tmp_path)
+    assert len(frame) == 4
+    assert set(frame["timestamp"].dt.year.unique()) == {2025}
+    assert [item["shard"] for item in audit["source_shards"]] == [
+        "2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4"
+    ]
+    assert audit["2026_shards_downloaded"] is False
+
+
+def test_load_validation_fails_closed_when_one_2025_shard_is_missing(tmp_path):
+    _write_2025_quarter(
+        tmp_path, "2025-Q1", "2025-01-01", "2025-04-01", "2025-01-02T00:00:00Z"
+    )
+    with pytest.raises(FileNotFoundError, match="2025_SHARDS_MISSING"):
+        load_validation(tmp_path)
