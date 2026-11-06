@@ -71,6 +71,10 @@ class GrokHybridStrategy:
         return df
 
     def backtest_simple(self, df: pd.DataFrame, *, symbol: str) -> dict:
+        if symbol != "EURUSD":
+            raise ValueError(
+                f"STRATEGY_SYMBOL_UNSUPPORTED:{symbol}:use an instrument-specific strategy and execution model"
+            )
         required = {"Open", "High", "Low", "Close"}
         missing = required.difference(df.columns)
         if missing:
