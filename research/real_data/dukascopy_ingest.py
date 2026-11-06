@@ -395,7 +395,7 @@ class DukascopyM1Ingestor:
             raise DukascopyIngestError(
                 f"REAL_DATA_REQUIRED: source validation failed: {report.to_dict()}"
             )
-        return canonicalize_ohlcv(raw)
+        return canonicalize_ohlcv(raw, symbol="EURUSD", source="Dukascopy")
 
     def write_dataset(
         self,
@@ -496,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.timeframe != "M1":
             m1 = pd.read_csv(result["dataset"], parse_dates=["timestamp"])
-            target = resample_ohlcv(m1, "5min" if args.timeframe == "M5" else "15min")
+            target = resample_ohlcv(m1, "5min" if args.timeframe == "M5" else "15min", symbol="EURUSD", source="Dukascopy")
             out = (
                 Path(args.output)
                 / "normalized"
