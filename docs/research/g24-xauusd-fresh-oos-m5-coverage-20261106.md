@@ -42,3 +42,14 @@ Do not begin a new strategy backtest until all eight shards and both fresh-perio
 5. No tuning or candidate selection on the 2026 holdout after inspection.
 
 2024 is excluded from the next candidate-selection loop because G23 already consumed it. Dukascopy spread remains distinct from WM Markets historical spread; broker commission and slippage need explicitly stated scenarios. Passing this data stage does not mean the strategy passes, an EA is ready, Demo is authorized, or any order may be submitted.
+
+
+## Execution simplification (2026-11-06)
+
+The G24 workflow is now intentionally split into two modes:
+
+- Pull-request validation runs the regression tests only; it does not acquire historical data.
+- The eight-shard historical acquisition and annual assembly run only through an explicit `workflow_dispatch`. Routine code, test, or documentation changes must not trigger another full download.
+- A separate `py_compile` step was removed because pytest imports the G24 intake module and the Dukascopy ingestion module during the regression suite; the standalone compile pass added no distinct coverage.
+- Shards remain sequential (`max-parallel: 1)) to avoid unnecessary request pressure on the public Dukascopy endpoint. The per-shard source pairing, strict M1→M5 reconciliation, hashes, gap audit, and final assembly checks remain required.
+- Once the full G24 artifacts are successfully assembled, reuse those immutable artifacts for research. Do not repeat the historical intake merely to rerun strategy experiments.
