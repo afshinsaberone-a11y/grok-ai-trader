@@ -13,7 +13,7 @@ on:
     paths:
       - ".github/workflows/forexai-g24-xauusd-fresh-oos-m5.yml"
       - "research/real_data/xauusd_fresh_oos_m5.py"
-      - "tests/test_xauusd_fresh_oos_m5.py"
+      - "tests/test_xauusd_fresh_oos-m5.py"
       - "docs/research/g24-xauusd-fresh-oos-m5-coverage-20261106.md"
   workflow_dispatch:
 
@@ -107,18 +107,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Download all eight verified quarterly/month shards
-        uses: actions/download-artifact@v4
-        with:
-          pattern: forexai-g24-xauusd-m5-fresh-oos-*
-          path: fresh-oos-shards
-          merge-multiple: false
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install assembly dependencies
         run: python -m pip install --upgrade pip numpy pandas
+      - name: Download all eight verified quarterly/month shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: forexai-g24-xauusd-m5-fresh-oos-*
+          path: fresh-oos-shards
+          merge-multiple: false
       - name: Verify all source hashes and assemble 2025 plus 2026-through-October
         run: |
           python -m research.real_data.xauusd_fresh_oos_m5 assemble \
