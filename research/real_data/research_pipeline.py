@@ -7,10 +7,12 @@ it at a validated real dataset produced by the Dukascopy ingestion layer.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
 import pandas as pd
 
+from .manifest import sha256_file
 from .normalizer import CANONICAL_COLUMNS, canonicalize_ohlcv
 from .validator import validate_ohlcv
 
@@ -33,6 +35,19 @@ def load_real_dataset(path: str | Path, *, symbol: str, timeframe: str = "M1") -
         raise FileNotFoundError(f"REAL_DATA_REQUIRED: dataset does not exist: {path}")
     if path.suffix.lower() not in {".csv", ".parquet"}:
         raise ValueError("Only CSV and Parquet real datasets are supported")
+    manifest_path = path.with_suffix(".manifest.json")
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("symbol") != symbol:
+            raise ValueError("REAL_DATA_REQUIRED: DATASET_MANIFEST_SYMBOL_MISMATCH")
+        if manifest.get("timeframe") != timeframe:
+            raise ValueError("REAL_DATA_REQUIRED: DATASET_MANIFEST_TIMEFRAME_MISMATCH")
+        if manifest.get("quality_status") != "PASS":
+            raise ValueError("REAL_DATA_REQUIRED: DATASET_MANIFEST_QUALITY_NOT_PASS")
+        manifest_hash = manifest.get("data_sha256")
+        if not isinstance(manifest_hash, str) or manifest_hash != sha256_file(path):
+            raise ValueError("REAL_DATA_REQUIRED: DATASET_MANIFEST_HASH_MISMATCH")
+
     df = pd.read_csv(path) if path.suffix.lower() == ".csv" else pd.read_parquet(path)
     report = validate_ohlcv(df, symbol=symbol, timeframe=timeframe)
     if report.status != "PASS":
