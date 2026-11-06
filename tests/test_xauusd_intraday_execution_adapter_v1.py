@@ -136,7 +136,11 @@ def test_intraday_gap_splits_positions_and_suppresses_post_gap_warmup() -> None:
     assert metrics["utc_sessions_executed"] == 1
     assert metrics["utc_segments_executed"] == 2
     assert metrics["intraday_data_gaps_detected"] == 1
-    assert metrics["gap_split_forced_liquidations"] == 1
+    assert metrics["gap_split_segments_with_open_position"] == 1
+    assert metrics["gap_exit_assumption_trades"] == 1
+    assert metrics["backtest_qualification_status"] == (
+        "GAP_EXIT_ASSUMPTIONS_PRESENT_REVIEW_REQUIRED"
+    )
     assert metrics["post_gap_signal_rows_suppressed"] == 1
     assert metrics["gap_handling_policy"] == (
         "SPLIT_FLATTEN_AND_REQUIRE_EXPLICIT_INDICATOR_WARMUP"
@@ -145,7 +149,9 @@ def test_intraday_gap_splits_positions_and_suppresses_post_gap_warmup() -> None:
     assert metrics["entries"] == metrics["trades"] == 2
     assert metrics["entries_equal_exits"] is True
     assert trades[0]["exit_time"] == "2025-01-06T10:10:00+00:00"
-    assert trades[0]["exit_reason"] == "end_of_data_liquidation"
+    assert trades[0]["exit_reason"] == "pre_gap_last_observed_close_assumption"
+    assert trades[0]["gap_exit_assumption"] is True
+    assert trades[1]["gap_exit_assumption"] is False
     assert trades[1]["entry_time"] == "2025-01-06T10:30:00+00:00"
     assert trades[1]["utc_segment_number"] == 2
     assert all(t["entry_time"][:10] == t["exit_time"][:10] for t in trades)
