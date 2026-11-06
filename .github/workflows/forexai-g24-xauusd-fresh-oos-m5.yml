@@ -7,14 +7,8 @@ on:
       - "research/real_data/xauusd_fresh_oos_m5.py"
       - "tests/test_xauusd_fresh_oos_m5.py"
       - "docs/research/g24-xauusd-fresh-oos-m5-coverage-20261106.md"
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/forexai-g24-xauusd-fresh-oos-m5.yml"
-      - "research/real_data/xauusd_fresh_oos_m5.py"
-      - "tests/test_xauusd_fresh_oos_m5.py"
-      - "docs/research/g24-xauusd-fresh-oos-m5-coverage-20261106.md"
+  # Historical data acquisition is intentionally manual. Ordinary code/docs
+  # changes must never trigger a second full 2025-2026 download.
   workflow_dispatch:
 
 permissions:
@@ -26,7 +20,6 @@ concurrency:
 
 jobs:
   validate:
-    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -34,20 +27,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install dependencies
-        run: python -m pip install --upgrade pip numpy pandas pytest
-      - name: Compile G24 intake and tests
-        run: python -m py_compile research/real_data/xauusd_fresh_oos_m5.py tests/test_xauusd_fresh_oos_m5.py
+      - name: Install test dependencies
+        run: python -m pip install numpy pandas pytest
+      # pytest imports both G24 and Dukascopy modules, so a separate py_compile
+      # pass would compile the same modules twice without adding coverage.
       - name: Run G24 data and reconciliation regression tests
         run: python -m pytest -q tests/test_xauusd_fresh_oos_m5.py tests/test_dukascopy_xauusd_ingest.py
 
   fresh-oos-shards:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
+      # Keep source requests sequential: G22 used the same limit to avoid
+      # overloading the public Dukascopy data endpoint.
       max-parallel: 1
       matrix:
         include:
@@ -81,7 +76,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install source intake dependencies
-        run: python -m pip install --upgrade pip numpy pandas
+        run: python -m pip install numpy pandas
       - name: Download real paired XAUUSD M1 and build/reconcile M5
         run: |
           python -m research.real_data.xauusd_fresh_oos_m5 shard \
@@ -102,7 +97,7 @@ jobs:
           retention-days: 90
 
   assemble-fresh-period:
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.fresh-oos-shards.result == 'success'
+    if: github.event_name == 'workflow_dispatch' && needs.fresh-oos-shards.result == 'success'
     needs: [validate, fresh-oos-shards]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -112,7 +107,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install assembly dependencies
-        run: python -m pip install --upgrade pip numpy pandas
+        run: python -m pip install numpy pandas
       - name: Download all eight verified quarterly/month shards
         uses: actions/download-artifact@v4
         with:
