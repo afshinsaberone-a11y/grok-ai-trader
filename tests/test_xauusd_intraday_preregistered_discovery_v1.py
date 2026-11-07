@@ -80,6 +80,7 @@ def test_robust_regime_momentum_requires_confirmed_m5_h1_regimes_and_pullback():
         "ATR": [1.0] * 5,
         "ATR_RATIO": [1.0] * 5,
         "ADX": [25.0] * 5,
+        "RSI": [50.0] * 5,
         "H1_TREND_UP": [True, True, True, False, False],
         "H1_TREND_DOWN": [False, False, False, True, True],
     })
