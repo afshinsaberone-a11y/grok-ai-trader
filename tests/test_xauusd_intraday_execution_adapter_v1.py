@@ -77,6 +77,18 @@ def test_intraday_adapter_liquidates_each_day_before_rollover() -> None:
     else:
         assert metrics['pre_commission_profit_factor'] == pytest.approx(expected_pf)
 
+    assert sum(group['trades'] for group in metrics['side_breakdown'].values()) == len(trades)
+    assert sum(group['trades'] for group in metrics['exit_reason_breakdown'].values()) == len(trades)
+    for side, group in metrics['side_breakdown'].items():
+        side_trades = [trade for trade in trades if trade['side'] == side]
+        assert group['trades'] == len(side_trades)
+        assert group['net_expectancy_R'] == pytest.approx(
+            sum(trade['net_R'] for trade in side_trades) / len(side_trades)
+        )
+    for reason, group in metrics['exit_reason_breakdown'].items():
+        reason_trades = [trade for trade in trades if trade['exit_reason'] == reason]
+        assert group['trades'] == len(reason_trades)
+
 
 def test_bar_opening_at_2050_is_excluded_and_last_bar_closes_by_cutoff() -> None:
     metrics, trades = run_xauusd_intraday(bars_fixture(), config())
