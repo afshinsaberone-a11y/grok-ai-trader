@@ -78,3 +78,15 @@ A passing result is only VALIDATION_PASS_FREEZE_AND_CODE_PARITY_REQUIRED. It is 
 2024_loaded=false, 2026_loaded=false, demo_authorized=false, live_authorized=false, orders_submitted=false.
 
 No strategy is assumed profitable in advance. The G25 outcome may legitimately be NO-GO for all eight hypotheses.
+
+
+## 2026-11-07 follow-up: zero-slippage diagnostic
+
+A separate diagnostic run (GHA run 42394880080, artifact 13583630184) replayed the seven hypotheses present before the London opening-range candidate was added. It used zero slippage, retained the observed BID/ASK spread and the USD 0.08/oz round-turn commission, and kept the same 2021-2023 training partition.
+
+- All seven hypotheses had negative net expectancy in each of 2021, 2022 and 2023.
+- All 21 candidate-year records also had negative pre-commission expectancy; this still includes the observed BID/ASK spread.
+- No candidate qualified, no 2025 validation was run, and no orders were submitted.
+- This shows that the failed results are not explained by the provisional slippage assumption alone.
+
+The next distinct hypothesis is one fixed London opening-range breakout: the complete 07:00-07:55 UTC range, one first-close breakout per UTC day after 08:00, and no parameter sweep. It is evaluated separately under the normal base and stress cost assumptions.
