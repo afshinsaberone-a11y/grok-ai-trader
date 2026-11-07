@@ -6,6 +6,7 @@ import pytest
 
 from research.optimization.xauusd_intraday_preregistered_discovery_v1 import (
     CANDIDATES,
+    build_features,
     build_signals,
     load_validation,
     read_verified_dataset,
