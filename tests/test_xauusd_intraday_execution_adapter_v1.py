@@ -69,7 +69,13 @@ def test_intraday_adapter_liquidates_each_day_before_rollover() -> None:
         sum(before - after for before, after in zip(pre_commission, net))
         / len(net)
     )
-    assert metrics['pre_commission_profit_factor'] > 0
+    gains = sum(value for value in pre_commission if value > 0)
+    losses = abs(sum(value for value in pre_commission if value < 0))
+    expected_pf = gains / losses if losses else ('inf' if gains else 0.0)
+    if expected_pf == 'inf':
+        assert metrics['pre_commission_profit_factor'] == 'inf'
+    else:
+        assert metrics['pre_commission_profit_factor'] == pytest.approx(expected_pf)
 
 
 def test_bar_opening_at_2050_is_excluded_and_last_bar_closes_by_cutoff() -> None:
