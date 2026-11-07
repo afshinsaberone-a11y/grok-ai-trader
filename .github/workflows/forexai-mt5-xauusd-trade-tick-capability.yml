@@ -42,26 +42,52 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify preinstalled Python 3.10
+      - name: Locate an installed 64-bit Python runtime
         run: |
           $ErrorActionPreference = 'Stop'
-          $launcher = Get-Command py -ErrorAction Stop
-          & $launcher.Source -3.10 --version
-          if ($LASTEXITCODE -ne 0) { throw "PYTHON_310_NOT_AVAILABLE_ON_MT5_RUNNER" }
-          & $launcher.Source -3.10 -c "import sys; print(sys.executable)"
-          if ($LASTEXITCODE -ne 0) { throw "PYTHON_310_RUNTIME_FAILED" }
+          $candidates = @(
+            'C:\Users\Star\AppData\Local\Programs\Python\Python312\python.exe',
+            'C:\Users\Star\AppData\Local\Programs\Python\Python311\python.exe',
+            'C:\Users\Star\AppData\Local\Programs\Python\Python310\python.exe',
+            'C:\Program Files\Python312\python.exe',
+            'C:\Program Files\Python311\python.exe',
+            'C:\Program Files\Python310\python.exe',
+            'C:\Python312\python.exe',
+            'C:\Python311\python.exe',
+            'C:\Python310\python.exe'
+          )
+          if ($env:RUNNER_TOOL_CACHE) {
+            $cached = Get-ChildItem -Path (Join-Path $env:RUNNER_TOOL_CACHE 'Python\*\x64\python.exe') -File -ErrorAction SilentlyContinue
+            $candidates += @($cached | ForEach-Object { $_.FullName })
+          }
+          $selected = $null
+          foreach ($candidate in $candidates) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+              $bits = & $candidate -c "import struct; print(struct.calcsize('P') * 8)" 2>$null
+              if ($LASTEXITCODE -eq 0 -and "$bits".Trim() -eq '64') {
+                $selected = $candidate
+                break
+              }
+            }
+          }
+          if (-not $selected) {
+            throw "NO_ACCESSIBLE_64BIT_PYTHON_FOUND_FOR_MT5_RUNNER"
+          }
+          "MT5_PYTHON=$selected" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $selected --version
+          Write-Output "MT5_PYTHON_PATH=$selected"
 
-      - name: Install MT5 package into existing Python 3.10
+      - name: Install MT5 package into discovered Python
         run: |
           $ErrorActionPreference = 'Stop'
-          & py -3.10 -m pip install -r requirements-mt5.txt
+          & $env:MT5_PYTHON -m pip install -r requirements-mt5.txt numpy
           if ($LASTEXITCODE -ne 0) { throw "MT5_PACKAGE_INSTALL_FAILED:$LASTEXITCODE" }
 
       - name: Run read-only historical trade-tick capability probe
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/mt5-trade-tick-capability | Out-Null
-          & py -3.10 -m tools.mt5_xauusd_trade_tick_capability_probe --symbol "$env:MT5_SYMBOL" --days ([int]$env:MT5_DAYS) --output artifacts/mt5-trade-tick-capability/xauusd-trade-tick-capability.json
+          & $env:MT5_PYTHON -m tools.mt5_xauusd_trade_tick_capability_probe --symbol "$env:MT5_SYMBOL" --days ([int]$env:MT5_DAYS) --output artifacts/mt5-trade-tick-capability/xauusd-trade-tick-capability.json
           if ($LASTEXITCODE -ne 0) { throw "MT5_TRADE_TICK_CAPABILITY_PROBE_FAILED:$LASTEXITCODE" }
 
           $p = "artifacts/mt5-trade-tick-capability/xauusd-trade-tick-capability.json"
