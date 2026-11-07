@@ -56,8 +56,8 @@ def _write_verified_pair(tmp_path, *, synthetic=False, filled=0, hash_override=N
 
 
 def test_candidate_hypothesis_set_is_small_and_fixed():
-    assert len(CANDIDATES) == 9
-    assert len({candidate["id"] for candidate in CANDIDATES}) == 9
+    assert len(CANDIDATES) == 10
+    assert len({candidate["id"] for candidate in CANDIDATES}) == 10
     assert {candidate["family"] for candidate in CANDIDATES} == {
         "trend_pullback",
         "donchian_breakout",
@@ -65,6 +65,35 @@ def test_candidate_hypothesis_set_is_small_and_fixed():
         "opening_range_breakout",
         "robust_regime_momentum",
     }
+
+
+def test_london_failed_breakout_is_exact_inverse_of_original_breakout():
+    timestamps = pd.to_datetime([
+        "2021-01-04T07:55:00Z",
+        "2021-01-04T08:00:00Z",
+        "2021-01-04T08:05:00Z",
+        "2021-01-05T07:55:00Z",
+        "2021-01-05T08:00:00Z",
+        "2021-01-05T08:05:00Z",
+    ], utc=True)
+    features = pd.DataFrame({
+        "timestamp": timestamps,
+        "mid_close": [100.0, 100.0, 101.0, 100.0, 100.0, 89.0],
+        "OPENING_RANGE_HIGH": [100.0] * 6,
+        "OPENING_RANGE_LOW": [90.0] * 6,
+        "ADX": [20.0] * 6,
+        "RSI": [50.0] * 6,
+    })
+    breakout = next(
+        candidate for candidate in CANDIDATES
+        if candidate["id"] == "london_opening_range_breakout"
+    )
+    failed_breakout = next(
+        candidate for candidate in CANDIDATES
+        if candidate["id"] == "london_opening_range_failed_breakout"
+    )
+    assert build_signals(features, breakout).tolist() == [0, 0, 1, 0, 0, -1]
+    assert build_signals(features, failed_breakout).tolist() == [0, 0, -1, 0, 0, 1]
 
 
 def test_robust_regime_momentum_requires_confirmed_m5_h1_regimes_and_pullback():

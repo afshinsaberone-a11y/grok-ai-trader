@@ -7,6 +7,9 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/forexai-g25-xauusd-zero-slippage-diagnostic.yml"
+      - "research/optimization/xauusd_intraday_preregistered_discovery_v1.py"
+      - "tests/test_xauusd_intraday_preregistered_discovery_v1.py"
+      - "docs/research/g25-xauusd-preregistered-discovery-20261106.md"
 
 permissions:
   actions: read
@@ -51,7 +54,7 @@ jobs:
           run-id: 42201880647
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run seven fixed hypotheses with zero added slippage
+      - name: Run fixed G25 hypotheses with zero added slippage
         run: |
           python -m research.optimization.xauusd_intraday_preregistered_discovery_v1 \
             --train-root data/g22 \

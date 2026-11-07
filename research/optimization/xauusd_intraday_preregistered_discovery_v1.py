@@ -122,6 +122,15 @@ CANDIDATES: tuple[dict[str, Any], ...] = (
         "max_holding_bars": 36,
     },
     {
+        # Exact inverse of the London ORB direction; entry window and exits unchanged.
+        "id": "london_opening_range_failed_breakout",
+        "family": "opening_range_breakout",
+        "atr_stop_mult": 1.5,
+        "reward_risk": 2.0,
+        "max_holding_bars": 36,
+        "invert_signal_direction": True,
+    },
+    {
         # Port of the repository's Robust Regime-Momentum v1 entry rules.
         # Execution is re-evaluated by the XAUUSD BID/ASK kernel; the large
         # holding cap disables the old model's synthetic time exit because
@@ -670,6 +679,8 @@ def build_signals(features: pd.DataFrame, candidate: dict[str, Any]) -> pd.Serie
 
     signal.loc[long.fillna(False)] = 1
     signal.loc[short.fillna(False)] = -1
+    if candidate.get("invert_signal_direction", False):
+        signal *= -1
     # London / New York day-session only. The adapter separately enforces a
     # hard flat before the configured broker rollover.
     allowed_hour = features["timestamp"].dt.hour.between(7, 19)
