@@ -121,6 +121,26 @@ CANDIDATES: tuple[dict[str, Any], ...] = (
         "reward_risk": 2.0,
         "max_holding_bars": 36,
     },
+    {
+        # Port of the repository's Robust Regime-Momentum v1 entry rules.
+        # Execution is re-evaluated by the XAUUSD BID/ASK kernel; the large
+        # holding cap disables the old model's synthetic time exit because
+        # this intraday adapter already flattens before UTC rollover.
+        "id": "robust_regime_momentum_v1",
+        "family": "robust_regime_momentum",
+        "ema_fast": 20,
+        "ema_slow": 50,
+        "h1_ema_fast": 50,
+        "h1_ema_slow": 200,
+        "adx_min": 22.0,
+        "pullback_bars": 3,
+        "touch_atr": 0.20,
+        "vol_min": 0.70,
+        "vol_max": 1.80,
+        "atr_stop_mult": 1.6,
+        "reward_risk": 2.2,
+        "max_holding_bars": 999,
+    },
 )
 
 REQUIRED_PRICE_COLUMNS = (
@@ -464,6 +484,28 @@ def build_features(raw: pd.DataFrame) -> pd.DataFrame:
     ).max(axis=1)
     alpha = 1.0 / 14.0
     d["ATR"] = tr.ewm(alpha=alpha, adjust=False, min_periods=14).mean()
+    d["ATR_BASE20"] = d["ATR"].rolling(20, min_periods=20).mean()
+    d["ATR_RATIO"] = d["ATR"] / d["ATR_BASE20"].replace(0, np.nan)
+
+    # Higher-timeframe context: use only fully complete UTC H1 candles.
+    # A missing M5 bar makes that H1 candle unusable rather than silently
+    # accepting a partial hour as a completed regime candle.
+    m5_close = d.set_index("timestamp")["mid_close"]
+    h1 = m5_close.resample("1h", label="left", closed="left").agg(["last", "count"])
+    h1_complete = h1["count"].eq(12)
+    h1_close = h1["last"].where(h1_complete)
+    h1_fast = h1_close.ewm(
+        span=50, adjust=False, min_periods=50, ignore_na=False
+    ).mean()
+    h1_slow = h1_close.ewm(
+        span=200, adjust=False, min_periods=200, ignore_na=False
+    ).mean()
+    h1_valid = h1_complete & h1_fast.notna() & h1_slow.notna()
+    h1_up = (h1_fast > h1_slow).where(h1_valid).shift(1)
+    h1_down = (h1_fast < h1_slow).where(h1_valid).shift(1)
+    hour_key = d["timestamp"].dt.floor("h")
+    d["H1_TREND_UP"] = hour_key.map(h1_up)
+    d["H1_TREND_DOWN"] = hour_key.map(h1_down)
 
     up_move = d["mid_high"].diff()
     down_move = -d["mid_low"].diff()
@@ -578,6 +620,51 @@ def build_signals(features: pd.DataFrame, candidate: dict[str, Any]) -> pd.Serie
         first_breakout = (long | short).fillna(False).astype(int).groupby(utc_date).cumsum().eq(1)
         long = long & first_breakout
         short = short & first_breakout
+    elif family == "robust_regime_momentum":
+        fast = features[f"EMA{candidate['ema_fast']}"]
+        slow = features[f"EMA{candidate['ema_slow']}"]
+        atr = features["ATR"]
+        touch_atr = float(candidate["touch_atr"])
+        pullback_bars = int(candidate["pullback_bars"])
+        touch_long = features["mid_low"] <= (fast + touch_atr * atr)
+        touch_short = features["mid_high"] >= (fast - touch_atr * atr)
+        recent_touch_long = (
+            touch_long.rolling(pullback_bars, min_periods=1)
+            .max().shift(1).fillna(0).astype(bool)
+        )
+        recent_touch_short = (
+            touch_short.rolling(pullback_bars, min_periods=1)
+            .max().shift(1).fillna(0).astype(bool)
+        )
+        h1_up = features["H1_TREND_UP"].fillna(False).astype(bool)
+        h1_down = features["H1_TREND_DOWN"].fillna(False).astype(bool)
+        atr_ratio = features["ATR_RATIO"]
+        long = (
+            h1_up
+            & (fast > slow)
+            & (adx >= float(candidate["adx_min"]))
+            & (close > features["mid_open"])
+            & recent_touch_long
+            & (close > fast)
+            & atr_ratio.between(
+                float(candidate["vol_min"]),
+                float(candidate["vol_max"]),
+                inclusive="both",
+            )
+        )
+        short = (
+            h1_down
+            & (fast < slow)
+            & (adx >= float(candidate["adx_min"]))
+            & (close < features["mid_open"])
+            & recent_touch_short
+            & (close < fast)
+            & atr_ratio.between(
+                float(candidate["vol_min"]),
+                float(candidate["vol_max"]),
+                inclusive="both",
+            )
+        )
     else:
         raise ValueError(f"XAUUSD_DISCOVERY_UNKNOWN_FAMILY:{family}")
 

@@ -10,7 +10,7 @@ After the G24 workflow run completes on main, G25 automatically attempts the res
 1. Downloads the immutable G22 annual M5 artifact (run 41911516706, artifact 13450801092).
 2. Downloads the successful G24 2025-2026 annual assembly artifact from the exact triggering run.
 3. Verifies each annual CSV against its manifest and SHA-256.
-4. Runs the fixed eight-candidate discovery/validation policy below.
+4. Runs the fixed nine-candidate discovery/validation policy below.
 5. Uploads one JSON evidence artifact. No MT5 connection or order API is used.
 
 PR validation runs tests only; it does not download history or run strategy research.
@@ -26,13 +26,14 @@ The runner rejects an incorrect period, wrong timeframe, bad hash, duplicate or 
 
 ## Fixed hypothesis set
 
-Exactly eight fixed candidates, with no expanding parameter grid:
+Exactly nine fixed candidates, with no expanding parameter grid:
 
 - Trend pullback: EMA 50/200 and EMA 34/144 variants.
 - Trend-filtered Donchian breakout: 20-bar and 55-bar variants.
 - Low-ADX Bollinger re-entry mean reversion: 20-bar and 40-bar variants.
 - One exit-only Donchian 55 check: same entry rules, EMA filters, ADX filter, ATR stop and holding limit as the original 55-bar candidate; only reward/risk changes from 2.5 to 1.5.
 - One London opening-range breakout: exact 07:00–07:55 UTC range (all 12 M5 bars required); one first-close breakout per UTC day after 08:00; ATR stop 1.5× and target 2R, maximum 36 bars. Incomplete opening ranges are skipped.
+- One port of the repository's Robust Regime-Momentum v1 entry logic: M5 EMA20/50 alignment, completed H1 EMA50/200 alignment, ADX≥22, a prior-three-bar EMA20 touch within 0.20 ATR, directional close beyond EMA20, and ATR/ATR20 ratio 0.70–1.80. Stop 1.6× ATR, target 2.2R. Execution is through this document's XAUUSD BID/ASK kernel, commission/slippage scenarios and intraday flattening; the old EURUSD OHLC/cost proxy is not reused.
 
 Signals are calculated only from completed M5 bars using mid quotes. Orders are simulated at the next bar open on the executable BID/ASK side by the XAUUSD execution kernel. The observed BID/ASK spread is already in the historical quote series and is not added again.
 
@@ -77,7 +78,7 @@ A passing result is only VALIDATION_PASS_FREEZE_AND_CODE_PARITY_REQUIRED. It is 
 
 2024_loaded=false, 2026_loaded=false, demo_authorized=false, live_authorized=false, orders_submitted=false.
 
-No strategy is assumed profitable in advance. The G25 outcome may legitimately be NO-GO for all eight hypotheses.
+No strategy is assumed profitable in advance. The G25 outcome may legitimately be NO-GO for all nine hypotheses.
 
 
 ## 2026-11-07 follow-up: zero-slippage diagnostic

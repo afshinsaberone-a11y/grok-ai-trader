@@ -56,14 +56,76 @@ def _write_verified_pair(tmp_path, *, synthetic=False, filled=0, hash_override=N
 
 
 def test_candidate_hypothesis_set_is_small_and_fixed():
-    assert len(CANDIDATES) == 8
-    assert len({candidate["id"] for candidate in CANDIDATES}) == 8
+    assert len(CANDIDATES) == 9
+    assert len({candidate["id"] for candidate in CANDIDATES}) == 9
     assert {candidate["family"] for candidate in CANDIDATES} == {
         "trend_pullback",
         "donchian_breakout",
         "bollinger_mean_reversion",
         "opening_range_breakout",
+        "robust_regime_momentum",
     }
+
+
+def test_robust_regime_momentum_requires_confirmed_m5_h1_regimes_and_pullback():
+    timestamps = pd.date_range("2021-01-04T08:00:00Z", periods=5, freq="5min")
+    features = pd.DataFrame({
+        "timestamp": timestamps,
+        "mid_open": [100.0, 100.0, 100.2, 101.0, 101.0],
+        "mid_close": [100.1, 100.2, 100.8, 100.9, 100.2],
+        "mid_low": [99.9, 99.7, 100.1, 100.8, 100.0],
+        "mid_high": [100.2, 100.4, 100.9, 101.2, 101.1],
+        "EMA20": [100.0, 100.0, 100.0, 101.0, 101.0],
+        "EMA50": [99.0, 99.0, 99.0, 102.0, 102.0],
+        "ATR": [1.0] * 5,
+        "ATR_RATIO": [1.0] * 5,
+        "ADX": [25.0] * 5,
+        "H1_TREND_UP": [True, True, True, False, False],
+        "H1_TREND_DOWN": [False, False, False, True, True],
+    })
+    candidate = next(
+        item for item in CANDIDATES
+        if item["id"] == "robust_regime_momentum_v1"
+    )
+    assert build_signals(features, candidate).tolist() == [0, 0, 1, 0, -1]
+
+
+def test_h1_regime_uses_only_complete_previous_utc_hour():
+    periods = 203 * 12
+    timestamps = pd.date_range(
+        "2021-01-01T00:00:00Z", periods=periods, freq="5min"
+    )
+    # Remove the final M5 bar of hour 201; that hour must not be consumed
+    # as a completed H1 candle by the next hour's M5 signals.
+    remove_index = 201 * 12 + 11
+    timestamps = timestamps.delete(remove_index)
+    rows = []
+    for i, timestamp in enumerate(timestamps):
+        mid = 2000.0 + i * 0.01
+        rows.append({
+            "timestamp": timestamp,
+            "bid_open": mid - 0.05,
+            "bid_high": mid + 0.20,
+            "bid_low": mid - 0.20,
+            "bid_close": mid,
+            "ask_open": mid + 0.05,
+            "ask_high": mid + 0.30,
+            "ask_low": mid - 0.10,
+            "ask_close": mid + 0.10,
+            "spread_open": 0.10,
+            "spread_close": 0.10,
+        })
+    features = build_features(pd.DataFrame(rows))
+    before_incomplete = features.loc[
+        features["timestamp"].eq(pd.Timestamp("2021-01-09T09:00:00Z")),
+        "H1_TREND_UP",
+    ].iloc[0]
+    after_incomplete = features.loc[
+        features["timestamp"].eq(pd.Timestamp("2021-01-09T10:00:00Z")),
+        "H1_TREND_UP",
+    ].iloc[0]
+    assert before_incomplete == True
+    assert pd.isna(after_incomplete)
 
 
 def test_opening_range_breakout_takes_only_first_cross_per_utc_day():
