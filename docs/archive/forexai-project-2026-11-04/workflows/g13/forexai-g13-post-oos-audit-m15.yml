@@ -1,0 +1,110 @@
+name: ForexAI G13 Post-OOS Audit M15
+
+on:
+  workflow_dispatch:
+    inputs:
+      robustness_run_id:
+        description: "Successful robustness workflow run ID"
+        required: true
+        default: "34611006027"
+      oos_run_id:
+        description: "Successful independent OOS workflow run ID"
+        required: true
+        default: "34654623363"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  post-oos-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile audit module
+        run: python -m py_compile research/optimization/g13_post_oos_audit_m15.py
+
+      - name: Download robustness evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.robustness_run_id }}
+        run: |
+          mkdir -p evidence/robustness
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-robustness-m15 --dir evidence/robustness
+
+      - name: Download independent OOS evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.oos_run_id }}
+        run: |
+          mkdir -p evidence/oos
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name g13-oos-m15-2026-current --dir evidence/oos
+
+      - name: Locate evidence
+        run: |
+          find evidence -maxdepth 3 -type f -print
+          test -f evidence/robustness/artifacts/g13-robustness-m15.json || test -f evidence/robustness/g13-robustness-m15.json
+          test -f evidence/oos/artifacts/g13-oos-m15-2026.json || test -f evidence/oos/g13-oos-m15-2026.json
+
+      - name: Resolve evidence paths
+        id: paths
+        shell: bash
+        run: |
+          ROB=$(find evidence/robustness -name 'g13-robustness-m15.json' -type f | head -n1)
+          OOS=$(find evidence/oos -name 'g13-oos-m15-2026.json' -type f | head -n1)
+          HANDOFF=$(find evidence/robustness -name 'g13-candidate-handoff-m15.json' -type f | head -n1)
+          test -n "$ROB" && test -n "$OOS" && test -n "$HANDOFF"
+          echo "robustness=$ROB" >> "$GITHUB_OUTPUT"
+          echo "oos=$OOS" >> "$GITHUB_OUTPUT"
+          echo "handoff=$HANDOFF" >> "$GITHUB_OUTPUT"
+
+      - name: Run post-OOS audit
+        run: |
+          python -m research.optimization.g13_post_oos_audit_m15 \
+            --handoff "${{ steps.paths.outputs.handoff }}" \
+            --robustness "${{ steps.paths.outputs.robustness }}" \
+            --oos "${{ steps.paths.outputs.oos }}" \
+            --output artifacts/g13-post-oos-audit-m15.json
+
+      - name: Fail closed policy verification
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('artifacts/g13-post-oos-audit-m15.json', encoding='utf-8'))
+          assert p['schema']=='forexai.g13.post_oos_audit_m15.v1'
+          assert p['status']=='PASS'
+          assert p['candidate_count']==16
+          assert p['selection_performed'] is False
+          assert p['optimization_enabled'] is False
+          assert p['parameters_frozen'] is True
+          assert p['oos']['status']=='EVALUATED'
+          assert p['oos']['selection_allowed'] is False
+          assert p['oos']['optimization_allowed'] is False
+          assert p['promotion_gate']['champion_selection_allowed'] is False
+          assert p['promotion_gate']['ea_generation_allowed'] is False
+          print(json.dumps({
+            'candidate_count': p['candidate_count'],
+            'promotion_review_eligible_count': p['promotion_review_eligible_count'],
+            'promotion_review_eligible_ids': p['promotion_review_eligible_ids'],
+            'selection_performed': p['selection_performed'],
+            'ea_generation_allowed': p['promotion_gate']['ea_generation_allowed'],
+          }, indent=2))
+          PY
+
+      - name: Upload post-OOS evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-post-oos-audit-m15
+          path: artifacts/g13-post-oos-audit-m15.json
+          if-no-files-found: error

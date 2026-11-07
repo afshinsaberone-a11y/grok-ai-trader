@@ -1,0 +1,22 @@
+{
+  "schema": "forexai.g17.trend_pullback_continuation.v1",
+  "status": "NO_GO_NO_IS_QUALIFIED_CANDIDATES",
+  "symbol": "EURUSD",
+  "timeframe": "M5",
+  "source": "HistData.com Generic ASCII M1 resampled to M5",
+  "rows": 211014,
+  "dataset_id": "20220101_20241231",
+  "data_sha256": "cca01a322929e8f550a9e2959404ac38767199f665ed92af6e35f0abca3740d4",
+  "manifest_sha256": "956aacdaa2b30481927b5b6737a2b8fd14d3f39bbb54bbdcadfe29960b3c98d2",
+  "candidates": 64,
+  "is_qualified": 0,
+  "cost_resilient": 0,
+  "shortlist": 0,
+  "total_is_trades_across_catalog": 89758,
+  "validation_performed": false,
+  "validation_2025_loaded": false,
+  "oos_2026_plus_loaded": false,
+  "demo_authorized": false,
+  "live_authorized": false,
+  "orders_submitted": false
+}

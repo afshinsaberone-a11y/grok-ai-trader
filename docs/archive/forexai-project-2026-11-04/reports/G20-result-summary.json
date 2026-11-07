@@ -1,0 +1,69 @@
+{
+  "schema": "forexai.g20.xauusd_opening_range_breakout.v1",
+  "status": "NO_GO_FIXED_OPENING_RANGE",
+  "data_sha256": "85d505a69a062552847f4aa39c31161c6c1206610dc83c3815cce0d77796cbcb",
+  "manifest_sha256": "1df7d7cf3d04fce8702859eda98de08b5ba103d8d4ef8e35d174a6121fb776aa",
+  "rows": 23650,
+  "source": "Dukascopy real paired XAUUSD H1 BID/ASK",
+  "years": [
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "synthetic_data": false,
+  "filled_bars": 0,
+  "2025_loaded": false,
+  "strategy": "7-bar server opening range; next-bar breakout entry; stop opposite range; target 1.5R; max 8 H1 bars",
+  "scenarios": [
+    {
+      "slippage_per_side_usd_per_oz": 0.05,
+      "is": {
+        "trades": 44,
+        "pf": 0.855551,
+        "expectancy_r": -0.0595834
+      },
+      "validation_2024": {
+        "trades": 17,
+        "pf": 3.066782,
+        "expectancy_r": 0.4170766
+      }
+    },
+    {
+      "slippage_per_side_usd_per_oz": 0.1,
+      "is": {
+        "trades": 44,
+        "pf": 0.777323,
+        "expectancy_r": -0.09254539
+      },
+      "validation_2024": {
+        "trades": 17,
+        "pf": 3.015189,
+        "expectancy_r": 0.41042213
+      }
+    },
+    {
+      "slippage_per_side_usd_per_oz": 0.2,
+      "is": {
+        "trades": 44,
+        "pf": 0.748464,
+        "expectancy_r": -0.10608247
+      },
+      "validation_2024": {
+        "trades": 17,
+        "pf": 2.913247,
+        "expectancy_r": 0.39731731
+      }
+    }
+  ],
+  "gate": {
+    "min_is_trades": 100,
+    "min_validation_trades": 30,
+    "discovery_positive_expectancy_required": true,
+    "validation_positive_expectancy_required": true,
+    "discovery_pf_min": 1.1,
+    "validation_pf_min_exclusive": 1
+  },
+  "all_trades_same_server_date": true,
+  "all_trades_before_rollover": true
+}

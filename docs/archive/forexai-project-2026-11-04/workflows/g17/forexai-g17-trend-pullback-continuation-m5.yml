@@ -1,0 +1,173 @@
+name: ForexAI G17 Trend Pullback Continuation M5
+
+on:
+  pull_request:
+    paths:
+      - "research/optimization/trend_pullback_continuation_g17.py"
+      - "tests/test_trend_pullback_continuation_g17.py"
+      - "research/real_data/histdata_ingest.py"
+      - "tests/test_histdata_ingest.py"
+      - "docs/research/g17-trend-pullback-continuation-v1-protocol-20261103.md"
+      - ".github/workflows/forexai-g17-trend-pullback-continuation-m5.yml"
+  push:
+    branches:
+      - "research/g17-trend-pullback-continuation-20261103"
+    paths:
+      - "research/optimization/trend_pullback_continuation_g17.py"
+      - "tests/test_trend_pullback_continuation_g17.py"
+      - "research/real_data/histdata_ingest.py"
+      - "tests/test_histdata_ingest.py"
+      - "docs/research/g17-trend-pullback-continuation-v1-protocol-20261103.md"
+      - ".github/workflows/forexai-g17-trend-pullback-continuation-m5.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Compile G17 and regression tests
+        run: |
+          python -m py_compile \
+            research/optimization/trend_pullback_continuation_g17.py \
+            tests/test_trend_pullback_continuation_g17.py \
+            research/real_data/histdata_ingest.py \
+            tests/test_histdata_ingest.py
+      - name: Run G17, real-data parser, and G15 regression tests
+        run: |
+          pytest -q \
+            tests/test_trend_pullback_continuation_g17.py \
+            tests/test_histdata_ingest.py \
+            tests/test_session_range_breakout_g15.py
+      - name: Download REAL EURUSD M5 data for discovery years only
+        run: |
+          python -m research.real_data.histdata_ingest \
+            --symbol EURUSD \
+            --start 2022-01-01 \
+            --end 2025-01-01 \
+            --timeframe M5 \
+            --output data/real \
+            --validate \
+            --manifest
+      - name: Resolve exact 2022-2024 dataset and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="data/real/normalized/EURUSD_M5_20220101_20241231.csv"
+          MANIFEST="data/real/normalized/EURUSD_M5_20220101_20241231.manifest.json"
+          test -s "$DATA"
+          test -s "$MANIFEST"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "MANIFEST=$MANIFEST" >> "$GITHUB_ENV"
+      - name: Run locked G17 IS-only discovery
+        run: |
+          python -m research.optimization.trend_pullback_continuation_g17 \
+            --data "$DATA" \
+            --manifest "$MANIFEST" \
+            --output artifacts/g17-trend-pullback-continuation-m5.json
+      - name: Fail closed on data, leakage, and authorization invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = json.loads(Path("artifacts/g17-trend-pullback-continuation-m5.json").read_text(encoding="utf-8"))
+          assert p["schema_version"] == "forexai.g17.trend_pullback_continuation.v1"
+          assert p["catalog"]["candidate_total"] == 64
+          assert p["real_data_required"] is True and p["synthetic_fallback"] is False
+          assert p["source_data"]["quality_status"] == "PASS"
+          assert p["source_data"]["price_basis"] == "BID_OHLC"
+          assert p["source_data"]["end"] < "2025-01-01"
+          assert p["protocol"]["year_2025_loaded"] is False
+          assert p["protocol"]["validation_performed"] is False
+          assert p["protocol"]["oos_loaded"] is False
+          assert p["oos_policy"]["loaded"] is False
+          assert p["oos_policy"]["oos_runner_invoked"] is False
+          assert p["oos_policy"]["oos_optimization_allowed"] is False
+          assert p["selection_frozen"] is False and p["frozen_candidate"] is None
+          assert p["demo_authorized"] is False
+          assert p["live_authorized"] is False
+          assert p["orders_submitted"] is False
+          assert p["decision"] in {
+              "DISCOVERY_ONLY_REQUIRES_UNSEEN_VALIDATION",
+              "IS_QUALIFIED_BUT_COST_STRESS_FAILED",
+              "NO_GO_NO_IS_QUALIFIED_CANDIDATES",
+          }
+          assert p["costs"]["baseline_round_trip_pips"] == 0.9
+          assert p["costs"]["moderate_stress_round_trip_pips"] == 1.35
+          assert p["costs"]["severe_diagnostic_round_trip_pips"] == 2.0
+          print(json.dumps({
+              "data_rows": p["source_data"]["rows"],
+              "data_sha256": p["source_data"]["data_sha256"],
+              "manifest_sha256": p["source_data"]["manifest_sha256"],
+              "candidate_total": p["catalog"]["candidate_total"],
+              "is_qualified": p["catalog"]["is_qualified_count"],
+              "cost_resilient": p["catalog"]["cost_resilient_count"],
+              "shortlist": p["catalog"]["shortlist_count"],
+              "decision": p["decision"],
+              "year_2025_loaded": p["protocol"]["year_2025_loaded"],
+              "oos_loaded": p["oos_policy"]["loaded"],
+              "demo_live_orders": [p["demo_authorized"], p["live_authorized"], p["orders_submitted"]],
+          }, indent=2))
+          PY
+      - name: Upload G17 research artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-g17-trend-pullback-continuation-m5
+          path: artifacts/g17-trend-pullback-continuation-m5.json
+          if-no-files-found: error
+      - name: Publish exact-run discovery result to PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('artifacts/g17-trend-pullback-continuation-m5.json', 'utf8'));
+            const top = p.top_20_is_diagnostics[0];
+            const body = [
+              '<!-- forexai-g17-result -->',
+              '## G17 real-data discovery result',
+              '',
+              '**Decision:** ' + p.decision,
+              '- Locked candidates: ' + p.catalog.candidate_total,
+              '- IS-qualified (2022-2024): ' + p.catalog.is_qualified_count,
+              '- Cost-resilient: ' + p.catalog.cost_resilient_count,
+              '- Shortlist (requires unseen validation): ' + p.catalog.shortlist_count,
+              '- Total IS trades across candidates: ' + p.catalog.total_is_trades_across_catalog,
+              '- Baseline / moderate / severe diagnostic cost: ' + p.costs.baseline_round_trip_pips + ' / ' + p.costs.moderate_stress_round_trip_pips + ' / ' + p.costs.severe_diagnostic_round_trip_pips + ' pips',
+              '- Dataset SHA-256: ' + p.source_data.data_sha256,
+              '- Manifest SHA-256: ' + p.source_data.manifest_sha256,
+              '- 2025 loaded: ' + p.protocol.year_2025_loaded + '; 2026+ OOS loaded: ' + p.oos_policy.loaded,
+              '- Candidate frozen: ' + p.selection_frozen,
+              '- Demo / Live / orders: ' + p.demo_authorized + ' / ' + p.live_authorized + ' / ' + p.orders_submitted,
+              '',
+              top ? ('Top IS diagnostic candidate (not a promotion): #' + top.candidate_id + ', score ' + top.discovery_score) : 'No diagnostic candidate available.',
+              '',
+              'Artifact: forexai-g17-trend-pullback-continuation-m5 from Actions run ' + context.runId + '.',
+              '',
+              'Discovery-only evidence. A shortlist requires a genuinely unseen validation period and does not authorize trading.'
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const existing = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+            const prior = existing.data.find(c => c.body && c.body.includes('<!-- forexai-g17-result -->'));
+            if (prior) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: prior.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
