@@ -71,7 +71,7 @@ def test_robust_regime_momentum_requires_confirmed_m5_h1_regimes_and_pullback():
     timestamps = pd.date_range("2021-01-04T08:00:00Z", periods=5, freq="5min")
     features = pd.DataFrame({
         "timestamp": timestamps,
-        "mid_open": [100.0, 100.0, 100.2, 101.0, 101.0],
+        "mid_open": [100.0, 100.3, 100.2, 101.0, 101.0],
         "mid_close": [100.1, 100.2, 100.8, 100.9, 100.2],
         "mid_low": [99.9, 99.7, 100.1, 100.8, 100.0],
         "mid_high": [100.2, 100.4, 100.9, 101.2, 101.1],
@@ -82,7 +82,7 @@ def test_robust_regime_momentum_requires_confirmed_m5_h1_regimes_and_pullback():
         "ADX": [25.0] * 5,
         "RSI": [50.0] * 5,
         "H1_TREND_UP": [True, True, True, False, False],
-        "H1_TREND_DOWN": [False, False, False, True, True],
+        "H1_TREND_DOWN": [False, False, False, False, True],
     })
     candidate = next(
         item for item in CANDIDATES
