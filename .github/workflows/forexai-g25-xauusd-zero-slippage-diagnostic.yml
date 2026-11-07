@@ -1,4 +1,5 @@
 name: ForexAI G25 XAUUSD Zero-Slippage Diagnostic
+# Diagnostic upper-bound run: real BID/ASK spread retained; only added slippage is zero.
 
 on:
   workflow_dispatch:
