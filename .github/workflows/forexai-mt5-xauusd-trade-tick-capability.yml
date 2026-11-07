@@ -84,7 +84,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "MT5_PACKAGE_INSTALL_FAILED:$LASTEXITCODE" }
 
       - name: Run read-only historical trade-tick capability probe
-        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/mt5-trade-tick-capability | Out-Null
           & $env:MT5_PYTHON -m tools.mt5_xauusd_trade_tick_capability_probe --symbol "$env:MT5_SYMBOL" --days ([int]$env:MT5_DAYS) --output artifacts/mt5-trade-tick-capability/xauusd-trade-tick-capability.json
