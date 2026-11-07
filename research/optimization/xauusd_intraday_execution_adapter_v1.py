@@ -274,6 +274,44 @@ def run_xauusd_intraday(
         before - after for before, after in zip(pre_commission_r, net_r)
     ]
 
+    def summarize_group(group: list[dict[str, Any]]) -> dict[str, Any]:
+        group_net = [float(item["net_R"]) for item in group]
+        group_pre = [
+            float(item["price_R_after_quote_and_slippage_before_commission_financing"])
+            for item in group
+        ]
+        net_wins = sum(value for value in group_net if value > 0)
+        net_losses = abs(sum(value for value in group_net if value < 0))
+        pre_wins = sum(value for value in group_pre if value > 0)
+        pre_losses = abs(sum(value for value in group_pre if value < 0))
+
+        def pf(wins_total: float, losses_total: float) -> float | str:
+            if losses_total > 0:
+                return round(wins_total / losses_total, 6)
+            return "inf" if wins_total > 0 else 0.0
+
+        return {
+            "trades": len(group),
+            "net_expectancy_R": round(float(np.mean(group_net)), 8) if group_net else 0.0,
+            "net_profit_factor": pf(net_wins, net_losses),
+            "pre_commission_expectancy_R": (
+                round(float(np.mean(group_pre)), 8) if group_pre else 0.0
+            ),
+            "pre_commission_profit_factor": pf(pre_wins, pre_losses),
+        }
+
+    side_breakdown = {
+        side: summarize_group([item for item in trades if item["side"] == side])
+        for side in ("LONG", "SHORT")
+        if any(item["side"] == side for item in trades)
+    }
+    exit_reason_breakdown = {
+        reason: summarize_group([
+            item for item in trades if item["exit_reason"] == reason
+        ])
+        for reason in sorted({str(item["exit_reason"]) for item in trades})
+    }
+
     equity = peak = 10_000.0
     max_dd_pct = 0.0
     for value in net_r:
@@ -324,6 +362,8 @@ def run_xauusd_intraday(
             round(float(np.mean(commission_financing_drag)), 8)
             if commission_financing_drag else 0.0
         ),
+        "side_breakdown": side_breakdown,
+        "exit_reason_breakdown": exit_reason_breakdown,
         "profit_factor": profit_factor,
         "max_dd_pct": round(max_dd_pct, 6),
         "normalized_equity_index_final": round(equity, 6),
