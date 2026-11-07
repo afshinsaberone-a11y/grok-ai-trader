@@ -57,6 +57,25 @@ def test_intraday_adapter_liquidates_each_day_before_rollover() -> None:
     assert all(t['entry_time'][:10] == t['exit_time'][:10] for t in trades)
     assert all(t['financing_usd_per_oz'] == 0.0 for t in trades)
     assert all(t['spread_double_charged'] is False for t in trades)
+    pre_commission = [
+        t['price_R_after_quote_and_slippage_before_commission_financing']
+        for t in trades
+    ]
+    net = [t['net_R'] for t in trades]
+    assert metrics['pre_commission_expectancy_R'] == pytest.approx(
+        sum(pre_commission) / len(pre_commission)
+    )
+    assert metrics['commission_financing_drag_expectancy_R'] == pytest.approx(
+        sum(before - after for before, after in zip(pre_commission, net))
+        / len(net)
+    )
+    gains = sum(value for value in pre_commission if value > 0)
+    losses = abs(sum(value for value in pre_commission if value < 0))
+    expected_pf = gains / losses if losses else ('inf' if gains else 0.0)
+    if expected_pf == 'inf':
+        assert metrics['pre_commission_profit_factor'] == 'inf'
+    else:
+        assert metrics['pre_commission_profit_factor'] == pytest.approx(expected_pf)
 
 
 def test_bar_opening_at_2050_is_excluded_and_last_bar_closes_by_cutoff() -> None:

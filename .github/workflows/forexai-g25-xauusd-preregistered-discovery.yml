@@ -8,11 +8,22 @@ on:
         required: true
         default: "42201880647"
         type: string
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/forexai-g25-xauusd-preregistered-discovery.yml"
+      - "research/optimization/xauusd_intraday_preregistered_discovery_v1.py"
+      - "research/optimization/xauusd_intraday_execution_adapter_v1.py"
+      - "tests/test_xauusd_intraday_preregistered_discovery_v1.py"
+      - "tests/test_xauusd_intraday_execution_adapter_v1.py"
+      - "docs/research/g25-xauusd-preregistered-discovery-20261106.md"
   pull_request:
     paths:
       - ".github/workflows/forexai-g25-xauusd-preregistered-discovery.yml"
       - "research/optimization/xauusd_intraday_preregistered_discovery_v1.py"
+      - "research/optimization/xauusd_intraday_execution_adapter_v1.py"
       - "tests/test_xauusd_intraday_preregistered_discovery_v1.py"
+      - "tests/test_xauusd_intraday_execution_adapter_v1.py"
       - "docs/research/g25-xauusd-preregistered-discovery-20261106.md"
   workflow_run:
     workflows:
@@ -33,6 +44,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
       (github.event_name == 'workflow_run' &&
        (github.event.workflow_run.event == 'push' ||
         github.event.workflow_run.event == 'workflow_dispatch'))
@@ -58,6 +70,7 @@ jobs:
   discover:
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
       (github.event_name == 'workflow_run' &&
        (github.event.workflow_run.event == 'push' ||
         github.event.workflow_run.event == 'workflow_dispatch'))

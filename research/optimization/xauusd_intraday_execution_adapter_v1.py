@@ -240,17 +240,39 @@ def run_xauusd_intraday(
                     "session_trade_number": session_trade_number,
                 })
 
+    # Separate price performance from commission/financing drag. The
+    # pre-commission measure still includes observed BID/ASK quotes and the
+    # configured adverse slippage; the quote spread is never re-added here.
     net_r = [float(item["net_R"]) for item in trades]
+    pre_commission_r = [
+        float(item["price_R_after_quote_and_slippage_before_commission_financing"])
+        for item in trades
+    ]
     wins = [value for value in net_r if value > 0]
     losses = [value for value in net_r if value < 0]
-    gross_profit = float(sum(wins))
-    gross_loss = float(abs(sum(losses)))
+    gross_profit, gross_loss = float(sum(wins)), float(abs(sum(losses)))
     if gross_loss > 0:
         profit_factor: float | str = round(gross_profit / gross_loss, 6)
     elif gross_profit > 0:
         profit_factor = "inf"
     else:
         profit_factor = 0.0
+
+    pre_commission_wins = [value for value in pre_commission_r if value > 0]
+    pre_commission_losses = [value for value in pre_commission_r if value < 0]
+    pre_commission_profit = float(sum(pre_commission_wins))
+    pre_commission_loss = float(abs(sum(pre_commission_losses)))
+    if pre_commission_loss > 0:
+        pre_commission_profit_factor: float | str = round(
+            pre_commission_profit / pre_commission_loss, 6
+        )
+    elif pre_commission_profit > 0:
+        pre_commission_profit_factor = "inf"
+    else:
+        pre_commission_profit_factor = 0.0
+    commission_financing_drag = [
+        before - after for before, after in zip(pre_commission_r, net_r)
+    ]
 
     equity = peak = 10_000.0
     max_dd_pct = 0.0
@@ -289,6 +311,19 @@ def run_xauusd_intraday(
         "win_rate_pct": round(100.0 * len(wins) / len(net_r), 4) if net_r else 0.0,
         "expectancy_R": round(float(np.mean(net_r)), 8) if net_r else 0.0,
         "total_R": round(float(np.sum(net_r)), 8) if net_r else 0.0,
+        "pre_commission_win_rate_pct": (
+            round(100.0 * len(pre_commission_wins) / len(pre_commission_r), 4)
+            if pre_commission_r else 0.0
+        ),
+        "pre_commission_expectancy_R": (
+            round(float(np.mean(pre_commission_r)), 8) if pre_commission_r else 0.0
+        ),
+        "pre_commission_total_R": round(float(np.sum(pre_commission_r)), 8),
+        "pre_commission_profit_factor": pre_commission_profit_factor,
+        "commission_financing_drag_expectancy_R": (
+            round(float(np.mean(commission_financing_drag)), 8)
+            if commission_financing_drag else 0.0
+        ),
         "profit_factor": profit_factor,
         "max_dd_pct": round(max_dd_pct, 6),
         "normalized_equity_index_final": round(equity, 6),
