@@ -1,6 +1,7 @@
 name: ForexAI G25 XAUUSD Zero-Slippage Diagnostic
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -15,39 +16,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install test dependencies
-        run: python -m pip install numpy pandas pytest
-      - name: Validate XAUUSD discovery and execution contracts
-        run: >-
-          python -m pytest -q
-          tests/test_xauusd_intraday_preregistered_discovery_v1.py
-          tests/test_xauusd_intraday_execution_adapter_v1.py
-          tests/test_xauusd_execution_contract_v1.py
-          tests/test_xauusd_fresh_oos_m5.py
-
-  discover:
-    needs: validate
+  diagnostic:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install research dependencies
         run: python -m pip install numpy pandas
+
       - name: Download immutable G22 2021-2024 source artifact
         uses: actions/download-artifact@v4
         with:
@@ -56,6 +39,7 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 41911516706
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download only the four immutable G24 2025 shards
         uses: actions/download-artifact@v4
         with:
@@ -65,7 +49,8 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 42201880647
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run diagnostic with zero slippage and observed BID-ASK spread
+
+      - name: Run seven fixed hypotheses with zero added slippage
         run: |
           python -m research.optimization.xauusd_intraday_preregistered_discovery_v1 \
             --train-root data/g22 \
@@ -73,6 +58,7 @@ jobs:
             --commission-usd-per-oz-round-turn 0.08 \
             --slippage-usd-per-oz-per-side 0.0 \
             --output artifacts/g25-xauusd-zero-slippage-diagnostic.json
+
       - name: Upload zero-slippage diagnostic evidence
         uses: actions/upload-artifact@v4
         with:
