@@ -55,13 +55,34 @@ def _write_verified_pair(tmp_path, *, synthetic=False, filled=0, hash_override=N
 
 
 def test_candidate_hypothesis_set_is_small_and_fixed():
-    assert len(CANDIDATES) == 6
-    assert len({candidate["id"] for candidate in CANDIDATES}) == 6
+    assert len(CANDIDATES) == 7
+    assert len({candidate["id"] for candidate in CANDIDATES}) == 7
     assert {candidate["family"] for candidate in CANDIDATES} == {
         "trend_pullback",
         "donchian_breakout",
         "bollinger_mean_reversion",
     }
+
+
+def test_donchian_55_exit_only_variant_changes_only_reward_risk():
+    baseline = next(
+        candidate for candidate in CANDIDATES
+        if candidate["id"] == "donchian_55_trend"
+    )
+    variant = next(
+        candidate for candidate in CANDIDATES
+        if candidate["id"] == "donchian_55_trend_rr15_exit_only"
+    )
+    baseline_without_id = {k: v for k, v in baseline.items() if k != "id"}
+    variant_without_id_or_rr = {
+        k: v for k, v in variant.items() if k not in {"id", "reward_risk"}
+    }
+    baseline_without_rr = {
+        k: v for k, v in baseline_without_id.items() if k != "reward_risk"
+    }
+    assert variant_without_id_or_rr == baseline_without_rr
+    assert baseline["reward_risk"] == 2.5
+    assert variant["reward_risk"] == 1.5
 
 
 def test_training_dataset_hash_scope_and_real_data_are_verified(tmp_path):

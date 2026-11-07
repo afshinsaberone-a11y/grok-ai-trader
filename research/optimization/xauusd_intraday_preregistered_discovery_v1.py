@@ -100,6 +100,19 @@ CANDIDATES: tuple[dict[str, Any], ...] = (
         "reward_risk": 1.2,
         "max_holding_bars": 12,
     },
+    {
+        # Exit-only sensitivity check: identical Donchian 55 entry logic,
+        # stop distance and holding limit; only target multiple changes.
+        "id": "donchian_55_trend_rr15_exit_only",
+        "family": "donchian_breakout",
+        "channel_window": 55,
+        "ema_fast": 50,
+        "ema_slow": 200,
+        "adx_min": 18,
+        "atr_stop_mult": 2.0,
+        "reward_risk": 1.5,
+        "max_holding_bars": 36,
+    },
 )
 
 REQUIRED_PRICE_COLUMNS = (
