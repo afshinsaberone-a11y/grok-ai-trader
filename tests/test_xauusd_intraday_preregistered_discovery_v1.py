@@ -55,13 +55,77 @@ def _write_verified_pair(tmp_path, *, synthetic=False, filled=0, hash_override=N
 
 
 def test_candidate_hypothesis_set_is_small_and_fixed():
-    assert len(CANDIDATES) == 7
-    assert len({candidate["id"] for candidate in CANDIDATES}) == 7
+    assert len(CANDIDATES) == 8
+    assert len({candidate["id"] for candidate in CANDIDATES}) == 8
     assert {candidate["family"] for candidate in CANDIDATES} == {
         "trend_pullback",
         "donchian_breakout",
         "bollinger_mean_reversion",
+        "opening_range_breakout",
     }
+
+
+def test_opening_range_breakout_takes_only_first_cross_per_utc_day():
+    timestamps = pd.to_datetime([
+        "2021-01-04T07:55:00Z",
+        "2021-01-04T08:00:00Z",
+        "2021-01-04T08:05:00Z",
+        "2021-01-04T08:10:00Z",
+        "2021-01-04T08:15:00Z",
+        "2021-01-04T08:20:00Z",
+        "2021-01-05T07:55:00Z",
+        "2021-01-05T08:00:00Z",
+        "2021-01-05T08:05:00Z",
+    ], utc=True)
+    features = pd.DataFrame({
+        "timestamp": timestamps,
+        "mid_close": [101.0, 101.0, 103.0, 104.0, 97.0, 97.0, 101.0, 101.0, 97.0],
+        "OPENING_RANGE_HIGH": [102.0] * 9,
+        "OPENING_RANGE_LOW": [98.0] * 9,
+        "ADX": [20.0] * 9,
+        "RSI": [50.0] * 9,
+    })
+    candidate = {
+        "family": "opening_range_breakout",
+        "atr_stop_mult": 1.5,
+        "reward_risk": 2.0,
+        "max_holding_bars": 36,
+    }
+    signals = build_signals(features, candidate).tolist()
+    assert signals == [0, 0, 1, 0, 0, 0, 0, 0, -1]
+
+
+def test_opening_range_features_require_all_twelve_m5_bars():
+    timestamps = list(pd.date_range("2021-01-04T07:00:00Z", periods=12, freq="5min"))
+    timestamps += [pd.Timestamp("2021-01-04T08:00:00Z")]
+    timestamps += [
+        ts for ts in pd.date_range("2021-01-05T07:00:00Z", periods=12, freq="5min")
+        if ts.minute != 55
+    ]
+    timestamps += [pd.Timestamp("2021-01-05T08:00:00Z")]
+    rows = []
+    for i, timestamp in enumerate(timestamps):
+        bid = 2000.0 + i * 0.01
+        rows.append({
+            "timestamp": timestamp,
+            "bid_open": bid,
+            "bid_high": bid + 0.5,
+            "bid_low": bid - 0.5,
+            "bid_close": bid + 0.1,
+            "ask_open": bid + 0.1,
+            "ask_high": bid + 0.6,
+            "ask_low": bid - 0.4,
+            "ask_close": bid + 0.2,
+            "spread_open": 0.1,
+            "spread_close": 0.1,
+        })
+    features = build_features(pd.DataFrame(rows))
+    day1 = features.loc[features["timestamp"].eq(pd.Timestamp("2021-01-04T08:00:00Z"))].iloc[0]
+    day2 = features.loc[features["timestamp"].eq(pd.Timestamp("2021-01-05T08:00:00Z"))].iloc[0]
+    assert pd.notna(day1["OPENING_RANGE_HIGH"])
+    assert pd.notna(day1["OPENING_RANGE_LOW"])
+    assert pd.isna(day2["OPENING_RANGE_HIGH"])
+    assert pd.isna(day2["OPENING_RANGE_LOW"])
 
 
 def test_donchian_55_exit_only_variant_changes_only_reward_risk():

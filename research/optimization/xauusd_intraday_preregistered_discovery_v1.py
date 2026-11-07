@@ -113,6 +113,14 @@ CANDIDATES: tuple[dict[str, Any], ...] = (
         "reward_risk": 1.5,
         "max_holding_bars": 36,
     },
+    {
+        # One distinct, fixed-time hypothesis; no parameter sweep.
+        "id": "london_opening_range_breakout",
+        "family": "opening_range_breakout",
+        "atr_stop_mult": 1.5,
+        "reward_risk": 2.0,
+        "max_holding_bars": 36,
+    },
 )
 
 REQUIRED_PRICE_COLUMNS = (
@@ -480,6 +488,21 @@ def build_features(raw: pd.DataFrame) -> pd.DataFrame:
         d[f"BB_STD_{window}"] = d["mid_close"].rolling(window, min_periods=window).std(ddof=0)
         d[f"CHANNEL_HIGH_{window}"] = d["mid_high"].rolling(window, min_periods=window).max().shift(1)
         d[f"CHANNEL_LOW_{window}"] = d["mid_low"].rolling(window, min_periods=window).min().shift(1)
+
+    # Fixed London opening range: all twelve M5 bars from 07:00 through
+    # 07:55 UTC must exist. Incomplete days are excluded, not filled.
+    utc_date = d["timestamp"].dt.strftime("%Y-%m-%d")
+    opening = d.loc[d["timestamp"].dt.hour.eq(7), ["timestamp", "mid_high", "mid_low"]].copy()
+    opening["_utc_date"] = utc_date.loc[opening.index]
+    opening_range = opening.groupby("_utc_date").agg(
+        bars=("timestamp", "size"),
+        high=("mid_high", "max"),
+        low=("mid_low", "min"),
+    )
+    incomplete = opening_range["bars"].ne(12)
+    opening_range.loc[incomplete, ["high", "low"]] = np.nan
+    d["OPENING_RANGE_HIGH"] = utc_date.map(opening_range["high"])
+    d["OPENING_RANGE_LOW"] = utc_date.map(opening_range["low"])
     return d
 
 
@@ -534,6 +557,27 @@ def build_signals(features: pd.DataFrame, candidate: dict[str, Any]) -> pd.Serie
             & (rsi >= candidate["rsi_short_min"])
             & (adx <= candidate["adx_max"])
         )
+    elif family == "opening_range_breakout":
+        # One first-close breakout per UTC day after a complete 07:00-08:00 range.
+        upper = features["OPENING_RANGE_HIGH"]
+        lower = features["OPENING_RANGE_LOW"]
+        after_opening_range = features["timestamp"].dt.hour.ge(8)
+        long = (
+            after_opening_range
+            & upper.notna()
+            & (close.shift(1) <= upper)
+            & (close > upper)
+        )
+        short = (
+            after_opening_range
+            & lower.notna()
+            & (close.shift(1) >= lower)
+            & (close < lower)
+        )
+        utc_date = features["timestamp"].dt.strftime("%Y-%m-%d")
+        first_breakout = (long | short).fillna(False).astype(int).groupby(utc_date).cumsum().eq(1)
+        long = long & first_breakout
+        short = short & first_breakout
     else:
         raise ValueError(f"XAUUSD_DISCOVERY_UNKNOWN_FAMILY:{family}")
 
