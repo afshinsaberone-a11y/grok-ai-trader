@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -166,6 +167,244 @@ def summarize_tick_capabilities(
     }
 
 
+
+def summarize_market_book_snapshot(
+    entries,
+    *,
+    sell_type: int = 1,
+    buy_type: int = 2,
+    sell_market_type: int = 3,
+    buy_market_type: int = 4,
+) -> dict[str, Any]:
+    """Aggregate one MT5 DOM snapshot; never retain or export individual levels."""
+    result = {
+        "snapshot_returned": entries is not None,
+        "levels_returned": 0 if entries is None else len(entries),
+        "buy_limit_levels": 0,
+        "sell_limit_levels": 0,
+        "buy_market_levels": 0,
+        "sell_market_levels": 0,
+        "unknown_type_levels": 0,
+        "invalid_price_or_volume_levels": 0,
+        "buy_limit_volume": 0.0,
+        "sell_limit_volume": 0.0,
+        "buy_market_volume": 0.0,
+        "sell_market_volume": 0.0,
+        "best_bid_price": None,
+        "best_ask_price": None,
+        "displayed_limit_depth_imbalance": None,
+    }
+    if entries is None or len(entries) == 0:
+        return result
+
+    volumes_by_type = {
+        "buy_limit": [],
+        "sell_limit": [],
+        "buy_market": [],
+        "sell_market": [],
+    }
+    prices_by_type = {"buy_limit": [], "sell_limit": []}
+    type_map = {
+        int(buy_type): "buy_limit",
+        int(sell_type): "sell_limit",
+        int(buy_market_type): "buy_market",
+        int(sell_market_type): "sell_market",
+    }
+    if len(type_map) != 4:
+        raise ValueError("MT5_BOOK_TYPE_CODES_NOT_DISTINCT")
+
+    for entry in entries:
+        if hasattr(entry, "_asdict"):
+            row = entry._asdict()
+        elif isinstance(entry, dict):
+            row = entry
+        else:
+            row = {
+                "type": getattr(entry, "type", None),
+                "price": getattr(entry, "price", None),
+                "volume_dbl": getattr(entry, "volume_dbl", None),
+                "volume": getattr(entry, "volume", None),
+            }
+        try:
+            entry_type = int(row["type"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            result["unknown_type_levels"] += 1
+            continue
+        category = type_map.get(entry_type)
+        if category is None:
+            result["unknown_type_levels"] += 1
+            continue
+        try:
+            price = float(row.get("price"))
+            raw_volume = row.get("volume_dbl")
+            if raw_volume is None:
+                raw_volume = row.get("volume")
+            volume = float(raw_volume)
+        except (TypeError, ValueError, OverflowError):
+            result["invalid_price_or_volume_levels"] += 1
+            continue
+        if (
+            not math.isfinite(price)
+            or price <= 0
+            or not math.isfinite(volume)
+            or volume <= 0
+        ):
+            result["invalid_price_or_volume_levels"] += 1
+            continue
+
+        result[category + "_levels"] += 1
+        volumes_by_type[category].append(volume)
+        if category in prices_by_type:
+            prices_by_type[category].append(price)
+
+    for category, values in volumes_by_type.items():
+        result[category + "_volume"] = round(sum(values), 10)
+    if prices_by_type["buy_limit"]:
+        result["best_bid_price"] = max(prices_by_type["buy_limit"])
+    if prices_by_type["sell_limit"]:
+        result["best_ask_price"] = min(prices_by_type["sell_limit"])
+
+    buy_volume = result["buy_limit_volume"]
+    sell_volume = result["sell_limit_volume"]
+    total_limit_volume = buy_volume + sell_volume
+    if total_limit_volume > 0:
+        result["displayed_limit_depth_imbalance"] = round(
+            (buy_volume - sell_volume) / total_limit_volume,
+            8,
+        )
+    return result
+
+
+def collect_market_depth(
+    mt5,
+    symbol: str,
+    *,
+    sample_count: int = 8,
+    interval_seconds: float = 0.5,
+) -> dict[str, Any]:
+    """Collect a short live DOM capability sample and export aggregate metrics only."""
+    if sample_count < 1 or sample_count > 30:
+        raise ValueError("DOM_SAMPLE_COUNT_MUST_BE_IN_1_TO_30")
+    if not math.isfinite(interval_seconds) or interval_seconds < 0 or interval_seconds > 5:
+        raise ValueError("DOM_INTERVAL_SECONDS_INVALID")
+
+    add = getattr(mt5, "market_book_add", None)
+    get = getattr(mt5, "market_book_get", None)
+    release = getattr(mt5, "market_book_release", None)
+    if not callable(add) or not callable(get) or not callable(release):
+        return {
+            "status": "DOM_API_UNAVAILABLE",
+            "subscription_succeeded": False,
+            "market_book_release_succeeded": None,
+            "samples_requested": sample_count,
+            "nonempty_snapshots": 0,
+            "empty_snapshots": 0,
+            "snapshot_errors": 0,
+        }
+
+    book_types = {
+        "sell_limit": int(getattr(mt5, "BOOK_TYPE_SELL", 1)),
+        "buy_limit": int(getattr(mt5, "BOOK_TYPE_BUY", 2)),
+        "sell_market": int(getattr(mt5, "BOOK_TYPE_SELL_MARKET", 3)),
+        "buy_market": int(getattr(mt5, "BOOK_TYPE_BUY_MARKET", 4)),
+    }
+    if len(set(book_types.values())) != 4:
+        return {
+            "status": "DOM_BOOK_TYPE_CONSTANTS_INVALID",
+            "subscription_succeeded": False,
+            "market_book_release_succeeded": None,
+            "samples_requested": sample_count,
+            "book_type_values": book_types,
+            "nonempty_snapshots": 0,
+            "empty_snapshots": 0,
+            "snapshot_errors": 0,
+        }
+
+    subscribed = bool(add(symbol))
+    if not subscribed:
+        return {
+            "status": "DOM_SUBSCRIPTION_UNAVAILABLE",
+            "subscription_succeeded": False,
+            "subscription_error": str(getattr(mt5, "last_error", lambda: None)()),
+            "market_book_release_succeeded": None,
+            "samples_requested": sample_count,
+            "book_type_values": book_types,
+            "nonempty_snapshots": 0,
+            "empty_snapshots": 0,
+            "snapshot_errors": 0,
+        }
+
+    snapshots = []
+    snapshot_errors = 0
+    release_ok = None
+    try:
+        for index in range(sample_count):
+            entries = get(symbol)
+            if entries is None:
+                snapshot_errors += 1
+            else:
+                snapshot = summarize_market_book_snapshot(
+                    entries,
+                    sell_type=book_types["sell_limit"],
+                    buy_type=book_types["buy_limit"],
+                    sell_market_type=book_types["sell_market"],
+                    buy_market_type=book_types["buy_market"],
+                )
+                snapshots.append(snapshot)
+            if index + 1 < sample_count and interval_seconds:
+                time.sleep(interval_seconds)
+    finally:
+        try:
+            release_ok = bool(release(symbol))
+        except Exception:
+            release_ok = False
+
+    nonempty = [row for row in snapshots if row["levels_returned"] > 0]
+    empty = len(snapshots) - len(nonempty)
+
+    def average(key: str) -> float | None:
+        values = [float(row[key]) for row in nonempty]
+        return round(sum(values) / len(values), 10) if values else None
+
+    imbalance_values = [
+        float(row["displayed_limit_depth_imbalance"])
+        for row in nonempty
+        if row["displayed_limit_depth_imbalance"] is not None
+    ]
+    result = {
+        "status": (
+            "DOM_LEVELS_CAPTURED"
+            if nonempty
+            else "DOM_SUBSCRIBED_NO_LEVELS"
+            if snapshot_errors == 0
+            else "DOM_SUBSCRIPTION_WITH_SNAPSHOT_ERRORS_NO_LEVELS"
+        ),
+        "subscription_succeeded": True,
+        "market_book_release_succeeded": release_ok,
+        "samples_requested": sample_count,
+        "snapshots_returned": len(snapshots),
+        "nonempty_snapshots": len(nonempty),
+        "empty_snapshots": empty,
+        "snapshot_errors": snapshot_errors,
+        "book_type_values": book_types,
+        "average_levels_per_nonempty_snapshot": average("levels_returned"),
+        "average_buy_limit_levels": average("buy_limit_levels"),
+        "average_sell_limit_levels": average("sell_limit_levels"),
+        "average_buy_limit_volume": average("buy_limit_volume"),
+        "average_sell_limit_volume": average("sell_limit_volume"),
+        "average_buy_market_volume": average("buy_market_volume"),
+        "average_sell_market_volume": average("sell_market_volume"),
+        "average_displayed_limit_depth_imbalance": (
+            round(sum(imbalance_values) / len(imbalance_values), 8)
+            if imbalance_values else None
+        ),
+        "quote_only_book_is_not_executed_trade_flow": True,
+        "sampled_live_snapshots_are_not_historical_depth": True,
+    }
+    return result
+
+
+
 def collect(mt5, symbol: str, days: int) -> dict[str, Any]:
     if days < 1 or days > 365:
         raise ValueError("DAYS_MUST_BE_IN_1_TO_365")
@@ -317,6 +556,7 @@ def collect(mt5, symbol: str, days: int) -> dict[str, Any]:
         else:
             status = "QUOTE_TICKS_ONLY_NO_TRADE_SIDE_FLAGS"
 
+        market_depth = collect_market_depth(mt5, symbol)
         return {
             "schema": "forexai.mt5.xauusd_trade_tick_capability.v1",
             "status": status,
@@ -357,6 +597,7 @@ def collect(mt5, symbol: str, days: int) -> dict[str, Any]:
                     "Do not label BID/ASK quote changes as buyer/seller order flow."
                 ),
             },
+            "market_depth_capability": market_depth,
             "quote_data": {
                 "valid_two_sided_quote_ticks": totals["valid_two_sided_quote_ticks"],
                 "bid_update_ticks": totals["bid_update_ticks"],
@@ -369,6 +610,8 @@ def collect(mt5, symbol: str, days: int) -> dict[str, Any]:
                 "BID/ASK quote updates are not classified as buyer- or seller-initiated trades.",
                 "No individual tick records, account identifiers, broker server names, or account currency are exported.",
                 "This is a capability/coverage audit, not a trading signal, backtest, or profitability claim.",
+                "Market Depth results are broker-supplied displayed liquidity snapshots, not executed trades or necessarily market-wide exchange depth.",
+                "The Market Depth sample is live/current only; no historical order-book series is available from this probe.",
             ],
             "no_orders_submitted": True,
             "no_positions_modified": True,
