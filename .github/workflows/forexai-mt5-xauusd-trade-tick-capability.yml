@@ -39,22 +39,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install MT5 package
-        shell: pwsh
+      - name: Verify preinstalled Python 3.10
+        shell: powershell
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-mt5.txt
+          $ErrorActionPreference = 'Stop'
+          $launcher = Get-Command py -ErrorAction Stop
+          & $launcher.Source -3.10 --version
+          if ($LASTEXITCODE -ne 0) { throw "PYTHON_310_NOT_AVAILABLE_ON_MT5_RUNNER" }
+          & $launcher.Source -3.10 -c "import sys; print(sys.executable)"
+          if ($LASTEXITCODE -ne 0) { throw "PYTHON_310_RUNTIME_FAILED" }
+
+      - name: Install MT5 package into existing Python 3.10
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & py -3.10 -m pip install -r requirements-mt5.txt
+          if ($LASTEXITCODE -ne 0) { throw "MT5_PACKAGE_INSTALL_FAILED:$LASTEXITCODE" }
 
       - name: Run read-only historical trade-tick capability probe
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/mt5-trade-tick-capability | Out-Null
-          python -m tools.mt5_xauusd_trade_tick_capability_probe --symbol "$env:MT5_SYMBOL" --days ([int]$env:MT5_DAYS) --output artifacts/mt5-trade-tick-capability/xauusd-trade-tick-capability.json
+          & py -3.10 -m tools.mt5_xauusd_trade_tick_capability_probe --symbol "$env:MT5_SYMBOL" --days ([int]$env:MT5_DAYS) --output artifacts/mt5-trade-tick-capability/xauusd-trade-tick-capability.json
           if ($LASTEXITCODE -ne 0) { throw "MT5_TRADE_TICK_CAPABILITY_PROBE_FAILED:$LASTEXITCODE" }
 
           $p = "artifacts/mt5-trade-tick-capability/xauusd-trade-tick-capability.json"
