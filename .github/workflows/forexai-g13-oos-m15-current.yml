@@ -137,7 +137,12 @@ jobs:
             --end "$END_DATE" \
             --output data/real \
             --validate \
-            --manifest
+            --manifest \
+            --timeout 60 \
+            --retries 8 \
+            --workers 1 \
+            --batch-size 5 \
+            --batch-pause 2
 
           DATA="data/real/normalized/EURUSD_M1_20250101_${END_TAG}.csv"
           MANIFEST="data/real/normalized/EURUSD_M1_20250101_${END_TAG}.manifest.json"
