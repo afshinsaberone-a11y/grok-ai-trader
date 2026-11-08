@@ -1,6 +1,6 @@
 # XAUUSD M5 Pullback + Structure Break v1 — Preregistered Hypothesis
 
-Status: research specification only; not yet implemented, backtested, or validated.
+Status: implemented in the research-only discovery harness; unit-tested; not yet backtested or validated.
 Created: 2026-11-08
 Scope: XAUUSD M5, real BID/ASK data only, UTC.
 
@@ -46,7 +46,7 @@ Calculate indicators on mid quotes. Execute fills on executable BID/ASK.
 
 ## Required implementation and audit tests
 
-Before any backtest, implement the rule as a new candidate family with unit tests proving:
+The candidate family is implemented in `research/optimization/xauusd_intraday_preregistered_discovery_v1.py`. The existing execution kernel enforces one open position at a time and evaluates the signal on the prior bar for next-bar-open entry. Before any backtest, retain tests proving:
 - the H1 regime uses only the prior completed H1 candle;
 - the signal-bar structure reference excludes the current bar (no look-ahead);
 - pullback touches are restricted to the three prior completed bars;
