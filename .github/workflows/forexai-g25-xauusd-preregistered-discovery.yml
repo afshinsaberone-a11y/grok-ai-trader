@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       g24_run_id:
-        description: "G24 run containing the four verified 2025 shards"
+        description: "G24 run containing the four verified 2025 shards (used only after all training gates pass)"
         required: true
         default: "42201880647"
         type: string
@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: \${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -69,6 +69,7 @@ jobs:
 
   discover:
     if: >-
+      github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
       (github.event_name == 'workflow_run' &&
@@ -80,7 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: \${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -91,19 +92,50 @@ jobs:
         with:
           name: forexai-g22-xauusd-m5-full-history-2021-2024
           path: data/g22
-          repository: ${{ github.repository }}
+          repository: \${{ github.repository }}
           run-id: 41911516706
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Download only the four immutable G24 2025 shards
+          github-token: \${{ secrets.GITHUB_TOKEN }}
+      - name: Run training-only phase (2021-2023); 2025 remains unopened
+        id: training
+        run: |
+          python -m research.optimization.xauusd_intraday_preregistered_discovery_v1 \
+            --train-root data/g22 \
+            --training-only \
+            --commission-usd-per-oz-round-turn 0.08 \
+            --slippage-usd-per-oz-per-side 0.10 \
+            --output artifacts/g25-xauusd-training-only.json
+          python - <<'PY'
+          import json
+          import os
+
+          with open("artifacts/g25-xauusd-training-only.json", encoding="utf-8") as source:
+              report = json.load(source)
+          passed = bool(report["training_summary"]["all_gates_passed"])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"training_pass={'true' if passed else 'false'}\n")
+          PY
+      - name: Upload training-only evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-g25-xauusd-training-only
+          path: artifacts/g25-xauusd-training-only.json
+          if-no-files-found: error
+          retention-days: 90
+
+      # 2025 is downloaded only for an explicit manual dispatch AND only after
+      # every frozen 2021-2023 base/stress/year gate has passed.
+      - name: Download the four immutable G24 2025 shards after training pass
+        if: \${{ github.event_name == 'workflow_dispatch' && steps.training.outputs.training_pass == 'true' }}
         uses: actions/download-artifact@v4
         with:
           pattern: forexai-g24-xauusd-m5-fresh-oos-2025-*
           path: data/g24-shards
           merge-multiple: false
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id || inputs.g24_run_id || '42201880647' }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run preregistered XAUUSD discovery and fresh 2025 validation
+          repository: \${{ github.repository }}
+          run-id: \${{ inputs.g24_run_id }}
+          github-token: \${{ secrets.GITHUB_TOKEN }}
+      - name: Run single-candidate 2025 validation (only after training pass)
+        if: \${{ github.event_name == 'workflow_dispatch' && steps.training.outputs.training_pass == 'true' }}
         run: |
           python -m research.optimization.xauusd_intraday_preregistered_discovery_v1 \
             --train-root data/g22 \
@@ -111,7 +143,8 @@ jobs:
             --commission-usd-per-oz-round-turn 0.08 \
             --slippage-usd-per-oz-per-side 0.10 \
             --output artifacts/g25-xauusd-preregistered-discovery.json
-      - name: Upload G25 research evidence
+      - name: Upload full discovery and validation evidence
+        if: \${{ github.event_name == 'workflow_dispatch' && steps.training.outputs.training_pass == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: forexai-g25-xauusd-preregistered-discovery
