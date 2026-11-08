@@ -4,6 +4,8 @@ import json
 import pandas as pd
 import pytest
 
+import research.optimization.xauusd_intraday_preregistered_discovery_v1 as discovery
+
 from research.optimization.xauusd_intraday_preregistered_discovery_v1 import (
     CANDIDATES,
     build_features,
@@ -338,7 +340,7 @@ def test_signal_builder_never_emits_entries_outside_day_session():
     assert signals.iloc[3] == 0
 
 
-def test_train_and_validation_periods_reject_2024_or_2026_leakage():
+def test_training_years_reject_2024_leakage():
     train_with_2024 = pd.DataFrame({
         "timestamp": pd.to_datetime([
             "2021-01-04T00:00:00Z",
@@ -347,17 +349,16 @@ def test_train_and_validation_periods_reject_2024_or_2026_leakage():
             "2024-01-04T00:00:00Z",
         ], utc=True)
     })
-    validation = pd.DataFrame({
-        "timestamp": pd.to_datetime(["2025-01-04T00:00:00Z"], utc=True)
-    })
     with pytest.raises(ValueError, match="TRAINING_YEARS_MUST_BE_2021_2023"):
         run_discovery(
             train_with_2024,
-            validation,
+            None,
             commission_usd_per_oz=0.08,
             slippage_usd_per_oz_per_side=0.10,
         )
 
+
+def test_training_only_cli_never_calls_2025_loader(tmp_path, monkeypatch):
     train = pd.DataFrame({
         "timestamp": pd.to_datetime([
             "2021-01-04T00:00:00Z",
@@ -365,17 +366,41 @@ def test_train_and_validation_periods_reject_2024_or_2026_leakage():
             "2023-01-04T00:00:00Z",
         ], utc=True)
     })
-    validation_with_2026 = pd.DataFrame({
-        "timestamp": pd.to_datetime(["2026-01-04T00:00:00Z"], utc=True)
-    })
-    with pytest.raises(ValueError, match="VALIDATION_MUST_BE_2025_ONLY"):
-        run_discovery(
-            train,
-            validation_with_2026,
-            commission_usd_per_oz=0.08,
-            slippage_usd_per_oz_per_side=0.10,
-        )
+    report = {
+        "status": "NO_TRAIN_CANDIDATE_PASSED_BASE_AND_STRESS_GATES",
+        "candidate_count": len(CANDIDATES),
+        "training_summary": {
+            "all_gates_passed": False,
+            "qualified_candidate_count": 0,
+        },
+        "selected_on_training_only": None,
+        "validation": None,
+        "data_policy": {
+            "2024_loaded": False,
+            "2025_loaded": False,
+            "2026_loaded": False,
+        },
+        "promotion": {"demo_authorized": False, "orders_submitted": False},
+    }
+    monkeypatch.setattr(discovery, "load_training", lambda _root: (train, []))
 
+    def fail_if_validation_is_loaded(_root):
+        pytest.fail("2025 validation loader must not be called in training-only mode")
+
+    monkeypatch.setattr(discovery, "load_validation", fail_if_validation_is_loaded)
+    monkeypatch.setattr(discovery, "run_discovery", lambda *_args, **_kwargs: report)
+    output = tmp_path / "training-only.json"
+    exit_code = discovery.main([
+        "--train-root", str(tmp_path),
+        "--training-only",
+        "--commission-usd-per-oz-round-turn", "0.08",
+        "--slippage-usd-per-oz-per-side", "0.10",
+        "--output", str(output),
+    ])
+    assert exit_code == 0
+    saved = json.loads(output.read_text(encoding="utf-8"))
+    assert saved["validation"] is None
+    assert saved["data_policy"]["2025_loaded"] is False
 
 def _write_2025_quarter(root, shard, start, end, timestamp):
     base = root / f"artifact-{shard}"
