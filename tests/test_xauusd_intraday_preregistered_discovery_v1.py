@@ -4,6 +4,8 @@ import json
 import pandas as pd
 import pytest
 
+import research.optimization.xauusd_intraday_preregistered_discovery_v1 as discovery
+
 from research.optimization.xauusd_intraday_preregistered_discovery_v1 import (
     CANDIDATES,
     build_features,
@@ -56,14 +58,15 @@ def _write_verified_pair(tmp_path, *, synthetic=False, filled=0, hash_override=N
 
 
 def test_candidate_hypothesis_set_is_small_and_fixed():
-    assert len(CANDIDATES) == 10
-    assert len({candidate["id"] for candidate in CANDIDATES}) == 10
+    assert len(CANDIDATES) == 11
+    assert len({candidate["id"] for candidate in CANDIDATES}) == 11
     assert {candidate["family"] for candidate in CANDIDATES} == {
         "trend_pullback",
         "donchian_breakout",
         "bollinger_mean_reversion",
         "opening_range_breakout",
         "robust_regime_momentum",
+        "pullback_structure_break",
     }
 
 
@@ -337,7 +340,7 @@ def test_signal_builder_never_emits_entries_outside_day_session():
     assert signals.iloc[3] == 0
 
 
-def test_train_and_validation_periods_reject_2024_or_2026_leakage():
+def test_training_years_reject_2024_leakage():
     train_with_2024 = pd.DataFrame({
         "timestamp": pd.to_datetime([
             "2021-01-04T00:00:00Z",
@@ -346,17 +349,16 @@ def test_train_and_validation_periods_reject_2024_or_2026_leakage():
             "2024-01-04T00:00:00Z",
         ], utc=True)
     })
-    validation = pd.DataFrame({
-        "timestamp": pd.to_datetime(["2025-01-04T00:00:00Z"], utc=True)
-    })
     with pytest.raises(ValueError, match="TRAINING_YEARS_MUST_BE_2021_2023"):
         run_discovery(
             train_with_2024,
-            validation,
+            None,
             commission_usd_per_oz=0.08,
             slippage_usd_per_oz_per_side=0.10,
         )
 
+
+def test_training_only_cli_never_calls_2025_loader(tmp_path, monkeypatch):
     train = pd.DataFrame({
         "timestamp": pd.to_datetime([
             "2021-01-04T00:00:00Z",
@@ -364,17 +366,41 @@ def test_train_and_validation_periods_reject_2024_or_2026_leakage():
             "2023-01-04T00:00:00Z",
         ], utc=True)
     })
-    validation_with_2026 = pd.DataFrame({
-        "timestamp": pd.to_datetime(["2026-01-04T00:00:00Z"], utc=True)
-    })
-    with pytest.raises(ValueError, match="VALIDATION_MUST_BE_2025_ONLY"):
-        run_discovery(
-            train,
-            validation_with_2026,
-            commission_usd_per_oz=0.08,
-            slippage_usd_per_oz_per_side=0.10,
-        )
+    report = {
+        "status": "NO_TRAIN_CANDIDATE_PASSED_BASE_AND_STRESS_GATES",
+        "candidate_count": len(CANDIDATES),
+        "training_summary": {
+            "all_gates_passed": False,
+            "qualified_candidate_count": 0,
+        },
+        "selected_on_training_only": None,
+        "validation": None,
+        "data_policy": {
+            "2024_loaded": False,
+            "2025_loaded": False,
+            "2026_loaded": False,
+        },
+        "promotion": {"demo_authorized": False, "orders_submitted": False},
+    }
+    monkeypatch.setattr(discovery, "load_training", lambda _root: (train, []))
 
+    def fail_if_validation_is_loaded(_root):
+        pytest.fail("2025 validation loader must not be called in training-only mode")
+
+    monkeypatch.setattr(discovery, "load_validation", fail_if_validation_is_loaded)
+    monkeypatch.setattr(discovery, "run_discovery", lambda *_args, **_kwargs: report)
+    output = tmp_path / "training-only.json"
+    exit_code = discovery.main([
+        "--train-root", str(tmp_path),
+        "--training-only",
+        "--commission-usd-per-oz-round-turn", "0.08",
+        "--slippage-usd-per-oz-per-side", "0.10",
+        "--output", str(output),
+    ])
+    assert exit_code == 0
+    saved = json.loads(output.read_text(encoding="utf-8"))
+    assert saved["validation"] is None
+    assert saved["data_policy"]["2025_loaded"] is False
 
 def _write_2025_quarter(root, shard, start, end, timestamp):
     base = root / f"artifact-{shard}"
@@ -470,3 +496,54 @@ def test_load_validation_fails_closed_when_one_2025_shard_is_missing(tmp_path):
     )
     with pytest.raises(FileNotFoundError, match="2025_SHARDS_MISSING"):
         load_validation(tmp_path)
+
+
+
+def test_pullback_structure_break_requires_prior_pullback_and_breaks_prior_three_bar_structure():
+    timestamps = pd.date_range("2021-01-04T08:00:00Z", periods=8, freq="5min")
+    features = pd.DataFrame({
+        "timestamp": timestamps,
+        "mid_open": [100.0] * 8,
+        "mid_close": [100.0, 100.2, 99.8, 100.1, 100.0, 101.0, 100.0, 98.0],
+        "mid_low": [99.8, 99.9, 99.0, 99.7, 99.6, 99.8, 99.7, 98.0],
+        "mid_high": [100.2, 100.4, 100.1, 100.3, 100.2, 101.2, 100.1, 100.0],
+        "EMA20": [100.0] * 8,
+        "EMA50": [99.0, 99.0, 99.0, 99.0, 99.0, 99.0, 99.0, 101.0],
+        "ATR": [1.0] * 8,
+        "ADX": [25.0] * 8,
+        "H1_TREND_UP": [True] * 7 + [False],
+        "H1_TREND_DOWN": [False] * 7 + [True],
+    })
+    candidate = next(
+        item for item in CANDIDATES
+        if item["id"] == "h1_m5_pullback_structure_break_v1"
+    )
+    signals = build_signals(features, candidate).tolist()
+    # Bar 5 breaks the prior three-bar high after a prior pullback.
+    # Bar 7 is a valid short structure break with completed H1 down regime.
+    assert signals[5] == 1
+    assert signals[7] == -1
+
+
+def test_pullback_structure_break_does_not_use_current_bar_in_structure_reference():
+    timestamps = pd.date_range("2021-01-04T08:00:00Z", periods=5, freq="5min")
+    features = pd.DataFrame({
+        "timestamp": timestamps,
+        "mid_open": [100.0] * 5,
+        "mid_close": [100.0, 100.0, 99.8, 100.0, 100.3],
+        "mid_low": [99.8, 99.7, 99.0, 99.8, 99.9],
+        "mid_high": [100.2, 100.1, 100.0, 100.2, 105.0],
+        "EMA20": [100.0] * 5,
+        "EMA50": [99.0] * 5,
+        "ATR": [1.0] * 5,
+        "ADX": [25.0] * 5,
+        "H1_TREND_UP": [True] * 5,
+        "H1_TREND_DOWN": [False] * 5,
+    })
+    candidate = next(
+        item for item in CANDIDATES
+        if item["id"] == "h1_m5_pullback_structure_break_v1"
+    )
+    signals = build_signals(features, candidate)
+    # A large current-bar high cannot raise its own prior swing-high threshold.
+    assert signals.iloc[4] == 1

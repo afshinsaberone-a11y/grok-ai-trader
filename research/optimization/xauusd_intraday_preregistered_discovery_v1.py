@@ -131,6 +131,20 @@ CANDIDATES: tuple[dict[str, Any], ...] = (
         "invert_signal_direction": True,
     },
     {
+        # Fixed structure-break hypothesis; deliberately not an EMA-reclaim entry.
+        "id": "h1_m5_pullback_structure_break_v1",
+        "family": "pullback_structure_break",
+        "ema_fast": 20,
+        "ema_slow": 50,
+        "adx_min": 22.0,
+        "pullback_bars": 3,
+        "touch_atr": 0.20,
+        "structure_bars": 3,
+        "atr_stop_mult": 1.6,
+        "reward_risk": 2.2,
+        "max_holding_bars": 36,
+    },
+    {
         # Port of the repository's Robust Regime-Momentum v1 entry rules.
         # Execution is re-evaluated by the XAUUSD BID/ASK kernel; the large
         # holding cap disables the old model's synthetic time exit because
@@ -560,7 +574,7 @@ def build_features(raw: pd.DataFrame) -> pd.DataFrame:
 def build_signals(features: pd.DataFrame, candidate: dict[str, Any]) -> pd.Series:
     close = features["mid_close"]
     adx = features["ADX"]
-    rsi = features["RSI"]
+    rsi = features.get("RSI", pd.Series(np.nan, index=features.index))
     family = candidate["family"]
     signal = pd.Series(0, index=features.index, dtype="int64")
 
@@ -629,6 +643,53 @@ def build_signals(features: pd.DataFrame, candidate: dict[str, Any]) -> pd.Serie
         first_breakout = (long | short).fillna(False).astype(int).groupby(utc_date).cumsum().eq(1)
         long = long & first_breakout
         short = short & first_breakout
+    elif family == "pullback_structure_break":
+        fast = features[f"EMA{candidate['ema_fast']}"]
+        slow = features[f"EMA{candidate['ema_slow']}"]
+        atr = features["ATR"]
+        touch_atr = float(candidate["touch_atr"])
+        pullback_bars = int(candidate["pullback_bars"])
+        structure_bars = int(candidate["structure_bars"])
+
+        # Pullback must occur in prior completed bars only; signal bar excluded.
+        touch_long = features["mid_low"] <= (fast + touch_atr * atr)
+        touch_short = features["mid_high"] >= (fast - touch_atr * atr)
+        recent_touch_long = (
+            touch_long.rolling(pullback_bars, min_periods=pullback_bars)
+            .max().shift(1).fillna(0).astype(bool)
+        )
+        recent_touch_short = (
+            touch_short.rolling(pullback_bars, min_periods=pullback_bars)
+            .max().shift(1).fillna(0).astype(bool)
+        )
+
+        # Current signal bar is excluded from the local structure reference.
+        prior_swing_high = (
+            features["mid_high"].shift(1)
+            .rolling(structure_bars, min_periods=structure_bars).max()
+        )
+        prior_swing_low = (
+            features["mid_low"].shift(1)
+            .rolling(structure_bars, min_periods=structure_bars).min()
+        )
+        h1_up = features["H1_TREND_UP"].fillna(False).astype(bool)
+        h1_down = features["H1_TREND_DOWN"].fillna(False).astype(bool)
+        long = (
+            h1_up
+            & (fast > slow)
+            & (adx >= float(candidate["adx_min"]))
+            & recent_touch_long
+            & (close.shift(1) <= prior_swing_high)
+            & (close > prior_swing_high)
+        )
+        short = (
+            h1_down
+            & (fast < slow)
+            & (adx >= float(candidate["adx_min"]))
+            & recent_touch_short
+            & (close.shift(1) >= prior_swing_low)
+            & (close < prior_swing_low)
+        )
     elif family == "robust_regime_momentum":
         fast = features[f"EMA{candidate['ema_fast']}"]
         slow = features[f"EMA{candidate['ema_slow']}"]
@@ -853,22 +914,20 @@ def _rank_key(item: dict[str, Any]) -> tuple[float, float, float, float]:
 
 def run_discovery(
     train_raw: pd.DataFrame,
-    validation_raw: pd.DataFrame,
+    validation_raw: pd.DataFrame | None = None,
     *,
     commission_usd_per_oz: float,
     slippage_usd_per_oz_per_side: float,
 ) -> dict[str, Any]:
+    """Evaluate training first; validation is never inspected unless training passes."""
     if not math.isfinite(commission_usd_per_oz) or commission_usd_per_oz < 0:
         raise ValueError("XAUUSD_COMMISSION_INPUT_INVALID")
     if not math.isfinite(slippage_usd_per_oz_per_side) or slippage_usd_per_oz_per_side < 0:
         raise ValueError("XAUUSD_SLIPPAGE_INPUT_INVALID")
     if set(train_raw["timestamp"].dt.year.unique()) != set(TRAIN_YEARS):
         raise ValueError("XAUUSD_DISCOVERY_TRAINING_YEARS_MUST_BE_2021_2023")
-    if set(validation_raw["timestamp"].dt.year.unique()) != {2025}:
-        raise ValueError("XAUUSD_DISCOVERY_VALIDATION_MUST_BE_2025_ONLY")
 
     train_features = build_features(train_raw)
-    validation_features = build_features(validation_raw)
     candidates = [
         _candidate_training_results(
             train_raw,
@@ -881,14 +940,20 @@ def run_discovery(
     ]
     candidates.sort(key=_rank_key, reverse=True)
     eligible = [item for item in candidates if item["train_qualified"]]
+    selected = eligible[0] if eligible else None
 
+    # A caller may provide a frame, but this function deliberately does not
+    # inspect or evaluate it unless every training gate has passed. The CLI
+    # additionally avoids loading the 2025 files at all until that condition.
     validation_result = None
-    selected = None
+    validation_evaluated = False
     status = "NO_TRAIN_CANDIDATE_PASSED_BASE_AND_STRESS_GATES"
-    if eligible:
-        # Only the top candidate selected entirely on 2021-2023 is opened on
-        # 2025. A failed validation is final; no runner-up is tried.
-        selected = eligible[0]
+    if selected is not None and validation_raw is None:
+        status = "TRAINING_PASS_VALIDATION_NOT_RUN"
+    elif selected is not None and validation_raw is not None:
+        if set(validation_raw["timestamp"].dt.year.unique()) != {2025}:
+            raise ValueError("XAUUSD_DISCOVERY_VALIDATION_MUST_BE_2025_ONLY")
+        validation_features = build_features(validation_raw)
         candidate = selected["candidate"]
         stress_slippage = max(
             slippage_usd_per_oz_per_side * 2.0,
@@ -921,6 +986,7 @@ def run_discovery(
             "runner_up_tested": False,
             "policy": "one_train_selected_candidate_only_no_validation_fallback",
         }
+        validation_evaluated = True
         status = (
             "VALIDATION_PASS_FREEZE_AND_CODE_PARITY_REQUIRED"
             if validation_result["validation_pass"]
@@ -933,13 +999,19 @@ def run_discovery(
         "symbol": "XAUUSD",
         "timeframe": "M5",
         "training_period_utc": ["2021-01-01", "2024-01-01"],
-        "validation_period_utc": [VALIDATION_START, VALIDATION_END],
+        "validation_period_utc": [VALIDATION_START, VALIDATION_END] if validation_evaluated else None,
         "excluded_periods": {
             "2024": "excluded_from_candidate_selection_G23_already_consumed_holdout",
             "2026": "untouched_one_time_blind_holdout_not_loaded",
         },
         "candidate_count": len(CANDIDATES),
         "candidate_set": candidates,
+        "training_summary": {
+            "all_gates_passed": bool(eligible),
+            "qualified_candidate_count": len(eligible),
+            "provisional_training_selection": selected["candidate"]["id"] if selected else None,
+            "validation_load_permitted": bool(eligible),
+        },
         "selected_on_training_only": selected["candidate"] if selected else None,
         "validation": validation_result,
         "cost_model": {
@@ -967,8 +1039,10 @@ def run_discovery(
             "real_data_required": True,
             "synthetic_data": False,
             "filled_bars": 0,
-            "backtest_periods_loaded": ["2021-2023", "2025"],
+            "backtest_periods_loaded": ["2021-2023"] + (["2025"] if validation_evaluated else []),
             "2024_loaded": False,
+            "2025_loaded": validation_evaluated,
+            "2025_evaluated": validation_evaluated,
             "2026_loaded": False,
         },
         "promotion": {
@@ -984,20 +1058,39 @@ def run_discovery(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Preregistered cost-aware XAUUSD M5 discovery")
     parser.add_argument("--train-root", type=Path, required=True)
-    parser.add_argument("--validation-root", type=Path, required=True)
+    parser.add_argument("--validation-root", type=Path)
+    parser.add_argument("--training-only", action="store_true",
+                        help="Evaluate 2021-2023 only; do not open or load 2025 files.")
     parser.add_argument("--commission-usd-per-oz-round-turn", type=float, required=True)
     parser.add_argument("--slippage-usd-per-oz-per-side", type=float, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    if not args.training_only and args.validation_root is None:
+        parser.error("--validation-root is required unless --training-only is set")
 
     train, train_audit = load_training(args.train_root)
-    validation, validation_audit = load_validation(args.validation_root)
-    report = run_discovery(
+    commission = args.commission_usd_per_oz_round_turn
+    slippage = args.slippage_usd_per_oz_per_side
+
+    # Always run the training gate first. Only after it passes may the CLI
+    # call load_validation(), which verifies and opens the four 2025 shards.
+    training_report = run_discovery(
         train,
-        validation,
-        commission_usd_per_oz=args.commission_usd_per_oz_round_turn,
-        slippage_usd_per_oz_per_side=args.slippage_usd_per_oz_per_side,
+        None,
+        commission_usd_per_oz=commission,
+        slippage_usd_per_oz_per_side=slippage,
     )
+    report = training_report
+    validation_audit = None
+    if not args.training_only and training_report["training_summary"]["all_gates_passed"]:
+        validation, validation_audit = load_validation(args.validation_root)
+        report = run_discovery(
+            train,
+            validation,
+            commission_usd_per_oz=commission,
+            slippage_usd_per_oz_per_side=slippage,
+        )
+
     report["data_audit"] = {
         "training_annual_files": train_audit,
         "validation_annual_file": validation_audit,
@@ -1007,10 +1100,11 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps({
         "status": report["status"],
         "candidate_count": report["candidate_count"],
-        "train_qualified": sum(bool(item["train_qualified"]) for item in report["candidate_set"]),
+        "train_qualified": report["training_summary"]["qualified_candidate_count"],
         "selected_candidate": (report["selected_on_training_only"] or {}).get("id"),
         "validation_pass": (report["validation"] or {}).get("validation_pass"),
         "2024_loaded": report["data_policy"]["2024_loaded"],
+        "2025_loaded": report["data_policy"]["2025_loaded"],
         "2026_loaded": report["data_policy"]["2026_loaded"],
         "demo_authorized": report["promotion"]["demo_authorized"],
         "orders_submitted": report["promotion"]["orders_submitted"],
