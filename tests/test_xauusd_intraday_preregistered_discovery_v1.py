@@ -57,7 +57,7 @@ def _write_verified_pair(tmp_path, *, synthetic=False, filled=0, hash_override=N
 
 def test_candidate_hypothesis_set_is_small_and_fixed():
     assert len(CANDIDATES) == 11
-    assert len({candidate["id"] for candidate in CANDIDATES}) == 10
+    assert len({candidate["id"] for candidate in CANDIDATES}) == 11
     assert {candidate["family"] for candidate in CANDIDATES} == {
         "trend_pullback",
         "donchian_breakout",
