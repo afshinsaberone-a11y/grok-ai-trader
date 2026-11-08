@@ -187,3 +187,15 @@ def test_invalid_blocked_utc_hours_fail_closed() -> None:
     with pytest.raises(XAUUSDExecutionError, match="BLOCKED_ENTRY_UTC_HOURS_INVALID"):
         run_xauusd_backtest(bars_fixture(), bad)
 
+
+
+def test_intrabar_holding_upper_bound_uses_nominal_bar_width_across_data_gap() -> None:
+    bars = bars_fixture()
+    bars.loc[2, "timestamp"] = pd.Timestamp("2024-01-08T13:00:00Z")
+    bars.loc[3, "timestamp"] = pd.Timestamp("2024-01-08T14:00:00Z")
+
+    _, trades = run_xauusd_backtest(bars, config())
+
+    assert trades[0]["holding_minutes_lower_bound"] == pytest.approx(120.0)
+    # The exit bar is one nominal 60-minute bar, not the 120-minute data gap.
+    assert trades[0]["holding_minutes_upper_bound"] == pytest.approx(180.0)
