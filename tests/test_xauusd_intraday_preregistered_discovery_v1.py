@@ -56,7 +56,7 @@ def _write_verified_pair(tmp_path, *, synthetic=False, filled=0, hash_override=N
 
 
 def test_candidate_hypothesis_set_is_small_and_fixed():
-    assert len(CANDIDATES) == 10
+    assert len(CANDIDATES) == 11
     assert len({candidate["id"] for candidate in CANDIDATES}) == 10
     assert {candidate["family"] for candidate in CANDIDATES} == {
         "trend_pullback",
@@ -64,6 +64,7 @@ def test_candidate_hypothesis_set_is_small_and_fixed():
         "bollinger_mean_reversion",
         "opening_range_breakout",
         "robust_regime_momentum",
+        "pullback_structure_break",
     }
 
 
@@ -470,3 +471,54 @@ def test_load_validation_fails_closed_when_one_2025_shard_is_missing(tmp_path):
     )
     with pytest.raises(FileNotFoundError, match="2025_SHARDS_MISSING"):
         load_validation(tmp_path)
+
+
+
+def test_pullback_structure_break_requires_prior_pullback_and_breaks_prior_three_bar_structure():
+    timestamps = pd.date_range("2021-01-04T08:00:00Z", periods=8, freq="5min")
+    features = pd.DataFrame({
+        "timestamp": timestamps,
+        "mid_open": [100.0] * 8,
+        "mid_close": [100.0, 100.2, 99.8, 100.1, 100.0, 101.0, 100.0, 98.0],
+        "mid_low": [99.8, 99.9, 99.0, 99.7, 99.6, 99.8, 99.7, 98.0],
+        "mid_high": [100.2, 100.4, 100.1, 100.3, 100.2, 101.2, 100.1, 100.0],
+        "EMA20": [100.0] * 8,
+        "EMA50": [99.0, 99.0, 99.0, 99.0, 99.0, 99.0, 99.0, 101.0],
+        "ATR": [1.0] * 8,
+        "ADX": [25.0] * 8,
+        "H1_TREND_UP": [True] * 7 + [False],
+        "H1_TREND_DOWN": [False] * 7 + [True],
+    })
+    candidate = next(
+        item for item in CANDIDATES
+        if item["id"] == "h1_m5_pullback_structure_break_v1"
+    )
+    signals = build_signals(features, candidate).tolist()
+    # Bar 5 breaks the prior three-bar high after a prior pullback.
+    # Bar 7 is a valid short structure break with completed H1 down regime.
+    assert signals[5] == 1
+    assert signals[7] == -1
+
+
+def test_pullback_structure_break_does_not_use_current_bar_in_structure_reference():
+    timestamps = pd.date_range("2021-01-04T08:00:00Z", periods=5, freq="5min")
+    features = pd.DataFrame({
+        "timestamp": timestamps,
+        "mid_open": [100.0] * 5,
+        "mid_close": [100.0, 100.0, 99.8, 100.0, 100.1],
+        "mid_low": [99.8, 99.7, 99.0, 99.8, 99.9],
+        "mid_high": [100.2, 100.1, 100.0, 100.2, 105.0],
+        "EMA20": [100.0] * 5,
+        "EMA50": [99.0] * 5,
+        "ATR": [1.0] * 5,
+        "ADX": [25.0] * 5,
+        "H1_TREND_UP": [True] * 5,
+        "H1_TREND_DOWN": [False] * 5,
+    })
+    candidate = next(
+        item for item in CANDIDATES
+        if item["id"] == "h1_m5_pullback_structure_break_v1"
+    )
+    signals = build_signals(features, candidate)
+    # A large current-bar high cannot raise its own prior swing-high threshold.
+    assert signals.iloc[4] == 1
