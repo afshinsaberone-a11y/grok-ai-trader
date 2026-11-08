@@ -186,10 +186,40 @@ def run_xauusd_backtest(
             position, entry_fill, exit_fill, risk_distance, commission, financing_accum
         )
         hold_bars = max(1, exit_idx - entry_idx + 1)
+        entry_ts = frame.at[entry_idx, "timestamp"]
+        exit_ts = frame.at[exit_idx, "timestamp"]
+
+        # M5 OHLC cannot reveal the order of the high/low inside the exit bar.
+        # Report completed-bar excursion as a lower bound and the full exit-bar
+        # range as an upper bound; never label these bounds as exact tick MFE/MAE.
+        prior_bars = frame.iloc[entry_idx:exit_idx]
+        observed_bars = frame.iloc[entry_idx:exit_idx + 1]
+
+        def excursion_bounds(sample: pd.DataFrame) -> tuple[float, float]:
+            if sample.empty:
+                return 0.0, 0.0
+            if position == 1:
+                favorable = max(0.0, float(sample["bid_high"].max()) - entry_fill)
+                adverse = max(0.0, entry_fill - float(sample["bid_low"].min()))
+            else:
+                favorable = max(0.0, entry_fill - float(sample["ask_low"].min()))
+                adverse = max(0.0, float(sample["ask_high"].max()) - entry_fill)
+            return favorable / risk_distance, adverse / risk_distance
+
+        mfe_lower, mae_lower = excursion_bounds(prior_bars)
+        mfe_upper, mae_upper = excursion_bounds(observed_bars)
         trade_rows.append({
             "side": "LONG" if position == 1 else "SHORT",
-            "entry_time": frame.at[entry_idx, "timestamp"].isoformat(),
-            "exit_time": frame.at[exit_idx, "timestamp"].isoformat(),
+            "entry_time": entry_ts.isoformat(),
+            "exit_time": exit_ts.isoformat(),
+            "entry_utc_hour": int(entry_ts.hour),
+            "entry_utc_weekday": int(entry_ts.dayofweek),
+            "holding_minutes": round((exit_ts - entry_ts).total_seconds() / 60.0, 4),
+            "mfe_R_lower_bound_completed_bars": round(mfe_lower, 8),
+            "mfe_R_upper_bound_including_exit_bar": round(max(mfe_lower, mfe_upper), 8),
+            "mae_R_lower_bound_completed_bars": round(mae_lower, 8),
+            "mae_R_upper_bound_including_exit_bar": round(max(mae_lower, mae_upper), 8),
+            "mfe_mae_exit_bar_order_known": False,
             "entry_fill": round(entry_fill, 6),
             "exit_fill": round(exit_fill, 6),
             "stop": round(stop, 6),
