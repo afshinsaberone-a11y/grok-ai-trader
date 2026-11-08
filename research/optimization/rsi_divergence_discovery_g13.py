@@ -74,17 +74,47 @@ def trade_returns(d,p):
     atr_values=d['ATR14'].to_numpy(dtype=float,copy=False)
     cfg=ExecutionConfig(); rs=[]; pos=None
     for i in range(1,len(d)):
+        had_position_at_bar_open = pos is not None
         if pos is not None:
-            h,l=float(highs[i]),float(lows[i]); age=i-pos['entry_i']
-            slhit=l<=pos['sl'] if pos['side']==1 else h>=pos['sl']; tphit=h>=pos['tp'] if pos['side']==1 else l<=pos['tp']
-            opposite=bool(sig[i]==-pos['side'])
-            if slhit or tphit or opposite or age>=MAX_HOLD:
-                raw=pos['sl'] if slhit else pos['tp'] if tphit else float(closes[i]); ex=apply_exit_cost(raw,pos['side'],cfg)
-                rs.append(float((ex-pos['entry'])/(pos['entry']-pos['sl'])*pos['side'])); pos=None
-        if pos is None and bool(sig[i-1]):
-            side=int(sig[i-1]); entry=apply_entry_cost(float(opens[i]),side,cfg); atr=float(atr_values[i-1])
+            side=pos['side']; bar_open=float(opens[i]); age=i-pos['entry_i']
+            gap_sl=bar_open<=pos['sl'] if side==1 else bar_open>=pos['sl']
+            gap_tp=bar_open>=pos['tp'] if side==1 else bar_open<=pos['tp']
+            raw=None
+            # A broker-side stop/target may execute at the opening gap before
+            # the EA's next-bar expiry check. Stop gaps receive the worse open;
+            # target gaps are conservatively filled at the target price.
+            if gap_sl: raw=bar_open
+            elif gap_tp: raw=pos['tp']
+            # The MQL5 EA closes an expired position on the first tick of the
+            # next bar, not at that bar's later close.
+            elif age>=MAX_HOLD: raw=bar_open
+            else:
+                h,l=float(highs[i]),float(lows[i])
+                slhit=l<=pos['sl'] if side==1 else h>=pos['sl']
+                tphit=h>=pos['tp'] if side==1 else l<=pos['tp']
+                opposite=bool(sig[i]==-side)
+                if slhit or tphit or opposite:
+                    raw=pos['sl'] if slhit else pos['tp'] if tphit else float(closes[i])
+            if raw is not None:
+                ex=apply_exit_cost(raw,side,cfg)
+                rs.append(float((ex-pos['entry'])/(pos['entry']-pos['sl'])*side)); pos=None
+        # A position that existed at this bar's open cannot be replaced at the
+        # same historical open after a stop/target that occurs later intrabar.
+        if not had_position_at_bar_open and pos is None and bool(sig[i-1]):
+            side=int(sig[i-1]); atr=float(atr_values[i-1])
             if not np.isfinite(atr) or atr<=0: continue
-            risk=p['atr_mult']*atr; sl=entry-side*risk; tp=entry+side*p['rr']*risk; pos={'entry_i':i,'side':side,'entry':entry,'sl':sl,'tp':tp}
+            entry=apply_entry_cost(float(opens[i]),side,cfg)
+            risk=p['atr_mult']*atr; sl=entry-side*risk; tp=entry+side*p['rr']*risk
+            pos={'entry_i':i,'side':side,'entry':entry,'sl':sl,'tp':tp}
+            # SL/TP are live immediately after entry, so the entry candle's
+            # range must be checked using the same stop-first convention.
+            h,l=float(highs[i]),float(lows[i])
+            slhit=l<=sl if side==1 else h>=sl
+            tphit=h>=tp if side==1 else l<=tp
+            if slhit or tphit:
+                raw=sl if slhit else tp
+                ex=apply_exit_cost(raw,side,cfg)
+                rs.append(float((ex-entry)/(entry-sl)*side)); pos=None
     if pos is not None:
         ex=apply_exit_cost(float(closes[-1]),pos['side'],cfg); rs.append(float((ex-pos['entry'])/(pos['entry']-pos['sl'])*pos['side']))
     return rs
