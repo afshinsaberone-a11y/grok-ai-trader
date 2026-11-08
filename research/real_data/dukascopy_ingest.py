@@ -148,8 +148,10 @@ class DukascopyM1Ingestor:
             except DukascopyIngestError as exc:
                 if tmp.exists():
                     tmp.unlink()
-                if str(exc).startswith("Empty Dukascopy response:"):
-                    raise
+                # A zero-byte HTTP 200 is a transient upstream failure on a
+                # trading weekday, not proof that the day has no candles.
+                # Retry it with the same bounded backoff as transport errors;
+                # after exhaustion download_range() may try the real BI5 feed.
                 last_error = exc
             except (URLError, TimeoutError, OSError) as exc:
                 last_error = exc
