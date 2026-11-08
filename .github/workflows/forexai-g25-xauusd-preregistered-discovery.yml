@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: \${{ github.sha }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -81,7 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: \${{ github.sha }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -92,9 +92,9 @@ jobs:
         with:
           name: forexai-g22-xauusd-m5-full-history-2021-2024
           path: data/g22
-          repository: \${{ github.repository }}
+          repository: ${{ github.repository }}
           run-id: 41911516706
-          github-token: \${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run training-only phase (2021-2023); 2025 remains unopened
         id: training
         run: |
@@ -125,17 +125,17 @@ jobs:
       # 2025 is downloaded only for an explicit manual dispatch AND only after
       # every frozen 2021-2023 base/stress/year gate has passed.
       - name: Download the four immutable G24 2025 shards after training pass
-        if: \${{ github.event_name == 'workflow_dispatch' && steps.training.outputs.training_pass == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.training.outputs.training_pass == 'true' }}
         uses: actions/download-artifact@v4
         with:
           pattern: forexai-g24-xauusd-m5-fresh-oos-2025-*
           path: data/g24-shards
           merge-multiple: false
-          repository: \${{ github.repository }}
-          run-id: \${{ inputs.g24_run_id }}
-          github-token: \${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.g24_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run single-candidate 2025 validation (only after training pass)
-        if: \${{ github.event_name == 'workflow_dispatch' && steps.training.outputs.training_pass == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.training.outputs.training_pass == 'true' }}
         run: |
           python -m research.optimization.xauusd_intraday_preregistered_discovery_v1 \
             --train-root data/g22 \
@@ -144,7 +144,7 @@ jobs:
             --slippage-usd-per-oz-per-side 0.10 \
             --output artifacts/g25-xauusd-preregistered-discovery.json
       - name: Upload full discovery and validation evidence
-        if: \${{ github.event_name == 'workflow_dispatch' && steps.training.outputs.training_pass == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.training.outputs.training_pass == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: forexai-g25-xauusd-preregistered-discovery
