@@ -131,6 +131,20 @@ CANDIDATES: tuple[dict[str, Any], ...] = (
         "invert_signal_direction": True,
     },
     {
+        # Fixed structure-break hypothesis; deliberately not an EMA-reclaim entry.
+        "id": "h1_m5_pullback_structure_break_v1",
+        "family": "pullback_structure_break",
+        "ema_fast": 20,
+        "ema_slow": 50,
+        "adx_min": 22.0,
+        "pullback_bars": 3,
+        "touch_atr": 0.20,
+        "structure_bars": 3,
+        "atr_stop_mult": 1.6,
+        "reward_risk": 2.2,
+        "max_holding_bars": 36,
+    },
+    {
         # Port of the repository's Robust Regime-Momentum v1 entry rules.
         # Execution is re-evaluated by the XAUUSD BID/ASK kernel; the large
         # holding cap disables the old model's synthetic time exit because
@@ -629,6 +643,53 @@ def build_signals(features: pd.DataFrame, candidate: dict[str, Any]) -> pd.Serie
         first_breakout = (long | short).fillna(False).astype(int).groupby(utc_date).cumsum().eq(1)
         long = long & first_breakout
         short = short & first_breakout
+    elif family == "pullback_structure_break":
+        fast = features[f"EMA{candidate['ema_fast']}"]
+        slow = features[f"EMA{candidate['ema_slow']}"]
+        atr = features["ATR"]
+        touch_atr = float(candidate["touch_atr"])
+        pullback_bars = int(candidate["pullback_bars"])
+        structure_bars = int(candidate["structure_bars"])
+
+        # Pullback must occur in prior completed bars only; signal bar excluded.
+        touch_long = features["mid_low"] <= (fast + touch_atr * atr)
+        touch_short = features["mid_high"] >= (fast - touch_atr * atr)
+        recent_touch_long = (
+            touch_long.rolling(pullback_bars, min_periods=pullback_bars)
+            .max().shift(1).fillna(0).astype(bool)
+        )
+        recent_touch_short = (
+            touch_short.rolling(pullback_bars, min_periods=pullback_bars)
+            .max().shift(1).fillna(0).astype(bool)
+        )
+
+        # Current signal bar is excluded from the local structure reference.
+        prior_swing_high = (
+            features["mid_high"].shift(1)
+            .rolling(structure_bars, min_periods=structure_bars).max()
+        )
+        prior_swing_low = (
+            features["mid_low"].shift(1)
+            .rolling(structure_bars, min_periods=structure_bars).min()
+        )
+        h1_up = features["H1_TREND_UP"].fillna(False).astype(bool)
+        h1_down = features["H1_TREND_DOWN"].fillna(False).astype(bool)
+        long = (
+            h1_up
+            & (fast > slow)
+            & (adx >= float(candidate["adx_min"]))
+            & recent_touch_long
+            & (close.shift(1) <= prior_swing_high)
+            & (close > prior_swing_high)
+        )
+        short = (
+            h1_down
+            & (fast < slow)
+            & (adx >= float(candidate["adx_min"]))
+            & recent_touch_short
+            & (close.shift(1) >= prior_swing_low)
+            & (close < prior_swing_low)
+        )
     elif family == "robust_regime_momentum":
         fast = features[f"EMA{candidate['ema_fast']}"]
         slow = features[f"EMA{candidate['ema_slow']}"]
@@ -998,26 +1059,3 @@ def main(argv: list[str] | None = None) -> int:
         commission_usd_per_oz=args.commission_usd_per_oz_round_turn,
         slippage_usd_per_oz_per_side=args.slippage_usd_per_oz_per_side,
     )
-    report["data_audit"] = {
-        "training_annual_files": train_audit,
-        "validation_annual_file": validation_audit,
-    }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps({
-        "status": report["status"],
-        "candidate_count": report["candidate_count"],
-        "train_qualified": sum(bool(item["train_qualified"]) for item in report["candidate_set"]),
-        "selected_candidate": (report["selected_on_training_only"] or {}).get("id"),
-        "validation_pass": (report["validation"] or {}).get("validation_pass"),
-        "2024_loaded": report["data_policy"]["2024_loaded"],
-        "2026_loaded": report["data_policy"]["2026_loaded"],
-        "demo_authorized": report["promotion"]["demo_authorized"],
-        "orders_submitted": report["promotion"]["orders_submitted"],
-        "output": str(args.output),
-    }, indent=2))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
