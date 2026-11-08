@@ -768,11 +768,11 @@ def evaluate_year(
             "trades": len(group),
             "net_expectancy_R": round(float(np.mean(net)), 8) if net else 0.0,
             "pre_commission_expectancy_R": round(float(np.mean(pre)), 8) if pre else 0.0,
-            "median_holding_minutes": round(float(np.median([t["holding_minutes"] for t in group])), 4) if group else 0.0,
+            "median_holding_minutes": round(float(np.median([(t["holding_minutes_lower_bound"] + t["holding_minutes_upper_bound"]) / 2.0 for t in group])), 4) if group else 0.0,
             "median_mfe_R_lower_bound": round(float(np.median([t["mfe_R_lower_bound_completed_bars"] for t in group])), 8) if group else 0.0,
-            "median_mfe_R_upper_bound": round(float(np.median([t["mfe_R_upper_bound_including_exit_bar"] for t in group])), 8) if group else 0.0,
+            "median_mfe_R_upper_bound": round(float(np.median([t["mfe_R_upper_bound"] for t in group])), 8) if group else 0.0,
             "median_mae_R_lower_bound": round(float(np.median([t["mae_R_lower_bound_completed_bars"] for t in group])), 8) if group else 0.0,
-            "median_mae_R_upper_bound": round(float(np.median([t["mae_R_upper_bound_including_exit_bar"] for t in group])), 8) if group else 0.0,
+            "median_mae_R_upper_bound": round(float(np.median([t["mae_R_upper_bound"] for t in group])), 8) if group else 0.0,
         }
 
     diagnostic_groups: dict[str, Any] = {}
