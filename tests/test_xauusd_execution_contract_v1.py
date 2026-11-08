@@ -57,9 +57,10 @@ def test_long_uses_ask_entry_bid_exit_and_charges_explicit_costs_once() -> None:
     assert trades[0]["spread_double_charged"] is False
     assert trades[0]["entry_utc_hour"] == 11
     assert trades[0]["entry_utc_weekday"] == 0
-    assert trades[0]["holding_minutes"] == pytest.approx(60.0)
+    assert trades[0]["holding_minutes_lower_bound"] == pytest.approx(60.0)
+    assert trades[0]["holding_minutes_upper_bound"] == pytest.approx(120.0)
     assert trades[0]["mfe_R_lower_bound_completed_bars"] == pytest.approx(0.55)
-    assert trades[0]["mfe_R_upper_bound_including_exit_bar"] == pytest.approx(2.55)
+    assert trades[0]["mfe_R_upper_bound"] == pytest.approx(2.55)
     assert trades[0]["mae_R_lower_bound_completed_bars"] == pytest.approx(0.45)
     assert trades[0]["mfe_mae_exit_bar_order_known"] is False
     assert metrics["spread_double_charged"] is False
