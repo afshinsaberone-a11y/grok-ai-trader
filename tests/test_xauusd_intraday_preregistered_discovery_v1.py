@@ -505,7 +505,7 @@ def test_pullback_structure_break_does_not_use_current_bar_in_structure_referenc
     features = pd.DataFrame({
         "timestamp": timestamps,
         "mid_open": [100.0] * 5,
-        "mid_close": [100.0, 100.0, 99.8, 100.0, 100.1],
+        "mid_close": [100.0, 100.0, 99.8, 100.0, 100.3],
         "mid_low": [99.8, 99.7, 99.0, 99.8, 99.9],
         "mid_high": [100.2, 100.1, 100.0, 100.2, 105.0],
         "EMA20": [100.0] * 5,
