@@ -55,6 +55,14 @@ def test_long_uses_ask_entry_bid_exit_and_charges_explicit_costs_once() -> None:
     assert trades[0]["net_R"] == pytest.approx(2.43333333)
     assert trades[0]["financing_schedule_side"] == "LONG"
     assert trades[0]["spread_double_charged"] is False
+    assert trades[0]["entry_utc_hour"] == 11
+    assert trades[0]["entry_utc_weekday"] == 0
+    assert trades[0]["holding_minutes_lower_bound"] == pytest.approx(60.0)
+    assert trades[0]["holding_minutes_upper_bound"] == pytest.approx(120.0)
+    assert trades[0]["mfe_R_lower_bound_completed_bars"] == pytest.approx(0.55)
+    assert trades[0]["mfe_R_upper_bound"] == pytest.approx(2.55)
+    assert trades[0]["mae_R_lower_bound_completed_bars"] == pytest.approx(0.45)
+    assert trades[0]["mfe_mae_exit_bar_order_known"] is False
     assert metrics["spread_double_charged"] is False
 
 
@@ -179,3 +187,15 @@ def test_invalid_blocked_utc_hours_fail_closed() -> None:
     with pytest.raises(XAUUSDExecutionError, match="BLOCKED_ENTRY_UTC_HOURS_INVALID"):
         run_xauusd_backtest(bars_fixture(), bad)
 
+
+
+def test_intrabar_holding_upper_bound_uses_nominal_bar_width_across_data_gap() -> None:
+    bars = bars_fixture()
+    bars.loc[2, "timestamp"] = pd.Timestamp("2024-01-08T13:00:00Z")
+    bars.loc[3, "timestamp"] = pd.Timestamp("2024-01-08T14:00:00Z")
+
+    _, trades = run_xauusd_backtest(bars, config())
+
+    assert trades[0]["holding_minutes_lower_bound"] == pytest.approx(120.0)
+    # The exit bar is one nominal 60-minute bar, not the 120-minute data gap.
+    assert trades[0]["holding_minutes_upper_bound"] == pytest.approx(180.0)

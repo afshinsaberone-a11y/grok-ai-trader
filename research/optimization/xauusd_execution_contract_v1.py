@@ -157,6 +157,12 @@ def run_xauusd_backtest(
     frame = _canonical_frame(bars)
     if len(frame) < 2:
         raise XAUUSDExecutionError("XAUUSD_INSUFFICIENT_BARS")
+    # Infer the nominal bar width from the dataset, not from the immediately
+    # preceding timestamp: missing-session/data gaps must not inflate an
+    # intrabar holding-time upper bound.
+    bar_interval_minutes = float(
+        frame["timestamp"].diff().dropna().dt.total_seconds().median() / 60.0
+    )
 
     slippage = float(config.slippage_usd_per_oz_per_side)
     commission = float(config.commission_usd_per_oz_round_turn)
@@ -186,10 +192,57 @@ def run_xauusd_backtest(
             position, entry_fill, exit_fill, risk_distance, commission, financing_accum
         )
         hold_bars = max(1, exit_idx - entry_idx + 1)
+        entry_ts = frame.at[entry_idx, "timestamp"]
+        exit_ts = frame.at[exit_idx, "timestamp"]
+
+        # M5 OHLC cannot reveal intrabar high/low ordering. Bars strictly before
+        # the exit bar are fully observed while the position is open. For exits
+        # at the next bar open, the exit bar itself is post-position and MUST NOT
+        # contribute to MFE/MAE. For intrabar stop/target exits, its full range is
+        # only an upper bound because the extreme may occur after the fill.
+        prior_bars = frame.iloc[entry_idx:exit_idx]
+        open_exit = exit_price_field in {"bid_open", "ask_open"} or reason == "target_gap_open"
+        close_exit = exit_price_field in {"bid_close", "ask_close"}
+        observed_bars = (
+            prior_bars
+            if open_exit
+            else frame.iloc[entry_idx:exit_idx + 1]
+        )
+
+        def excursion_bounds(sample: pd.DataFrame) -> tuple[float, float]:
+            if sample.empty:
+                return 0.0, 0.0
+            if position == 1:
+                favorable = max(0.0, float(sample["bid_high"].max()) - entry_fill)
+                adverse = max(0.0, entry_fill - float(sample["bid_low"].min()))
+            else:
+                favorable = max(0.0, entry_fill - float(sample["ask_low"].min()))
+                adverse = max(0.0, float(sample["ask_high"].max()) - entry_fill)
+            return favorable / risk_distance, adverse / risk_distance
+
+        mfe_lower, mae_lower = excursion_bounds(prior_bars)
+        mfe_upper, mae_upper = excursion_bounds(observed_bars)
+        # Open exits have exact bar-open elapsed time. Intrabar exits are bounded
+        # within the exit bar; close exits use the full bar duration.
+        deltas = (exit_ts - entry_ts).total_seconds() / 60.0
+        bar_minutes = bar_interval_minutes
+        holding_lower = deltas if open_exit else (deltas + bar_minutes if close_exit else deltas)
+        holding_upper = holding_lower if open_exit or close_exit else deltas + bar_minutes
         trade_rows.append({
             "side": "LONG" if position == 1 else "SHORT",
-            "entry_time": frame.at[entry_idx, "timestamp"].isoformat(),
-            "exit_time": frame.at[exit_idx, "timestamp"].isoformat(),
+            "entry_time": entry_ts.isoformat(),
+            "exit_time": exit_ts.isoformat(),
+            "entry_utc_hour": int(entry_ts.hour),
+            "entry_utc_weekday": int(entry_ts.dayofweek),
+            "holding_minutes_lower_bound": round(holding_lower, 4),
+            "holding_minutes_upper_bound": round(max(holding_lower, holding_upper), 4),
+            "holding_time_exit_intrabar_order_known": open_exit or close_exit,
+            "mfe_R_lower_bound_completed_bars": round(mfe_lower, 8),
+            "mfe_R_upper_bound": round(max(mfe_lower, mfe_upper), 8),
+            "mae_R_lower_bound_completed_bars": round(mae_lower, 8),
+            "mae_R_upper_bound": round(max(mae_lower, mae_upper), 8),
+            "mfe_mae_exit_bar_included": not open_exit,
+            "mfe_mae_exit_bar_order_known": open_exit or close_exit,
             "entry_fill": round(entry_fill, 6),
             "exit_fill": round(exit_fill, 6),
             "stop": round(stop, 6),

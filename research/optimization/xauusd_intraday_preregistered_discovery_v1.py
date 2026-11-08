@@ -748,13 +748,57 @@ def evaluate_year(
         max_holding_bars=int(candidate["max_holding_bars"]),
         blocked_entry_utc_hours=(20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6),
     )
-    result, _trades = run_xauusd_intraday(
+    result, trades = run_xauusd_intraday(
         frame.loc[mask].reset_index(drop=True),
         cfg,
         flatten_by_utc=FLATTEN_BY_UTC,
         earliest_rollover_utc=EARLIEST_ROLLOVER_UTC,
         indicator_warmup_bars_after_gap=MAX_INDICATOR_WARMUP_AFTER_GAP,
     )
+
+    # Compact, reproducible diagnostics. Small groups remain descriptive only;
+    # this output is not used for candidate selection or parameter tuning.
+    def summarize_trade_group(group: list[dict[str, Any]]) -> dict[str, Any]:
+        net = [float(t["net_R"]) for t in group]
+        pre = [
+            float(t["price_R_after_quote_and_slippage_before_commission_financing"])
+            for t in group
+        ]
+        return {
+            "trades": len(group),
+            "net_expectancy_R": round(float(np.mean(net)), 8) if net else 0.0,
+            "pre_commission_expectancy_R": round(float(np.mean(pre)), 8) if pre else 0.0,
+            "median_holding_minutes_lower_bound": round(float(np.median([t["holding_minutes_lower_bound"] for t in group])), 4) if group else 0.0,
+            "median_holding_minutes_upper_bound": round(float(np.median([t["holding_minutes_upper_bound"] for t in group])), 4) if group else 0.0,
+            "median_mfe_R_lower_bound": round(float(np.median([t["mfe_R_lower_bound_completed_bars"] for t in group])), 8) if group else 0.0,
+            "median_mfe_R_upper_bound": round(float(np.median([t["mfe_R_upper_bound"] for t in group])), 8) if group else 0.0,
+            "median_mae_R_lower_bound": round(float(np.median([t["mae_R_lower_bound_completed_bars"] for t in group])), 8) if group else 0.0,
+            "median_mae_R_upper_bound": round(float(np.median([t["mae_R_upper_bound"] for t in group])), 8) if group else 0.0,
+        }
+
+    diagnostic_groups: dict[str, Any] = {}
+    group_specs = {
+        "entry_utc_hour": lambda t: str(t["entry_utc_hour"]),
+        "entry_utc_weekday_monday_zero": lambda t: str(t["entry_utc_weekday"]),
+        "side": lambda t: str(t["side"]),
+        "exit_reason": lambda t: str(t["exit_reason"]),
+    }
+    for dimension, key_fn in group_specs.items():
+        buckets: dict[str, list[dict[str, Any]]] = {}
+        for trade in trades:
+            buckets.setdefault(key_fn(trade), []).append(trade)
+        diagnostic_groups[dimension] = {
+            key: summarize_trade_group(group)
+            for key, group in sorted(buckets.items())
+        }
+    result["trade_diagnostics"] = {
+        "schema": "forexai.xauusd_trade_diagnostics.v1",
+        "mfe_mae_method": "executable BID for LONG / ASK for SHORT; completed-bar lower bounds and inclusive exit-bar upper bounds",
+        "exit_bar_intrabar_order_known": False,
+        "group_minimum_for_inference": 50,
+        "small_groups_are_descriptive_only": True,
+        "groups": diagnostic_groups,
+    }
     return result
 
 
