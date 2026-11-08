@@ -574,7 +574,7 @@ def build_features(raw: pd.DataFrame) -> pd.DataFrame:
 def build_signals(features: pd.DataFrame, candidate: dict[str, Any]) -> pd.Series:
     close = features["mid_close"]
     adx = features["ADX"]
-    rsi = features["RSI"]
+    rsi = features.get("RSI", pd.Series(np.nan, index=features.index))
     family = candidate["family"]
     signal = pd.Series(0, index=features.index, dtype="int64")
 
