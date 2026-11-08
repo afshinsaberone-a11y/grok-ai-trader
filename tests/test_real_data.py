@@ -233,3 +233,67 @@ def test_strategy_does_not_trade_before_atr_warmup():
     }, index=ts)
     result = GrokHybridStrategy().backtest_simple(data, symbol="EURUSD")
     assert result["trades"] == 0
+
+
+def test_jetta_empty_response_retries_then_succeeds(tmp_path: Path, monkeypatch):
+    from research.real_data import dukascopy_ingest
+
+    class FakeResponse:
+        def __init__(self, payload: bytes):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return self.payload
+
+    payloads = [b"", b"", b"{}"]
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(timeout)
+        return FakeResponse(payloads.pop(0))
+
+    monkeypatch.setattr(dukascopy_ingest, "urlopen", fake_urlopen)
+    monkeypatch.setattr(dukascopy_ingest.time, "sleep", lambda _delay: None)
+    ingestor = DukascopyM1Ingestor(tmp_path, retries=3)
+    day = pd.Timestamp("2026-01-05").date()
+    destination = tmp_path / "jetta.json"
+
+    assert ingestor._download("https://example.invalid/day", destination, day=day)
+    assert len(calls) == 3
+    assert destination.read_bytes() == b"{}"
+
+
+def test_jetta_empty_response_exhaustion_fails_closed(tmp_path: Path, monkeypatch):
+    from research.real_data import dukascopy_ingest
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b""
+
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(timeout)
+        return FakeResponse()
+
+    monkeypatch.setattr(dukascopy_ingest, "urlopen", fake_urlopen)
+    monkeypatch.setattr(dukascopy_ingest.time, "sleep", lambda _delay: None)
+    ingestor = DukascopyM1Ingestor(tmp_path, retries=2)
+    day = pd.Timestamp("2026-01-05").date()
+
+    with pytest.raises(DukascopyIngestError, match="failed to download weekday JETTA data after 2 attempts"):
+        ingestor._download("https://example.invalid/day", tmp_path / "empty.json", day=day)
+    assert len(calls) == 2
+    assert not (tmp_path / "empty.json").exists()
