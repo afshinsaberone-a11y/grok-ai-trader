@@ -105,3 +105,26 @@ GHA run 42400797378 (artifact 13585695516) evaluated the nine hypotheses present
 - No candidate qualified, no 2025 validation ran, and no orders were submitted. 2024 and 2026 remained excluded.
 
 The next preregistered hypothesis reverses only the London opening-range breakout direction. It does not change the opening-range window or exit parameters.
+
+
+## 2026-11-07 follow-up: inverse London breakout and complete ten-candidate zero-slippage result
+
+GHA run 42402067713 (artifact 13586276214; artifact SHA-256 `531dddaeea28504d48fbcbeff2e83e42de06b7793a98b78e479a3992ea4d97b6`) ran the fixed ten-candidate set, including the exact inverse of the London opening-range breakout. The diagnostic retained historical BID/ASK execution prices and USD 0.08/oz round-turn commission; the base scenario used zero added slippage and the stress scenario used USD 0.10/oz/side.
+
+- All 10 candidates failed the training gates in both scenarios.
+- All 30 candidate-year records (2021-2023) had negative net expectancy and negative pre-commission expectancy. The pre-commission metric still includes the observed BID/ASK spread.
+- The inverse London breakout produced 256, 257 and 244 trades in 2021, 2022 and 2023. Under zero added slippage, its yearly net expectancy was -0.15102999R, -0.26601578R and -0.32034425R; PF was 0.787262, 0.647015 and 0.586221. Its weighted expectancy over 757 trades was -0.24464165R. Pre-commission expectancy was also negative in all three years.
+- Both long and short sides were negative in every year. 2021 included one gap-exit assumption, which independently violates the gate; 2022 and 2023 had no gap-exit assumptions but still failed PF and expectancy.
+- No candidate was selected, 2025 validation was not run, 2024 and 2026 remained excluded, and no orders were submitted. Demo and Live authorization remain false.
+
+Conclusion: reversing the London breakout direction does not recover an edge. Do not tune risk, stop/target or parameters around these losing results, and do not promote any G25 candidate. The ten-candidate screen has reached a clean NO-GO.
+
+## 2026-11-07 follow-up: broker-side order-flow capability
+
+GHA run 42406165206 (artifact 13587617461) checked 180 days of the connected MT5 XAUUSD tick history and sampled the broker's live Market Depth.
+
+- The report contained 31,457,801 valid two-sided quote ticks, but zero usable BUY-side or SELL-side trade flags and zero trade-volume updates. BID/ASK quote updates must not be mislabelled as executed buyer/seller flow.
+- Market Depth subscription succeeded and all eight snapshots returned without API errors, but all eight were empty: zero displayed levels. No historical depth series was available.
+- No orders were submitted, positions modified, or terminal settings changed.
+
+Conclusion: this broker feed currently does not provide usable historical trade-side flow or non-empty displayed depth for this research. Do not build a historical order-flow strategy from quote changes or the empty depth snapshots.
