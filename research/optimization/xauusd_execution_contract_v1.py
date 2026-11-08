@@ -157,6 +157,12 @@ def run_xauusd_backtest(
     frame = _canonical_frame(bars)
     if len(frame) < 2:
         raise XAUUSDExecutionError("XAUUSD_INSUFFICIENT_BARS")
+    # Infer the nominal bar width from the dataset, not from the immediately
+    # preceding timestamp: missing-session/data gaps must not inflate an
+    # intrabar holding-time upper bound.
+    bar_interval_minutes = float(
+        frame["timestamp"].diff().dropna().dt.total_seconds().median() / 60.0
+    )
 
     slippage = float(config.slippage_usd_per_oz_per_side)
     commission = float(config.commission_usd_per_oz_round_turn)
@@ -219,10 +225,7 @@ def run_xauusd_backtest(
         # Open exits have exact bar-open elapsed time. Intrabar exits are bounded
         # within the exit bar; close exits use the full bar duration.
         deltas = (exit_ts - entry_ts).total_seconds() / 60.0
-        bar_minutes = (
-            (frame.at[exit_idx, "timestamp"] - frame.at[exit_idx - 1, "timestamp"]).total_seconds() / 60.0
-            if exit_idx > 0 else 0.0
-        )
+        bar_minutes = bar_interval_minutes
         holding_lower = deltas if open_exit else (deltas + bar_minutes if close_exit else deltas)
         holding_upper = holding_lower if open_exit or close_exit else deltas + bar_minutes
         trade_rows.append({
