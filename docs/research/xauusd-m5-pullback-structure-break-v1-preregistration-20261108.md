@@ -1,9 +1,10 @@
 # XAUUSD M5 Pullback + Structure Break v1 — Preregistered Hypothesis
 
-Status: implemented in the research-only discovery harness; unit-tested; not yet backtested or validated.
+Status: **NO-GO — training gates failed on 2021–2023; 2025 validation was not loaded or run.**
 Created: 2026-11-08
 Scope: XAUUSD M5, real BID/ASK data only, UTC.
 
+This hypothesis has completed its preregistered training evaluation and is rejected. Do not tune or retest nearby parameters on this same training sample.
 ## Why this is a distinct hypothesis
 
 G25 tested EMA pullback entries that trigger when price crosses back over a pullback EMA, and a separate robust regime-momentum entry based on a recent EMA touch. Those families did not pass the 2021–2023 training gates. This hypothesis requires a *subsequent short-term structure break after the pullback*, rather than entering on the EMA recross alone. It is one fixed rule set, not a parameter search.
@@ -63,3 +64,24 @@ Publish per-year and combined trade count, PF, expectancy, drawdown, costs, gap 
 ## Authorization boundary
 
 This document does not change any EA, issue any admission/promotion/risk/operator/capital grant, authorize Demo or Live, or submit orders. Research evidence only.
+
+
+## Frozen training result — NO-GO
+
+- Workflow: G25 PR training-only run **42499939529** (run #34), completed successfully.
+- Evidence artifact: `forexai-g25-xauusd-training-only`, artifact ID **13625022539**.
+- Artifact digest: `sha256:3d99e8ac76eaf560bf1b974dcf12688c42ff61f7a6c49347b57390af9ec7218e`.
+- Data policy in report: `backtest_periods_loaded=["2021-2023"]`; `2024_loaded=false`; `2025_loaded=false`; `2026_loaded=false`.
+- The fixed new hypothesis was evaluated alongside the already-existing G25 candidate set (11 total candidates); **zero of 11** qualified. No candidate was selected and `validation_load_permitted=false`.
+- For `h1_m5_pullback_structure_break_v1`, all six base/stress year combinations failed. Trade counts and entries/exits reconciled; however PF and expectancy failed in every year, drawdown exceeded 20% in every year, and gap-exit-assumption trades were present in 2022 and 2023.
+
+| Year | Scenario | Trades | PF | Expectancy (R) | Max DD |
+|---|---|---:|---:|---:|---:|
+| 2021 | Base | 404 | 0.648 | -0.2571 | 25.23% |
+| 2022 | Base | 445 | 0.613 | -0.2895 | 27.93% |
+| 2023 | Base | 397 | 0.563 | -0.3289 | 29.23% |
+| 2021 | Stress | 410 | 0.555 | -0.3491 | 32.02% |
+| 2022 | Stress | 448 | 0.547 | -0.3579 | 33.19% |
+| 2023 | Stress | 398 | 0.472 | -0.4279 | 35.29% |
+
+**Decision:** stop this hypothesis. Do not open 2025, do not test a runner-up, and do not change EMA, ADX, pullback, stop, target, or holding-period values against this training sample. A separate strategy family would require a separately justified and preregistered research design; these results provide no basis for Demo or Live promotion.
