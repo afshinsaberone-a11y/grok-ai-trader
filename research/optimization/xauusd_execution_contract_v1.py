@@ -189,11 +189,19 @@ def run_xauusd_backtest(
         entry_ts = frame.at[entry_idx, "timestamp"]
         exit_ts = frame.at[exit_idx, "timestamp"]
 
-        # M5 OHLC cannot reveal the order of the high/low inside the exit bar.
-        # Report completed-bar excursion as a lower bound and the full exit-bar
-        # range as an upper bound; never label these bounds as exact tick MFE/MAE.
+        # M5 OHLC cannot reveal intrabar high/low ordering. Bars strictly before
+        # the exit bar are fully observed while the position is open. For exits
+        # at the next bar open, the exit bar itself is post-position and MUST NOT
+        # contribute to MFE/MAE. For intrabar stop/target exits, its full range is
+        # only an upper bound because the extreme may occur after the fill.
         prior_bars = frame.iloc[entry_idx:exit_idx]
-        observed_bars = frame.iloc[entry_idx:exit_idx + 1]
+        open_exit = exit_price_field in {"bid_open", "ask_open"} or reason == "target_gap_open"
+        close_exit = exit_price_field in {"bid_close", "ask_close"}
+        observed_bars = (
+            prior_bars
+            if open_exit
+            else frame.iloc[entry_idx:exit_idx + 1]
+        )
 
         def excursion_bounds(sample: pd.DataFrame) -> tuple[float, float]:
             if sample.empty:
@@ -208,18 +216,30 @@ def run_xauusd_backtest(
 
         mfe_lower, mae_lower = excursion_bounds(prior_bars)
         mfe_upper, mae_upper = excursion_bounds(observed_bars)
+        # Open exits have exact bar-open elapsed time. Intrabar exits are bounded
+        # within the exit bar; close exits use the full bar duration.
+        deltas = (exit_ts - entry_ts).total_seconds() / 60.0
+        bar_minutes = (
+            (frame.at[exit_idx, "timestamp"] - frame.at[exit_idx - 1, "timestamp"]).total_seconds() / 60.0
+            if exit_idx > 0 else 0.0
+        )
+        holding_lower = deltas if open_exit else (deltas + bar_minutes if close_exit else deltas)
+        holding_upper = holding_lower if open_exit or close_exit else deltas + bar_minutes
         trade_rows.append({
             "side": "LONG" if position == 1 else "SHORT",
             "entry_time": entry_ts.isoformat(),
             "exit_time": exit_ts.isoformat(),
             "entry_utc_hour": int(entry_ts.hour),
             "entry_utc_weekday": int(entry_ts.dayofweek),
-            "holding_minutes": round((exit_ts - entry_ts).total_seconds() / 60.0, 4),
+            "holding_minutes_lower_bound": round(holding_lower, 4),
+            "holding_minutes_upper_bound": round(max(holding_lower, holding_upper), 4),
+            "holding_time_exit_intrabar_order_known": open_exit or close_exit,
             "mfe_R_lower_bound_completed_bars": round(mfe_lower, 8),
-            "mfe_R_upper_bound_including_exit_bar": round(max(mfe_lower, mfe_upper), 8),
+            "mfe_R_upper_bound": round(max(mfe_lower, mfe_upper), 8),
             "mae_R_lower_bound_completed_bars": round(mae_lower, 8),
-            "mae_R_upper_bound_including_exit_bar": round(max(mae_lower, mae_upper), 8),
-            "mfe_mae_exit_bar_order_known": False,
+            "mae_R_upper_bound": round(max(mae_lower, mae_upper), 8),
+            "mfe_mae_exit_bar_included": not open_exit,
+            "mfe_mae_exit_bar_order_known": open_exit or close_exit,
             "entry_fill": round(entry_fill, 6),
             "exit_fill": round(exit_fill, 6),
             "stop": round(stop, 6),
