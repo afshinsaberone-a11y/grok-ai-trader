@@ -1,7 +1,7 @@
 name: ForexAI G13 OOS M15 Current
 
 # G13 exact-SHA post-compile-gate-repair refresh: rebuild official evidence on the repaired main SHA.
-# Independent G13 OOS evaluation using real canonical HistData M1 data.
+# Independent G13 OOS evaluation using real canonical Dukascopy JETTA M1 data.
 # G13 exact-SHA refresh: ci: refresh G13 OOS after parity harness fix
 # G13 exact-SHA refresh: ci: trigger exact-SHA G13 OOS refresh after handoff fix
 # G13 exact-SHA chain refresh: synchronized rerun after artifact transport repair.
@@ -126,11 +126,11 @@ jobs:
           echo "TRUSTED_GITHUB_UTC_DATE=$TRUSTED_GITHUB_UTC_DATE"
           echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
 
-      - name: Download and validate canonical REAL EURUSD M1 through latest complete UTC day
+      - name: Download and validate canonical REAL Dukascopy EURUSD M1 through latest complete UTC day
         run: |
           set -euo pipefail
           rm -rf data/real
-          python -m research.real_data.histdata_ingest \
+          python -m research.real_data.dukascopy_ingest \
             --symbol EURUSD \
             --timeframe M1 \
             --start 2025-01-01 \
@@ -157,9 +157,9 @@ jobs:
           required={"timestamp","open","high","low","close","volume","spread"}
           missing=sorted(required-set(d.columns))
           if missing:
-              raise SystemExit(f"REAL_DATA_REQUIRED: HistData canonical dataset missing columns {missing}")
+              raise SystemExit(f"REAL_DATA_REQUIRED: Dukascopy canonical dataset missing columns {missing}")
           if d.empty:
-              raise SystemExit("REAL_DATA_REQUIRED: HistData canonical dataset is empty")
+              raise SystemExit("REAL_DATA_REQUIRED: Dukascopy canonical dataset is empty")
 
           ts=pd.to_datetime(d["timestamp"],utc=True,errors="raise")
           cutoff=pd.Timestamp(os.environ["LAST_COMPLETE"],tz="UTC")+pd.Timedelta(days=1)
@@ -170,11 +170,11 @@ jobs:
 
           m=json.loads(manifest.read_text(encoding="utf-8"))
           if m.get("symbol")!="EURUSD" or m.get("timeframe")!="M1":
-              raise SystemExit("REAL_DATA_REQUIRED: HistData manifest scope mismatch")
+              raise SystemExit("REAL_DATA_REQUIRED: Dukascopy manifest scope mismatch")
           if m.get("quality_status")!="PASS":
-              raise SystemExit("REAL_DATA_REQUIRED: HistData manifest quality status is not PASS")
-          print("HISTDATA_CANONICAL_OOS_DATASET_OK",len(d),ts.min().isoformat(),ts.max().isoformat())
-          print("HISTDATA_MANIFEST_OK",manifest)
+              raise SystemExit("REAL_DATA_REQUIRED: Dukascopy manifest quality status is not PASS")
+          print("DUKASCOPY_CANONICAL_OOS_DATASET_OK",len(d),ts.min().isoformat(),ts.max().isoformat())
+          print("DUKASCOPY_MANIFEST_OK",manifest)
           PY
       - name: Locate dataset
         shell: bash
