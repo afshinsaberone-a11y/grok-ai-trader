@@ -126,10 +126,23 @@ jobs:
           echo "TRUSTED_GITHUB_UTC_DATE=$TRUSTED_GITHUB_UTC_DATE"
           echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
 
+      # Keep verified raw Dukascopy day files across failed OOS attempts. The key is
+      # unique per run attempt so each retry can publish newly completed days; restore
+      # the latest compatible snapshot without ever reusing normalized/OOS outputs.
+      - name: Restore resumable canonical Dukascopy raw cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: dukascopy-eurusd-m1-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dukascopy-eurusd-m1-v1-
+
       - name: Download and validate canonical REAL Dukascopy EURUSD M1 through latest complete UTC day
         run: |
           set -euo pipefail
-          rm -rf data/real
+          # Rebuild normalized outputs, but preserve raw source files restored from cache.
+          rm -rf data/real/normalized
+          mkdir -p data/real/normalized
           python -m research.real_data.dukascopy_ingest \
             --symbol EURUSD \
             --timeframe M1 \
@@ -181,6 +194,15 @@ jobs:
           print("DUKASCOPY_CANONICAL_OOS_DATASET_OK",len(d),ts.min().isoformat(),ts.max().isoformat())
           print("DUKASCOPY_MANIFEST_OK",manifest)
           PY
+      # Save partial raw downloads even when the ingest step fails. Only raw
+      # source responses are cached; all normalized data is rebuilt and revalidated.
+      - name: Save resumable canonical Dukascopy raw cache
+        if: always() && hashFiles('data/real/raw/EURUSD/m1/**') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: dukascopy-eurusd-m1-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Locate dataset
         shell: bash
         run: |
