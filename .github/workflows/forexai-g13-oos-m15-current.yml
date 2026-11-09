@@ -133,7 +133,8 @@ status=r.get("status"); conclusion=r.get("conclusion"); assert status in {"queue
       # latest compatible snapshot, so transient upstream outages do not discard
       # already downloaded trading days.
       - name: Restore Dukascopy raw-data cache
-        uses: actions/cache@v4
+        id: dukascopy_cache_restore
+        uses: actions/cache/restore@v4
         with:
           path: data/real/raw/EURUSD/m1
           key: dukascopy-eurusd-m1-v1-${{ hashFiles('research/real_data/dukascopy_ingest.py') }}-${{ github.run_id }}
@@ -194,6 +195,16 @@ status=r.get("status"); conclusion=r.get("conclusion"); assert status in {"queue
           print("DUKASCOPY_CANONICAL_OOS_DATASET_OK",len(d),ts.min().isoformat(),ts.max().isoformat())
           print("DUKASCOPY_MANIFEST_OK",manifest)
           PY
+
+      # Save verified raw responses even when the upstream download/validation
+      # step fails later, so the next run can resume from completed days.
+      - name: Save Dukascopy raw-data cache
+        if: always() && steps.dukascopy_cache_restore.outcome == 'success' && steps.dukascopy_cache_restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: dukascopy-eurusd-m1-v1-${{ hashFiles('research/real_data/dukascopy_ingest.py') }}-${{ github.run_id }}
+
       - name: Locate dataset
         shell: bash
         run: |
