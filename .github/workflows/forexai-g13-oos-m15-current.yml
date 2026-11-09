@@ -68,7 +68,7 @@ jobs:
           watchdog_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WATCHDOG_RUN_ID")"
           printf '%s' "$watchdog_json" | EXPECTED_SHA="$EXPECTED_MAIN_SHA" python -c 'import json,os,sys; r=json.load(sys.stdin); expected=os.environ["EXPECTED_SHA"]; assert r.get("name")=="ForexAI G13 OOS Watchdog M15",r.get("name"); assert r.get("head_branch")=="main",r.get("head_branch"); assert r.get("head_sha")==expected,(r.get("head_sha"),expected); # A queued OOS job may start after its dispatching watchdog has completed;
 # the exact run ID/name/branch/SHA checks above remain the binding.
-assert r.get("status") in {"queued","in_progress","completed"},r.get("status"); print("G13_OOS_WATCHDOG_INVOCATION_VERIFIED",r.get("id"),expected)'
+status=r.get("status"); conclusion=r.get("conclusion"); assert status in {"queued","in_progress"} or (status=="completed" and conclusion=="success"),(status,conclusion); print("G13_OOS_WATCHDOG_INVOCATION_VERIFIED",r.get("id"),expected)'
           echo "G13_OOS_DISPATCH_BINDING_VALID=true EXPECTED_SHA=$EXPECTED_MAIN_SHA WATCHDOG_RUN_ID=$WATCHDOG_RUN_ID"
 
       - name: Checkout
