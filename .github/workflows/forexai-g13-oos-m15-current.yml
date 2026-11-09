@@ -66,7 +66,9 @@ jobs:
             exit 1
           }
           watchdog_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WATCHDOG_RUN_ID")"
-          printf '%s' "$watchdog_json" | EXPECTED_SHA="$EXPECTED_MAIN_SHA" python -c 'import json,os,sys; r=json.load(sys.stdin); expected=os.environ["EXPECTED_SHA"]; assert r.get("name")=="ForexAI G13 OOS Watchdog M15",r.get("name"); assert r.get("head_branch")=="main",r.get("head_branch"); assert r.get("head_sha")==expected,(r.get("head_sha"),expected); assert r.get("status") in {"queued","in_progress"},r.get("status"); print("G13_OOS_WATCHDOG_INVOCATION_VERIFIED",r.get("id"),expected)'
+          printf '%s' "$watchdog_json" | EXPECTED_SHA="$EXPECTED_MAIN_SHA" python -c 'import json,os,sys; r=json.load(sys.stdin); expected=os.environ["EXPECTED_SHA"]; assert r.get("name")=="ForexAI G13 OOS Watchdog M15",r.get("name"); assert r.get("head_branch")=="main",r.get("head_branch"); assert r.get("head_sha")==expected,(r.get("head_sha"),expected); # A queued OOS job may start after its dispatching watchdog has completed;
+# the exact run ID/name/branch/SHA checks above remain the binding.
+assert r.get("status") in {"queued","in_progress","completed"},r.get("status"); print("G13_OOS_WATCHDOG_INVOCATION_VERIFIED",r.get("id"),expected)'
           echo "G13_OOS_DISPATCH_BINDING_VALID=true EXPECTED_SHA=$EXPECTED_MAIN_SHA WATCHDOG_RUN_ID=$WATCHDOG_RUN_ID"
 
       - name: Checkout
@@ -126,10 +128,21 @@ jobs:
           echo "TRUSTED_GITHUB_UTC_DATE=$TRUSTED_GITHUB_UTC_DATE"
           echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
 
+      # Persist only verified raw Dukascopy responses between hosted-runner jobs.
+      # Cache keys are immutable; each run writes a new snapshot and restores the
+      # latest compatible snapshot, so transient upstream outages do not discard
+      # already downloaded trading days.
+      - name: Restore Dukascopy raw-data cache
+        uses: actions/cache@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: dukascopy-eurusd-m1-v1-${{ hashFiles('research/real_data/dukascopy_ingest.py') }}-${{ github.run_id }}
+          restore-keys: |
+            dukascopy-eurusd-m1-v1-${{ hashFiles('research/real_data/dukascopy_ingest.py') }}-
+
       - name: Download and validate canonical REAL Dukascopy EURUSD M1 through latest complete UTC day
         run: |
           set -euo pipefail
-          rm -rf data/real
           python -m research.real_data.dukascopy_ingest \
             --symbol EURUSD \
             --timeframe M1 \
