@@ -1,0 +1,20 @@
+{
+  "schema": "forexai.g16.regime_zscore_reversion.v1",
+  "status": "NO_GO_NO_IS_QUALIFIED_CANDIDATES",
+  "symbol": "EURUSD",
+  "timeframe": "M5",
+  "source": "HistData.com Generic ASCII M1 resampled to M5",
+  "rows": 284789,
+  "dataset_id": "20220101_20251231",
+  "data_sha256": "7a880061a40aa64124bdc263d1bb83c1791efcc08e4146f8722101fdf61f030b",
+  "manifest_sha256": "a3668bdf58de325e924750babb281bd7839c635f1ff439b693163be988f14fac",
+  "candidates": 108,
+  "is_qualified": 0,
+  "fully_qualified": 0,
+  "total_is_trades_across_catalog": 367120,
+  "validation_finalists_evaluated": 0,
+  "demo_authorized": false,
+  "live_authorized": false,
+  "orders_submitted": false,
+  "oos_2026_plus_loaded": false
+}
