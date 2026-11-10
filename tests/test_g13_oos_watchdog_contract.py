@@ -291,3 +291,27 @@ def test_watchdog_main_push_is_scoped_to_g13_sources_not_unrelated_xauusd_change
     # and Gold-only paths do not match any positive G13 push filter.
     assert "xauusd_" not in trigger.lower()
     assert "test_g13_" not in trigger
+
+
+def test_oos_delayed_start_requires_successful_completed_watchdog_and_persists_partial_cache():
+    workflow = Path(
+        ".github/workflows/forexai-g13-oos-m15-current.yml"
+    ).read_text(encoding="utf-8")
+
+    # The OOS workflow can start after its exact parent Watchdog has completed,
+    # but a failed/cancelled/timed-out parent must never authorize OOS.
+    assert 'status=r.get("status"); conclusion=r.get("conclusion");' in workflow
+    assert (
+        'status in {"queued","in_progress"} or '
+        '(status=="completed" and conclusion=="success")'
+    ) in workflow
+    assert 'r.get("name")=="ForexAI G13 OOS Watchdog M15"' in workflow
+    assert 'r.get("head_branch")=="main"' in workflow
+    assert 'r.get("head_sha")==expected' in workflow
+
+    # Save only the verified raw-data cache, including completed days when a
+    # later download/validation step fails, so a retry can resume.
+    assert "uses: actions/cache/restore@v4" in workflow
+    assert "uses: actions/cache/save@v4" in workflow
+    assert "if: always() && steps.dukascopy_cache_restore.outcome == 'success'" in workflow
+    assert "steps.dukascopy_cache_restore.outputs.cache-hit != 'true'" in workflow
