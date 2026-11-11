@@ -1,0 +1,314 @@
+name: ForexAI G13 OOS M15 Current V2
+
+# G13 exact-SHA post-compile-gate-repair refresh: rebuild official evidence on the repaired main SHA.
+# Independent G13 OOS evaluation using real canonical Dukascopy JETTA M1 data.
+# G13 exact-SHA refresh: ci: refresh G13 OOS after parity harness fix
+# G13 exact-SHA refresh: ci: trigger exact-SHA G13 OOS refresh after handoff fix
+# G13 exact-SHA chain refresh: synchronized rerun after artifact transport repair.
+# G13 synchronized evidence refresh: rebuild Validation/Robustness/OOS/Promotion/MT5 on one exact main SHA after candidate-guard repair.
+# 2026 is evaluated only; no selection or optimization is allowed.
+# The data window ends at the current UTC date, so the current partial UTC day is excluded.
+# Re-registered workflow path: V2. Same frozen OOS contract and real-data gates.
+# Re-registration touch: 2026-11-11; preserve workflow_dispatch input mapping.
+# Exact-SHA refresh marker: rerun OOS with the same commit as the full G13 evidence chain.
+
+# G13 exact-SHA chain refresh: 2026-10-06
+# Trigger: rerun official OOS on repaired trusted-UTC heredoc
+on:
+  workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: "Exact main SHA whose Validation/Robustness passed and whose OOS is being dispatched"
+        required: true
+        type: string
+      watchdog_run_id:
+        description: "The exact G13 OOS Watchdog run dispatching this OOS evaluation"
+        required: true
+        type: string
+concurrency:
+  # Key by the invoking watchdog, not merely github.sha. Stale watchdogs must not
+  # cancel a valid OOS evaluation for a newer invocation.
+  group: g13-oos-m15-current-${{ github.event.inputs.expected_main_sha }}-${{ github.event.inputs.watchdog_run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  g13-oos:
+    name: G13 2026 OOS M15 Current
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Verify exact watchdog invocation and current main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+          WATCHDOG_RUN_ID: ${{ inputs.watchdog_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'G13_OOS_EXPECTED_MAIN_SHA_INVALID'
+            exit 1
+          }
+          [[ "$WATCHDOG_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo 'G13_OOS_WATCHDOG_RUN_ID_INVALID'
+            exit 1
+          }
+          [[ "$GITHUB_SHA" == "$EXPECTED_MAIN_SHA" ]] || {
+            echo "G13_OOS_RUN_SHA_MISMATCH RUN_SHA=$GITHUB_SHA EXPECTED=$EXPECTED_MAIN_SHA"
+            exit 1
+          }
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current_main" == "$EXPECTED_MAIN_SHA" ]] || {
+            echo "G13_OOS_MAIN_MOVED_BEFORE_START CURRENT_MAIN=$current_main EXPECTED=$EXPECTED_MAIN_SHA"
+            exit 1
+          }
+          watchdog_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WATCHDOG_RUN_ID")"
+          printf '%s' "$watchdog_json" | EXPECTED_SHA="$EXPECTED_MAIN_SHA" python -c 'import json,os,sys; r=json.load(sys.stdin); expected=os.environ["EXPECTED_SHA"]; assert r.get("name")=="ForexAI G13 OOS Watchdog M15",r.get("name"); assert r.get("head_branch")=="main",r.get("head_branch"); assert r.get("head_sha")==expected,(r.get("head_sha"),expected); # A queued OOS job may start after its dispatching watchdog has completed;
+# the exact run ID/name/branch/SHA checks above remain the binding.
+status=r.get("status"); conclusion=r.get("conclusion"); assert status in {"queued","in_progress"} or (status=="completed" and conclusion=="success"),(status,conclusion); print("G13_OOS_WATCHDOG_INVOCATION_VERIFIED",r.get("id"),expected)'
+          echo "G13_OOS_DISPATCH_BINDING_VALID=true EXPECTED_SHA=$EXPECTED_MAIN_SHA WATCHDOG_RUN_ID=$WATCHDOG_RUN_ID"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile
+        run: |
+          python -m py_compile \
+            research/optimization/g13_oos_m15.py \
+            research/optimization/g13_robustness_m15.py \
+            research/optimization/rsi_divergence_discovery_g13.py \
+            research/optimization/execution_contract_v1.py \
+            research/real_data/dukascopy_ingest.py
+
+      - name: Determine latest complete UTC data cutoff from trusted GitHub server time
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          eval "$(python - <<'PY'
+          from datetime import timedelta, timezone
+          import os
+          from email.utils import parsedate_to_datetime
+          from urllib.request import Request, urlopen
+
+          url = "https://api.github.com/repos/afshinsaberone-a11y/grok-ai-trader"
+          token = os.environ["GITHUB_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": "Bearer " + token,
+              "User-Agent": "ForexAI/0.1-real-data-cutoff",
+          }
+          request = Request(url, headers=headers)
+          with urlopen(request, timeout=30) as response:
+              server_date = response.headers.get("Date")
+          if not server_date:
+              raise SystemExit("REAL_DATA_REQUIRED: GitHub API Date header unavailable")
+          current_utc = parsedate_to_datetime(server_date).astimezone(timezone.utc).date()
+          last_complete = current_utc - timedelta(days=1)
+          print(f"END_DATE={current_utc.isoformat()}")
+          print(f"LAST_COMPLETE={last_complete.isoformat()}")
+          print(f"END_TAG={last_complete.strftime('%Y%m%d')}")
+          print(f"TRUSTED_GITHUB_UTC_DATE={current_utc.isoformat()}")
+          PY
+          )"
+          echo "END_DATE=$END_DATE" >> "$GITHUB_ENV"
+          echo "LAST_COMPLETE=$LAST_COMPLETE" >> "$GITHUB_ENV"
+          echo "END_TAG=$END_TAG" >> "$GITHUB_ENV"
+          echo "TRUSTED_GITHUB_UTC_DATE=$TRUSTED_GITHUB_UTC_DATE"
+          echo "OOS_DATA_CUTOFF=$LAST_COMPLETE"
+
+      # Persist only verified raw Dukascopy responses between hosted-runner jobs.
+      # Cache keys are immutable; each run writes a new snapshot and restores the
+      # latest compatible snapshot, so transient upstream outages do not discard
+      # already downloaded trading days.
+      - name: Restore Dukascopy raw-data cache
+        id: dukascopy_cache_restore
+        uses: actions/cache/restore@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: dukascopy-eurusd-m1-v1-${{ hashFiles('research/real_data/dukascopy_ingest.py') }}-${{ github.run_id }}
+          restore-keys: |
+            dukascopy-eurusd-m1-v1-${{ hashFiles('research/real_data/dukascopy_ingest.py') }}-
+
+      - name: Download and validate canonical REAL Dukascopy EURUSD M1 through latest complete UTC day
+        run: |
+          set -euo pipefail
+          python -m research.real_data.dukascopy_ingest \
+            --symbol EURUSD \
+            --timeframe M1 \
+            --start 2025-01-01 \
+            --end "$END_DATE" \
+            --output data/real \
+            --validate \
+            --manifest \
+            --timeout 60 \
+            --retries 8 \
+            --workers 1 \
+            --batch-size 5 \
+            --batch-pause 2
+
+          DATA="data/real/normalized/EURUSD_M1_20250101_${END_TAG}.csv"
+          MANIFEST="data/real/normalized/EURUSD_M1_20250101_${END_TAG}.manifest.json"
+          test -s "$DATA"
+          test -s "$MANIFEST"
+
+          DATA="$DATA" MANIFEST="$MANIFEST" LAST_COMPLETE="$LAST_COMPLETE" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import pandas as pd
+
+          data=Path(os.environ["DATA"])
+          manifest=Path(os.environ["MANIFEST"])
+          d=pd.read_csv(data)
+          required={"timestamp","open","high","low","close","volume","spread"}
+          missing=sorted(required-set(d.columns))
+          if missing:
+              raise SystemExit(f"REAL_DATA_REQUIRED: Dukascopy canonical dataset missing columns {missing}")
+          if d.empty:
+              raise SystemExit("REAL_DATA_REQUIRED: Dukascopy canonical dataset is empty")
+
+          ts=pd.to_datetime(d["timestamp"],utc=True,errors="raise")
+          cutoff=pd.Timestamp(os.environ["LAST_COMPLETE"],tz="UTC")+pd.Timedelta(days=1)
+          if ts.min()>=pd.Timestamp("2026-01-01",tz="UTC"):
+              raise SystemExit("REAL_DATA_REQUIRED: OOS dataset has no pre-2026 history")
+          if ts.max()>=cutoff:
+              raise SystemExit(f"REAL_DATA_REQUIRED: dataset crosses trusted cutoff {cutoff.isoformat()}")
+
+          m=json.loads(manifest.read_text(encoding="utf-8"))
+          if m.get("symbol")!="EURUSD" or m.get("timeframe")!="M1":
+              raise SystemExit("REAL_DATA_REQUIRED: Dukascopy manifest scope mismatch")
+          if m.get("quality_status")!="PASS":
+              raise SystemExit("REAL_DATA_REQUIRED: Dukascopy manifest quality status is not PASS")
+          print("DUKASCOPY_CANONICAL_OOS_DATASET_OK",len(d),ts.min().isoformat(),ts.max().isoformat())
+          print("DUKASCOPY_MANIFEST_OK",manifest)
+          PY
+
+      # Save verified raw responses even when the upstream download/validation
+      # step fails later, so the next run can resume from completed days.
+      - name: Save Dukascopy raw-data cache
+        if: always() && steps.dukascopy_cache_restore.outcome == 'success' && steps.dukascopy_cache_restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: data/real/raw/EURUSD/m1
+          key: dukascopy-eurusd-m1-v1-${{ hashFiles('research/real_data/dukascopy_ingest.py') }}-${{ github.run_id }}
+
+      - name: Locate dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="$(find data/real/normalized -type f -name "EURUSD_M1_20250101_${END_TAG}.csv" | sort | head -n1)"
+          test -n "$DATA"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          echo "M1_DATASET=$DATA"
+
+      - name: Build M15 OOS dataset from real M1
+        shell: bash
+        run: |
+          DATASET="$DATA" END_TAG="$END_TAG" python - <<'PY'
+          import os
+          import pandas as pd
+          from pathlib import Path
+          from research.real_data.normalizer import resample_ohlcv
+          from research.real_data.validator import validate_ohlcv
+          src=Path(os.environ['DATASET'])
+          d=pd.read_csv(src,parse_dates=['timestamp'])
+          d['timestamp']=pd.to_datetime(d['timestamp'],utc=True)
+          m15=resample_ohlcv(d,'15min',symbol='EURUSD',source='Dukascopy')
+          report=validate_ohlcv(m15,symbol='EURUSD',timeframe='M15')
+          if report.status != 'PASS':
+              raise SystemExit(f'REAL_DATA_REQUIRED: M15 validation failed: {report.to_dict()}')
+          out=Path(f"data/real/normalized/EURUSD_M15_20250101_{os.environ['END_TAG']}.csv")
+          m15.to_csv(out,index=False)
+          print(report.to_dict())
+          print('M15_DATASET',out,len(m15))
+          PY
+          echo "DATA=data/real/normalized/EURUSD_M15_20250101_${END_TAG}.csv" >> "$GITHUB_ENV"
+
+      - name: Verify frozen handoff and strict OOS boundary
+        run: |
+          DATASET="$DATA" LAST_COMPLETE="$LAST_COMPLETE" python - <<'PY'
+          import json,os
+          import pandas as pd
+          h=json.load(open('artifacts/g13/frozen/g13-candidate-handoff-m15.json',encoding='utf-8'))
+          assert h['schema_version']=='forexai.g13.candidate_handoff.frozen.v1'
+          assert h['research_symbol']=='EURUSD'
+          assert h['research_timeframe']=='M15'
+          assert h['validation_qualified_count']==16
+          assert len(h['candidates'])==16
+          assert h['oos_policy']=={'loaded':False,'status':'HELD_OUT'}
+          policy=h['handoff_policy']
+          assert policy['parameters_are_frozen'] is True
+          assert policy['oos_optimization_disabled'] is True
+          assert policy['robustness_may_not_select'] is True
+          assert policy['validation_must_approve'] is True
+          for c in h['candidates']:
+              assert c['config_hash']
+          d=pd.read_csv(os.environ['DATASET'])
+          ts=pd.to_datetime(d['timestamp'],utc=True)
+          cutoff=pd.Timestamp(os.environ['LAST_COMPLETE'],tz='UTC') + pd.Timedelta(days=1)
+          oos=d[(ts>=pd.Timestamp('2026-01-01',tz='UTC'))&(ts<cutoff)]
+          assert not oos.empty
+          assert ts.max()<cutoff
+          assert ts.min()<pd.Timestamp('2026-01-01',tz='UTC')
+          print('FROZEN_OOS_INPUT_OK',len(h['candidates']),len(oos),ts.min().isoformat(),ts.max().isoformat(),'cutoff=',cutoff.isoformat())
+          PY
+
+      - name: Run independent G13 2026 OOS
+        run: |
+          python -m research.optimization.g13_oos_m15 \
+            --data "$DATA" \
+            --handoff artifacts/g13/frozen/g13-candidate-handoff-m15.json \
+            --output artifacts/g13-oos-m15-2026.json
+
+      - name: Fail closed OOS gate
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('artifacts/g13-oos-m15-2026.json',encoding='utf-8'))
+          assert r['real_data_only'] is True
+          assert r['research_scope']['timeframe']=='M15'
+          assert r['research_scope']['evaluation_year']==2026
+          assert r['candidate_count']==16
+          assert r['selection_performed'] is False
+          assert r['optimization_enabled'] is False
+          assert r['parameters_frozen'] is True
+          assert r['oos']['status']=='EVALUATED'
+          assert r['oos']['optimization_allowed'] is False
+          assert r['oos']['selection_allowed'] is False
+          assert r['promotion_gate']['ea_generation_allowed'] is False
+          print('G13_OOS_FAIL_CLOSED_OK')
+          print('OOS_PASS',r.get('oos_pass_count'))
+          print('OOS_IDS',[x['candidate_id'] for x in r['candidates'] if x.get('oos_pass')])
+          PY
+
+      - name: Upload OOS evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g13-oos-m15-2026-current
+          path: |
+            artifacts/g13/frozen/g13-candidate-handoff-m15.json
+            artifacts/g13-oos-m15-2026.json
+          if-no-files-found: error
+# Refresh marker 2026-10-06: trigger exact-SHA evidence refresh after resolver fix.
+# Exact-SHA refresh 2026-10-06: regenerate official evidence after Promotion candidate-scope hardening.
+# Exact-SHA final refresh 2026-10-06: regenerate all G13 evidence and static validation on the same main commit.
+# Exact-SHA post-MT5-workflow-repair refresh 2026-10-06: rebuild G13 source evidence and static validation on the repaired MT5 workflow.
+# Final source-evidence refresh 2026-10-06: rebuild G13 Validation/Robustness/OOS/Static on the same main SHA after event-driven CI hardening.
+# Final G13 source refresh 2026-10-06: rebuild evidence on current main after CI backlog hardening.
+# Post-parity-fix exact-SHA refresh 2026-10-06: regenerate G13 source evidence and static validation after the MQL5 marker hardening.
+# Final G13 refresh 2026-10-06: rebuild exact-SHA Validation/Robustness/OOS/Static after MT5 Promotion-manifest binding fix.
+# Trigger hardening: run OOS on every main push; downstream gates remain exact-SHA fail-closed.
