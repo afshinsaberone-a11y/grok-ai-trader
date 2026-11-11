@@ -14,8 +14,8 @@ name: ForexAI G13 OOS M15 Current
 # G13 exact-SHA chain refresh: 2026-10-06
 # Trigger: rerun official OOS on repaired trusted-UTC heredoc
 on:
-  workflow_dispatch:
-    inputs:
+  workflow_dispatch: {}
+  inputs:
       expected_main_sha:
         description: "Exact main SHA whose Validation/Robustness passed and whose OOS is being dispatched"
         required: true
