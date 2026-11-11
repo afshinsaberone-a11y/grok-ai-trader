@@ -315,3 +315,31 @@ def test_oos_delayed_start_requires_successful_completed_watchdog_and_persists_p
     assert "uses: actions/cache/save@v4" in workflow
     assert "if: always() && steps.dukascopy_cache_restore.outcome == 'success'" in workflow
     assert "steps.dukascopy_cache_restore.outputs.cache-hit != 'true'" in workflow
+
+
+
+def test_watchdog_uses_newly_registered_oos_workflow_entrypoint():
+    watchdog = WORKFLOW_PATH.read_text(encoding="utf-8")
+    oos = Path(
+        ".github/workflows/forexai-g13-oos-m15-current-v2.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in oos
+    assert "expected_main_sha:" in oos
+    assert "watchdog_run_id:" in oos
+    assert "ForexAI G13 OOS M15 Current V2" in oos
+
+    dispatch = _workflow_step(
+        watchdog,
+        "Dispatch official OOS only after source evidence is ready",
+        "Resolve exact successful OOS",
+    )
+    resolver = _workflow_step(
+        watchdog,
+        "Resolve exact successful OOS",
+        "Dispatch exact Promotion after successful OOS",
+    )
+    assert "forexai-g13-oos-m15-current-v2.yml/dispatches" in dispatch
+    assert "forexai-g13-oos-m15-current-v2.yml/runs" in dispatch
+    assert "forexai-g13-oos-m15-current-v2.yml/runs" in resolver
+    assert 'r.get("name")=="ForexAI G13 OOS M15 Current V2"' in resolver
