@@ -135,6 +135,7 @@ jobs:
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-audit-m15.yml
           ./actionlint .github/workflows/forexai-g13-controlled-demo-execution-collector-m15.yml
           ./actionlint .github/workflows/forexai-g13-promotion-m15.yml
+          ./actionlint .github/workflows/forexai-g13-oos-m15-current-v2.yml
 
       - name: Compile all G13 Python gates
         run: |
@@ -289,7 +290,7 @@ jobs:
           sha_scoped_dispatch_gates = [
               (".github/workflows/forexai-g13-validation-m15.yml", "g13-validation-m15"),
               (".github/workflows/forexai-g13-robustness-m15.yml", "g13-robustness-m15"),
-              (".github/workflows/forexai-g13-oos-m15-current.yml", "g13-oos-m15-current"),
+              (".github/workflows/forexai-g13-oos-m15-current-v2.yml", "g13-oos-m15-current"),
               (".github/workflows/forexai-g13-mt5-compile-parity.yml", "g13-mt5-compile-parity"),
               (".github/workflows/forexai-g13-controlled-demo-package-preflight-m15.yml", "g13-controlled-demo-package-preflight"),
           ]
@@ -298,7 +299,7 @@ jobs:
               assert f"group: {group_prefix}-" in workflow_text, (
                   f"G13 concurrency group must be SHA/invocation scoped: {workflow_path}"
               )
-              if workflow_path.endswith("forexai-g13-oos-m15-current.yml"):
+              if workflow_path.endswith("forexai-g13-oos-m15-current-v2.yml"):
                   # OOS must be uniquely keyed by the verified expected main SHA
                   # and the dispatching watchdog run, so a stale watchdog cannot
                   # cancel a newer invocation. Its start guard independently
@@ -348,7 +349,7 @@ jobs:
               "actions: write",
               'dispatch_workflow "forexai-g13-validation-m15.yml"',
               'dispatch_workflow "forexai-g13-robustness-m15.yml"',
-              "forexai-g13-oos-m15-current.yml/dispatches",
+              "forexai-g13-oos-m15-current-v2.yml/dispatches",
               "forexai-g13-promotion-m15.yml/dispatches",
               "forexai-g13-mt5-compile-parity.yml/dispatches",
               "G13_SOURCE_PRODUCERS_DISPATCHED=true",
@@ -417,7 +418,7 @@ jobs:
 
           validation_dispatch = watchdog.index('dispatch_workflow "forexai-g13-validation-m15.yml"')
           robustness_dispatch = watchdog.index('dispatch_workflow "forexai-g13-robustness-m15.yml"')
-          oos_dispatch = watchdog.index("forexai-g13-oos-m15-current.yml/dispatches")
+          oos_dispatch = watchdog.index("forexai-g13-oos-m15-current-v2.yml/dispatches")
           assert validation_dispatch < robustness_dispatch < oos_dispatch, (
               "G13 source evidence must be dispatched before OOS"
           )
