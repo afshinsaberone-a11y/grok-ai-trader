@@ -1,0 +1,59 @@
+{
+  "schema": "forexai.g22.xauusd_m5_source_pilot_v2_status.v1",
+  "snapshot_date": "2026-11-04",
+  "status": "CI_QUEUED_AT_ARCHIVE_ADDENDUM",
+  "pr": 347,
+  "branch": "research/g22-xauusd-m5-intake-pilot-20261104",
+  "head_sha": "2bab51ced36fb2647843f8192ad4702eed0ed5df",
+  "direct_m5_attempt": {
+    "run_id": 41836225185,
+    "conclusion": "failure",
+    "error": "REAL_DATA_REQUIRED: requested range has no paired active XAUUSD bars"
+  },
+  "revised_source_timeframe": "M1",
+  "derived_timeframe": "M5",
+  "revised_method": "strict aggregation of five consecutive, exact UTC minute bars with paired BID/ASK; incomplete buckets dropped whole",
+  "missing_minute_policy": "no fill, interpolation or synthetic bars",
+  "new_tests": 6,
+  "total_intake_tests": 17,
+  "workflow_run": 41879419215,
+  "workflow_url": "https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41879419215",
+  "workflow_state": "source_pilot_queued",
+  "source_m1_rows": null,
+  "derived_m5_rows": null,
+  "data_sha256": null,
+  "manifest_sha256": null,
+  "backtest_run": false,
+  "strategy_research_authorized": false,
+  "demo_authorized": false,
+  "live_authorized": false,
+  "orders_submitted": false,
+  "local_focused_self_test": {
+    "status": "PASS",
+    "executed_locally": true,
+    "checks": [
+      "complete five-minute bucket aggregation",
+      "OHLC and volume aggregation semantics",
+      "incomplete-bucket exclusion without fills",
+      "negative spread rejection"
+    ],
+    "scope": "focused assertions against resample_m1_to_m5; not a full pytest run and not live source-data verification"
+  },
+  "dedicated_unit_tests": {
+    "run_id": 41879419215,
+    "job_id": 126747757256,
+    "conclusion": "success",
+    "tests_passed": 17,
+    "elapsed_seconds": 0.29
+  },
+  "project_python_tests": {
+    "run_id": 41879419430,
+    "job_id": 126747756801,
+    "conclusion": "success",
+    "tests_passed": 550,
+    "warnings": 1,
+    "real_data_smoke": "skipped",
+    "workflow_run_status_at_snapshot": "in_progress"
+  },
+  "source_pilot_job_id": 126747892351
+}

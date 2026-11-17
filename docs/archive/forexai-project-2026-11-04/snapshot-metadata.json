@@ -1,0 +1,13 @@
+{
+  "archive": "forexai-project-2026-11-04",
+  "snapshot_date": "2026-11-04",
+  "repository": "afshinsaberone-a11y/grok-ai-trader",
+  "base_branch": "main",
+  "base_commit": "41883f30d32747d07d7b7772f8ee7c656a95e4a1",
+  "archive_branch": "docs/archive-forexai-project-20261104",
+  "generated_by": "GitHub API snapshot workflow",
+  "contains_private_keys": false,
+  "contains_tokens": false,
+  "raw_g18_csv_copied": false,
+  "raw_g18_csv_note": "Full G18 data remains in Actions artifact 13269094728; hashes and source inventory are preserved in this archive."
+}

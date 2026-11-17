@@ -1,0 +1,61 @@
+{
+  "schema": "forexai.g19.xauusd_intraday_trend_pullback.v1",
+  "status": "NO_GO_FIXED_INTRADAY_SCREEN",
+  "data_sha256": "85d505a69a062552847f4aa39c31161c6c1206610dc83c3815cce0d77796cbcb",
+  "manifest_sha256": "1df7d7cf3d04fce8702859eda98de08b5ba103d8d4ef8e35d174a6121fb776aa",
+  "rows": 23650,
+  "source": "Dukascopy real paired XAUUSD H1 BID/ASK",
+  "years": [
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "synthetic_data": false,
+  "filled_bars": 0,
+  "2025_loaded": false,
+  "strategy": "EMA20 pullback recross; EMA50/EMA200 regime; RSI14 52/48; stop 1.5 ATR; target 2R; max 8 H1 bars",
+  "scenarios": [
+    {
+      "slippage_per_side_usd_per_oz": 0.05,
+      "is": {
+        "trades": 592,
+        "pf": 0.890316,
+        "expectancy_r": -0.05259354
+      },
+      "validation_2024": {
+        "trades": 193,
+        "pf": 1.008618,
+        "expectancy_r": 0.00394452
+      }
+    },
+    {
+      "slippage_per_side_usd_per_oz": 0.1,
+      "is": {
+        "trades": 592,
+        "pf": 0.857645,
+        "expectancy_r": -0.06931614
+      },
+      "validation_2024": {
+        "trades": 194,
+        "pf": 0.97569,
+        "expectancy_r": -0.01132305
+      }
+    },
+    {
+      "slippage_per_side_usd_per_oz": 0.2,
+      "is": {
+        "trades": 592,
+        "pf": 0.80651,
+        "expectancy_r": -0.09706718
+      },
+      "validation_2024": {
+        "trades": 194,
+        "pf": 0.939838,
+        "expectancy_r": -0.02863559
+      }
+    }
+  ],
+  "all_trades_same_server_date": true,
+  "all_trades_flat_before_rollover": true
+}

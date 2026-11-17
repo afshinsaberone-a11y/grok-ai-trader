@@ -1,0 +1,195 @@
+name: ForexAI G22 XAUUSD M5 Real Data Intake Pilot
+
+on:
+  pull_request:
+    paths:
+      - "research/real_data/dukascopy_xauusd_ingest.py"
+      - "tests/test_dukascopy_xauusd_ingest.py"
+      - "docs/research/g22-xauusd-m5-intake-pilot-20261104.md"
+      - ".github/workflows/forexai-g22-xauusd-m5-intake-pilot.yml"
+
+concurrency:
+  group: forexai-g22-xauusd-m5-pilot-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip numpy pandas pytest
+      - name: Compile intake and tests
+        run: |
+          python -m py_compile \
+            research/real_data/dukascopy_xauusd_ingest.py \
+            tests/test_dukascopy_xauusd_ingest.py
+      - name: Run all XAUUSD BI5 ingestion and strict resampling tests
+        run: python -m pytest -q tests/test_dukascopy_xauusd_ingest.py
+
+  source-pilot:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install intake dependencies
+        run: python -m pip install --upgrade pip numpy pandas
+      - name: Download real XAUUSD M1 BID/ASK daily source files
+        run: |
+          python -m research.real_data.dukascopy_xauusd_ingest \
+            --start 2024-01-08 \
+            --end 2024-02-01 \
+            --timeframe M1 \
+            --timeout 60 \
+            --retries 8 \
+            --throttle-retries 12 \
+            --output data/real/xauusd-m1-pilot
+      - name: Build M5 only from five complete consecutive real M1 bars and verify source hashes
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import pandas as pd
+
+          from research.real_data.dukascopy_xauusd_ingest import (
+              _gap_audit,
+              resample_m1_to_m5,
+          )
+
+          m1_path = Path("data/real/xauusd-m1-pilot/normalized/XAUUSD_M1_BIDASK_20240108_20240201.csv")
+          m1_manifest_path = m1_path.with_suffix(".manifest.json")
+          assert m1_path.is_file() and m1_path.stat().st_size > 0
+          assert m1_manifest_path.is_file()
+
+          m1_manifest = json.loads(m1_manifest_path.read_text(encoding="utf-8"))
+          m1_data_hash = hashlib.sha256(m1_path.read_bytes()).hexdigest()
+          m1_manifest_hash = hashlib.sha256(m1_manifest_path.read_bytes()).hexdigest()
+          assert m1_manifest["schema"] == "forexai.real_data.xauusd_bidask_m1.v1"
+          assert m1_manifest["timeframe"] == "M1"
+          assert m1_manifest["data_sha256"] == m1_data_hash
+          assert m1_manifest["synthetic_data"] is False
+          assert m1_manifest["backtest_run"] is False
+          assert m1_manifest["rows"] >= 5000
+
+          m1 = pd.read_csv(m1_path)
+          m1_ts = pd.to_datetime(m1["timestamp"], utc=True, errors="raise")
+          assert len(m1) == m1_manifest["rows"]
+          assert m1_ts.is_monotonic_increasing and not m1_ts.duplicated().any()
+          assert (m1_ts.dt.second == 0).all()
+          assert (m1["ask_open"] >= m1["bid_open"]).all()
+          assert (m1["ask_close"] >= m1["bid_close"]).all()
+          assert (m1["spread_open"] >= 0).all()
+          assert (m1["spread_close"] >= 0).all()
+
+          m5, aggregation_audit = resample_m1_to_m5(m1)
+          assert len(m5) >= 1000
+          m5_ts = pd.to_datetime(m5["timestamp"], utc=True, errors="raise")
+          assert m5_ts.is_monotonic_increasing and not m5_ts.duplicated().any()
+          assert (m5_ts.dt.minute % 5 == 0).all()
+          assert (m5_ts.dt.second == 0).all()
+          assert (m5["ask_open"] >= m5["bid_open"]).all()
+          assert (m5["ask_close"] >= m5["bid_close"]).all()
+          assert (m5["spread_open"] >= 0).all()
+          assert (m5["spread_close"] >= 0).all()
+          assert (m5["ask_open"] - m5["bid_open"] - m5["spread_open"]).abs().max() < 1e-8
+          assert (m5["ask_close"] - m5["bid_close"] - m5["spread_close"]).abs().max() < 1e-8
+          assert aggregation_audit["filled_bars"] == 0
+          assert aggregation_audit["synthetic_data"] is False
+          assert aggregation_audit["complete_five_minute_buckets"] == len(m5)
+
+          m5_path = Path("data/real/xauusd-m5-pilot/normalized/XAUUSD_M5_BIDASK_20240108_20240201.csv")
+          m5_path.parent.mkdir(parents=True, exist_ok=True)
+          m5.to_csv(m5_path, index=False, float_format="%.5f", date_format="%Y-%m-%dT%H:%M:%SZ")
+          m5_data_hash = hashlib.sha256(m5_path.read_bytes()).hexdigest()
+          gap_audit = _gap_audit(m5, "M5")
+          paired_days = sum(1 for p in m1_manifest["period_audit"] if p.get("status") == "PAIRED")
+          assert paired_days >= 10
+          assert len(m1_manifest["source_files"]) >= 20
+
+          m5_manifest = {
+              "schema": "forexai.real_data.xauusd_bidask_m5.v1",
+              "status": "RESAMPLED_REAL_M1_M5_COVERAGE_REVIEW_REQUIRED",
+              "symbol": "XAUUSD",
+              "timeframe": "M5",
+              "source": "Dukascopy historical BID/ASK M1 BI5 bars",
+              "source_timeframe": "M1",
+              "aggregation": "five consecutive UTC minute bars; first open, max high, min low, last close; volume summed",
+              "incomplete_bucket_policy": "exclude entire bucket; never fill or interpolate missing minutes",
+              "requested_start_utc": m1_manifest["requested_start_utc"],
+              "requested_end_exclusive_utc": m1_manifest["requested_end_exclusive_utc"],
+              "first_utc": m5_ts.min().isoformat(),
+              "last_utc": m5_ts.max().isoformat(),
+              "m1_rows": len(m1),
+              "m5_rows": len(m5),
+              "paired_source_days": paired_days,
+              "source_file_count": len(m1_manifest["source_files"]),
+              "source_m1_data_sha256": m1_data_hash,
+              "source_m1_manifest_sha256": m1_manifest_hash,
+              "data_sha256": m5_data_hash,
+              "aggregation_audit": aggregation_audit,
+              "gap_audit": gap_audit,
+              "synthetic_data": False,
+              "filled_bars": 0,
+              "backtest_run": False,
+              "strategy_research_authorized": False
+          }
+          m5_manifest_path = m5_path.with_suffix(".manifest.json")
+          m5_manifest_path.write_text(json.dumps(m5_manifest, indent=2, sort_keys=True), encoding="utf-8")
+          m5_manifest_hash = hashlib.sha256(m5_manifest_path.read_bytes()).hexdigest()
+
+          report = {
+              "schema": "forexai.g22.xauusd_m5_source_pilot.v2",
+              "status": "REAL_M1_SOURCE_AND_STRICT_M5_RESAMPLE_PASS",
+              "symbol": "XAUUSD",
+              "timeframe": "M5",
+              "source_timeframe": "M1",
+              "rows_m1": len(m1),
+              "rows_m5": len(m5),
+              "paired_source_days": paired_days,
+              "source_file_count": len(m1_manifest["source_files"]),
+              "incomplete_five_minute_buckets_excluded": aggregation_audit["incomplete_five_minute_buckets"],
+              "m1_rows_excluded_with_incomplete_buckets": aggregation_audit["m1_rows_excluded_with_incomplete_buckets"],
+              "gap_count_gt_5m": gap_audit["gap_count"],
+              "same_utc_date_gap_count": gap_audit["same_utc_date_gap_count"],
+              "first_utc": m5_ts.min().isoformat(),
+              "last_utc": m5_ts.max().isoformat(),
+              "source_m1_data_sha256": m1_data_hash,
+              "source_m1_manifest_sha256": m1_manifest_hash,
+              "m5_data_sha256": m5_data_hash,
+              "m5_manifest_sha256": m5_manifest_hash,
+              "synthetic_data": False,
+              "filled_bars": 0,
+              "backtest_run": False,
+              "strategy_research_authorized": False
+          }
+          Path("artifacts").mkdir(exist_ok=True)
+          Path("artifacts/g22-xauusd-m5-source-pilot.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+          )
+          print(json.dumps(report, indent=2))
+          PY
+      - name: Upload original M1 source, strict M5 output and audit reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-g22-xauusd-m5-source-pilot-2024-01
+          path: |
+            data/real/xauusd-m1-pilot/normalized/XAUUSD_M1_BIDASK_20240108_20240201.csv
+            data/real/xauusd-m1-pilot/normalized/XAUUSD_M1_BIDASK_20240108_20240201.manifest.json
+            data/real/xauusd-m5-pilot/normalized/XAUUSD_M5_BIDASK_20240108_20240201.csv
+            data/real/xauusd-m5-pilot/normalized/XAUUSD_M5_BIDASK_20240108_20240201.manifest.json
+            artifacts/g22-xauusd-m5-source-pilot.json
+          if-no-files-found: error
+          compression-level: 1

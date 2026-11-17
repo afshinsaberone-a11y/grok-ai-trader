@@ -1,0 +1,150 @@
+name: ForexAI G19 XAUUSD H1 Intraday Strategy Screen
+
+on:
+  pull_request:
+    paths:
+      - "research/optimization/xauusd_intraday_g19.py"
+      - "tests/test_xauusd_intraday_g19.py"
+      - "docs/research/g19-xauusd-intraday-trend-pullback-preregistration-20261104.md"
+      - ".github/workflows/forexai-g19-xauusd-intraday-discovery.yml"
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip numpy pandas pytest
+      - name: Compile G19 strategy screen and tests
+        run: |
+          python -m py_compile \
+            research/optimization/xauusd_intraday_g19.py \
+            tests/test_xauusd_intraday_g19.py
+      - name: Run G19 intraday execution-policy tests
+        run: python -m pytest -q tests/test_xauusd_intraday_g19.py
+
+  research-screen:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install research dependencies
+        run: python -m pip install --upgrade pip numpy pandas
+      - name: Download frozen G18 real-data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: forexai-g18-xauusd-h1-real-data-2021-2024
+          repository: ${{ github.repository }}
+          run-id: 41708364300
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: g18-artifact
+      - name: Resolve exact frozen data and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="$(find g18-artifact -type f -name 'XAUUSD_H1_BIDASK_20210101_20250101.csv' -print -quit)"
+          MANIFEST="$(find g18-artifact -type f -name 'XAUUSD_H1_BIDASK_20210101_20250101.manifest.json' -print -quit)"
+          test -s "$DATA"
+          test -s "$MANIFEST"
+          echo "G19_DATA=$DATA" >> "$GITHUB_ENV"
+          echo "G19_MANIFEST=$MANIFEST" >> "$GITHUB_ENV"
+      - name: Run fixed G19 intraday strategy screen
+        run: |
+          python -m research.optimization.xauusd_intraday_g19 \
+            --data "$G19_DATA" \
+            --manifest "$G19_MANIFEST" \
+            --output artifacts/g19-xauusd-intraday-report.json
+      - name: Fail closed on data scope and intraday-only invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path('artifacts/g19-xauusd-intraday-report.json').read_text(encoding='utf-8'))
+          assert p['schema'] == 'forexai.g19.xauusd_intraday_trend_pullback.v1'
+          assert p['data']['data_sha256'] == '85d505a69a062552847f4aa39c31161c6c1206610dc83c3815cce0d77796cbcb'
+          assert p['data']['manifest_sha256'] == '1df7d7cf3d04fce8702859eda98de08b5ba103d8d4ef8e35d174a6121fb776aa'
+          assert p['data']['rows'] == 23650
+          assert p['data']['synthetic_data'] is False
+          assert p['data']['filled_bars'] == 0
+          assert p['data']['2025_loaded'] is False
+          assert p['gate']['criteria_pre_registered_before_run'] is True
+          assert p['gate']['2024_used_for_parameter_selection'] is False
+          for s in p['scenarios']:
+              assert s['discovery_2021_2023']['all_trades_same_server_date'] is True
+              assert s['validation_2024']['all_trades_same_server_date'] is True
+              assert s['discovery_2021_2023']['all_trades_flat_before_rollover'] is True
+              assert s['validation_2024']['all_trades_flat_before_rollover'] is True
+              assert all(t['intraday_no_rollover_rule_satisfied'] for t in s['trades'])
+          # NO_GO is a valid research decision; it must not fail the CI evidence job.
+          assert p['status'] in {'NO_GO_FIXED_INTRADAY_SCREEN', 'RESEARCH_SCREEN_PASS'}
+          print(json.dumps({
+              'status': p['status'],
+              'slippage_scenarios': [
+                  {
+                      'slippage_per_side': s['slippage_usd_per_oz_per_side'],
+                      'discovery': s['discovery_2021_2023'],
+                      'validation_2024': s['validation_2024'],
+                  } for s in p['scenarios']
+              ],
+              'gate': p['gate'],
+          }, indent=2))
+          PY
+      - name: Upload G19 research report
+        uses: actions/upload-artifact@v4
+        with:
+          name: forexai-g19-xauusd-intraday-report
+          path: artifacts/g19-xauusd-intraday-report.json
+          if-no-files-found: error
+          compression-level: 6
+      - name: Publish G19 screen result to PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('artifacts/g19-xauusd-intraday-report.json', 'utf8'));
+            const rows = p.scenarios.map(s => {
+              const d = s.discovery_2021_2023;
+              const v = s.validation_2024;
+              return `| $${s.slippage_usd_per_oz_per_side.toFixed(2)} | ${d.trades} | ${d.profit_factor} | ${d.expectancy_net_r} | ${v.trades} | ${v.profit_factor} | ${v.expectancy_net_r} |`;
+            });
+            const body = [
+              '<!-- forexai-g19-xauusd-intraday -->',
+              '## G19 XAUUSD H1 intraday trend-pullback screen',
+              '',
+              `**Decision:** ${p.status}`,
+              '',
+              'Frozen data: 23,650 real Dukascopy BID/ASK H1 bars, 2021–2024 only. Broker sample commission+fee: USD 0.08/oz round-turn. Financing set to zero only under enforced same-server-day flat exits; no data-gap carry.',
+              '',
+              '| Slippage / side | IS trades (2021–23) | IS PF | IS expectancy R | 2024 trades | 2024 PF | 2024 expectancy R |',
+              '|---:|---:|---:|---:|---:|---:|---:|',
+              ...rows,
+              '',
+              'Slippage inputs are stress assumptions, not broker-observed. Historical BID/ASK is Dukascopy, not a WM Markets historical quote archive.',
+              '',
+              'No-go means the strategy is not promoted. No parameters are tuned against this same discovery sample; 2024 was not used for selection. No Demo/Live authorization or orders.'
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const existing = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+            const prior = existing.data.find(c => c.body && c.body.includes('<!-- forexai-g19-xauusd-intraday -->'));
+            if (prior) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: prior.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

@@ -1,0 +1,40 @@
+{
+  "schema": "forexai.g18.xauusd_h1_coverage_audit.v1",
+  "status": "REAL_DATA_COVERAGE_AUDIT_PASS",
+  "symbol": "XAUUSD",
+  "timeframe": "H1",
+  "data_sha256": "85d505a69a062552847f4aa39c31161c6c1206610dc83c3815cce0d77796cbcb",
+  "manifest_sha256": "1df7d7cf3d04fce8702859eda98de08b5ba103d8d4ef8e35d174a6121fb776aa",
+  "rows": 23650,
+  "source": "Dukascopy real paired XAUUSD H1 BID/ASK",
+  "years": [
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "synthetic_data": false,
+  "filled_bars": 0,
+  "2025_loaded": false,
+  "year_rows": {
+    "2021": 5907,
+    "2022": 5915,
+    "2023": 5890,
+    "2024": 5938
+  },
+  "source_inventory_sha256": "87c577df6e5fa511c6cd433c27a9756c99cb5dc7b4e9df8f9254ff5abe2b2984",
+  "gaps_gt_1h": 1031,
+  "same_utc_date_gaps": 822,
+  "long_closures_gt_12h": 209,
+  "max_gap_minutes": 4440,
+  "spread_open_usd_per_oz": {
+    "median": 0.357,
+    "p95": 0.592,
+    "max": 3.885
+  },
+  "spread_close_usd_per_oz": {
+    "median": 0.357,
+    "p95": 0.534,
+    "max": 4.404
+  }
+}

@@ -1,0 +1,99 @@
+from datetime import date
+
+import pandas as pd
+import pytest
+
+from research.real_data.histdata_ingest import (
+    _dedupe_exact_source_timestamps,
+    _hidden_form,
+    _parse_csv,
+    _years_for_range,
+    HistDataIngestError,
+)
+
+
+def test_histdata_hidden_form_parses_token_fields():
+    html = '''
+    <form method="POST" action="/get.php">
+      <input type="hidden" name="tk" value="abc123" />
+      <input type="hidden" name="date" value="2022" />
+      <input type="hidden" name="datemonth" value="2022" />
+      <input type="hidden" name="platform" value="ASCII" />
+      <input type="hidden" name="timeframe" value="M1" />
+      <input type="hidden" name="fxpair" value="EURUSD" />
+    </form>
+    '''
+    fields = _hidden_form(html)
+    assert fields["tk"] == "abc123"
+    assert fields["datemonth"] == "2022"
+    assert fields["platform"] == "ASCII"
+    assert fields["timeframe"] == "M1"
+    assert fields["fxpair"] == "EURUSD"
+
+
+def test_histdata_parse_csv_converts_fixed_est_to_utc():
+    payload = (
+        b"20220103 070000;1.13000;1.13100;1.12900;1.13050;0\n"
+        b"20220103 070100;1.13050;1.13200;1.13000;1.13150;0\n"
+    )
+    df = _parse_csv(payload)
+    assert len(df) == 2
+    assert df.loc[0, "timestamp"] == pd.Timestamp("2022-01-03T12:00:00Z")
+    assert df.loc[1, "close"] == 1.1315
+    assert pd.isna(df.loc[0, "spread"])
+
+
+def test_histdata_year_range_excludes_exclusive_end_year():
+    assert _years_for_range(date(2022, 1, 1), date(2026, 1, 1)) == [2022, 2023, 2024, 2025]
+
+
+def test_histdata_year_range_includes_partial_end_year():
+    assert _years_for_range(date(2022, 1, 1), date(2026, 2, 1)) == [2022, 2023, 2024, 2025, 2026]
+
+
+def _source_frame(rows):
+    return pd.DataFrame(
+        rows,
+        columns=["timestamp", "open", "high", "low", "close", "volume", "spread"],
+    )
+
+
+def test_exact_duplicate_source_timestamp_is_removed():
+    frame = _source_frame([
+        (pd.Timestamp("2022-01-01T00:00:00Z"), 1.1, 1.2, 1.0, 1.15, 10.0, float("nan")),
+        (pd.Timestamp("2022-01-01T00:00:00Z"), 1.1, 1.2, 1.0, 1.15, 10.0, float("nan")),
+    ])
+    deduped, removed = _dedupe_exact_source_timestamps(frame)
+    assert len(deduped) == 1
+    assert removed == 1
+
+
+def test_conflicting_duplicate_source_timestamp_fails():
+    frame = _source_frame([
+        (pd.Timestamp("2022-01-01T00:00:00Z"), 1.1, 1.2, 1.0, 1.15, 10.0, float("nan")),
+        (pd.Timestamp("2022-01-01T00:00:00Z"), 1.1, 1.21, 1.0, 1.15, 11.0, float("nan")),
+    ])
+    with pytest.raises(HistDataIngestError, match="conflicting duplicate timestamps"):
+        _dedupe_exact_source_timestamps(frame)
+
+
+def test_histdata_parse_csv_keeps_fixed_est_during_summer():
+    payload = b"20220701 070000;1.13000;1.13100;1.12900;1.13050;0\n"
+    df = _parse_csv(payload)
+    # HistData's bar timestamps remain EST (UTC-5) even in months when New York observes DST.
+    assert df.loc[0, "timestamp"] == pd.Timestamp("2022-07-01T12:00:00Z")
+
+
+def test_histdata_parse_csv_is_monotonic_across_us_dst_start():
+    payload = (
+        b"20220313 015900;1.13000;1.13100;1.12900;1.13050;0\n"
+        b"20220313 020000;1.13050;1.13200;1.13000;1.13150;0\n"
+        b"20220313 030000;1.13150;1.13250;1.13100;1.13200;0\n"
+    )
+    df = _parse_csv(payload)
+    assert list(df["timestamp"]) == [
+        pd.Timestamp("2022-03-13T06:59:00Z"),
+        pd.Timestamp("2022-03-13T07:00:00Z"),
+        pd.Timestamp("2022-03-13T08:00:00Z"),
+    ]
+    assert df["timestamp"].is_monotonic_increasing

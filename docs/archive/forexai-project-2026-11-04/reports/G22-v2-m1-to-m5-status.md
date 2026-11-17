@@ -1,0 +1,56 @@
+# G22 v2 — تغییر مسیر از فایل مستقیم M5 به M1 واقعی و تجمیع سخت‌گیرانه
+
+**PR:** [#347](https://github.com/afshinsaberone-a11y/grok-ai-trader/pull/347)  
+**Current head at addendum:** \`2bab51ced36fb2647843f8192ad4702eed0ed5df\`  
+**Dedicated workflow:** [#41879419215](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41879419215)  
+**State at archive addendum:** Queued.
+
+## علت تغییر روش
+
+اولین پایلوت مستقیم M5 (#41836225185) با خطای نبودن paired active bars شکست خورد. آن اجرا نه پشتیبانی endpoint مستقیم M5 را ثابت کرد و نه علت ریشه‌ای را مشخص کرد.
+
+برای جلوگیری از حدس دربارهٔ مسیر BI5، نسخهٔ جدید از دریافت روزانهٔ M1 استفاده می‌کند که قبلاً در importer پشتیبانی شده است. سپس M5 از پنج کندل کامل و متوالی M1 ساخته می‌شود.
+
+## منطق تجمیع
+
+- پنج timestamp باید دقیقاً bucket شروع + 0، 1، 2، 3 و 4 دقیقه باشند.
+- BID و ASK جداگانه تجمیع می‌شوند.
+- Open اولین کندل، High بیشینه، Low کمینه، Close آخرین کندل و Volume مجموع پنج کندل است.
+- Spread از ASK منهای BID در open/close محاسبه می‌شود.
+- bucket ناقص به‌طور کامل حذف می‌شود؛ هیچ forward-fill یا interpolation انجام نمی‌شود.
+- Manifest شامل SHA فایل M1، SHA manifest M1، SHA خروجی M5، شمارش bucket کامل/ناقص و تعداد M1 حذف‌شده است.
+
+## تست‌های اضافه
+
+شش تست جدید:
+1. کنترل OHLC و volume پس از تجمیع.
+2. حذف bucket ناقص بدون پرکردن دقیقهٔ گمشده.
+3. رد timestamp تکراری یا نامرتب.
+4. رد timestamp غیرهم‌تراز با دقیقه.
+5. رد spread منفی پس از تجمیع.
+6. رد ورودی‌ای که هیچ bucket پنج‌دقیقه‌ای کامل ندارد.
+
+در مجموع 17 آزمون در فایل intake تعریف شده‌اند؛ اجرای CI هنوز در زمان این addendum queued بود و نتیجهٔ موفق ادعا نمی‌شود.
+
+## Gate
+
+پایلوت واقعی M1 برای بازهٔ 2024-01-08 تا 2024-02-01 اجرا می‌شود. حداقل 5,000 M1 rows، 10 روز paired، 1,000 M5 rows کامل، hashهای معتبر و عدم وجود دادهٔ مصنوعی/پرشده لازم است.
+
+هیچ backtest، سیگنال معاملاتی، سفارش MT5 یا تغییر مجوز Demo/Live در این مرحله انجام نمی‌شود.
+
+## آزمون موضعی تابع تجمیع
+
+پیش از اجرای CI، تابع \`resample_m1_to_m5\` با ورودی مصنوعی صرفاً برای آزمون نرم‌افزار (نه market data) به‌صورت محلی بررسی شد:
+- تجمیع دو bucket کامل به دو M5 با OHLC و volume مورد انتظار: PASS.
+- حذف bucket دارای دقیقهٔ گمشده بدون پرکردن آن: PASS.
+- رد spread منفی بعد از aggregation: PASS.
+
+این یک self-test متمرکز روی منطق تابع است، نه اجرای کامل pytest و نه تأیید منبع واقعی M1. Workflow واقعی #41879419215 در زمان این ثبت همچنان queued بود.
+
+
+## وضعیت CI جدید G22 v2
+
+- Workflow اختصاصی: [#41879419215](https://github.com/afshinsaberone-a11y/grok-ai-trader/actions/runs/41879419215).
+- job \`unit-tests\`: SUCCESS؛ دقیقاً **17 passed in 0.29s**.
+- job \`source-pilot\`: در زمان این ثبت هنوز queued بود؛ بنابراین دادهٔ واقعی M1 دریافت و M5 خروجی هنوز تأیید نشده‌اند.
+- suite عمومی پروژه روی همان commit: run #41879419430، job \`python-tests\` موفق با **550 passed, 1 warning**؛ job \`real-data-smoke\` در آن workflow SKIPPED بود.

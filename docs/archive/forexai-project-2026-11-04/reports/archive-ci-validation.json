@@ -1,0 +1,37 @@
+{
+  "schema": "forexai.archive_ci_validation.v1",
+  "archive_pr": 348,
+  "archive_branch": "docs/archive-forexai-project-20261104",
+  "head_sha": "e3624b8c3d8f9a2f0ef24863e8f59d3910d52371",
+  "changed_files": 74,
+  "pytest_discovery_fix": "Archived test snapshots renamed to .py.snapshot; contents retained; auto-collection avoided",
+  "prior_test_run": {
+    "run_id": 41841749334,
+    "conclusion": "failure",
+    "reason": "pytest collected archived test_*.py files, causing import errors and duplicate module names"
+  },
+  "final_test_run": {
+    "run_id": 41842439859,
+    "conclusion": "success",
+    "python_tests": "success",
+    "control_plane_inventory_powershell_parse": "success",
+    "real_data_smoke": "skipped"
+  },
+  "agent_runtime_run": {
+    "run_id": 41842439343,
+    "conclusion": "success"
+  },
+  "g18_h1_coverage_rerun": {
+    "run_id": 41836224950,
+    "status": "in_progress"
+  },
+  "g22_m5_source_pilot": {
+    "run_id": 41836225185,
+    "conclusion": "failure",
+    "error": "REAL_DATA_REQUIRED: requested range has no paired active XAUUSD bars"
+  },
+  "pr_state": "open",
+  "draft": true,
+  "merged": false,
+  "main_modified": false
+}
